@@ -6,7 +6,7 @@ import pytest
 
 from datamax_dpl.domain.decoder import explain, readable
 from datamax_dpl.domain.enums import Rotation, Unit
-from datamax_dpl.domain.label import Barcode, Box, Circle, Label, Line, Point, Polygon, Text
+from datamax_dpl.domain.label import Barcode, Box, Circle, Counter, Label, Line, Point, Polygon, Text
 from datamax_dpl.domain.render import render
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.symbology import Symbology
@@ -52,6 +52,50 @@ def test_rendered_label_survives_a_round_trip() -> None:
     assert rebuilt is not None
     assert rebuilt.quantity == 3
     assert [e.model_dump() for e in rebuilt.elements] == [e.model_dump() for e in original.elements]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "counter",
+    [Counter(step=1), Counter(step=5, decrement=True, alphanumeric=True, fill=" "), Counter(step=12, decrement=True)],
+)
+def test_a_counting_field_keeps_its_counter_through_a_round_trip(counter: Counter) -> None:
+    original = Label(
+        unit=Unit.INCH,
+        quantity=3,
+        elements=[
+            Text(x=0.25, y=1.0, text="0001", counter=counter),
+            Barcode(x=0.5, y=0.2, symbology=Symbology.CODE128, data="A001", height=0.5, counter=counter),
+        ],
+    )
+    result = explain(render(original, RenderOptions(model="dmx-600")).data)
+    assert result.label is not None
+    assert [e.model_dump() for e in result.label.elements] == [e.model_dump() for e in original.elements]
+    assert result.problems == ()
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "stream",
+    [
+        b"\x02L\r+001\rE\r",
+        render(
+            Label(elements=[Box(x=1.0, y=1.0, width=10.0, height=5.0, thickness=0.5)]), RenderOptions(model="dmx-600")
+        ).data.replace(b"E\r", b"+001\rE\r"),
+    ],
+    ids=["no-field-before-it", "after-a-box"],
+)
+def test_a_counter_line_with_no_counting_field_before_it_is_a_problem(stream: bytes) -> None:
+    result = explain(stream)
+    assert any(problem.startswith("+001: ") and "no text or barcode" in problem for problem in result.problems)
+
+
+@pytest.mark.os_agnostic
+def test_a_stream_with_two_formats_says_why_no_label_is_rebuilt() -> None:
+    one = render(Label(elements=[Text(x=1.0, y=1.0, text="A")]), RenderOptions(model="dmx-600")).data
+    result = explain(one + one)
+    assert result.label is None
+    assert "2 label formats: only a stream with exactly one is rebuilt as a label" in result.problems
 
 
 @pytest.mark.os_agnostic

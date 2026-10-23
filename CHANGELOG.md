@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `explain` keeps a field's counter (`+001`, `-005`, `> 02`, `<012`) on the
+  rebuilt label, and reports a counter line that has no text or barcode field
+  right before it.
+- `explain` on a file holding more than one label format reports why it
+  rebuilds no label, and exits 1, instead of returning `label: null` with no
+  problem.
+
 ## [0.1.0] - 2026-10-23
 
 First release. Built from the 1998 DPL programmer's manual and tested against

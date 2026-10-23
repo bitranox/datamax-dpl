@@ -13,7 +13,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from .enums import FillPattern, Rotation, SpeedCode, Unit
-from .label import Barcode, Box, Circle, Element, Image, Label, Line, Point, Polygon, ScalableText, Text
+from .label import Barcode, Box, Circle, Counter, Element, Image, Label, Line, Point, Polygon, ScalableText, Text
 from .profiles import OLD_SERIES_POINTS
 from .records import multiplier_value
 from .symbology import SYMBOLOGY_BY_IDENTIFIER
@@ -24,6 +24,8 @@ _SOH, _STX, _CR = 0x01, 0x02, 0x0D
 _PRINTABLE = range(32, 127)
 #: A record header is 15 characters: a b c d eee ffff gggg.
 _HEADER_LENGTH = 15
+#: Counter line sign -> (decrement, alphanumeric); the encoder's ``counter_lines`` writes the same.
+_COUNTER_SIGNS = {"+": (False, False), "-": (True, False), ">": (False, True), "<": (True, True)}
 _SCALABLE_SIZE_PREFIXES = "SsUu"
 _FONT_9 = 9
 _PRESENT_DISTANCE_DIGITS = 4
@@ -124,6 +126,9 @@ class _State:
     problems: list[str] = field(default_factory=list[str])
     formats: int = 0
     metric: bool = False
+    #: Index in ``elements`` of the field the latest record produced, or None when that record
+    #: produced none; a counter line counts exactly that field.
+    latest_field: int | None = None
 
 
 def _add(state: _State, kind: Kind, raw: bytes, meaning: str) -> None:
@@ -193,8 +198,8 @@ def _format_line(text: bytes, state: _State) -> None:
     first = chr(text[0]) if text else ""
     if first in "1234" and len(text) >= _HEADER_LENGTH:
         _add(state, "record", text, _record(text, state))
-    elif first in "+-<>":
-        _add(state, "counter", text, "count the previous field")
+    elif first in _COUNTER_SIGNS:
+        _add(state, "counter", text, _counter(text, state))
     else:
         _add(state, "format", text, _FORMAT_NAMES.get(first, "unknown format command"))
         _setting(first, text.decode("latin-1"), state)
@@ -218,6 +223,7 @@ def _scale(value: int, state: _State) -> float:
 
 
 def _record(text: bytes, state: _State) -> str:
+    state.latest_field = None
     try:
         element, meaning = _parse_record(text.decode("latin-1"), state)
     except (ValueError, KeyError, ValidationError) as exc:
@@ -225,7 +231,27 @@ def _record(text: bytes, state: _State) -> str:
         return "record (not understood)"
     if element is not None:
         state.elements.append(element)
+        state.latest_field = len(state.elements) - 1
     return meaning
+
+
+def _counter(text: bytes, state: _State) -> str:
+    """Attach the counter line ``text`` (sign, fill, two-digit step) to the field before it."""
+    index = state.latest_field
+    target = state.elements[index] if index is not None else None
+    if index is None or not isinstance(target, Text | Barcode):
+        state.problems.append(f"{readable(text)}: no text or barcode field right before it to count")
+        return "counter (nothing to count)"
+    decoded = text.decode("latin-1")
+    decrement, alphanumeric = _COUNTER_SIGNS[decoded[0]]
+    try:
+        counter = Counter(step=int(decoded[2:4]), decrement=decrement, alphanumeric=alphanumeric, fill=decoded[1:2])
+    except (ValueError, ValidationError) as exc:
+        state.problems.append(f"{readable(text)}: {exc.__class__.__name__}")
+        return "counter (not understood)"
+    state.elements[index] = target.model_copy(update={"counter": counter})
+    letters = " (letters too)" if alphanumeric else ""
+    return f"count the previous field {'down' if decrement else 'up'} by {counter.step}{letters}"
 
 
 def _parse_record(text: str, state: _State) -> tuple[Element | None, str]:
@@ -338,6 +364,9 @@ def _graphic(text: str, state: _State) -> tuple[Element, str]:
 
 
 def _rebuild(state: _State) -> Label | None:
+    if state.formats > 1:
+        state.problems.append(f"{state.formats} label formats: only a stream with exactly one is rebuilt as a label")
+        return None
     if state.formats != 1 or not state.elements:
         return None
     try:
