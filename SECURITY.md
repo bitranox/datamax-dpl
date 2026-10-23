@@ -8,30 +8,37 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in this project, please report it
-responsibly:
+Please do not open a public issue for a security problem. Use
+[GitHub's private vulnerability reporting](https://github.com/bitranox/datamax-dpl/security/advisories/new)
+or email the maintainer, with a description, the steps to reproduce it, and any logs that help.
+You can expect a first answer within 72 hours.
 
-1. **Do not** open a public GitHub issue for security vulnerabilities.
-2. Email the maintainer directly or use
-   [GitHub's private vulnerability reporting](https://github.com/bitranox/datamax_dpl/security/advisories/new).
-3. Include a description of the vulnerability, steps to reproduce, and any
-   relevant logs or screenshots.
+## What datamax-dpl trusts and what it does not
 
-You can expect an initial response within 72 hours.
+- Label files and data records are untrusted input. They are read up to 16 MiB, parsed into
+  strict models that refuse unknown keys, and every length and count is checked before a byte is
+  written. Data records only fill `{name}` placeholders in element text; they cannot change
+  coordinates or job settings.
+- A printer URI decides where bytes go: a TCP host, a serial port, a device file, a file, or
+  stdout. Whoever controls the configuration or the `--printer` flag controls that target.
+- The `command` camera runs the configured program as an argument list, without a shell. The
+  configuration that names the program is trusted like any other program you run.
+- The camera password is redacted in `config` output, and log events pass through the
+  lib_log_rich scrubber.
 
 ## Security Tooling
 
-This project employs the following security measures in CI:
+`make test` runs these on every change, locally and in CI:
 
-- **Bandit** -- static analysis for common Python security issues
-- **CodeQL** -- GitHub code scanning (weekly schedule)
-- **pip-audit** -- dependency vulnerability scanning against the OSV database
-- **Snyk** -- continuous dependency monitoring
-- **Ruff security rules** -- S (flake8-bandit) and B (flake8-bugbear) rulesets
+- Bandit, static analysis for common Python security issues
+- pip-audit, dependency vulnerability scanning
+- Ruff with the `S` (flake8-bandit) and `B` (bugbear) rule sets
+
+GitHub CodeQL scans the repository every week and on pushes.
 
 ## Dependency Policy
 
-- Production dependencies use minimum version constraints (`>=`) and are audited
-  on every CI run via `pip-audit`.
-- Known CVEs in transitive dependencies are pinned in `pyproject.toml` with
-  inline comments referencing the CVE identifier.
+- Runtime dependencies use minimum versions (`>=`) and are audited on every run.
+- A known CVE in a transitive dependency is answered by raising its floor in `pyproject.toml`,
+  with a comment naming the CVE.
+- The committed `uv.lock` pins the tree CI tests, with a cooldown for new releases.
