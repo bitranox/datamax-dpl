@@ -12,12 +12,14 @@ from typing import TYPE_CHECKING
 import pytest
 
 from datamax_dpl.adapters.transport import open_printer
-from datamax_dpl.adapters.transport.tcp import MAX_ANSWER_BYTES, TcpTransport
+from datamax_dpl.adapters.transport.tcp import MAX_ANSWER_BYTES, SEND_CHUNK_BYTES, TcpTransport
 from datamax_dpl.adapters.transport.uri import TcpUri
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+
+    from _typeshed import ReadableBuffer
 
 JOIN_SECONDS = 5.0
 
@@ -212,6 +214,42 @@ def test_a_send_the_printer_does_not_take_times_out(serve: Callable[..., Printer
             assert time.monotonic() - started < 1.5
     finally:
         stop.set()
+
+
+class _RecordingSocket(socket.socket):
+    """A real socket that remembers the size of every ``sendall`` call."""
+
+    def __init__(self, *, fileno: int) -> None:
+        super().__init__(fileno=fileno)
+        self.sizes: list[int] = []
+
+    def sendall(self, data: ReadableBuffer, flags: int = 0, /) -> None:
+        self.sizes.append(memoryview(data).nbytes)
+        super().sendall(data, flags)
+
+
+@pytest.mark.os_agnostic
+def test_a_job_is_written_in_pieces_no_larger_than_the_send_chunk() -> None:
+    # Windows accepts one send call of any size whole, so only pieces this small let a stalled
+    # printer show up as a timeout there; the stalled-printer test above proves it on Windows.
+    ours, theirs = socket.socketpair()
+    received = bytearray()
+
+    def drain() -> None:
+        with theirs:
+            while chunk := theirs.recv(65536):
+                received.extend(chunk)
+
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+    job = b"x" * (3 * SEND_CHUNK_BYTES + 5)
+    recording = _RecordingSocket(fileno=ours.detach())
+    with TcpTransport(recording, uri=TcpUri(host="127.0.0.1"), timeout=2.0) as printer:
+        printer.send(job)
+    reader.join(JOIN_SECONDS)
+
+    assert max(recording.sizes) <= SEND_CHUNK_BYTES
+    assert bytes(received) == job
 
 
 @pytest.mark.os_agnostic

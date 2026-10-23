@@ -11,6 +11,11 @@ from .uri import ClosingTransport, TcpUri, check_timeout, transport_error
 
 #: Longest answer read before the printer is judged to be sending something other than an answer.
 MAX_ANSWER_BYTES = 64 * 1024
+#: Largest piece handed to one send call. Windows takes a single send of any size whole while its
+#: buffer is not full (a 64 MB job "sent" to a printer reading nothing, in 0.02 s), so a job sent
+#: in one call never times out there; pieces no larger than its default 64 KiB send buffer block
+#: once the printer stops reading, on every OS.
+SEND_CHUNK_BYTES = 64 * 1024
 _RECV_CHUNK = 4096
 
 
@@ -63,8 +68,12 @@ class TcpTransport(ClosingTransport):
             TransportError: The connection failed or is closed.
         """
         self._ensure_open()
+        view = memoryview(data)
         try:
-            self._sock.sendall(data)
+            # The socket timeout bounds each piece, so it measures how long the printer stopped
+            # taking data, not how long the whole job takes.
+            for offset in range(0, len(view), SEND_CHUNK_BYTES):
+                self._sock.sendall(view[offset : offset + SEND_CHUNK_BYTES])
         except OSError as exc:
             raise transport_error(self._uri, action="write to", error=exc) from exc
 
