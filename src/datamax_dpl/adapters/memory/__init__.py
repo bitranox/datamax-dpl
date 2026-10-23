@@ -7,12 +7,14 @@ runtime with no system sinks (the commands bind against a live runtime).
 Contents:
     * :mod:`.config` - In-memory configuration adapters
     * :mod:`.logging` - In-memory logging adapter
+    * :mod:`.camera` - Camera double writing a fixed image
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .camera import FakeCamera
 from .config import (
     deploy_configuration_in_memory,
     display_config_in_memory,
@@ -36,6 +38,7 @@ if TYPE_CHECKING:
     _assert_check_logging_config: CheckLoggingConfig = check_logging_config_in_memory
 
 __all__ = [
+    "FakeCamera",
     "check_logging_config_in_memory",
     "deploy_configuration_in_memory",
     "display_config_in_memory",
