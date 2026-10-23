@@ -1,0 +1,50 @@
+{
+  "unit": "mm",
+  "width": 60,
+  "height": 40,
+  "quantity": 10,
+  "cut": {
+    "every": 5
+  },
+  "elements": [
+    {
+      "type": "text",
+      "x": 3,
+      "y": 32,
+      "text": "ART. 4711",
+      "font": 3
+    },
+    {
+      "type": "text",
+      "x": 3,
+      "y": 26,
+      "text": "Serial",
+      "font": 1
+    },
+    {
+      "type": "text",
+      "x": 20,
+      "y": 26,
+      "text": "000001",
+      "font": 2,
+      "counter": {
+        "step": 1
+      }
+    },
+    {
+      "type": "barcode",
+      "x": 3,
+      "y": 4,
+      "symbology": "ean13",
+      "data": "400638133393",
+      "height": 15
+    },
+    {
+      "type": "circle",
+      "x": 52,
+      "y": 32,
+      "radius": 5,
+      "fill": 1
+    }
+  ]
+}

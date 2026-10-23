@@ -22,6 +22,7 @@ spelling.
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 import os
 import stat
@@ -58,6 +59,31 @@ RUNS_WITHOUT_CONFIG: dict[str, list[str]] = {
 }
 #: Covered by its own test below: it writes into a directory.
 OTHER = ("config-generate-examples",)
+#: Label and printer commands: a configuration that did not load is reported like every other
+#: failure of theirs, exit 2 and an error envelope in --json mode.
+NEEDS_CONFIG_ENVELOPE: dict[str, list[str]] = {
+    name: [name, *extra]
+    for name, extra in {
+        "render": ["label.json"],
+        "validate": ["label.json"],
+        "print": ["label.json"],
+        "verify": ["label.json"],
+        "preview": ["label.json", "-o", "out.png"],
+        "status": [],
+        "detect": [],
+        "cut": [],
+        "feed": [],
+        "reset": [],
+        "cancel": [],
+        "pause": [],
+        "capture": [],
+    }.items()
+}
+CONFIG_FREE_LABEL_COMMANDS: dict[str, list[str]] = {
+    "schema": ["schema"],
+    "models": ["models"],
+    "capabilities": ["capabilities", "dmx-600"],
+}
 
 
 def _failing_config(error: Exception) -> Callable[[], AppServices]:
@@ -69,7 +95,31 @@ def _failing_config(error: Exception) -> Callable[[], AppServices]:
 
 @pytest.mark.os_agnostic
 def test_every_command_is_classified() -> None:
-    assert set(NEEDS_CONFIG) | set(RUNS_WITHOUT_CONFIG) | set(OTHER) == set(cli_mod.cli.commands)
+    classified = {*NEEDS_CONFIG, *RUNS_WITHOUT_CONFIG, *OTHER, *NEEDS_CONFIG_ENVELOPE, *CONFIG_FREE_LABEL_COMMANDS}
+    assert classified | {"explain"} == set(cli_mod.cli.commands)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("args", NEEDS_CONFIG_ENVELOPE.values(), ids=NEEDS_CONFIG_ENVELOPE.keys())
+def test_a_label_or_printer_command_reports_a_broken_config_as_an_error_envelope(
+    cli_runner: CliRunner, args: list[str]
+) -> None:
+    result = cli_runner.invoke(cli_mod.cli, ["--json", *args], obj=_failing_config(ConfigError(BROKEN_TOML)))
+
+    assert result.exit_code == 2, result.output
+    envelope = json.loads(result.stdout)
+    assert envelope["ok"] is False
+    assert envelope["error"] == "ConfigurationError"
+    assert BROKEN_TOML in envelope["message"]
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("args", CONFIG_FREE_LABEL_COMMANDS.values(), ids=CONFIG_FREE_LABEL_COMMANDS.keys())
+def test_a_label_command_without_config_needs_still_runs(cli_runner: CliRunner, args: list[str]) -> None:
+    result = cli_runner.invoke(cli_mod.cli, args, obj=_failing_config(ConfigError(BROKEN_TOML)))
+
+    assert result.exit_code == 0, result.output
 
 
 @pytest.mark.os_agnostic

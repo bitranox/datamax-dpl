@@ -68,7 +68,7 @@ class TcpTransport(ClosingTransport):
         except OSError as exc:
             raise transport_error(self._uri, action="write to", error=exc) from exc
 
-    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r") -> bytes:
+    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r", lines: int = 1) -> bytes:
         """Send ``request`` and return the answer up to and including ``terminator``.
 
         Bytes already waiting before the request belong to an earlier exchange (an answer that
@@ -81,13 +81,13 @@ class TcpTransport(ClosingTransport):
             TransportError: The connection failed or the printer closed it.
         """
         deadline = time.monotonic() + check_timeout(timeout)
-        if not terminator:
-            raise ValueError("terminator must not be empty")
+        if not terminator or lines < 1:
+            raise ValueError("terminator must not be empty and lines at least 1")
         self._ensure_open()
         self._discard_waiting()
         self.send(request)
         try:
-            return self._read_until(terminator, deadline=deadline)
+            return self._read_until(terminator, deadline=deadline, lines=lines)
         finally:
             self._sock.settimeout(self._timeout)
 
@@ -114,11 +114,11 @@ class TcpTransport(ClosingTransport):
         finally:
             self._sock.settimeout(self._timeout)
 
-    def _read_until(self, terminator: bytes, *, deadline: float) -> bytes:
-        """Collect bytes until ``terminator``, the deadline or the size bound."""
+    def _read_until(self, terminator: bytes, *, deadline: float, lines: int = 1) -> bytes:
+        """Collect bytes until the ``lines``-th ``terminator``, the deadline or the size bound."""
         answer = bytearray()
         while True:
-            end = answer.find(terminator)
+            end = _nth(answer, terminator, lines)
             if 0 <= end <= MAX_ANSWER_BYTES - len(terminator):
                 return bytes(answer[: end + len(terminator)])
             if end >= 0 or len(answer) >= MAX_ANSWER_BYTES:
@@ -143,6 +143,16 @@ class TcpTransport(ClosingTransport):
         if not chunk:
             raise TransportError(f"tcp {self._uri.target}: the printer closed the connection ({received} bytes read)")
         return chunk
+
+
+def _nth(data: bytearray, needle: bytes, count: int) -> int:
+    """Index of the ``count``-th occurrence of ``needle`` in ``data``, or -1."""
+    index = -len(needle)
+    for _ in range(count):
+        index = data.find(needle, index + len(needle))
+        if index < 0:
+            return -1
+    return index
 
 
 __all__ = ["MAX_ANSWER_BYTES", "TcpTransport"]

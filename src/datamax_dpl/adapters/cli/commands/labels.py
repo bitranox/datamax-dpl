@@ -22,7 +22,7 @@ from ..label_io import STDIN, load_label, load_records, read_input
 from ..payloads import RenderPayload, findings_text, render_payload
 from ..runner import CommandResult, run_command
 from ..settings import render_options
-from ..typed_click import argument, get_current_context, option
+from ..typed_click import argument, option
 from .model_options import render_options_decorator, resolve_settings
 
 if TYPE_CHECKING:
@@ -37,8 +37,7 @@ def build(
     label_source: str, data: str | None, settings_given: dict[str, Any], cli_ctx: CLIContext
 ) -> RenderResult | BatchResult:
     """Load the label (and records) and render it with the merged printer settings."""
-    ctx = get_current_context()
-    settings = resolve_settings(ctx, cli_ctx, **settings_given)
+    settings = resolve_settings(cli_ctx, **settings_given)
     label = load_label(label_source)
     options = render_options(settings)
     if data is None:

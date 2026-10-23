@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from datamax_dpl.domain.enums import FillPattern, Rotation, Unit
+from datamax_dpl.domain.enums import FillPattern, MediaSensor, Rotation, Unit
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.label import Barcode, Box, Circle, DotSize, Element, Label, Line, Point, Polygon, Text
 from datamax_dpl.domain.render import build_job, render
@@ -147,7 +147,7 @@ def test_a_label_that_cuts_is_refused_when_the_printer_has_no_cutter() -> None:
 
 @pytest.mark.os_agnostic
 def test_present_distance_and_media_become_system_commands_in_inch_mode() -> None:
-    label = Label(present_distance=25.4, media="gap", elements=[Text(x=1, y=1, text="X")])
+    label = Label(present_distance=25.4, media=MediaSensor.GAP, elements=[Text(x=1, y=1, text="X")])
     data = render(label, RenderOptions(model="pe42")).data
     assert data.startswith(STX + b"n" + STX + b"c0000" + STX + b"e" + STX + b"Kf0100" + STX + b"L\r")
 

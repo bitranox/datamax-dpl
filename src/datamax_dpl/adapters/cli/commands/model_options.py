@@ -8,11 +8,13 @@ from typing import TYPE_CHECKING, Any
 import rich_click as click
 
 from ....domain.enums import FallbackPolicy
-from ..config_load import require_config
+from ....domain.errors import ConfigurationError
 from ..settings import PrinterOverrides, PrinterSettings, printer_settings
 from ..typed_click import option
 
 if TYPE_CHECKING:
+    from lib_layered_config import Config
+
     from ..context import CLIContext
 
 _Decorator = Callable[[Callable[..., Any]], Callable[..., Any]]
@@ -54,12 +56,25 @@ render_options_decorator = _stack(_RENDER_OPTIONS)
 printer_options_decorator = _stack(_PRINTER_OPTIONS)
 
 
-def resolve_settings(ctx: click.Context, cli_ctx: CLIContext, **given: Any) -> PrinterSettings:
+def loaded_config(cli_ctx: CLIContext) -> Config:
+    """Return the configuration the root loaded.
+
+    Raises:
+        ConfigurationError: It could not be loaded; the runner reports it with exit 2, in the
+            output shape the caller asked for.
+    """
+    if cli_ctx.config_error is not None:
+        msg = f"configuration could not be loaded: {cli_ctx.config_error}"
+        raise ConfigurationError(msg) from cli_ctx.config_error
+    return cli_ctx.config
+
+
+def resolve_settings(cli_ctx: CLIContext, **given: Any) -> PrinterSettings:
     """Merge the ``[printer]`` configuration with the options this command was given."""
-    config = require_config(ctx, cli_ctx)
+    config = loaded_config(cli_ctx)
     known = {key: given.get(key) for key in ("model", "firmware", "uri", "policy", "timeout", "cutter")}
     overrides = PrinterOverrides(**known, options=tuple(given.get("options") or ()))
     return printer_settings(config, overrides)
 
 
-__all__ = ["printer_options_decorator", "render_options_decorator", "resolve_settings"]
+__all__ = ["loaded_config", "printer_options_decorator", "render_options_decorator", "resolve_settings"]

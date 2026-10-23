@@ -64,7 +64,7 @@ class RecordingPrinter:
         self._ensure_open()
         self.sent.append(bytes(data))
 
-    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r") -> bytes:
+    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r", lines: int = 1) -> bytes:
         """Record ``request`` and return its answer from the table.
 
         Raises:

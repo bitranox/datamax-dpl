@@ -1,0 +1,16 @@
+[
+  {
+    "name": "Anna Example",
+    "street": "Sample Street 1",
+    "zip": "1010",
+    "city": "Vienna",
+    "tracking": "AT0001234567"
+  },
+  {
+    "name": "Ben Example",
+    "street": "Test Lane 22",
+    "zip": "8010",
+    "city": "Graz",
+    "tracking": "AT0001234568"
+  }
+]

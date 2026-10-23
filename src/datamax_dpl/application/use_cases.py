@@ -20,8 +20,8 @@ from ..domain.status import (
     CANCEL,
     CUT_NOW,
     FORM_FEED,
-    RESET,
     MEMORY_REQUEST,
+    RESET,
     SERIAL_TEST_REQUEST,
     STATUS_REQUEST,
     TOGGLE_PAUSE,
@@ -151,6 +151,10 @@ def query_status(*, uri: str, timeout: float, open_printer: OpenPrinter) -> Prin
         return parse_ascii_status(printer.query(STATUS_REQUEST, timeout=timeout))
 
 
+#: Lines in the ``<STX>KQ`` memory report (docs/dpl-reference.md section 8).
+MEMORY_REPORT_LINES = 8
+
+
 class DetectReport(BaseModel):
     """Evidence collected from the printer and the profiles that fit it."""
 
@@ -160,9 +164,9 @@ class DetectReport(BaseModel):
     detection: Detection
 
 
-def _ask(printer: PrinterTransport, request: bytes, *, timeout: float) -> bytes | None:
+def _ask(printer: PrinterTransport, request: bytes, *, timeout: float, lines: int = 1) -> bytes | None:
     try:
-        return printer.query(request, timeout=timeout)
+        return printer.query(request, timeout=timeout, lines=lines)
     except (PrinterTimeoutError, PrinterProtocolError):
         return None
 
@@ -177,7 +181,7 @@ def detect_printer(*, uri: str, timeout: float, open_printer: OpenPrinter) -> De
     with closing(open_printer(uri, timeout=timeout)) as printer:
         serial = _ask(printer, SERIAL_TEST_REQUEST, timeout=timeout)
         version = _ask(printer, VERSION_REQUEST, timeout=timeout)
-        memory = _ask(printer, MEMORY_REQUEST, timeout=timeout)
+        memory = _ask(printer, MEMORY_REQUEST, timeout=timeout, lines=MEMORY_REPORT_LINES)
     evidence = Evidence(
         serial_test=None if serial is None else serial.strip().startswith(b"Y"),
         version=None if version is None else parse_version(version),

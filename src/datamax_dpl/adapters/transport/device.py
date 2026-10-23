@@ -49,7 +49,7 @@ class DescriptorTransport(ClosingTransport):
         except OSError as exc:
             raise transport_error(self._uri, action="write to", error=exc) from exc
 
-    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r") -> bytes:
+    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r", lines: int = 1) -> bytes:
         """Refuse: the channel cannot read the printer's answer.
 
         Raises:

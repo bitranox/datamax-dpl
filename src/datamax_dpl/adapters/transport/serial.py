@@ -8,6 +8,7 @@ needs, so the rest of the code never depends on pyserial's wider surface. Ports 
 
 from __future__ import annotations
 
+import time
 from typing import Protocol
 
 import serial
@@ -114,7 +115,7 @@ class SerialTransport(ClosingTransport):
         except OSError as exc:
             raise TransportError(f"cannot write to serial {self._uri.path}: {exc}") from exc
 
-    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r") -> bytes:
+    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r", lines: int = 1) -> bytes:
         """Send ``request`` and return the answer up to and including ``terminator``.
 
         Bytes received before the request belong to an earlier exchange and are dropped first.
@@ -125,14 +126,14 @@ class SerialTransport(ClosingTransport):
             TransportError: The port failed or is closed.
         """
         check_timeout(timeout)
-        if not terminator:
-            raise ValueError("terminator must not be empty")
+        if not terminator or lines < 1:
+            raise ValueError("terminator must not be empty and lines at least 1")
         try:
             self._port.reset_input_buffer()
         except OSError as exc:
             raise TransportError(f"cannot read from serial {self._uri.path}: {exc}") from exc
         self.send(request)
-        answer = self._read(terminator, timeout=timeout)
+        answer = self._read_lines(terminator, timeout=timeout, lines=lines)
         if answer.endswith(terminator):
             return answer
         if len(answer) >= MAX_ANSWER_BYTES:
@@ -142,6 +143,20 @@ class SerialTransport(ClosingTransport):
     def close(self) -> None:
         """Close the port; safe to call twice."""
         self._port.close()
+
+    def _read_lines(self, terminator: bytes, *, timeout: float, lines: int) -> bytes:
+        """Read ``lines`` terminated chunks within one overall ``timeout``."""
+        deadline = time.monotonic() + timeout
+        answer = b""
+        for _ in range(lines):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            chunk = self._read(terminator, timeout=remaining)
+            answer += chunk
+            if not chunk.endswith(terminator) or len(answer) >= MAX_ANSWER_BYTES:
+                break
+        return answer
 
     def _read(self, terminator: bytes, *, timeout: float) -> bytes:
         """Read until ``terminator``, the size bound or ``timeout``, whichever comes first."""

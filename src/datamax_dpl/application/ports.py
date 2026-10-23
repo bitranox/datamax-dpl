@@ -101,8 +101,11 @@ class PrinterTransport(Protocol):
         """Write ``data`` completely, or raise ``TransportError``."""
         ...
 
-    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r") -> bytes:
-        """Send ``request`` and return the answer including ``terminator``, or raise ``TransportError``."""
+    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r", lines: int = 1) -> bytes:
+        """Send ``request`` and return the answer through the ``lines``-th ``terminator``.
+
+        Most answers are one line; the ``<STX>KQ`` memory report has eight.
+        """
         ...
 
     def close(self) -> None:

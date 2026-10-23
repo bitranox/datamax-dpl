@@ -62,7 +62,7 @@ class StdoutTransport(ClosingTransport):
         """
         _write(self._stream, data, uri=self._uri)
 
-    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r") -> bytes:
+    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r", lines: int = 1) -> bytes:
         """Refuse: standard output cannot answer.
 
         Raises:

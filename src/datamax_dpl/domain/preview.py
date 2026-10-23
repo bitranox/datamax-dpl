@@ -91,6 +91,24 @@ def _rotated_box(x: int, y: int, width: int, height: int, rotation: Rotation) ->
     return x, y - height + 1, width, height
 
 
+def _barcode_size(element: Barcode, canvas: Canvas) -> tuple[int, int]:
+    module = element.narrow_dots or _DEFAULT_MODULE_DOTS
+    width = len(element.data) * _MODULES_PER_CHAR * module
+    height = canvas.dots(element.height) if element.height else round(_DEFAULT_BARCODE_HEIGHT_IN * canvas.dpi)
+    return width, height
+
+
+def text_box(element: Text | ScalableText | Barcode, canvas: Canvas) -> tuple[int, int, int, int]:
+    """Return (left, top, width, height) in pixels of a text field's whole line or a barcode's area."""
+    x, y = canvas.point(element.x, element.y)
+    if isinstance(element, Barcode):
+        width, height = _barcode_size(element, canvas)
+        return _rotated_box(x, y, width, height, element.rotation)
+    text = _as_text(element) if isinstance(element, ScalableText) else element
+    height, cell, gap = _text_size(text, canvas.dpi)
+    return _rotated_box(x, y, len(text.text) * (cell + gap), height, text.rotation)
+
+
 def _draw_text(element: Text, bitmap: Bitmap, canvas: Canvas) -> None:
     height, cell, gap = _text_size(element, canvas.dpi)
     x, y = canvas.point(element.x, element.y)
@@ -103,11 +121,7 @@ def _draw_text(element: Text, bitmap: Bitmap, canvas: Canvas) -> None:
 
 
 def _draw_barcode(element: Barcode, bitmap: Bitmap, canvas: Canvas) -> None:
-    module = element.narrow_dots or _DEFAULT_MODULE_DOTS
-    width = len(element.data) * _MODULES_PER_CHAR * module
-    height = canvas.dots(element.height) if element.height else round(_DEFAULT_BARCODE_HEIGHT_IN * canvas.dpi)
-    x, y = canvas.point(element.x, element.y)
-    left, top, w, h = _rotated_box(x, y, width, height, element.rotation)
+    left, top, w, h = text_box(element, canvas)
     bitmap.fill_rect(left, top, w, h, pattern=FillPattern.RIGHT_DIAGONAL)
     bitmap.draw_polygon([(left, top), (left + w - 1, top), (left + w - 1, top + h - 1), (left, top + h - 1)])
 
@@ -231,4 +245,4 @@ def preview_bitmap(label: Label, profile: PrinterProfile) -> Bitmap:
     return bitmap
 
 
-__all__ = ["Canvas", "canvas_for", "draw_element", "preview_bitmap"]
+__all__ = ["Canvas", "canvas_for", "draw_element", "preview_bitmap", "text_box"]
