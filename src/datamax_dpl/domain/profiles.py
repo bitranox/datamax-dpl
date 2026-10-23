@@ -297,12 +297,8 @@ _ROWS: tuple[_Row, ...] = (
     ),
     _Row("dmx-400", "DMX 400", "dmx-400", 203, 410, 4.10, 199, 5000, 20, ("C-G G", "C-I K", "C-I E"), ()),
     _Row("dmx-430", "DMX 430", "dmx-430", 289.56, 398, 3.98, 399, 10000, 20, ("C-K G", "C-K K", "C-I E"), _A_FULL),
-    _Row(
-        "dmx-600", "DMX 600", "dmx-600", 300, 640, 6.40, 399, 10000, 20, ("C-O K", "C-S O", "C-I E"), A_SERIES_POINTS
-    ),
-    _Row(
-        "dmx-800", "DMX 800", "dmx-800", 300, 860, 8.53, 399, 10000, 20, ("C-I G", "C-K K", "C-I E"), A_SERIES_POINTS
-    ),
+    _Row("dmx-600", "DMX 600", "dmx-600", 300, 640, 6.40, 399, 10000, 20, ("C-O K", "C-S O", "C-I E"), A_SERIES_POINTS),
+    _Row("dmx-800", "DMX 800", "dmx-800", 300, 860, 8.53, 399, 10000, 20, ("C-I G", "C-K K", "C-I E"), A_SERIES_POINTS),
     _Row(
         "prodigy-max-203",
         "Prodigy Max 203",
@@ -334,9 +330,7 @@ _ROWS: tuple[_Row, ...] = (
     _Row("ovation", "Ovation!", "ovation", 203, 410, 4.10, 319, 7000, 30, ("A-C C", "A-C C", "A-C C"), _A_FULL),
     _Row("ovation-300", "Ovation! 300", "ovation", 300, 410, 4.16, 319, 7000, 30, ("A-C C", "A-C C", "A-C C"), _A_FULL),
     _Row("ovation-2", "Ovation 2", "ovation", 203, 425, 4.256, 319, 7000, 30, ("A-C C", "A-C C", "A-C C"), _A_FULL),
-    _Row(
-        "titan-6200", "Titan 6200", "titan", 203, 661, 6.62, 399, 10000, 30, ("C-K G", "C-K K", "C-G C"), _A_FULL
-    ),
+    _Row("titan-6200", "Titan 6200", "titan", 203, 661, 6.62, 399, 10000, 30, ("C-K G", "C-K K", "C-G C"), _A_FULL),
 )
 
 
