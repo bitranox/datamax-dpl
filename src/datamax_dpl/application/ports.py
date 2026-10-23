@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
     from lib_layered_config import Config
 
+    from ..domain.camera import CameraSettings, CapturedImage
     from ..domain.enums import DeployTarget, OutputFormat
 
 
@@ -83,11 +84,70 @@ class CheckLoggingConfig(Protocol):
     def __call__(self, config: Config) -> None: ...
 
 
+
+class PrinterTransport(Protocol):
+    """An open byte channel to one printer (raw socket, serial port, device file, file, stdout).
+
+    ``query`` sends a request and reads the answer up to ``terminator``; a one-way channel (a
+    file, stdout, most device files) raises :class:`~datamax_dpl.domain.errors.TransportError`
+    there, and :attr:`bidirectional` says so in advance.
+    """
+
+    @property
+    def bidirectional(self) -> bool:
+        """True when the channel can read the printer's answers."""
+        ...
+
+    def send(self, data: bytes) -> None:
+        """Write ``data`` completely, or raise ``TransportError``."""
+        ...
+
+    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r") -> bytes:
+        """Send ``request`` and return the answer including ``terminator``, or raise ``TransportError``."""
+        ...
+
+    def close(self) -> None:
+        """Release the channel; safe to call twice."""
+        ...
+
+
+class OpenPrinter(Protocol):
+    """Open a :class:`PrinterTransport` for a printer URI (``tcp://host:9100``, ``serial:///dev/ttyS0``...)."""
+
+    def __call__(self, uri: str, *, timeout: float) -> PrinterTransport: ...
+
+
+class CaptureImage(Protocol):
+    """Take one photo with the configured camera and store it in ``output_dir``.
+
+    Raises ``CameraError`` when no image could be taken.
+    """
+
+    def __call__(self, settings: CameraSettings, *, output_dir: Path) -> CapturedImage: ...
+
+
+class Sleep(Protocol):
+    """Pause for ``seconds``; injected so polling loops run instantly under test."""
+
+    def __call__(self, seconds: float) -> None: ...
+
+
+class Clock(Protocol):
+    """Monotonic seconds, for deadlines."""
+
+    def __call__(self) -> float: ...
+
+
 __all__ = [
+    "CaptureImage",
     "CheckLoggingConfig",
+    "Clock",
     "DeployConfiguration",
     "DisplayConfig",
     "GetConfig",
     "GetDefaultConfigPath",
     "InitLogging",
+    "OpenPrinter",
+    "PrinterTransport",
+    "Sleep",
 ]
