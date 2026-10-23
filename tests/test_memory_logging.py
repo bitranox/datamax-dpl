@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("command", ["info", "hello", "config"])
+@pytest.mark.parametrize("command", ["info", "config"])
 def test_a_command_that_binds_runs_under_build_testing(cli_runner: CliRunner, command: str) -> None:
     """Each of these calls ``lib_log_rich.runtime.bind(...)``, which raises unless a runtime is live."""
     result = cli_runner.invoke(cli_mod.cli, [command], obj=build_testing)
@@ -106,7 +106,6 @@ _SERVICE_FIXTURES: dict[str, Callable[[Any], AppServices]] = {
     "inject_config_with_profile_capture": lambda make: make(Config({}, {}), [])(),
     "inject_deploy_with_profile_capture": lambda make: make(Path("config.toml"), [])(),
     "inject_deploy_configuration": lambda make: make(_deploy_nothing)(),
-    "email_cli_context": lambda make: make({}).factory(),
     "config_cli_context": lambda make: make({})(),
 }
 

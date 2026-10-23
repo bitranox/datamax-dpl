@@ -10,23 +10,19 @@ Contents:
 from __future__ import annotations
 
 from .ports import (
+    CheckLoggingConfig,
     DeployConfiguration,
     DisplayConfig,
     GetConfig,
     GetDefaultConfigPath,
     InitLogging,
-    LoadEmailConfigFromDict,
-    SendEmail,
-    SendNotification,
 )
 
 __all__ = [
+    "CheckLoggingConfig",
     "DeployConfiguration",
     "DisplayConfig",
     "GetConfig",
     "GetDefaultConfigPath",
     "InitLogging",
-    "LoadEmailConfigFromDict",
-    "SendEmail",
-    "SendNotification",
 ]

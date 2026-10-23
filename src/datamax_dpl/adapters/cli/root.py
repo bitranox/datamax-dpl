@@ -83,12 +83,11 @@ def cli(
 
     Example:
         >>> from click.testing import CliRunner
+        >>> from datamax_dpl.composition import build_testing
         >>> runner = CliRunner()
-        >>> result = runner.invoke(cli, ["hello"])
+        >>> result = runner.invoke(cli, ["info"], obj=build_testing)
         >>> result.exit_code
         0
-        >>> "Hello World" in result.output
-        True
     """
     # ctx.obj is always the services factory (production or test). click types it as Any, which
     # callable() would narrow to a callable returning object; declared first, it keeps its type.
@@ -123,24 +122,14 @@ def _register_commands() -> None:
         cli_config,
         cli_config_deploy,
         cli_config_generate_examples,
-        cli_fail,
-        cli_hello,
         cli_info,
-        cli_logdemo,
-        cli_send_email,
-        cli_send_notification,
     )
 
     for cmd in (
         cli_info,
-        cli_hello,
-        cli_fail,
         cli_config,
         cli_config_deploy,
         cli_config_generate_examples,
-        cli_logdemo,
-        cli_send_email,
-        cli_send_notification,
     ):
         cli.add_command(cmd)
 

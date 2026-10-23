@@ -10,9 +10,8 @@ moves or removes a module, a CLI option or a public name.
 ## Related Files
 
 ### Domain Layer
-- `src/datamax_dpl/domain/behaviors.py`  -  Pure domain functions (greeting)
 - `src/datamax_dpl/domain/enums.py`  -  Type-safe enums (OutputFormat, DeployTarget)
-- `src/datamax_dpl/domain/errors.py`  -  Domain exceptions (ConfigurationError, DeliveryError, InvalidRecipientError)
+- `src/datamax_dpl/domain/errors.py`  -  Domain exceptions (ConfigurationError)
 
 ### Application Layer
 - `src/datamax_dpl/application/ports.py`  -  Callable Protocol definitions for adapter functions
@@ -22,10 +21,6 @@ moves or removes a module, a CLI option or a public name.
 - `src/datamax_dpl/adapters/config/deploy.py`  -  Configuration deployment
 - `src/datamax_dpl/adapters/config/display.py`  -  Configuration display (TOML/JSON output, redaction)
 - `src/datamax_dpl/adapters/config/overrides.py`  -  CLI `--set` override parsing and deep-merge
-- `src/datamax_dpl/adapters/email/config.py`  -  EmailConfig (a btx_lib_mail ConfMail), the `[email]` key mapping and `load_email_config_from_dict`
-- `src/datamax_dpl/adapters/email/transport.py`  -  `send_email` / `send_notification` over btx_lib_mail
-- `src/datamax_dpl/adapters/email/sender.py`  -  Re-exports of `config.py` and `transport.py`
-- `src/datamax_dpl/adapters/email/validation.py`  -  Email recipient validation
 - `src/datamax_dpl/adapters/logging/setup.py`  -  lib_log_rich initialization; takes only the `LOG_*` lines of a `.env`, and raises `InvalidLoggingConfigError` for a refused `[lib_log_rich]` value or `LOG_*` variable, after starting logging with its defaults (and without the `LOG_*` variables only when one of them is refused); `check_logging_config` refuses another configuration's logging settings through lib_log_rich's `validate_config`, without touching the running runtime
 - `src/datamax_dpl/adapters/cli/`  -  CLI adapter package:
   - `__init__.py`  -  Public facade
@@ -37,19 +32,12 @@ moves or removes a module, a CLI option or a public name.
   - `root.py`  -  Root command group
   - `main.py`  -  Entry point
   - `typed_click.py`  -  Strictly typed wrappers for rich_click's `option`, `version_option` and `get_current_context`
-  - `commands/info.py`  -  info, hello, fail commands
+  - `commands/info.py`  -  info command
   - `commands/config.py`  -  config, config-deploy, config-generate-examples commands
-  - `commands/email/`  -  Email commands package:
-    - `_common.py`  -  Shared SMTP override options and their typed `EmailConfigOverrides`, config
-      loading and error-to-exit-code mapping
-    - `send_email.py`  -  send-email command
-    - `send_notification.py`  -  send-notification command
-  - `commands/logging.py`  -  logdemo command
 
 ### Adapters Layer (In-Memory / Testing)
 - `src/datamax_dpl/adapters/memory/__init__.py`  -  Public facade + Protocol conformance assertions
 - `src/datamax_dpl/adapters/memory/config.py`  -  In-memory config adapters
-- `src/datamax_dpl/adapters/memory/email.py`  -  In-memory email adapters
 - `src/datamax_dpl/adapters/memory/logging.py`  -  In-memory logging (a quiet lib_log_rich runtime for tests)
 
 ### Composition Layer
@@ -64,48 +52,40 @@ moves or removes a module, a CLI option or a public name.
 ### Configuration Defaults
 - `src/datamax_dpl/adapters/config/defaultconfig.toml`  -  Base defaults
 - `src/datamax_dpl/adapters/config/defaultconfig.d/40-layered-config.toml`  -  lib_layered_config integration docs
-- `src/datamax_dpl/adapters/config/defaultconfig.d/50-mail.toml`  -  Email defaults
+- `src/datamax_dpl/adapters/config/defaultconfig.d/50-device.toml`  -  Device defaults (`[device]`: host, login, password, timeout, raw_port_base)
 - `src/datamax_dpl/adapters/config/defaultconfig.d/90-logging.toml`  -  Logging defaults
 
 ### Tests
 - `tests/conftest.py`  -  Shared fixtures (see Test Fixtures below)
-- `tests/test_behaviors.py`  -  Domain function tests
 - `tests/test_cache_effectiveness.py`  -  Configuration loading returns consistent (cached) results
-- `tests/test_cli_attachment_refused.py`  -  An attachment btx_lib_mail's security checks refuse exits 77 with one `Error:` line, nothing delivered
 - `tests/test_cli_config.py`  -  `config`, `config-deploy`, `config-generate-examples` commands
 - `tests/test_cli_config_errors.py`  -  A configuration that cannot be loaded: who reports it, and who still runs
-- `tests/test_cli_core.py`  -  Traceback, main entry, help, hello, fail, info, unknown command
-- `tests/test_cli_email.py`  -  `send-email`, `send-notification`, SMTP and credential overrides
-- `tests/test_cli_email_config_errors.py`  -  An invalid `[email]` section or option value: one `Error:` line per problem
+- `tests/test_cli_core.py`  -  Traceback, main entry, help, crash handling through `main()`, info, unknown command
 - `tests/test_cli_env_file.py`  -  `--env-file` path passing, validation and value override
 - `tests/test_cli_exit_codes.py`  -  Exit codes through the CLI
 - `tests/test_cli_main_exit.py`  -  Exit codes and stderr through the real `main()` entry point
 - `tests/test_cli_overrides.py`  -  `--set` through the CLI
 - `tests/test_cli_validation.py`  -  Profile name validation
 - `tests/test_config_overrides.py`  -  `--set` parsing tests
+- `tests/test_coverage_database.py`  -  A pytest run leaves every coverage database it did not create alone
 - `tests/test_declared_dependencies.py`  -  Every third-party module imported at run time is a declared dependency
 - `tests/test_deploy_mode_safety.py`  -  `--dir-mode`/`--file-mode` literal, range and safety checks
 - `tests/test_deploy_permissions.py`  -  `config-deploy` permission options
 - `tests/test_display.py`  -  Config display formatting tests
-- `tests/test_email_attachment_lists.py`  -  A list-typed email setting in an unreadable form is refused, never dropped
-- `tests/test_email_config_translation.py`  -  The `[email]` section becomes an EmailConfig: file keys kept, unknown keys refused
-- `tests/test_email_password_secrecy.py`  -  The SMTP password never reaches an error message, the console or the log
-- `tests/test_email_shipped_defaults.py`  -  The shipped `[email]` defaults keep the library's attachment protection on
 - `tests/test_enums.py`  -  Domain enum tests
 - `tests/test_errors.py`  -  Domain error types
 - `tests/test_logging.py`  -  Logging configuration model
 - `tests/test_logging_dotenv_isolation.py`  -  Only `LOG_*` lines of a `.env` reach the environment; an invalid `[lib_log_rich]` section or `LOG_*` variable is a configuration failure that leaves logging running
-- `tests/test_mail.py`  -  Email configuration and sending tests (the `integration` ones send real mail)
 - `tests/test_memory_logging.py`  -  Testing-composition logging runtime and the per-test logging reset
 - `tests/test_metadata.py`  -  Package metadata and PEP 561 marker tests
 - `tests/test_metadata_sync.py`  -  `__init__conf__` constants stay in sync with `pyproject.toml`
 - `tests/test_module_entry.py`  -  `python -m` entry tests
-- `tests/test_module_reference_sync.py`  -  The EmailConfig field table in this document matches the model
+- `tests/test_platform_markers.py`  -  The `os_*` markers skip a test off its platform
 - `tests/test_permission_defaults.py`  -  `config-deploy` hands permissions to lib_layered_config: `--set` overrides, `.env` and deployed destinations never decide a mode, refusals exit 78
 - `tests/test_ports.py`  -  Protocol conformance tests
-- `tests/test_property_email.py`  -  Property-based EmailConfig tests
 - `tests/test_property_overrides.py`  -  Property-based `--set` override tests
 - `tests/test_safe_console.py`  -  Legacy-codepage output tests, plus the guard forbidding direct `click.echo`
+- `tests/test_settings_dotenv_numbers.py`  -  Digit-only `.env` values reach every text setting as the text written
 
 ---
 
@@ -118,7 +98,6 @@ moves or removes a module, a CLI option or a public name.
 | `domain/`              | Domain      | Pure logic  -  no I/O, logging, or frameworks |
 | `application/ports.py` | Application | Protocol definitions for adapters             |
 | `adapters/config/`     | Adapters    | Configuration loading, deployment, display    |
-| `adapters/email/`      | Adapters    | SMTP email sending                            |
 | `adapters/logging/`    | Adapters    | lib_log_rich initialization                   |
 | `adapters/cli/`        | Adapters    | Click CLI framework integration               |
 | `adapters/memory/`     | Adapters    | In-memory implementations for testing         |
@@ -138,20 +117,23 @@ Run `lint-imports` to verify compliance.
 
 POSIX-conventional exit codes defined in `adapters/cli/exit_codes.py`:
 
-| Code | Name                 | Usage                                                                                                                  |
-|------|----------------------|------------------------------------------------------------------------------------------------------------------------|
-| 0    | `SUCCESS`            | Command completed successfully                                                                                         |
-| 1    | `GENERAL_ERROR`      | Unhandled exception, general failure                                                                                   |
-| 2    | `FILE_NOT_FOUND`     | Attachment or file not found; also click's usage error (bad option value, malformed `--set`, invalid `--profile` name) |
-| 13   | `PERMISSION_DENIED`  | Cannot write to target directory                                                                                       |
-| 22   | `INVALID_ARGUMENT`   | Invalid CLI argument or section not found                                                                              |
-| 69   | `SMTP_FAILURE`       | SMTP delivery failed                                                                                                   |
-| 77   | `ATTACHMENT_REFUSED` | Attachment refused by btx_lib_mail's security checks (blocked extension or directory, symlink, size, ...)              |
-| 78   | `CONFIG_ERROR`       | Configuration missing, not loadable or invalid                                                                         |
-| 110  | `TIMEOUT`            | Operation timed out                                                                                                    |
-| 130  | `SIGNAL_INT`         | Interrupted (SIGINT/Ctrl+C)                                                                                            |
-| 141  | `BROKEN_PIPE`        | Output pipe closed                                                                                                     |
-| 143  | `SIGNAL_TERM`        | Terminated (SIGTERM)                                                                                                   |
+| Code | Name                 | Usage                                                                                                    |
+|------|----------------------|----------------------------------------------------------------------------------------------------------|
+| 0    | `SUCCESS`            | Command completed successfully                                                                           |
+| 1    | `GENERAL_ERROR`      | Unhandled exception, general failure                                                                     |
+| 2    | `FILE_NOT_FOUND`     | File not found; also click's usage error (bad option value, malformed `--set`, invalid `--profile` name) |
+| 13   | `PERMISSION_DENIED`  | Cannot write to target directory                                                                         |
+| 22   | `INVALID_ARGUMENT`   | Invalid CLI argument or section not found                                                                |
+| 69   | `DEVICE_UNAVAILABLE` | The print server did not answer (sysexits `EX_UNAVAILABLE`)                                              |
+| 76   | `PROTOCOL_ERROR`     | The print server answered something unexpected (sysexits `EX_PROTOCOL`)                                  |
+| 77   | `REFUSED`            | Refused by policy, such as a destructive action without its confirmation flags (sysexits `EX_NOPERM`)    |
+| 78   | `CONFIG_ERROR`       | Configuration missing, not loadable or invalid                                                           |
+| 110  | `TIMEOUT`            | Operation timed out                                                                                      |
+| 130  | `SIGNAL_INT`         | Interrupted (SIGINT/Ctrl+C)                                                                              |
+| 141  | `BROKEN_PIPE`        | Output pipe closed                                                                                       |
+| 143  | `SIGNAL_TERM`        | Terminated (SIGTERM)                                                                                     |
+
+No command exits 69, 76 or 77 yet; they are reserved for the print-server commands.
 
 ---
 
@@ -175,18 +157,6 @@ POSIX-conventional exit codes defined in `adapters/cli/exit_codes.py`:
 Print resolved package metadata.
 
 **Exit codes:** 0
-
-### hello
-
-Emit canonical greeting (`"Hello World"`).
-
-**Exit codes:** 0
-
-### fail
-
-Trigger intentional `RuntimeError` for testing error handling.
-
-**Exit codes:** 1
 
 ### config
 
@@ -226,60 +196,6 @@ Generate example configuration files.
 
 **Exit codes:** 0, 1
 
-### send-email
-
-Send email using configured SMTP settings.
-
-| Option                                                               | Description                          |
-|----------------------------------------------------------------------|--------------------------------------|
-| `--to ADDRESS`                                                       | Recipient (repeatable)               |
-| `--subject TEXT`                                                     | Subject line  -  required            |
-| `--body TEXT`                                                        | Plain-text body                      |
-| `--body-html TEXT`                                                   | HTML body                            |
-| `--from ADDRESS`                                                     | Override sender                      |
-| `--attachment PATH`                                                  | File to attach (repeatable)          |
-| `--smtp-host HOST:PORT`                                              | Override SMTP host (repeatable)      |
-| `--smtp-username USER`                                               | Override username                    |
-| `--smtp-password PASS`                                               | Override password                    |
-| `--use-starttls / --no-use-starttls`                                 | Override STARTTLS                    |
-| `--timeout SECONDS`                                                  | Override timeout                     |
-| `--raise-on-missing-attachments / --no-raise-on-missing-attachments` | Override missing-attachment handling |
-| `--raise-on-invalid-recipient / --no-raise-on-invalid-recipient`     | Override invalid-recipient handling  |
-
-**Exit codes:** 0, 1 (unexpected error), 2 (file not found, or usage error), 22 (invalid option value, or more recipients or attachments than `recipient_max_count` / `attachments.max_count`), 69 (SMTP failure), 77 (an attachment refused by btx_lib_mail's security checks), 78 (no SMTP host configured or given with `--smtp-host`, an invalid `[email]` section, or configuration not loadable)
-
-### send-notification
-
-Send simple plain-text notification email.
-
-| Option                                                           | Description                         |
-|------------------------------------------------------------------|-------------------------------------|
-| `--to ADDRESS`                                                   | Recipient (repeatable)              |
-| `--subject TEXT`                                                 | Subject  -  required                |
-| `--message TEXT`                                                 | Message  -  required                |
-| `--from ADDRESS`                                                 | Override sender                     |
-| `--smtp-host HOST:PORT`                                          | Override SMTP host (repeatable)     |
-| `--smtp-username USER`                                           | Override username                   |
-| `--smtp-password PASS`                                           | Override password                   |
-| `--use-starttls / --no-use-starttls`                             | Override STARTTLS                   |
-| `--timeout SECONDS`                                              | Override timeout                    |
-| `--raise-on-invalid-recipient / --no-raise-on-invalid-recipient` | Override invalid-recipient handling |
-
-**Exit codes:** 0, 1 (unexpected error), 2 (usage error), 22 (invalid option value, or more recipients than `recipient_max_count`), 69 (SMTP failure), 78 (no SMTP host configured or given with `--smtp-host`, an invalid `[email]` section, or configuration not loadable)
-
-### logdemo
-
-Run logging demonstration.
-
-| Option         | Description                      |
-|----------------|----------------------------------|
-| `--theme NAME` | Logging theme (default: classic) |
-
-The demo runs lib_log_rich's own demo runtime: it does not read the configuration, so a
-`--set lib_log_rich.*` value changes nothing in it, while a `LOG_*` variable does.
-
-**Exit codes:** 0, 22 (an unknown `--theme`, or a `LOG_*` variable lib_log_rich refuses)
-
 ---
 
 ## Profile Validation
@@ -318,72 +234,19 @@ Raises `ValueError` with descriptive message on invalid input.
 
 ---
 
-## Email Configuration
+## Device Configuration
 
-### EmailConfig Fields
+`adapters/config/defaultconfig.d/50-device.toml` ships the `[device]` section the print-server
+commands will read. Every key ships empty or at its default; `config` shows `password` as
+`***REDACTED***`.
 
-`EmailConfig` (`adapters/email/config.py`, re-exported by `adapters/email/sender.py`) subclasses
-btx_lib_mail's `ConfMail`: frozen, a name that is not a field is refused, the password is a
-`SecretStr`, and a validation error never shows the password or a host. It adds `from_address` and
-`recipients`. ConfMail checks every SMTP host's syntax (port range, IPv6 brackets, host name
-labels) when it loads, so `EmailConfig` has no host check of its own. In Python the fields use
-the library's names; the configuration file keeps its own keys (fourth column).
-
-| Field                          | Type                | Default | File key (`[email]`)           | Description                                                      |
-|--------------------------------|---------------------|---------|--------------------------------|------------------------------------------------------------------|
-| `smtphosts`                    | `list[str]`         | `[]`    | `smtp_hosts`                   | SMTP servers in `host[:port]` format                             |
-| `from_address`                 | `str \| None`       | `None`  | `from_address`                 | Default sender address                                           |
-| `recipients`                   | `list[str]`         | `[]`    | `recipients`                   | Default recipient addresses                                      |
-| `smtp_username`                | `str \| None`       | `None`  | `smtp_username`                | SMTP authentication username; an integer is read as its digits   |
-| `smtp_password`                | `SecretStr \| None` | `None`  | `smtp_password`                | SMTP authentication password; unwrap with `.get_secret_value()`  |
-| `smtp_use_starttls`            | `bool`              | `True`  | `use_starttls`                 | Enable STARTTLS negotiation                                      |
-| `smtp_starttls_verify`         | `bool`              | `True`  | `starttls_verify`              | Verify the server certificate after STARTTLS                     |
-| `smtp_timeout`                 | `float`             | `30.0`  | `timeout`                      | Socket timeout in seconds                                        |
-| `smtp_local_hostname`          | `str \| None`       | `None`  | `local_hostname`               | Host name announced in EHLO; `None` looks it up once per process |
-| `smtp_delivery_deadline`       | `float \| None`     | `None`  | `delivery_deadline`            | Upper bound in seconds for one SMTP session; `None` for none     |
-| `recipient_max_count`          | `int \| None`       | `1000`  | `recipient_max_count`          | Most recipients one send accepts; `None` lifts the limit         |
-| `raise_on_missing_attachments` | `bool`              | `True`  | `raise_on_missing_attachments` | Raise on missing attachment files                                |
-| `raise_on_invalid_recipient`   | `bool`              | `True`  | `raise_on_invalid_recipient`   | Raise on invalid recipient addresses                             |
-
-### Attachment Security Fields
-
-| Field                                    | Type                      | Default      | File key (`[email.attachments]`) | Description                                             |
-|------------------------------------------|---------------------------|--------------|----------------------------------|---------------------------------------------------------|
-| `attachment_allowed_extensions`          | `frozenset[str] \| None`  | `None`       | `allowed_extensions`             | Whitelist of allowed extensions                         |
-| `attachment_blocked_extensions`          | `frozenset[str]`          | POSIX + Win  | `blocked_extensions`             | Blacklist of blocked extensions (both lists, every OS)  |
-| `attachment_allowed_directories`         | `frozenset[Path] \| None` | `None`       | `allowed_directories`            | Whitelist of allowed source directories                 |
-| `attachment_blocked_directories`         | `frozenset[Path]`         | OS defaults  | `blocked_directories`            | Blacklist of blocked directories                        |
-| `attachment_max_size_bytes`              | `int \| None`             | `26_214_400` | `max_size_bytes`                 | Maximum file size (25 MiB), `None` to disable           |
-| `attachment_max_count`                   | `int \| None`             | `100`        | `max_count`                      | Most attachments one send accepts, `None` to disable    |
-| `attachment_allow_symlinks`              | `bool`                    | `False`      | `allow_symlinks`                 | Whether symlinks are permitted                          |
-| `attachment_raise_on_security_violation` | `bool`                    | `True`       | `raise_on_security_violation`    | Raise or skip on security violation                     |
-| `attachment_allow_empty_blocklists`      | `bool`                    | `False`      | not exposed                      | Allow an empty blocked set (blocks nothing) from Python |
-
-### Configuration Loading
-
-lib_layered_config is the only reader of configuration: it merges every layer (the shipped
-defaults, the app, host and user files, `.env`, the environment, `--set`) into one mapping.
-`load_email_config_from_dict()` turns that mapping's `[email]` section into an `EmailConfig`:
-
-- the six keys in the fourth column that differ from the field names are mapped;
-- `[email.attachments]` keys become `attachment_<key>`;
-- a key that is not listed is refused (exit 78, `email.<key>: unknown key`), whatever layer it came from;
-- blank text means "not configured"; a single host or address string is a one-entry list;
-- an empty attachment list (`[]` or a blank string) means the library's defaults, and any other
-  value that is not a list, such as a comma-separated string, is refused, as is a blank entry;
-- a limit of 0 (`max_size_bytes`, `max_count`, `recipient_max_count`, `delivery_deadline`) means no limit.
-
-`describe_validation_error()` renders a refusal as one `email.<file key>: <reason>` line per
-problem. It never adds the refused value; a validator's own reason may quote it
-(`timeout must be positive, got -5.0`, an invalid address), a credential's reason never does.
-
-`adapters/email/config.py` also exports the key tables the loader works from:
-
-| Name                | Content                                                                      |
-|---------------------|------------------------------------------------------------------------------|
-| `SECTION_KEYS`      | Every key `[email]` accepts (the `attachments` table included)               |
-| `ATTACHMENT_KEYS`   | Every key `[email.attachments]` accepts; each names field `attachment_<key>` |
-| `FILE_KEY_TO_FIELD` | File key -> `EmailConfig` field, for the six keys whose names differ         |
+| Key             | Type             | Default | Description                                                             |
+|-----------------|------------------|---------|-------------------------------------------------------------------------|
+| `host`          | string           | `""`    | IPv4 address or host name of the print server                           |
+| `login`         | string           | `""`    | FTP login name; empty means "ask the device for its name first"         |
+| `password`      | string           | `""`    | FTP password (factory default: none)                                    |
+| `timeout`       | float, > 0       | `10.0`  | Network timeout for one operation, in seconds                           |
+| `raw_port_base` | integer, 1-65535 | `9100`  | RAW port of logical printer L1; printer Ln uses `raw_port_base + n - 1` |
 
 ---
 
@@ -413,16 +276,11 @@ The `adapters/memory/` package provides lightweight implementations for testing:
 | Module              | Protocols Satisfied                                                         |
 |---------------------|-----------------------------------------------------------------------------|
 | `memory/config.py`  | `GetConfig`, `GetDefaultConfigPath`, `DeployConfiguration`, `DisplayConfig` |
-| `memory/email.py`   | `SendEmail`, `SendNotification`                                             |
 | `memory/logging.py` | `InitLogging`, `CheckLoggingConfig`                                         |
 
-`adapters/memory` exports `EmailSpy` (from `memory/email.py`): its `send_email` and
-`send_notification` methods satisfy the email ports and record each call as a `CapturedEmail` /
-`CapturedNotification` in `sent_emails` / `sent_notifications`; `should_fail` makes them return
-False and `raise_exception` makes them raise. Create one spy per test.
-
-Use `composition.build_testing()` to wire all in-memory adapters. It wires the real
-`load_email_config_from_dict`, so CLI tests run through the same translation as production.
+Use `composition.build_testing()` to wire all in-memory adapters. To replace one port, copy the
+container with `dataclasses.replace(build_testing(), get_config=...)`, so a port added later does
+not break the test.
 
 ### Test Fixtures (conftest.py)
 
@@ -436,7 +294,9 @@ Use `composition.build_testing()` to wire all in-memory adapters. It wires the r
 | `managed_traceback_state` | Resets/restores traceback configuration                                                                                                                                 |
 | `isolated_logging_state`  | Autouse: after every test, shuts the lib_log_rich runtime down and restores the root logger; yields that restore step                                                   |
 | `user_layer_in_tmp_path`  | Points every OS's user-layer location (`HOME`, `USERPROFILE`, `XDG_CONFIG_HOME`, `APPDATA`, `LOCALAPPDATA`) at `tmp_path` and returns it, so a real deploy writes there |
+| `config_cli_context`      | Services factory over a `Config` built from a dict, with production adapters and the quiet logging runtime                                                              |
+| `crashing_services`       | Services factory whose `display_config` raises an unexpected `RuntimeError`, so `config` crashes through `main()`'s generic handler                                     |
 
 ---
 
-**Last Updated:** 2026-10-08 (`send-notification` options, test fixtures)
+**Last Updated:** 2026-10-23 (email and demo commands removed, `[device]` section, exit codes 69/76/77)

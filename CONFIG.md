@@ -95,11 +95,11 @@ datamax-dpl --profile production config
 
 # Override settings at runtime (repeatable)
 datamax-dpl --set lib_log_rich.console_level=DEBUG config
-datamax-dpl --set email.from_address=test@example.com --set email.smtp_hosts='["smtp.example.com:587"]' send-email ...
+datamax-dpl --set device.host=192.0.2.52 --set device.timeout=5 config --section device
 
 # Load configuration from an explicit .env file
 datamax-dpl --env-file /etc/myapp/.env config
-datamax-dpl --env-file ./environments/production.env send-notification ...
+datamax-dpl --env-file ./environments/production.env config --section device
 
 # Show full traceback for debugging
 datamax-dpl --traceback config-deploy --target user
@@ -113,11 +113,11 @@ Display the merged configuration from all sources (defaults -> app -> host -> us
 
 #### Options Reference
 
-| Option           | Required | Description                                                   |
-|------------------|:--------:|---------------------------------------------------------------|
-| `--format`       | No       | Output format: `human` (default) or `json`.                   |
-| `--section NAME` | No       | Show only a specific section (e.g., `lib_log_rich`, `email`). |
-| `--profile NAME` | No       | Load configuration for a specific profile.                    |
+| Option           | Required | Description                                                    |
+|------------------|:--------:|----------------------------------------------------------------|
+| `--format`       | No       | Output format: `human` (default) or `json`.                    |
+| `--section NAME` | No       | Show only a specific section (e.g., `lib_log_rich`, `device`). |
+| `--profile NAME` | No       | Load configuration for a specific profile.                     |
 
 #### Examples
 
@@ -135,7 +135,7 @@ datamax-dpl config --section lib_log_rich
 datamax-dpl config --profile production
 
 # Combine options
-datamax-dpl config --profile staging --format json --section email
+datamax-dpl config --profile staging --format json --section device
 ```
 
 ### Deploy Configuration Files
@@ -179,7 +179,7 @@ datamax-dpl config-deploy --target user --profile production
 datamax-dpl config-deploy --target user --profile production --force
 ```
 
-Every target receives `config.toml` plus `config.d/40-layered-config.toml`, `config.d/50-mail.toml`
+Every target receives `config.toml` plus `config.d/40-layered-config.toml`, `config.d/50-device.toml`
 and `config.d/90-logging.toml` (the host target writes `hosts/{hostname}.toml` and
 `hosts/{hostname}.d/`). With `--force`, a file whose content differs from the bundled one is
 replaced and the old file is kept as `<name>.bak` (numbered, `<name>.bak.1` and so on, when a
@@ -368,11 +368,10 @@ datamax-dpl --set lib_log_rich.console_level=DEBUG config
 datamax-dpl --set lib_log_rich.console_level=DEBUG --set lib_log_rich.console_format_preset=short config
 
 # Override nested values
-datamax-dpl --set email.attachments.max_size_bytes=10485760 config
+datamax-dpl --set lib_log_rich.payload_limits.context_max_keys=30 config
 
 # Override with JSON arrays/objects (use single quotes around the value)
-datamax-dpl --set email.smtp_hosts='["smtp.example.com:587"]' config
-datamax-dpl --set email.recipients='["admin@example.com", "ops@example.com"]' config
+datamax-dpl --set my_section.hosts='["192.0.2.10", "192.0.2.11"]' config
 
 # Combine with profile
 datamax-dpl --profile production --set lib_log_rich.console_level=DEBUG config
@@ -449,6 +448,34 @@ Profile directories are **separate namespaces**. Configuration deployed with a p
 
 ---
 
+## Device Section
+
+The `[device]` section (shipped in `config.d/50-device.toml`) names the SerComm print server the
+CLI talks to. Every key ships empty or at its default, so nothing is contacted until a host is set.
+
+| Key             | Type             | Default | Environment variable                          | Meaning                                                                                 |
+|-----------------|------------------|---------|-----------------------------------------------|-----------------------------------------------------------------------------------------|
+| `host`          | string           | `""`    | `DATAMAX_DPL___DEVICE__HOST`          | IPv4 address or host name of the print server                                           |
+| `login`         | string           | `""`    | `DATAMAX_DPL___DEVICE__LOGIN`         | FTP login name; empty means "ask the device for its name first"                         |
+| `password`      | string           | `""`    | `DATAMAX_DPL___DEVICE__PASSWORD`      | FTP password (factory default: none); shown as `***REDACTED***` by `config`             |
+| `timeout`       | float, > 0       | `10.0`  | `DATAMAX_DPL___DEVICE__TIMEOUT`       | Network timeout for one operation, in seconds                                           |
+| `raw_port_base` | integer, 1-65535 | `9100`  | `DATAMAX_DPL___DEVICE__RAW_PORT_BASE` | RAW (direct socket) port of logical printer L1; printer Ln uses `raw_port_base + n - 1` |
+
+In a `.env` file the prefix is dropped:
+
+```bash
+# .env
+DEVICE__HOST=192.0.2.52
+DEVICE__PASSWORD=secret
+```
+
+```bash
+# Show the effective device settings (the password stays redacted)
+datamax-dpl config --section device
+```
+
+---
+
 ## Environment Variables
 
 Configuration can be overridden via environment variables using two methods:
@@ -458,8 +485,8 @@ Configuration can be overridden via environment variables using two methods:
 For logging configuration, use the native `LOG_*` variables (highest precedence):
 
 ```bash
-LOG_CONSOLE_LEVEL=DEBUG datamax-dpl hello
-LOG_ENABLE_GRAYLOG=true LOG_GRAYLOG_ENDPOINT="logs.example.com:12201" datamax-dpl hello
+LOG_CONSOLE_LEVEL=DEBUG datamax-dpl info
+LOG_ENABLE_GRAYLOG=true LOG_GRAYLOG_ENDPOINT="192.0.2.20:12201" datamax-dpl info
 ```
 
 ### Method 2: Application-Prefixed Variables
@@ -467,8 +494,8 @@ LOG_ENABLE_GRAYLOG=true LOG_GRAYLOG_ENDPOINT="logs.example.com:12201" datamax-dp
 For any configuration section, use the format: `<PREFIX>___<SECTION>__<KEY>=value`
 
 ```bash
-DATAMAX_DPL___LIB_LOG_RICH__CONSOLE_LEVEL=DEBUG datamax-dpl hello
-DATAMAX_DPL___EMAIL__SMTP_HOSTS='["smtp.example.com:587"]' datamax-dpl hello
+DATAMAX_DPL___LIB_LOG_RICH__CONSOLE_LEVEL=DEBUG datamax-dpl info
+DATAMAX_DPL___DEVICE__HOST=192.0.2.52 datamax-dpl config --section device
 ```
 
 **Separator reference:**
@@ -503,7 +530,7 @@ To load a specific `.env` file instead, use `--env-file`:
 ```bash
 # Load from an explicit path (skips upward directory search)
 datamax-dpl --env-file /opt/myapp/config/.env config
-datamax-dpl --env-file ./environments/staging.env send-notification ...
+datamax-dpl --env-file ./environments/staging.env config --section device
 ```
 
 The file must exist and be readable; Click validates this before the command runs.
@@ -558,8 +585,8 @@ only `config.toml` plus its `config.d/` files.
 [lib_log_rich]
 console_level = "DEBUG"
 
-[email]
-smtp_hosts = ["smtp.mycompany.com:587"]
+[device]
+host = "192.0.2.52"
 ```
 
 This approach keeps your customizations separate and safe from updates while still benefiting from new default values added in future versions.
@@ -579,5 +606,5 @@ print(config.as_dict())
 
 # Access specific sections
 log_config = config.get("lib_log_rich", default={})
-email_config = config.get("email", default={})
+device_config = config.get("device", default={})
 ```

@@ -26,9 +26,10 @@ class ExitCode(IntEnum):
     * 0-1: generic success / failure
     * 2-13: errno-derived codes (ENOENT, EACCES)
     * 22: EINVAL
-    * 69: EX_UNAVAILABLE (sysexits.h)
-    * 77: EX_NOPERM (sysexits.h): refused by policy, such as an email attachment
-      btx_lib_mail's security checks reject
+    * 69: EX_UNAVAILABLE (sysexits.h): the print server did not answer
+    * 76: EX_PROTOCOL (sysexits.h): the print server answered something unexpected
+    * 77: EX_NOPERM (sysexits.h): refused by policy, such as a destructive action
+      without its confirmation flags
     * 78: EX_CONFIG (sysexits.h)
     * 110: ETIMEDOUT
     * 128+N: signal N (informational only)
@@ -36,7 +37,7 @@ class ExitCode(IntEnum):
     Example:
         >>> ExitCode.SUCCESS
         <ExitCode.SUCCESS: 0>
-        >>> int(ExitCode.SMTP_FAILURE)
+        >>> int(ExitCode.DEVICE_UNAVAILABLE)
         69
     """
 
@@ -45,8 +46,9 @@ class ExitCode(IntEnum):
     FILE_NOT_FOUND = 2
     PERMISSION_DENIED = 13
     INVALID_ARGUMENT = 22
-    SMTP_FAILURE = 69
-    ATTACHMENT_REFUSED = 77
+    DEVICE_UNAVAILABLE = 69
+    PROTOCOL_ERROR = 76
+    REFUSED = 77
     CONFIG_ERROR = 78
     TIMEOUT = 110
     SIGNAL_INT = 130

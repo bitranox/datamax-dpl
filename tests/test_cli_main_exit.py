@@ -14,19 +14,15 @@ from typing import TYPE_CHECKING, Any
 
 import click
 import pytest
-from lib_layered_config import Config
+from lib_layered_config import Config, ConfigError
 
+from datamax_dpl import __init__conf__
 from datamax_dpl.adapters.cli.main import main
-from datamax_dpl.adapters.memory.email import EmailSpy
 from datamax_dpl.composition import AppServices, build_testing
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
-
-EMAIL = {"email": {"smtp_hosts": ["smtp.test.com:587"], "from_address": "sender@test.com"}}
-SEND_EMAIL = ["send-email", "--to", "recipient@test.com", "--subject", "Test", "--body", "Hello"]
-SEND_NOTIFICATION = ["send-notification", "--to", "admin@test.com", "--subject", "Alert", "--message", "m"]
 
 
 def _services(data: dict[str, Any], **overrides: Any) -> Callable[[], AppServices]:
@@ -41,12 +37,6 @@ def _services(data: dict[str, Any], **overrides: Any) -> Callable[[], AppService
     return build
 
 
-def _failing_spy() -> EmailSpy:
-    spy = EmailSpy()
-    spy.should_fail = True
-    return spy
-
-
 def _raising(error: Exception) -> Callable[..., Any]:
     def raise_it(*_args: Any, **_kwargs: Any) -> Any:
         raise error
@@ -55,44 +45,16 @@ def _raising(error: Exception) -> Callable[..., Any]:
 
 
 @pytest.mark.os_agnostic
-def test_send_email_without_smtp_hosts_exits_78_without_printing_systemexit(
+def test_a_config_that_did_not_load_exits_78_without_printing_systemexit(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    exit_code = main(SEND_EMAIL, services_factory=_services({}))
+    message = "Invalid TOML in /etc/xdg/app/config.toml"
+    services = dataclasses.replace(build_testing(), get_config=_raising(ConfigError(message)))
+    exit_code = main(["config"], services_factory=lambda: services)
 
     err = capsys.readouterr().err
     assert exit_code == 78
-    assert "No SMTP hosts configured" in err
-    assert "SystemExit" not in err
-
-
-@pytest.mark.os_agnostic
-@pytest.mark.parametrize("args", [SEND_EMAIL, SEND_NOTIFICATION], ids=["send-email", "send-notification"])
-def test_a_failed_send_exits_69_and_reports_it_once(capsys: pytest.CaptureFixture[str], args: list[str]) -> None:
-    """click's Exit is a RuntimeError; the delivery handler must not re-handle it as a second failure."""
-    spy = _failing_spy()
-    exit_code = main(
-        args,
-        services_factory=_services(EMAIL, send_email=spy.send_email, send_notification=spy.send_notification),
-    )
-
-    err = capsys.readouterr().err
-    assert exit_code == 69
-    assert "sending failed" in err
-    assert "SMTP delivery failed" not in err
-    assert "Failed to send email" not in err
-    assert "SystemExit" not in err
-
-
-@pytest.mark.os_agnostic
-def test_a_delivery_error_exits_69_without_printing_systemexit(capsys: pytest.CaptureFixture[str]) -> None:
-    spy = EmailSpy()
-    spy.raise_exception = RuntimeError("connection refused")
-    exit_code = main(SEND_EMAIL, services_factory=_services(EMAIL, send_email=spy.send_email))
-
-    err = capsys.readouterr().err
-    assert exit_code == 69
-    assert "connection refused" in err
+    assert message in err
     assert "SystemExit" not in err
 
 
@@ -154,7 +116,7 @@ def test_a_generate_examples_failure_exits_1_without_printing_systemexit(
 
 @pytest.mark.os_agnostic
 def test_a_successful_command_exits_0(capsys: pytest.CaptureFixture[str]) -> None:
-    exit_code = main(["hello"], services_factory=_services({}))
+    exit_code = main(["info"], services_factory=_services({}))
 
     assert exit_code == 0
-    assert "Hello World" in capsys.readouterr().out
+    assert f"Info for {__init__conf__.name}:" in capsys.readouterr().out

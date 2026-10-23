@@ -51,17 +51,13 @@ UNREADABLE = PermissionError(13, "Permission denied", "/etc/xdg/app/config.toml"
 #: that silently reads an empty configuration after a load failure.
 NEEDS_CONFIG: dict[str, list[str]] = {
     "config": ["config"],
-    "send-email": ["send-email", "--to", "a@example.com", "--subject", "s", "--body", "b"],
-    "send-notification": ["send-notification", "--to", "a@example.com", "--subject", "s", "--message", "m"],
 }
 RUNS_WITHOUT_CONFIG: dict[str, list[str]] = {
     "config-deploy": ["config-deploy", "--target", "user"],
-    "hello": ["hello"],
     "info": ["info"],
 }
-#: Covered by their own tests below: one writes into a directory, one fails on purpose, one
-#: replaces the logging runtime.
-OTHER = ("config-generate-examples", "fail", "logdemo")
+#: Covered by its own test below: it writes into a directory.
+OTHER = ("config-generate-examples",)
 
 
 def _failing_config(error: Exception) -> Callable[[], AppServices]:
@@ -233,14 +229,6 @@ def test_config_generate_examples_still_runs(cli_runner: CliRunner, tmp_path: Pa
 
 
 @pytest.mark.os_agnostic
-def test_the_fail_command_is_not_refused_for_the_config(cli_runner: CliRunner) -> None:
-    result = cli_runner.invoke(cli_mod.cli, ["fail"], obj=_failing_config(ConfigError(BROKEN_TOML)))
-
-    assert isinstance(result.exception, RuntimeError)
-    assert BROKEN_TOML not in result.stderr
-
-
-@pytest.mark.os_agnostic
 @pytest.mark.parametrize("args", [["config-deploy", "--help"], []], ids=["subcommand-help", "bare-group"])
 def test_help_works_while_the_config_is_broken(cli_runner: CliRunner, args: list[str]) -> None:
     result = cli_runner.invoke(cli_mod.cli, args, obj=_failing_config(ConfigError(BROKEN_TOML)))
@@ -257,11 +245,11 @@ def test_a_malformed_set_is_still_a_usage_error(cli_runner: CliRunner) -> None:
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("command", [["info"], ["hello"], ["config"]], ids=["info", "hello", "config"])
+@pytest.mark.parametrize("command", [["info"], ["config"]], ids=["info", "config"])
 def test_a_malformed_set_is_a_usage_error_even_when_the_config_does_not_load(
     cli_runner: CliRunner, command: list[str]
 ) -> None:
-    """The overrides used to be applied only to a loaded configuration, so info/hello ignored them."""
+    """The overrides used to be applied only to a loaded configuration, so info ignored them."""
     args = ["--set", "no-equals-sign", *command]
     result = cli_runner.invoke(cli_mod.cli, args, obj=_failing_config(ConfigError(BROKEN_TOML)))
 
@@ -286,11 +274,10 @@ def test_conflicting_set_overrides_are_a_usage_error(cli_runner: CliRunner, comm
     "args",
     [
         ["--profile", "../x", "info"],
-        ["--profile", "../x", "hello"],
         ["config", "--profile", "../x"],
         ["config-deploy", "--target", "user", "--no-permissions", "--profile", "../x"],
     ],
-    ids=["root-info", "root-hello", "config-option", "config-deploy-option"],
+    ids=["root-info", "config-option", "config-deploy-option"],
 )
 def test_an_invalid_profile_name_is_a_usage_error_for_every_command(cli_runner: CliRunner, args: list[str]) -> None:
     result = cli_runner.invoke(cli_mod.cli, args, obj=build_testing)

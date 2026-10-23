@@ -72,9 +72,9 @@ def log_variables() -> Iterator[list[str]]:
 def test_only_log_variables_from_the_dotenv_reach_the_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, log_variables: list[str]
 ) -> None:
-    app_key = f"{PREFIX}___EMAIL__FROM_ADDRESS"
+    app_key = f"{PREFIX}___DEVICE__HOST"
     log_variables.extend(["LOG_DOTENV_PROBE", app_key])
-    (tmp_path / ".env").write_text(f"{app_key}=leaked@example.com\nLOG_DOTENV_PROBE=from-dotenv\n", encoding="utf-8")
+    (tmp_path / ".env").write_text(f"{app_key}=192.0.2.99\nLOG_DOTENV_PROBE=from-dotenv\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv(app_key, raising=False)
 
@@ -133,12 +133,12 @@ def test_a_dotenv_that_is_not_utf8_does_not_stop_logging(
 
 @pytest.mark.os_agnostic
 def test_a_prefixed_line_in_the_cwd_dotenv_does_not_reach_a_profile_reload(tmp_path: Path) -> None:
-    (tmp_path / ".env").write_text(f"{PREFIX}___EMAIL__FROM_ADDRESS=leaked@example.com\n", encoding="utf-8")
+    (tmp_path / ".env").write_text(f"{PREFIX}___DEVICE__HOST=192.0.2.99\n", encoding="utf-8")
 
-    result = _run(tmp_path, "config", "--profile", "production", "--format", "json", "--section", "email")
+    result = _run(tmp_path, "config", "--profile", "production", "--format", "json", "--section", "device")
 
     assert result.returncode == 0, result.stderr
-    assert "leaked@example.com" not in result.stdout
+    assert "192.0.2.99" not in result.stdout
 
 
 @pytest.mark.os_agnostic
@@ -156,10 +156,10 @@ def test_a_prefixed_permission_line_in_the_cwd_dotenv_does_not_block_a_deploy(tm
 
 @pytest.mark.os_agnostic
 def test_an_invalid_logging_section_leaves_commands_that_do_not_read_the_config_running(tmp_path: Path) -> None:
-    result = _run(tmp_path, "hello", env={f"{PREFIX}___LIB_LOG_RICH__RATE_LIMIT": "100:60"})
+    result = _run(tmp_path, "info", env={f"{PREFIX}___LIB_LOG_RICH__RATE_LIMIT": "100:60"})
 
     assert result.returncode == 0, result.stderr
-    assert "Hello World" in result.stdout
+    assert "Info for" in result.stdout
 
 
 @pytest.mark.os_agnostic
@@ -194,7 +194,7 @@ def test_a_value_only_lib_log_rich_itself_refuses_is_a_configuration_error_too(t
     env = {f"{PREFIX}___LIB_LOG_RICH__QUEUE_MAXSIZE": "0"}
 
     refused = _run(tmp_path, "config", env=env)
-    running = _run(tmp_path, "hello", env=env)
+    running = _run(tmp_path, "info", env=env)
 
     assert refused.returncode == 78
     assert "lib_log_rich.queue_maxsize" in refused.stderr
@@ -347,7 +347,7 @@ def test_a_refused_entry_of_a_union_setting_names_the_entry_and_no_tag() -> None
 
 @pytest.mark.os_agnostic
 def test_a_value_a_validator_refuses_reads_as_the_validator_wrote_it() -> None:
-    """pydantic prefixes a validator's ValueError with ``Value error, ``; the [email] refusal does not."""
+    """pydantic prefixes a validator's ValueError with ``Value error, ``; the refusal drops that prefix."""
     with pytest.raises(InvalidLoggingConfigError) as caught:
         check_logging_config(Config({"lib_log_rich": {"queue_maxsize": 0}}, {}))
 

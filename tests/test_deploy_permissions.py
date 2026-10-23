@@ -6,13 +6,13 @@ the CLI, and delivered to deploy_configuration.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from datamax_dpl.adapters import cli as cli_mod
-from datamax_dpl.composition import AppServices, build_production
+from datamax_dpl.composition import build_production
 from datamax_dpl.domain.enums import DeployTarget
 
 if TYPE_CHECKING:
@@ -67,19 +67,8 @@ def inject_deploy_with_permission_capture(
             )
             return [deployed_path]
 
-        prod = build_production()
-        test_services = AppServices(
-            get_config=prod.get_config,
-            get_default_config_path=prod.get_default_config_path,
-            deploy_configuration=_capturing_deploy,
-            display_config=prod.display_config,
-            send_email=prod.send_email,
-            send_notification=prod.send_notification,
-            load_email_config_from_dict=prod.load_email_config_from_dict,
-            init_logging=prod.init_logging,
-            check_logging_config=prod.check_logging_config,
-        )
-        return lambda: test_services
+        services = replace(build_production(), deploy_configuration=_capturing_deploy)
+        return lambda: services
 
     return _inject
 

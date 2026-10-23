@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -42,19 +42,8 @@ def inject_config_with_dotenv_capture(
             captured.append(CapturedGetConfigArgs(profile=profile, dotenv_path=dotenv_path))
             return config
 
-        prod = build_production()
-        test_services = AppServices(
-            get_config=_capturing_get_config,
-            get_default_config_path=prod.get_default_config_path,
-            deploy_configuration=prod.deploy_configuration,
-            display_config=prod.display_config,
-            send_email=prod.send_email,
-            send_notification=prod.send_notification,
-            load_email_config_from_dict=prod.load_email_config_from_dict,
-            init_logging=prod.init_logging,
-            check_logging_config=prod.check_logging_config,
-        )
-        return lambda: test_services
+        services = replace(build_production(), get_config=_capturing_get_config)
+        return lambda: services
 
     return _inject
 
@@ -77,7 +66,7 @@ def test_env_file_passes_dotenv_path_to_get_config(
 
     factory = inject_config_with_dotenv_capture(config, captured)
 
-    result: Result = cli_runner.invoke(cli_mod.cli, ["--env-file", str(env_file), "hello"], obj=factory)
+    result: Result = cli_runner.invoke(cli_mod.cli, ["--env-file", str(env_file), "info"], obj=factory)
 
     assert result.exit_code == 0
     assert len(captured) == 1
@@ -96,7 +85,7 @@ def test_env_file_not_specified_passes_none_dotenv_path(
 
     factory = inject_config_with_dotenv_capture(config, captured)
 
-    result: Result = cli_runner.invoke(cli_mod.cli, ["hello"], obj=factory)
+    result: Result = cli_runner.invoke(cli_mod.cli, ["info"], obj=factory)
 
     assert result.exit_code == 0
     assert len(captured) == 1
@@ -119,7 +108,7 @@ def test_env_file_combined_with_profile(
     factory = inject_config_with_dotenv_capture(config, captured)
 
     result: Result = cli_runner.invoke(
-        cli_mod.cli, ["--env-file", str(env_file), "--profile", "staging", "hello"], obj=factory
+        cli_mod.cli, ["--env-file", str(env_file), "--profile", "staging", "info"], obj=factory
     )
 
     assert result.exit_code == 0
@@ -138,7 +127,7 @@ def test_env_file_nonexistent_path_rejected(
 ) -> None:
     """--env-file with nonexistent path is rejected by Click."""
     result: Result = cli_runner.invoke(
-        cli_mod.cli, ["--env-file", "/tmp/nonexistent_env_file_xyz.env", "hello"], obj=production_factory
+        cli_mod.cli, ["--env-file", "/tmp/nonexistent_env_file_xyz.env", "info"], obj=production_factory
     )
 
     assert result.exit_code != 0
@@ -152,7 +141,7 @@ def test_env_file_directory_rejected(
     production_factory: Callable[[], AppServices],
 ) -> None:
     """--env-file with a directory path is rejected by Click."""
-    result: Result = cli_runner.invoke(cli_mod.cli, ["--env-file", str(tmp_path), "hello"], obj=production_factory)
+    result: Result = cli_runner.invoke(cli_mod.cli, ["--env-file", str(tmp_path), "info"], obj=production_factory)
 
     assert result.exit_code != 0
 
