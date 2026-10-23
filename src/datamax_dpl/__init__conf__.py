@@ -36,13 +36,13 @@ __all__ = [
 ]
 
 #: Distribution name declared in ``pyproject.toml``.
-name = "datamax_dpl"
+name = "datamax-dpl"
 #: Human-readable summary shown in CLI help output.
-title = "Template CLI application with configuration management and structured logging"
+title = "Datamax DPL label printing: library, CLI and LLM-friendly JSON, with per-model capability checks"
 #: Current release version pulled from ``pyproject.toml`` by automation.
-version = "2.4.3"
+version = "0.1.0"
 #: Repository homepage presented to users.
-homepage = "https://github.com/bitranox/datamax_dpl"
+homepage = "https://github.com/bitranox/datamax-dpl"
 #: Author attribution surfaced in CLI output.
 author = "bitranox"
 #: Contact email surfaced in CLI output.
@@ -71,7 +71,7 @@ def print_info() -> None:
     Examples
     --------
     >>> print_info()  # doctest: +ELLIPSIS
-    Info for datamax_dpl:
+    Info for datamax-dpl:
     ...
     """
 

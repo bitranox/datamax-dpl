@@ -1,0 +1,77 @@
+# ==============================================================================
+# Printer Configuration - the Datamax printer this CLI renders for and prints to
+# ==============================================================================
+#
+# Settings are loaded via lib_layered_config and can be overridden via:
+#   - App/Host/User config files (see precedence list in defaultconfig.toml)
+#   - Environment variables (see below)
+#   - Command-line flags (--model, --printer and friends win over everything here)
+#
+# Environment Variable Naming
+# ---------------------------
+#   Format: <SLUG>___<SECTION>__<KEY>=<VALUE>
+#
+#   Examples:
+#     DATAMAX_DPL___PRINTER__MODEL=dmx-600
+#     DATAMAX_DPL___PRINTER__URI=tcp://192.0.2.60:9100
+#
+# .env File Support
+# -----------------
+# In .env files (no prefix needed), use double underscore for nesting:
+#
+#   PRINTER__MODEL=dmx-600
+#   PRINTER__URI=serial:///dev/ttyS0?baud=9600
+#
+# Precedence (lowest to highest):
+#   defaults -> app config -> host config -> user config -> .env file -> env vars
+#
+[printer]
+
+# Purpose: Printer model profile that decides which DPL features may be used.
+#          'datamax-dpl models' lists every profile. 'generic' emits only what
+#          every model in the manual understands.
+# Type: string
+# Default: "generic"
+# Environment Variable: DATAMAX_DPL___PRINTER__MODEL=dmx-600
+model = "generic"
+
+# Purpose: Firmware version of the printer, when a feature depends on it
+#          (for example "2.01" unlocks circles on a DMX 400). Empty: assume the
+#          oldest firmware the manual describes.
+# Type: string, "<major>.<minor>"
+# Default: ""
+# Environment Variable: DATAMAX_DPL___PRINTER__FIRMWARE=2.01
+firmware = ""
+
+# Purpose: Where 'print' and the printer commands send their bytes.
+#          tcp://HOST:PORT              raw socket, usually port 9100
+#          serial:///dev/ttyS0?baud=9600&parity=N&bytesize=8&stopbits=1
+#          device:///dev/usb/lp0        write to a device file
+#          file:PATH                    write to a file
+#          -                            write to stdout
+#          Empty: every command that talks to a printer needs --printer.
+# Type: string
+# Default: ""
+# Environment Variable: DATAMAX_DPL___PRINTER__URI=tcp://192.0.2.60:9100
+uri = ""
+
+# Purpose: What to do when the label uses a feature the model lacks.
+#          degrade: apply the documented fallback and report each one
+#          strict:  refuse the label instead
+# Type: string, "degrade" or "strict"
+# Default: "degrade"
+# Environment Variable: DATAMAX_DPL___PRINTER__POLICY=strict
+policy = "degrade"
+
+# Purpose: Timeout for one transport operation (connect, write, status answer), in seconds
+# Type: float, greater than 0
+# Default: 10.0
+# Environment Variable: DATAMAX_DPL___PRINTER__TIMEOUT=10.0
+timeout = 10.0
+
+# Purpose: The printer has a cutter installed and enabled. Cut commands are only
+#          emitted when this is true.
+# Type: boolean
+# Default: false
+# Environment Variable: DATAMAX_DPL___PRINTER__CUTTER=true
+cutter = false

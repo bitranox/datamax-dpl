@@ -12,9 +12,9 @@ class ConfigurationError(Exception):
 
     Example:
         >>> from datamax_dpl.domain.errors import ConfigurationError
-        >>> err = ConfigurationError("No device host configured")
+        >>> err = ConfigurationError("No printer URI configured")
         >>> str(err)
-        'No device host configured'
+        'No printer URI configured'
     """
 
 

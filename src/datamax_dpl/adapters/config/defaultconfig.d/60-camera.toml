@@ -1,0 +1,66 @@
+# ==============================================================================
+# Camera Configuration - photographs a printed label for visual feedback
+# ==============================================================================
+#
+# 'datamax-dpl verify' prints a label, waits until the printer is done, takes a
+# photo and puts it next to the expected preview. Leave kind = "none" when no
+# camera is attached.
+#
+# Environment Variable Naming
+# ---------------------------
+#   Format: <SLUG>___<SECTION>__<KEY>=<VALUE>
+#
+#   Examples:
+#     DATAMAX_DPL___CAMERA__KIND=http
+#     DATAMAX_DPL___CAMERA__URL=http://192.0.2.70/snapshot.jpg
+#     DATAMAX_DPL___CAMERA__PASSWORD=secret
+#
+# IMPORTANT: Never commit .env files containing secrets to version control
+#
+[camera]
+
+# Purpose: How a photo is taken.
+#          none:    no camera
+#          command: run 'command'; it writes the image to the path given as {output}
+#          http:    GET 'url' and use the response body as the image
+#          file:    read the newest image file in 'directory'
+# Type: string
+# Default: "none"
+# Environment Variable: DATAMAX_DPL___CAMERA__KIND=command
+kind = "none"
+
+# Purpose: argv of the capture program for kind = "command". {output} is replaced
+#          by the image path. The list form avoids any shell.
+# Type: list of strings
+# Default: []
+# Example: ["fswebcam", "--no-banner", "-r", "1920x1080", "{output}"]
+command = []
+
+# Purpose: Snapshot URL for kind = "http"
+# Type: string
+# Default: ""
+# Environment Variable: DATAMAX_DPL___CAMERA__URL=http://192.0.2.70/snapshot.jpg
+url = ""
+
+# Purpose: HTTP basic auth user and password for kind = "http"
+# Type: string (password is redacted in 'config' output)
+# Default: ""
+user = ""
+password = ""
+
+# Purpose: Folder watched for kind = "file"; the newest image written after the
+#          print started is taken.
+# Type: string
+# Default: ""
+directory = ""
+
+# Purpose: Seconds to wait after the printer reports it is done before the photo,
+#          so the label has stopped moving.
+# Type: float, 0 or greater
+# Default: 1.0
+settle_seconds = 1.0
+
+# Purpose: Timeout for one capture, in seconds
+# Type: float, greater than 0
+# Default: 20.0
+timeout = 20.0

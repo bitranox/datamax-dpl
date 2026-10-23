@@ -1,7 +1,7 @@
 [project]
-name = "datamax_dpl"
-version = "2.4.3"
-description = "Template CLI application with configuration management and structured logging"
+name = "datamax-dpl"
+version = "0.1.0"
+description = "Datamax DPL label printing: library, CLI and LLM-friendly JSON, with per-model capability checks"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -10,16 +10,16 @@ dependencies = [
     "click>=8.5.0",
     "lib_cli_exit_tools>=2.4.1",
     # 6.4.2: validate_config, the check config --profile runs, refuses exactly what init() refuses.
-    "lib_log_rich>=6.5.6",
+    "lib_log_rich>=6.5.7",
     "python-dotenv>=1.2.4",
     "lib_layered_config>=7.3.0",
-    "btx_lib_mail>=4.5.0",
     "pydantic>=2.14.1",
     "orjson>=3.13.0",
+    "pyserial>=3.5",
 ]
 license = { text = "MIT" }
 authors = [{ name = "bitranox", email = "bitranox@gmail.com" }]
-keywords = ["cli", "template", "config", "logging", "layered-config", "rich-click"]
+keywords = ["datamax", "dpl", "label", "label-printer", "barcode", "thermal-printer", "cli", "llm"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
@@ -45,12 +45,13 @@ system-dependencies-windows-choco = []
 os = ["ubuntu-latest", "windows-latest", "macos-latest"]
 
 [project.urls]
-Homepage = "https://github.com/bitranox/datamax_dpl"
-Repository = "https://github.com/bitranox/datamax_dpl.git"
-Issues = "https://github.com/bitranox/datamax_dpl/issues"
+Homepage = "https://github.com/bitranox/datamax-dpl"
+Repository = "https://github.com/bitranox/datamax-dpl.git"
+Issues = "https://github.com/bitranox/datamax-dpl/issues"
 
 [project.optional-dependencies]
 dev = [
+  "pillow>=13.0.0; python_version >= '3.11'",
   "pytest>=9.1.1",
   "pytest-cov>=7.1.0",
   "hypothesis>=6.168.5",
@@ -84,9 +85,9 @@ dev = [
   "virtualenv>=21.14.9",         # CVE-2025-22702, CVE-2026-113722
   "certifi>=2026.10.19",         # PYSEC-2026-4320
 ]
+preview = ["pillow>=13.0.0; python_version >= '3.11'"]
 
 [project.scripts]
-datamax_dpl = "datamax_dpl.entry:main"
 datamax-dpl = "datamax_dpl.entry:main"
 
 [build-system]
@@ -290,7 +291,6 @@ ignore-vulns = [
   "PYSEC-2022-42969",  # py 1.11.0 - ReDoS, env-only, no fix available
   "CVE-2025-8869",     # pip 24.3.1 - env-only, not a project dependency
   "CVE-2026-1703",     # pip 24.3.1 - env-only, not a project dependency
-  "CVE-2026-25990",    # pillow 12.0.0 - env-only, fix in 12.1.1
 ]
 
 [tool.bashate]
@@ -300,4 +300,4 @@ ignores = ["E003"]
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = {btx-lib-mail = false, lib-cli-exit-tools = false, lib-layered-config = false, lib-log-rich = false, ruff = "2026-10-15T15:23:19Z", virtualenv = "2026-10-17T16:09:43Z", certifi = "2026-10-20T02:24:17Z"}
+exclude-newer-package = {lib-cli-exit-tools = false, lib-layered-config = false, lib-log-rich = false, virtualenv = "2026-10-17T16:09:43Z", certifi = "2026-10-20T02:24:17Z", pillow = "2026-10-16T22:18:10Z"}

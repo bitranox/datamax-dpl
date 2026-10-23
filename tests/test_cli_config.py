@@ -89,18 +89,18 @@ def test_when_config_is_invoked_with_json_format_and_section_it_shows_section(
     """Verify JSON format displays specific section content."""
     factory = config_cli_context(
         {
-            "device": {
-                "host": "192.0.2.52",
-                "login": "PS_EXAMPLE",
+            "printer": {
+                "uri": "tcp://192.0.2.52:9100",
+                "model": "dmx-600",
             }
         }
     )
 
-    result: Result = cli_runner.invoke(cli_mod.cli, ["config", "--format", "json", "--section", "device"], obj=factory)
+    result: Result = cli_runner.invoke(cli_mod.cli, ["config", "--format", "json", "--section", "printer"], obj=factory)
 
     assert result.exit_code == 0
-    assert "device" in result.output
-    assert "host" in result.output
+    assert "printer" in result.output
+    assert "uri" in result.output
     assert "192.0.2.52" in result.output
 
 
@@ -112,8 +112,8 @@ def test_when_config_is_invoked_with_json_format_and_nonexistent_section_it_fail
     """Verify JSON format with nonexistent section returns error."""
     factory = config_cli_context(
         {
-            "device": {
-                "host": "192.0.2.52",
+            "printer": {
+                "uri": "tcp://192.0.2.52:9100",
             }
         }
     )
@@ -136,7 +136,7 @@ def test_when_config_is_invoked_with_section_showing_complex_values(
         {
             "my_section": {
                 "hosts": ["192.0.2.10", "192.0.2.11"],
-                "login": "PS_EXAMPLE",
+                "login": "operator",
                 "metadata": {"key1": "value1", "key2": "value2"},
                 "timeout": 60.0,
             }
@@ -151,7 +151,7 @@ def test_when_config_is_invoked_with_section_showing_complex_values(
     assert "192.0.2.10" in result.output
     assert "192.0.2.11" in result.output
     assert "metadata" in result.output
-    assert '"PS_EXAMPLE"' in result.output
+    assert '"operator"' in result.output
     assert "60.0" in result.output
 
 
@@ -163,8 +163,8 @@ def test_when_config_shows_all_sections_with_complex_values(
     """Verify human format showing all sections with lists and dicts."""
     factory = config_cli_context(
         {
-            "device": {
-                "host": "192.0.2.52",
+            "printer": {
+                "uri": "tcp://192.0.2.52:9100",
                 "tags": {"environment": "test", "version": "1.0"},
             },
             "logging": {
@@ -177,9 +177,9 @@ def test_when_config_shows_all_sections_with_complex_values(
     result: Result = cli_runner.invoke(cli_mod.cli, ["config"], obj=factory)
 
     assert result.exit_code == 0
-    assert "[device]" in result.output
+    assert "[printer]" in result.output
     assert "[logging]" in result.output
-    assert "host" in result.output
+    assert "uri" in result.output
     assert "handlers" in result.output
     assert "tags" in result.output
 
@@ -440,9 +440,9 @@ def test_when_config_displays_human_format_it_redacts_password(
     """Human-readable output must redact sensitive keys like password."""
     factory = config_cli_context(
         {
-            "device": {
+            "camera": {
                 "password": "super_secret_123",
-                "login": "PS_EXAMPLE",
+                "user": "operator",
             }
         }
     )
@@ -452,8 +452,8 @@ def test_when_config_displays_human_format_it_redacts_password(
     assert result.exit_code == 0
     assert "super_secret_123" not in result.output
     assert "***REDACTED***" in result.output
-    assert "login" in result.output
-    assert "PS_EXAMPLE" in result.output
+    assert "user" in result.output
+    assert "operator" in result.output
 
 
 @pytest.mark.os_agnostic
@@ -464,9 +464,9 @@ def test_when_config_displays_json_format_it_redacts_password(
     """JSON output must redact sensitive keys like password."""
     factory = config_cli_context(
         {
-            "device": {
+            "camera": {
                 "password": "super_secret_123",
-                "login": "PS_EXAMPLE",
+                "user": "operator",
             }
         }
     )
@@ -476,7 +476,7 @@ def test_when_config_displays_json_format_it_redacts_password(
     assert result.exit_code == 0
     assert "super_secret_123" not in result.stdout
     assert "***REDACTED***" in result.stdout
-    assert "login" in result.stdout
+    assert "user" in result.stdout
 
 
 @pytest.mark.os_agnostic
@@ -569,9 +569,7 @@ def test_when_config_generate_examples_is_invoked_it_creates_files(
     ) -> list[Path]:
         return [created_file]
 
-    monkeypatch.setattr(
-        "datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples
-    )
+    monkeypatch.setattr("datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples)
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,
@@ -598,9 +596,7 @@ def test_when_config_generate_examples_has_no_files_it_informs_user(
     ) -> list[Path]:
         return []
 
-    monkeypatch.setattr(
-        "datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples
-    )
+    monkeypatch.setattr("datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples)
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,
@@ -643,9 +639,7 @@ def test_when_config_generate_examples_with_force_it_passes_force_flag(
         captured_force.append(force)
         return [created_file]
 
-    monkeypatch.setattr(
-        "datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples
-    )
+    monkeypatch.setattr("datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples)
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,
@@ -675,9 +669,7 @@ def test_when_config_generate_examples_without_force_it_defaults_to_false(
         captured_force.append(force)
         return [created_file]
 
-    monkeypatch.setattr(
-        "datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples
-    )
+    monkeypatch.setattr("datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples)
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,
@@ -703,9 +695,7 @@ def test_when_config_generate_examples_encounters_error_it_exits_with_general_er
     ) -> list[Path]:
         raise OSError("Disk full")
 
-    monkeypatch.setattr(
-        "datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples
-    )
+    monkeypatch.setattr("datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples)
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,
@@ -737,9 +727,7 @@ def test_when_config_generate_examples_it_passes_correct_metadata(
         captured_params.append({"slug": slug, "vendor": vendor, "app": app, "destination": str(destination)})
         return [created_file]
 
-    monkeypatch.setattr(
-        "datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples
-    )
+    monkeypatch.setattr("datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples)
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,
@@ -764,7 +752,7 @@ def test_when_config_generate_examples_creates_multiple_files_it_lists_all(
 ) -> None:
     """Verify config-generate-examples lists all created files."""
     file1 = tmp_path / "config.toml"
-    file2 = tmp_path / "config.d" / "50-device.toml"
+    file2 = tmp_path / "config.d" / "50-printer.toml"
     file1.touch()
     file2.parent.mkdir(parents=True)
     file2.touch()
@@ -774,9 +762,7 @@ def test_when_config_generate_examples_creates_multiple_files_it_lists_all(
     ) -> list[Path]:
         return [file1, file2]
 
-    monkeypatch.setattr(
-        "datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples
-    )
+    monkeypatch.setattr("datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples)
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,

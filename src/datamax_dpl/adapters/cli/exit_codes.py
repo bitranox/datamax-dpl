@@ -26,8 +26,8 @@ class ExitCode(IntEnum):
     * 0-1: generic success / failure
     * 2-13: errno-derived codes (ENOENT, EACCES)
     * 22: EINVAL
-    * 69: EX_UNAVAILABLE (sysexits.h): the print server did not answer
-    * 76: EX_PROTOCOL (sysexits.h): the print server answered something unexpected
+    * 69: EX_UNAVAILABLE (sysexits.h): the printer or camera did not answer
+    * 76: EX_PROTOCOL (sysexits.h): the printer answered something unexpected
     * 77: EX_NOPERM (sysexits.h): refused by policy, such as a destructive action
       without its confirmation flags
     * 78: EX_CONFIG (sysexits.h)

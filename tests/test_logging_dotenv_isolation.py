@@ -72,9 +72,9 @@ def log_variables() -> Iterator[list[str]]:
 def test_only_log_variables_from_the_dotenv_reach_the_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, log_variables: list[str]
 ) -> None:
-    app_key = f"{PREFIX}___DEVICE__HOST"
+    app_key = f"{PREFIX}___PRINTER__URI"
     log_variables.extend(["LOG_DOTENV_PROBE", app_key])
-    (tmp_path / ".env").write_text(f"{app_key}=192.0.2.99\nLOG_DOTENV_PROBE=from-dotenv\n", encoding="utf-8")
+    (tmp_path / ".env").write_text(f"{app_key}=tcp://192.0.2.99:9100\nLOG_DOTENV_PROBE=from-dotenv\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv(app_key, raising=False)
 
@@ -133,9 +133,9 @@ def test_a_dotenv_that_is_not_utf8_does_not_stop_logging(
 
 @pytest.mark.os_agnostic
 def test_a_prefixed_line_in_the_cwd_dotenv_does_not_reach_a_profile_reload(tmp_path: Path) -> None:
-    (tmp_path / ".env").write_text(f"{PREFIX}___DEVICE__HOST=192.0.2.99\n", encoding="utf-8")
+    (tmp_path / ".env").write_text(f"{PREFIX}___PRINTER__URI=tcp://192.0.2.99:9100\n", encoding="utf-8")
 
-    result = _run(tmp_path, "config", "--profile", "production", "--format", "json", "--section", "device")
+    result = _run(tmp_path, "config", "--profile", "production", "--format", "json", "--section", "printer")
 
     assert result.returncode == 0, result.stderr
     assert "192.0.2.99" not in result.stdout

@@ -300,9 +300,9 @@ def config_factory() -> Callable[[dict[str, Any]], Config]:
         Callable[[dict[str, Any]], Config]: Factory that creates Config from dict.
 
     Example:
-        def test_device_section(config_factory: Callable[[dict[str, Any]], Config]) -> None:
-            config = config_factory({"device": {"host": "192.0.2.52"}})
-            assert config.get("device.host") == "192.0.2.52"
+        def test_printer_section(config_factory: Callable[[dict[str, Any]], Config]) -> None:
+            config = config_factory({"printer": {"uri": "tcp://192.0.2.52:9100"}})
+            assert config.get("printer.uri") == "tcp://192.0.2.52:9100"
     """
 
     def _factory(data: dict[str, Any]) -> Config:
@@ -324,7 +324,7 @@ def source_info_factory() -> Callable[[str, str, str | None], SourceInfo]:
 
     Example:
         def test_provenance(source_info_factory: Callable[..., SourceInfo]) -> None:
-            info = source_info_factory("device.host", "user", "/home/user/.config/...")
+            info = source_info_factory("printer.uri", "user", "/home/user/.config/...")
             assert info["layer"] == "user"
     """
 
