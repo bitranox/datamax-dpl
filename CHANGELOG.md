@@ -31,8 +31,9 @@ attached yet.
   3.11+), `print`, `status`, `detect`, `feed`, `cut`, `pause`, `cancel` and
   `reset`.
 - Transports: TCP (port 9100), serial, a device file (USB printer class), a
-  file and stdout. A TCP write times out when the printer stops taking data
-  for longer than the timeout, on Windows too.
+  file and stdout. A TCP or serial write times out when the printer stops
+  taking data for longer than the timeout, on Windows and macOS too; a timed
+  out serial write drops what the port had not sent yet.
 - Camera feedback: `capture` takes a photo, `verify` prints a label and puts the
   photo next to the expected preview.
 - `--json` / `--json-bare` envelopes and exit codes 0 / 1 / 2 on every label and

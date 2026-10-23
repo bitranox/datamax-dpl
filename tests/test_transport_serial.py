@@ -83,6 +83,75 @@ def test_open_printer_reports_a_missing_serial_port_as_a_transport_error() -> No
         open_printer("serial:///nonexistent-dir/ttyS99?baud=19200", timeout=1.0)
 
 
+# --- draining a real port's output queue ---------------------------------------------------------
+
+
+class DrainingPort:
+    """A port whose output queue empties at ``bytes_per_tick`` every ``tick`` seconds (0: never).
+
+    ``flush`` fails at once: pyserial's own flush waits without any bound (``tcdrain`` on POSIX),
+    which is the hang the transport must not reach.
+    """
+
+    def __init__(self, *, queued: int, bytes_per_tick: int, tick: float = 0.1) -> None:
+        self.timeout: float | None = 1.0
+        self._queued = queued
+        self._bytes_per_tick = bytes_per_tick
+        self._tick = tick
+        self._started = time.monotonic()
+        self.output_discarded = False
+
+    @property
+    def out_waiting(self) -> int:
+        if self.output_discarded:
+            return 0
+        drained = int((time.monotonic() - self._started) / self._tick) * self._bytes_per_tick
+        return max(0, self._queued - drained)
+
+    def write(self, b: bytes, /) -> int | None:
+        return len(b)
+
+    def flush(self) -> None:
+        raise AssertionError("pyserial's unbounded flush was called")
+
+    def read_until(self, expected: bytes = b"\n", size: int | None = None) -> bytes:
+        return b""
+
+    def reset_input_buffer(self) -> None:
+        return None
+
+    def reset_output_buffer(self) -> None:
+        self.output_discarded = True
+
+    def close(self) -> None:
+        return None
+
+
+@pytest.mark.os_agnostic
+def test_a_port_whose_output_never_drains_times_out_and_drops_the_queued_bytes() -> None:
+    port = DrainingPort(queued=5, bytes_per_tick=0)
+    printer = SerialTransport(port, uri=LOOP, drain_timeout=0.2)
+    started = time.monotonic()
+
+    with pytest.raises(PrinterTimeoutError, match=r"took no data for 0\.2 s"):
+        printer.send(b"\x01A")
+
+    assert time.monotonic() - started < 1.0
+    assert port.output_discarded
+
+
+@pytest.mark.os_agnostic
+def test_a_port_that_drains_slower_than_the_timeout_but_steadily_does_not_time_out() -> None:
+    # Five ticks of 0.1 s to empty, against a 0.25 s timeout: the clock restarts on every byte taken.
+    port = DrainingPort(queued=5, bytes_per_tick=1)
+    printer = SerialTransport(port, uri=LOOP, drain_timeout=0.25)
+
+    printer.send(b"\x01A")
+
+    assert port.out_waiting == 0
+    assert not port.output_discarded
+
+
 # --- a real pty pair (POSIX) -------------------------------------------------------------------
 
 

@@ -8,6 +8,7 @@ needs, so the rest of the code never depends on pyserial's wider surface. Ports 
 
 from __future__ import annotations
 
+import contextlib
 import time
 from typing import Protocol
 
@@ -17,6 +18,22 @@ from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError,
 
 from .tcp import MAX_ANSWER_BYTES
 from .uri import ClosingTransport, SerialUri, check_timeout
+
+_DRAIN_POLL_SECONDS = 0.01
+
+
+def _has_output_queue(port: object) -> bool:
+    """Whether ``port`` is a real serial port, with an output queue of its own.
+
+    A URL handler's ``out_waiting`` means something else (for ``loop://`` the bytes nobody has read
+    back yet). The pyserial stubs declare every ``serial_for_url`` result a ``Serial``, but a URL
+    handler returns its own ``SerialBase`` subclass, hence the ``object`` parameter.
+
+    Example:
+        >>> _has_output_queue(serial.serial_for_url("loop://"))
+        False
+    """
+    return isinstance(port, serial.Serial)
 
 
 class SerialPort(Protocol):
@@ -42,8 +59,17 @@ class SerialPort(Protocol):
         """Read until ``expected``, ``size`` bytes or the read timeout."""
         ...
 
+    @property
+    def out_waiting(self) -> int:
+        """Bytes written and not yet sent."""
+        ...
+
     def reset_input_buffer(self) -> None:
         """Drop every byte received and not read yet."""
+        ...
+
+    def reset_output_buffer(self) -> None:
+        """Drop every byte written and not yet sent."""
         ...
 
     def close(self) -> None:
@@ -58,10 +84,19 @@ class SerialTransport(ClosingTransport):
     holding one can wrap it.
     """
 
-    def __init__(self, port: SerialPort, *, uri: SerialUri) -> None:
-        """Wrap the open ``port``."""
+    def __init__(self, port: SerialPort, *, uri: SerialUri, drain_timeout: float | None = None) -> None:
+        """Wrap the open ``port``.
+
+        Args:
+            port: The open port.
+            uri: What the port was opened from, for messages.
+            drain_timeout: Seconds the port may go without sending a queued byte before
+                :meth:`send` gives up, or ``None`` for a port with no output queue of its own (the
+                pyserial URL handlers, where written bytes are already gone).
+        """
         self._port = port
         self._uri = uri
+        self._drain_timeout = drain_timeout
 
     @classmethod
     def open(cls, uri: SerialUri, *, timeout: float) -> SerialTransport:
@@ -93,7 +128,8 @@ class SerialTransport(ClosingTransport):
             )
         except (OSError, ValueError) as exc:
             raise TransportError(f"cannot open serial {uri.path}: {exc}") from exc
-        return cls(port, uri=uri)
+        drain_timeout = timeout if _has_output_queue(port) else None
+        return cls(port, uri=uri, drain_timeout=drain_timeout)
 
     @property
     def bidirectional(self) -> bool:
@@ -104,16 +140,19 @@ class SerialTransport(ClosingTransport):
         """Write ``data`` and wait until it has left the port.
 
         Raises:
-            PrinterTimeoutError: The printer held the line (flow control) past the write timeout.
+            PrinterTimeoutError: The printer held the line (flow control) past the write timeout,
+                or the port sent none of its queued bytes for that long. The unsent bytes are
+                dropped, so they never reach the printer later as the tail of a broken job.
             TransportError: The port failed or is closed.
         """
         try:
             self._port.write(data)
-            self._port.flush()
         except serial.SerialTimeoutException as exc:
+            self._drop_queued_output()
             raise PrinterTimeoutError(f"serial {self._uri.path}: write timed out") from exc
         except OSError as exc:
             raise TransportError(f"cannot write to serial {self._uri.path}: {exc}") from exc
+        self._drain()
 
     def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r", lines: int = 1) -> bytes:
         """Send ``request`` and return the answer up to and including ``terminator``.
@@ -143,6 +182,38 @@ class SerialTransport(ClosingTransport):
     def close(self) -> None:
         """Close the port; safe to call twice."""
         self._port.close()
+
+    def _drain(self) -> None:
+        """Wait until the output queue is empty; the clock restarts whenever a byte leaves it.
+
+        pyserial's ``flush`` is not used because it waits without any bound: ``tcdrain`` on POSIX
+        (on macOS a pty nobody reads holds it forever) and an unbounded poll on Windows. A tty also
+        waits for queued output when it is closed, so on a timeout the queue is dropped first.
+        """
+        if self._drain_timeout is None:
+            return
+        try:
+            waiting = self._port.out_waiting
+            deadline = time.monotonic() + self._drain_timeout
+            while waiting:
+                if time.monotonic() >= deadline:
+                    self._drop_queued_output()
+                    raise PrinterTimeoutError(
+                        f"serial {self._uri.path}: the printer took no data for {self._drain_timeout:g} s "
+                        f"({waiting} bytes not sent)"
+                    )
+                time.sleep(_DRAIN_POLL_SECONDS)
+                still_waiting = self._port.out_waiting
+                if still_waiting < waiting:
+                    deadline = time.monotonic() + self._drain_timeout
+                waiting = still_waiting
+        except OSError as exc:
+            raise TransportError(f"cannot write to serial {self._uri.path}: {exc}") from exc
+
+    def _drop_queued_output(self) -> None:
+        """Discard what the port has not sent yet; a port that refuses has nothing to discard."""
+        with contextlib.suppress(OSError):
+            self._port.reset_output_buffer()
 
     def _read_lines(self, terminator: bytes, *, timeout: float, lines: int) -> bytes:
         """Read ``lines`` terminated chunks within one overall ``timeout``."""

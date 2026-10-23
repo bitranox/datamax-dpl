@@ -54,6 +54,7 @@ dev = [
   "pillow>=13.0.0; python_version >= '3.11'",
   "pytest>=9.1.1",
   "pytest-cov>=7.1.0",
+  "pytest-timeout>=2.4.0",
   "hypothesis>=6.168.5",
   "ruff>=0.17.1",
   "pyright[nodejs]>=1.1.414",
@@ -198,6 +199,7 @@ markers = [
   "local_only: tests that require the local dev environment (external resources, script composition); skipped in CI",
   "integration: tests requiring external resources (a real printer, camera or network); run via 'bmk ti'",
 ]
+timeout = 300 # a hung test fails with a stack dump instead of holding a CI runner for hours
 
 [tool.coverage.run]
 branch = true
