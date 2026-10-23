@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
-from ..domain.errors import LabelRejectedError, PrinterTimeoutError
+from ..domain.detect import Detection, Evidence, suggest_profiles
+from ..domain.errors import LabelRejectedError, PrinterProtocolError, PrinterTimeoutError
 from ..domain.placeholders import fill_label
 from ..domain.render import RenderResult, build_job
 from ..domain.status import (
@@ -20,10 +21,15 @@ from ..domain.status import (
     CUT_NOW,
     FORM_FEED,
     RESET,
+    MEMORY_REQUEST,
+    SERIAL_TEST_REQUEST,
     STATUS_REQUEST,
     TOGGLE_PAUSE,
+    VERSION_REQUEST,
     PrinterStatus,
     parse_ascii_status,
+    parse_memory_report,
+    parse_version,
 )
 
 if TYPE_CHECKING:
@@ -32,7 +38,7 @@ if TYPE_CHECKING:
     from ..domain.findings import Finding
     from ..domain.label import Label
     from ..domain.render_context import RenderOptions
-    from .ports import Clock, OpenPrinter, Sleep
+    from .ports import OpenPrinter, PrinterTransport
 
 
 class BatchResult(BaseModel):
@@ -145,35 +151,51 @@ def query_status(*, uri: str, timeout: float, open_printer: OpenPrinter) -> Prin
         return parse_ascii_status(printer.query(STATUS_REQUEST, timeout=timeout))
 
 
-def wait_until_idle(
-    *, uri: str, timeout: float, poll_seconds: float, open_printer: OpenPrinter, sleep: Sleep, clock: Clock
-) -> PrinterStatus:
-    """Poll the status until the printer is idle, or raise when ``timeout`` passes.
+class DetectReport(BaseModel):
+    """Evidence collected from the printer and the profiles that fit it."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    evidence: Evidence
+    detection: Detection
+
+
+def _ask(printer: PrinterTransport, request: bytes, *, timeout: float) -> bytes | None:
+    try:
+        return printer.query(request, timeout=timeout)
+    except (PrinterTimeoutError, PrinterProtocolError):
+        return None
+
+
+def detect_printer(*, uri: str, timeout: float, open_printer: OpenPrinter) -> DetectReport:
+    """Ask the printer what it answers and suggest the profiles that fit.
 
     Raises:
-        PrinterTimeoutError: Still busy at the deadline.
+        UnsupportedOperationError: The channel cannot read answers.
+        TransportError: The printer could not be reached.
     """
-    deadline = clock() + timeout
     with closing(open_printer(uri, timeout=timeout)) as printer:
-        while True:
-            status = parse_ascii_status(printer.query(STATUS_REQUEST, timeout=timeout))
-            if status.idle or status.problems:
-                return status
-            if clock() >= deadline:
-                msg = f"printer still busy after {timeout:g} s"
-                raise PrinterTimeoutError(msg)
-            sleep(poll_seconds)
+        serial = _ask(printer, SERIAL_TEST_REQUEST, timeout=timeout)
+        version = _ask(printer, VERSION_REQUEST, timeout=timeout)
+        memory = _ask(printer, MEMORY_REQUEST, timeout=timeout)
+    evidence = Evidence(
+        serial_test=None if serial is None else serial.strip().startswith(b"Y"),
+        version=None if version is None else parse_version(version),
+        memory=None if memory is None else parse_memory_report(memory),
+    )
+    return DetectReport(evidence=evidence, detection=suggest_profiles(evidence))
 
 
 __all__ = [
     "BatchResult",
+    "DetectReport",
     "PrintReport",
     "PrinterCommand",
+    "detect_printer",
     "print_result",
     "query_status",
     "render_batch",
     "render_label",
     "send_bytes",
     "send_command",
-    "wait_until_idle",
 ]
