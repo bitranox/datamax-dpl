@@ -211,12 +211,12 @@ DPL letters, A = 1.0 inch per second up to S = 10.0, in steps of 0.5.
 |--------------------|-----------------|-------------|----------|--------------------|------------------|------------------|---------------------|----------|-------------------|----------------------|
 | `generic`          | no              | no          | no       | no                 | no               | no               | no                  | no       | no                | no                   |
 | `permissive`       | yes             | yes         | yes      | yes                | yes              | yes              | yes                 | yes      | yes               | yes                  |
-| `allegro`          | no              | no          | no       | no                 | no               | no               | no                  | fw 3.02  | option datamatrix | yes                  |
-| `allegro-2`        | no              | no          | no       | no                 | no               | no               | no                  | fw 3.02  | option datamatrix | yes                  |
-| `prodigy`          | no              | no          | no       | no                 | no               | no               | no                  | fw 3.02  | option datamatrix | yes                  |
-| `prodigy-152`      | no              | no          | no       | no                 | no               | no               | no                  | fw 3.02  | option datamatrix | yes                  |
-| `prodigy-plus`     | no              | no          | no       | yes                | no               | no               | no                  | fw 3.02  | option datamatrix | no                   |
-| `prodigy-plus-152` | no              | no          | no       | yes                | no               | no               | no                  | fw 3.02  | option datamatrix | no                   |
+| `allegro`          | no              | no          | no       | no                 | no               | no               | no                  | fw 3.20  | option datamatrix | yes                  |
+| `allegro-2`        | no              | no          | no       | no                 | no               | no               | no                  | fw 3.20  | option datamatrix | yes                  |
+| `prodigy`          | no              | no          | no       | no                 | no               | no               | no                  | fw 3.20  | option datamatrix | yes                  |
+| `prodigy-152`      | no              | no          | no       | no                 | no               | no               | no                  | fw 3.20  | option datamatrix | yes                  |
+| `prodigy-plus`     | no              | no          | no       | yes                | no               | no               | no                  | fw 3.20  | option datamatrix | no                   |
+| `prodigy-plus-152` | no              | no          | no       | yes                | no               | no               | no                  | fw 3.20  | option datamatrix | no                   |
 | `dmx-400`          | yes             | yes         | no       | yes                | fw 2.01          | no               | yes                 | yes      | option datamatrix | yes                  |
 | `dmx-430`          | yes             | yes         | no       | yes                | yes              | no               | yes                 | yes      | option datamatrix | yes                  |
 | `dmx-600`          | yes             | yes         | fw 2.01  | yes                | yes              | fw 2.01          | yes                 | yes      | option datamatrix | yes                  |

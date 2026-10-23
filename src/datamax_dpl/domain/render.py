@@ -111,8 +111,9 @@ def _context(label: Label, options: RenderOptions) -> RenderContext:
     return probe
 
 
-def _check_label_level(label: Label, ctx: RenderContext) -> None:
-    unfilled = label_placeholders(label)
+def _check_label_level(label: Label, ctx: RenderContext, *, filled: bool) -> None:
+    # A filled record's remaining braces are literal text that came from {{ }}, not placeholders.
+    unfilled = [] if filled else label_placeholders(label)
     if unfilled:
         ctx.findings.warn("placeholders_unfilled", f"placeholders without data: {', '.join(unfilled)}")
     if label.width is not None and ctx.inch_hundredths(label.width) > round(ctx.profile.print_width_in * 100):
@@ -133,7 +134,7 @@ def _count_records(lines: list[bytes]) -> int:
     return sum(1 for item in lines if item[:1].decode("ascii", "replace") in _RECORD_PREFIXES)
 
 
-def build_job(label: Label, options: RenderOptions | None = None) -> RenderResult:
+def build_job(label: Label, options: RenderOptions | None = None, *, filled: bool = False) -> RenderResult:
     """Render ``label`` for ``options.model`` and report every finding; never raises for a finding.
 
     Raises:
@@ -142,7 +143,7 @@ def build_job(label: Label, options: RenderOptions | None = None) -> RenderResul
     """
     options = options or RenderOptions()
     ctx = _context(label, options)
-    _check_label_level(label, ctx)
+    _check_label_level(label, ctx, filled=filled)
     prefix = system_prefix(label, ctx)
     body = _encode_elements(label.elements, ctx)
     record_count = _count_records(body)

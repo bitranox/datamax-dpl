@@ -202,13 +202,13 @@ _FAMILY_FEATURES: dict[str, dict[Feature, Support]] = {
         Feature.CIRCLE_POLYGON: NO,
         Feature.SCALABLE_FONTS: NO,
         Feature.EXTENDED_BARCODES: NO,
-        Feature.PDF417: from_firmware(3, 2),
+        Feature.PDF417: from_firmware(3, 20),
     },
     "prodigy": dict.fromkeys(Feature, NO)
     | {
         Feature.CUTTER_PULSE: YES,
         Feature.DEFAULT_BAR_WIDTHS: YES,
-        Feature.PDF417: from_firmware(3, 2),
+        Feature.PDF417: from_firmware(3, 20),
         Feature.DATAMATRIX: DATAMATRIX_OPTION,
     },
     "prodigy-plus": _ALL_FEATURES_YES
@@ -222,7 +222,7 @@ _FAMILY_FEATURES: dict[str, dict[Feature, Support]] = {
         Feature.CIRCLE_POLYGON: NO,
         Feature.SCALABLE_FONTS: NO,
         Feature.EXTENDED_BARCODES: NO,
-        Feature.PDF417: from_firmware(3, 2),
+        Feature.PDF417: from_firmware(3, 20),
         Feature.DEFAULT_BAR_WIDTHS: NO,
     },
     "dmx-400": _ALL_FEATURES_YES
@@ -415,7 +415,7 @@ def _permissive() -> PrinterProfile:
 PROFILES: dict[str, PrinterProfile] = {"generic": _generic(), "permissive": _permissive(), **MODEL_PROFILES}
 
 
-class UnknownModelError(KeyError):
+class UnknownModelError(LookupError):
     """Raised for a model id that has no profile."""
 
 
@@ -453,7 +453,7 @@ def parse_firmware(text: str) -> Firmware | None:
 
     Example:
         >>> parse_firmware("3.2")
-        (3, 2)
+        (3, 20)
         >>> parse_firmware("") is None
         True
     """
@@ -464,9 +464,11 @@ def parse_firmware(text: str) -> Firmware | None:
     if match is None:
         msg = f"firmware must look like 2.01, got {text!r}"
         raise ValueError(msg)
-    return int(match["major"]), int(match["minor"])
+    # Versions are decimals: "3.2" is 3.20, so a one-digit minor is padded on the right.
+    return int(match["major"]), int(match["minor"].ljust(_MINOR_DIGITS, "0"))
 
 
+_MINOR_DIGITS = 2
 _FIRMWARE = re.compile(r"(?P<major>[0-9]{1,3})\.(?P<minor>[0-9]{1,3})")
 
 

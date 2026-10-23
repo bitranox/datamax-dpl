@@ -158,7 +158,7 @@ select = [
 convention = "google"
 
 [tool.ruff.lint.flake8-type-checking]
-# The Pydantic models (EmailConfig, LoggingConfigModel)
+# The Pydantic models (LoggingConfigModel, the label and settings models)
 # resolve their field annotations at model-build time, so their field-type imports
 # must stay at runtime even though the file uses ``from __future__ import annotations``.
 # Telling ruff about the Pydantic base keeps TC001/TC002/TC003 from moving those
@@ -167,7 +167,7 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 
 [tool.ruff.lint.per-file-ignores]
 # Notebooks: unused imports are often intentional for side effects
-"notebooks/*.ipynb" = ["F401"]
+"notebooks/*.ipynb" = ["F401", "F821", "S101"] # IPython defines _exit_code after each ! line; asserts are how the notebook fails
 # Tests: assert is standard, test fixtures have passwords, magic values are clearer inline, temp paths are fine.
 # PLC0415: local/deferred imports are a deliberate test idiom - several tests import inside the test
 # body to exercise import-time and cache behaviour, so moving them to module top would defeat intent.
@@ -177,7 +177,6 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 # Protocols/adapters: many-param signatures by design
 "src/datamax_dpl/application/*.py" = ["PLR0913"]
 "src/datamax_dpl/adapters/config/*.py" = ["PLR0913"]
-"src/datamax_dpl/adapters/email/*.py" = ["PLR0913"]
 "src/datamax_dpl/adapters/memory/*.py" = ["PLR0913"]
 
 [tool.pyright]
@@ -197,7 +196,7 @@ markers = [
   "os_posix: test exercises behavior requiring POSIX semantics",
   "os_linux: test exercises Linux-only behavior",
   "local_only: tests that require the local dev environment (external resources, script composition); skipped in CI",
-  "integration: tests requiring external resources (SMTP, databases, APIs); run via 'bmk ti' or 'mktesti.sh'",
+  "integration: tests requiring external resources (a real printer, camera or network); run via 'bmk ti'",
 ]
 
 [tool.coverage.run]

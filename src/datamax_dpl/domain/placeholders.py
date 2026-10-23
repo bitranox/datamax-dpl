@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 _TOKEN = re.compile(r"\{\{|\}\}|\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
-class MissingFieldError(KeyError):
+class MissingFieldError(LookupError):
     """A placeholder names a field the data record does not have."""
 
 

@@ -84,10 +84,10 @@ def render_batch(label: Label, records: Iterable[Mapping[str, str]], options: Re
     """
     cut = label.cut
     if cut is None or cut.every == 1 or label.quantity > 1:
-        results = tuple(build_job(fill_label(label, record), options) for record in records)
+        results = tuple(build_job(fill_label(label, record), options, filled=True) for record in records)
         return BatchResult(data=b"".join(result.data for result in results), results=results)
     per_record = label.model_copy(update={"cut": Cut(every=1, at_end=False)})
-    results = tuple(build_job(fill_label(per_record, record), options) for record in records)
+    results = tuple(build_job(fill_label(per_record, record), options, filled=True) for record in records)
     data, findings = cut_across_records([r.data for r in results], cut=cut, options=options)
     return BatchResult(data=data, results=results, batch_findings=findings)
 

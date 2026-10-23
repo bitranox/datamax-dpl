@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
-from ..domain.camera import CameraSettings, CapturedImage
-from ..domain.errors import LabelRejectedError, PrinterTimeoutError
+from ..domain.camera import CameraKind, CameraSettings, CapturedImage
+from ..domain.errors import CameraError, LabelRejectedError, PrinterTimeoutError
 from ..domain.png import encode_png
 from ..domain.preview import preview_bitmap
 from ..domain.status import STATUS_REQUEST, PrinterStatus, parse_ascii_status
@@ -103,6 +103,9 @@ def verify_print(
     if not result.ok:
         msg = "label has errors; nothing was printed"
         raise LabelRejectedError(msg)
+    if camera.kind is CameraKind.NONE:
+        msg = "no camera configured: set [camera] kind; nothing was printed"
+        raise CameraError(msg)
     status = _print_and_wait(result.data, uri=uri, timeout=timeout, open_printer=open_printer, sleep=sleep, clock=clock)
     sleep(camera.settle_seconds)
     photo = capture(camera, output_dir=output_dir)

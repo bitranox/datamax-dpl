@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from ...domain.camera import CameraSettings
 from ...domain.enums import FallbackPolicy
@@ -37,6 +37,18 @@ class PrinterSettings(BaseModel):
     timeout: float = Field(default=10.0, gt=0)
     cutter: Literal["yes", "no", "unknown"] = "unknown"
     options: list[str] = Field(default_factory=list[str])
+
+    @field_validator("firmware", mode="before")
+    @classmethod
+    def _firmware_as_text(cls, value: object) -> object:
+        """Accept 2.01 as the layered config delivers an unquoted env value: a number.
+
+        A float loses trailing zeros (2.10 arrives as 2.1), which ``parse_firmware`` reads the
+        same way, so the comparison is unaffected.
+        """
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return str(value)
+        return value
 
 
 class PrinterOverrides(BaseModel):

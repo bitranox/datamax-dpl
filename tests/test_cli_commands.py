@@ -250,6 +250,8 @@ def test_verify_prints_waits_photographs_and_writes_the_expected_preview(cli_run
     camera = FakeCamera()
     args = [
         "--json",
+        "--set",
+        "camera.kind=file",
         "verify",
         write_json(tmp_path / "l.json", SIMPLE),
         "--printer",
@@ -290,3 +292,37 @@ def test_a_batch_cut_on_a_model_without_cut_now_falls_back(cli_runner: CliRunner
     assert result.exit_code == 0, result.output
     assert "batch_cut_unsupported" in {f["code"] for f in envelope(result)["data"]["findings"]}
     assert b"\x02o" not in base64.b64decode(envelope(result)["data"]["dpl_base64"])
+
+
+@pytest.mark.os_agnostic
+def test_verify_without_a_camera_prints_nothing(cli_runner: CliRunner, tmp_path: Path) -> None:
+    printer = RecordingPrinter(answers={b"\x01A": IDLE})
+    label = write_json(tmp_path / "l.json", SIMPLE)
+    result = run(cli_runner, ["--json", "verify", label, "--printer", PRINTER], factory(printer))
+    assert result.exit_code == 2
+    assert envelope(result)["error"] == "CameraError"
+    assert printer.data == b""
+
+
+@pytest.mark.os_agnostic
+def test_firmware_from_an_unquoted_setting_is_accepted(cli_runner: CliRunner, tmp_path: Path) -> None:
+    circle = write_json(tmp_path / "c.json", CIRCLE)
+    result = run(cli_runner, ["--json", "--set", "printer.firmware=2.01", "validate", circle, "--model", "dmx-400"])
+    assert result.exit_code == 0, result.output
+    assert "circle_rasterized" not in {f["code"] for f in envelope(result)["data"]["findings"]}
+
+
+@pytest.mark.os_agnostic
+def test_an_unknown_model_message_is_not_quoted_twice(cli_runner: CliRunner, tmp_path: Path) -> None:
+    result = run(cli_runner, ["--json", "validate", write_json(tmp_path / "l.json", SIMPLE), "--model", "nope"])
+    assert envelope(result)["message"].startswith("unknown printer model 'nope'")
+
+
+@pytest.mark.os_agnostic
+def test_escaped_braces_in_a_batch_are_not_reported_as_placeholders(cli_runner: CliRunner, tmp_path: Path) -> None:
+    label = {"elements": [{"type": "text", "x": 5, "y": 5, "text": "{n} {{b}}"}]}
+    data = tmp_path / "n.csv"
+    data.write_text("n\n1\n", encoding="utf-8")
+    result = run(cli_runner, ["--json", "render", write_json(tmp_path / "l.json", label), "--data", str(data)])
+    assert result.exit_code == 0, result.output
+    assert "placeholders_unfilled" not in {f["code"] for f in envelope(result)["data"]["findings"]}

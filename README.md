@@ -103,10 +103,7 @@ datamax-dpl render examples/shipping-label.json --data examples/shipping-records
 The same from Python:
 
 ```python
-from datamax_dpl.domain.label import Barcode, Label, Text
-from datamax_dpl.domain.render import render
-from datamax_dpl.domain.render_context import RenderOptions
-from datamax_dpl.domain.symbology import Symbology
+from datamax_dpl import Barcode, Label, RenderOptions, Symbology, Text, render
 
 label = Label(
     width=60,
@@ -122,11 +119,10 @@ for finding in result.findings:
     print(finding.severity.value, finding.code, finding.message)
 ```
 
-`render` raises `LabelRejectedError` (from `datamax_dpl.domain.errors`) when a finding is an
-error; `datamax_dpl.domain.render.build_job` returns the same result without raising. For data
-records use `render_batch(label, records, options)` from `datamax_dpl.application.use_cases`, and
-to send bytes open a transport with `datamax_dpl.adapters.transport.open_printer(uri, timeout=10)`
-and call `send(data)` on it.
+`render` raises `LabelRejectedError` when a finding is an error; `build_job` returns the same
+result without raising. For data records use `render_batch(label, records, options)`, and to send
+bytes open a transport with `open_printer(uri, timeout=10)` and call `send(data)` on it. All of
+these are imported from `datamax_dpl`.
 
 ## The label format
 
