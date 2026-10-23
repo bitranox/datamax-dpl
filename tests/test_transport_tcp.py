@@ -1,0 +1,258 @@
+"""Raw TCP transport against a real socket server on 127.0.0.1."""
+
+from __future__ import annotations
+
+import contextlib
+import select
+import socket
+import threading
+import time
+from typing import TYPE_CHECKING
+
+import pytest
+
+from datamax_dpl.adapters.transport import open_printer
+from datamax_dpl.adapters.transport.tcp import MAX_ANSWER_BYTES, TcpTransport
+from datamax_dpl.adapters.transport.uri import TcpUri
+from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
+JOIN_SECONDS = 5.0
+
+
+class PrinterServer:
+    """A one-connection server; ``handler`` plays the printer on the accepted socket."""
+
+    def __init__(self, handler: Callable[[socket.socket], None]) -> None:
+        self.listener = socket.create_server(("127.0.0.1", 0))
+        self.port: int = self.listener.getsockname()[1]
+        self.received = bytearray()
+        self._handler = handler
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    @property
+    def uri(self) -> TcpUri:
+        return TcpUri(host="127.0.0.1", port=self.port)
+
+    def _serve(self) -> None:
+        connection, _ = self.listener.accept()
+        with connection:
+            self._handler(connection)
+
+    def read_exactly(self, connection: socket.socket, count: int) -> bytes:
+        data = bytearray()
+        while len(data) < count:
+            chunk = connection.recv(count - len(data))
+            if not chunk:
+                break
+            data += chunk
+        self.received += data
+        return bytes(data)
+
+    def read_to_end(self, connection: socket.socket) -> None:
+        # A client that closes with our answer still unread resets the connection: that is its end.
+        with contextlib.suppress(ConnectionResetError):
+            while chunk := connection.recv(65536):
+                self.received += chunk
+
+    def join(self) -> None:
+        self._thread.join(JOIN_SECONDS)
+        self.listener.close()
+
+
+@pytest.fixture
+def serve() -> Iterator[Callable[[Callable[[PrinterServer, socket.socket], None]], PrinterServer]]:
+    servers: list[PrinterServer] = []
+
+    def start(play: Callable[[PrinterServer, socket.socket], None]) -> PrinterServer:
+        holder: list[PrinterServer] = []
+        server = PrinterServer(lambda connection: play(holder[0], connection))
+        holder.append(server)
+        servers.append(server)
+        return server
+
+    yield start
+    for server in servers:
+        server.join()
+
+
+def _answer(request: bytes, answer: bytes) -> Callable[[PrinterServer, socket.socket], None]:
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        server.read_exactly(connection, len(request))
+        connection.sendall(answer)
+        server.read_to_end(connection)
+
+    return play
+
+
+def _silent(server: PrinterServer, connection: socket.socket) -> None:
+    server.read_to_end(connection)
+
+
+@pytest.mark.os_agnostic
+def test_sent_bytes_arrive_identical(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(_silent)
+    payload = bytes(range(256)) * 300 + b"\x02L\rD11\r\x0dE\r"
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        printer.send(payload[:1000])
+        printer.send(payload[1000:])
+    server.join()
+    assert bytes(server.received) == payload
+
+
+@pytest.mark.os_agnostic
+def test_a_query_returns_the_answer_with_its_terminator(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(_answer(b"\x01A", b"NNNNNNNN\rtrailing"))
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        assert printer.bidirectional
+        assert printer.query(b"\x01A", timeout=1.0) == b"NNNNNNNN\r"
+    server.join()
+    assert bytes(server.received) == b"\x01A"
+
+
+@pytest.mark.os_agnostic
+def test_an_answer_split_over_several_packets_is_joined(serve: Callable[..., PrinterServer]) -> None:
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        server.read_exactly(connection, 2)
+        for part in (b"VER ", b"DA - 01", b".01\r\n"):
+            connection.sendall(part)
+            time.sleep(0.02)
+        server.read_to_end(connection)
+
+    server = serve(play)
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        assert printer.query(b"\x02v", timeout=1.0, terminator=b"\r\n") == b"VER DA - 01.01\r\n"
+
+
+@pytest.mark.os_agnostic
+def test_a_printer_that_never_answers_times_out_within_the_timeout(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(_silent)
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        started = time.monotonic()
+        with pytest.raises(PrinterTimeoutError, match="no complete answer"):
+            printer.query(b"\x01A", timeout=0.3)
+        elapsed = time.monotonic() - started
+    assert 0.25 <= elapsed < 1.5
+
+
+@pytest.mark.os_agnostic
+def test_a_partial_answer_then_silence_times_out(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(_answer(b"\x01A", b"NNNN"))
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer, pytest.raises(PrinterTimeoutError, match="4 bytes"):
+        printer.query(b"\x01A", timeout=0.3)
+
+
+@pytest.mark.os_agnostic
+def test_an_answer_longer_than_the_bound_is_a_protocol_error(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(_answer(b"\x02KQ", b"x" * (MAX_ANSWER_BYTES + 10)))
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer, pytest.raises(PrinterProtocolError):
+        printer.query(b"\x02KQ", timeout=1.5)
+
+
+@pytest.mark.os_agnostic
+def test_a_terminator_past_the_bound_is_a_protocol_error(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(_answer(b"\x02KQ", b"x" * MAX_ANSWER_BYTES + b"\r"))
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer, pytest.raises(PrinterProtocolError):
+        printer.query(b"\x02KQ", timeout=1.5)
+
+
+@pytest.mark.os_agnostic
+def test_an_answer_exactly_at_the_bound_is_accepted(serve: Callable[..., PrinterServer]) -> None:
+    answer = b"x" * (MAX_ANSWER_BYTES - 1) + b"\r"
+    server = serve(_answer(b"\x02KQ", answer))
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        assert printer.query(b"\x02KQ", timeout=1.5) == answer
+
+
+@pytest.mark.os_agnostic
+def test_a_printer_hanging_up_mid_answer_is_a_transport_error(serve: Callable[..., PrinterServer]) -> None:
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        server.read_exactly(connection, 2)
+        connection.sendall(b"NN")
+
+    server = serve(play)
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        with pytest.raises(TransportError, match="closed the connection") as caught:
+            printer.query(b"\x01A", timeout=1.0)
+        assert not isinstance(caught.value, PrinterTimeoutError)
+
+
+@pytest.mark.os_agnostic
+def test_bytes_waiting_before_a_query_are_not_read_as_its_answer(serve: Callable[..., PrinterServer]) -> None:
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        connection.sendall(b"stale\r")
+        server.read_exactly(connection, 2)
+        connection.sendall(b"fresh\r")
+        server.read_to_end(connection)
+
+    server = serve(play)
+    sock = socket.create_connection(("127.0.0.1", server.port), timeout=2.0)
+    readable, _, _ = select.select([sock], [], [], 2.0)
+    assert readable, "the stale answer never arrived"
+    with TcpTransport(sock, uri=server.uri, timeout=2.0) as printer:
+        assert printer.query(b"\x01A", timeout=1.0) == b"fresh\r"
+
+
+@pytest.mark.os_agnostic
+def test_a_send_the_printer_does_not_take_times_out(serve: Callable[..., PrinterServer]) -> None:
+    stop = threading.Event()
+
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        stop.wait(JOIN_SECONDS)
+
+    server = serve(play)
+    try:
+        with TcpTransport.connect(server.uri, timeout=0.3) as printer:
+            started = time.monotonic()
+            with pytest.raises(PrinterTimeoutError, match="cannot write to tcp"):
+                printer.send(b"x" * (64 * 1024 * 1024))
+            assert time.monotonic() - started < 1.5
+    finally:
+        stop.set()
+
+
+@pytest.mark.os_agnostic
+def test_a_refused_connection_is_a_transport_error() -> None:
+    with socket.create_server(("127.0.0.1", 0)) as probe:
+        port = probe.getsockname()[1]
+    with pytest.raises(TransportError, match=f"tcp 127.0.0.1:{port}"):
+        open_printer(f"tcp://127.0.0.1:{port}", timeout=1.0)
+
+
+@pytest.mark.os_agnostic
+def test_open_printer_connects_a_tcp_uri(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(_silent)
+    printer = open_printer(f"tcp://127.0.0.1:{server.port}", timeout=2.0)
+    try:
+        printer.send(b"\x01A")
+    finally:
+        printer.close()
+    server.join()
+    assert bytes(server.received) == b"\x01A"
+
+
+@pytest.mark.os_agnostic
+def test_a_closed_transport_refuses_and_closes_twice(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(_silent)
+    printer = TcpTransport.connect(server.uri, timeout=2.0)
+    printer.close()
+    printer.close()
+    with pytest.raises(TransportError, match="closed"):
+        printer.send(b"x")
+    with pytest.raises(TransportError, match="closed"):
+        printer.query(b"x", timeout=1.0)
+
+
+@pytest.mark.os_agnostic
+def test_query_arguments_are_checked(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(_silent)
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        with pytest.raises(ValueError, match="terminator"):
+            printer.query(b"x", timeout=1.0, terminator=b"")
+        with pytest.raises(ValueError, match="timeout"):
+            printer.query(b"x", timeout=0.0)
+    with pytest.raises(ValueError, match="timeout"):
+        TcpTransport.connect(server.uri, timeout=-1.0)
