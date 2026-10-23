@@ -28,25 +28,27 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 Run without installing:
 
 ```bash
+uvx datamax-dpl --help
+uvx --from "datamax-dpl[preview]" datamax-dpl --help
+# the current main branch from GitHub
 uvx --from git+https://github.com/bitranox/datamax-dpl datamax-dpl --help
-uvx --from "datamax-dpl[preview] @ git+https://github.com/bitranox/datamax-dpl" datamax-dpl --help
 ```
 
 Install as a command line tool (isolated environment, added to PATH):
 
 ```bash
-uv tool install git+https://github.com/bitranox/datamax-dpl
-# once on PyPI
 uv tool install datamax-dpl
 uv tool upgrade datamax-dpl
+# the current main branch from GitHub
+uv tool install git+https://github.com/bitranox/datamax-dpl
 ```
 
 Add it to a project:
 
 ```bash
-uv add git+https://github.com/bitranox/datamax-dpl
-# once on PyPI
 uv add datamax-dpl
+# the current main branch from GitHub
+uv add git+https://github.com/bitranox/datamax-dpl
 ```
 
 ## With pip
@@ -54,12 +56,11 @@ uv add datamax-dpl
 ```bash
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install "git+https://github.com/bitranox/datamax-dpl"
-# with lettered previews
-pip install "datamax-dpl[preview] @ git+https://github.com/bitranox/datamax-dpl"
-# once on PyPI
 pip install datamax-dpl
+# with lettered previews
 pip install "datamax-dpl[preview]"
+# the current main branch from GitHub
+pip install "git+https://github.com/bitranox/datamax-dpl"
 ```
 
 ## From a checkout

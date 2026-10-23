@@ -12,7 +12,7 @@ model, applies or refuses fallbacks, renders the DPL and sends it. Every flag is
 ## Run it
 
 ```bash
-uvx --from git+https://github.com/bitranox/datamax-dpl datamax-dpl --help   # once on PyPI: uvx datamax-dpl
+uvx datamax-dpl --help   # or the main branch: uvx --from git+https://github.com/bitranox/datamax-dpl datamax-dpl
 ```
 
 Only `--json` / `--json-bare` (and `--set SECTION.KEY=VALUE`) go BEFORE the command; every

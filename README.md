@@ -32,14 +32,13 @@ notice goes away.
 
 ## Install
 
-Python 3.10 or newer. Until the first release on PyPI, run it straight from GitHub with
-[uv](https://docs.astral.sh/uv/):
+Python 3.10 or newer. Run it without installing, with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uvx --from git+https://github.com/bitranox/datamax-dpl datamax-dpl --help
+uvx datamax-dpl --help
 ```
 
-Once it is on PyPI:
+or install it:
 
 ```bash
 uv tool install datamax-dpl
@@ -51,8 +50,8 @@ pip install datamax-dpl
 Python 3.11 or newer) it writes the actual text into the picture:
 
 ```bash
-uvx --from "datamax-dpl[preview] @ git+https://github.com/bitranox/datamax-dpl" datamax-dpl --help
-# once on PyPI
+uvx --from "datamax-dpl[preview]" datamax-dpl --help
+# or
 pip install "datamax-dpl[preview]"
 ```
 
