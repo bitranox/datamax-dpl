@@ -30,7 +30,7 @@ MEMORY_REPORT_MODELS = frozenset(
 )
 _PRODIGY = frozenset({"prodigy", "prodigy-152"})
 #: Relative tolerance when matching the reported label width against a model's print width.
-WIDTH_TOLERANCE = 0.05
+WIDTH_TOLERANCE = 0.02
 _HUNDREDTHS = 100
 _MM_TENTHS_PER_INCH = 254
 
