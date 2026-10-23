@@ -453,8 +453,8 @@ Profile directories are **separate namespaces**. Configuration deployed with a p
 The `[device]` section (shipped in `config.d/50-device.toml`) names the SerComm print server the
 CLI talks to. Every key ships empty or at its default, so nothing is contacted until a host is set.
 
-| Key             | Type             | Default | Environment variable                          | Meaning                                                                                 |
-|-----------------|------------------|---------|-----------------------------------------------|-----------------------------------------------------------------------------------------|
+| Key             | Type             | Default | Environment variable                  | Meaning                                                                                 |
+|-----------------|------------------|---------|---------------------------------------|-----------------------------------------------------------------------------------------|
 | `host`          | string           | `""`    | `DATAMAX_DPL___DEVICE__HOST`          | IPv4 address or host name of the print server                                           |
 | `login`         | string           | `""`    | `DATAMAX_DPL___DEVICE__LOGIN`         | FTP login name; empty means "ask the device for its name first"                         |
 | `password`      | string           | `""`    | `DATAMAX_DPL___DEVICE__PASSWORD`      | FTP password (factory default: none); shown as `***REDACTED***` by `config`             |

@@ -84,7 +84,6 @@ class CheckLoggingConfig(Protocol):
     def __call__(self, config: Config) -> None: ...
 
 
-
 class PrinterTransport(Protocol):
     """An open byte channel to one printer (raw socket, serial port, device file, file, stdout).
 
