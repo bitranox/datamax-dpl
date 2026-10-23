@@ -22,15 +22,15 @@ from btx_lib_mail import ConfMail
 from lib_layered_config import Config
 from pydantic import ValidationError
 
-from bitranox_template_py_cli import __init__conf__
-from bitranox_template_py_cli.adapters.cli.main import main
-from bitranox_template_py_cli.adapters.email.config import (
+from datamax_dpl import __init__conf__
+from datamax_dpl.adapters.cli.main import main
+from datamax_dpl.adapters.email.config import (
     FILE_KEY_TO_FIELD,
     EmailConfig,
     describe_validation_error,
     load_email_config_from_dict,
 )
-from bitranox_template_py_cli.composition import AppServices, build_production, build_testing
+from datamax_dpl.composition import AppServices, build_production, build_testing
 
 if TYPE_CHECKING:
     from collections.abc import Callable

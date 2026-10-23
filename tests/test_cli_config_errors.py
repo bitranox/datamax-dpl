@@ -32,9 +32,9 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from lib_layered_config import Config, ConfigError, DeployPermissionsError, PermissionProblem
 
-from bitranox_template_py_cli import __init__conf__
-from bitranox_template_py_cli.adapters import cli as cli_mod
-from bitranox_template_py_cli.composition import AppServices, build_production, build_testing
+from datamax_dpl import __init__conf__
+from datamax_dpl.adapters import cli as cli_mod
+from datamax_dpl.composition import AppServices, build_production, build_testing
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -423,7 +423,7 @@ def _stderr_of(completed: subprocess.CompletedProcess[bytes]) -> str:
 def test_a_real_non_utf8_env_file_does_not_stop_info(tmp_path: Path, non_utf8_env_file: Path) -> None:
     """End to end, in a process of its own, through the real loader."""
     completed = subprocess.run(
-        [sys.executable, "-m", "bitranox_template_py_cli", "--env-file", "latin1.env", "info"],
+        [sys.executable, "-m", "datamax_dpl", "--env-file", "latin1.env", "info"],
         capture_output=True,
         check=False,
         cwd=non_utf8_env_file.parent,
@@ -436,7 +436,7 @@ def test_a_real_non_utf8_env_file_does_not_stop_info(tmp_path: Path, non_utf8_en
 @_LINUX_ONLY
 def test_a_real_non_utf8_env_file_refuses_config_with_78(tmp_path: Path, non_utf8_env_file: Path) -> None:
     completed = subprocess.run(
-        [sys.executable, "-m", "bitranox_template_py_cli", "--env-file", "latin1.env", "config"],
+        [sys.executable, "-m", "datamax_dpl", "--env-file", "latin1.env", "config"],
         capture_output=True,
         check=False,
         cwd=non_utf8_env_file.parent,
@@ -455,7 +455,7 @@ def test_a_real_non_utf8_env_file_does_not_stop_config_deploy(tmp_path: Path, no
         [
             sys.executable,
             "-m",
-            "bitranox_template_py_cli",
+            "datamax_dpl",
             "--env-file",
             "latin1.env",
             "config-deploy",
@@ -476,7 +476,7 @@ def test_a_real_non_utf8_env_file_does_not_stop_config_deploy(tmp_path: Path, no
 def test_a_real_broken_user_config_does_not_stop_info(broken_user_config_env: dict[str, str]) -> None:
     """End to end through the real loader: info does not read the configuration."""
     completed = subprocess.run(
-        [sys.executable, "-m", "bitranox_template_py_cli", "info"],
+        [sys.executable, "-m", "datamax_dpl", "info"],
         capture_output=True,
         check=False,
         env=broken_user_config_env,
@@ -490,7 +490,7 @@ def test_a_real_broken_user_config_does_not_stop_info(broken_user_config_env: di
 def test_a_real_broken_user_config_refuses_config_with_78(broken_user_config_env: dict[str, str]) -> None:
     """End to end through the real loader: config reads it, so it refuses and names the file."""
     completed = subprocess.run(
-        [sys.executable, "-m", "bitranox_template_py_cli", "config"],
+        [sys.executable, "-m", "datamax_dpl", "config"],
         capture_output=True,
         check=False,
         env=broken_user_config_env,
@@ -516,7 +516,7 @@ def test_a_real_invalid_permission_section_is_replaced_by_a_forced_deploy(tmp_pa
         [
             sys.executable,
             "-m",
-            "bitranox_template_py_cli",
+            "datamax_dpl",
             "config-deploy",
             "--target",
             "user",
@@ -536,7 +536,7 @@ def test_a_real_invalid_permission_section_is_replaced_by_a_forced_deploy(tmp_pa
 def test_a_real_invalid_profile_name_stops_info_with_a_usage_error(tmp_path: Path) -> None:
     """End to end through the real loader: an invalid --profile is not silently ignored."""
     completed = subprocess.run(
-        [sys.executable, "-m", "bitranox_template_py_cli", "--profile", "../x", "info"],
+        [sys.executable, "-m", "datamax_dpl", "--profile", "../x", "info"],
         capture_output=True,
         check=False,
         env={**os.environ, "XDG_CONFIG_HOME": str(tmp_path)},

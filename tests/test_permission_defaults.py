@@ -27,11 +27,11 @@ import pytest
 import rtoml
 from lib_layered_config import Config, deploy_permissions_from_config
 
-from bitranox_template_py_cli import __init__conf__
-from bitranox_template_py_cli.adapters import cli as cli_mod
-from bitranox_template_py_cli.adapters.config.deploy import deploy_configuration
-from bitranox_template_py_cli.adapters.config.loader import get_default_config_path
-from bitranox_template_py_cli.composition import AppServices, build_testing
+from datamax_dpl import __init__conf__
+from datamax_dpl.adapters import cli as cli_mod
+from datamax_dpl.adapters.config.deploy import deploy_configuration
+from datamax_dpl.adapters.config.loader import get_default_config_path
+from datamax_dpl.composition import AppServices, build_testing
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -344,7 +344,7 @@ def _show_layered_config(tmp_path: Path) -> subprocess.CompletedProcess[bytes]:
         [
             sys.executable,
             "-m",
-            "bitranox_template_py_cli",
+            "datamax_dpl",
             "config",
             "--format",
             "json",
@@ -361,7 +361,7 @@ def _show_layered_config(tmp_path: Path) -> subprocess.CompletedProcess[bytes]:
 def _deploy_user(tmp_path: Path, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[bytes]:
     """``config-deploy --target user`` from ``tmp_path``, without options."""
     return subprocess.run(
-        [sys.executable, "-m", "bitranox_template_py_cli", "config-deploy", "--target", "user"],
+        [sys.executable, "-m", "datamax_dpl", "config-deploy", "--target", "user"],
         capture_output=True,
         check=False,
         cwd=tmp_path,
@@ -376,7 +376,7 @@ def test_a_quoted_set_mode_is_applied_on_disk(tmp_path: Path) -> None:
         [
             sys.executable,
             "-m",
-            "bitranox_template_py_cli",
+            "datamax_dpl",
             "--set",
             'lib_layered_config.default_permissions.user_directory="0o750"',
             "--set",
@@ -401,7 +401,7 @@ def test_an_unquoted_set_mode_is_applied_on_disk(tmp_path: Path) -> None:
         [
             sys.executable,
             "-m",
-            "bitranox_template_py_cli",
+            "datamax_dpl",
             "--set",
             "lib_layered_config.default_permissions.user_directory=0o750",
             "--set",
@@ -425,7 +425,7 @@ def test_explicit_modes_take_precedence_over_configured_ones(tmp_path: Path) -> 
         [
             sys.executable,
             "-m",
-            "bitranox_template_py_cli",
+            "datamax_dpl",
             "--set",
             'lib_layered_config.default_permissions.user_directory="0o750"',
             "--set",
@@ -454,7 +454,7 @@ def test_a_quoted_unprefixed_set_mode_is_read_as_octal(tmp_path: Path) -> None:
         [
             sys.executable,
             "-m",
-            "bitranox_template_py_cli",
+            "datamax_dpl",
             "--set",
             'lib_layered_config.default_permissions.user_directory="750"',
             "--set",
@@ -488,7 +488,7 @@ def test_a_decimal_set_mode_is_refused_and_nothing_is_written(tmp_path: Path) ->
         [
             sys.executable,
             "-m",
-            "bitranox_template_py_cli",
+            "datamax_dpl",
             "--set",
             "lib_layered_config.default_permissions.user_file=640",
             "config-deploy",
@@ -534,7 +534,7 @@ def test_a_set_enabled_false_turns_permission_setting_off(tmp_path: Path) -> Non
         [
             sys.executable,
             "-m",
-            "bitranox_template_py_cli",
+            "datamax_dpl",
             "--set",
             "lib_layered_config.default_permissions.enabled=false",
             "config-deploy",
@@ -594,7 +594,7 @@ def test_a_dotenv_mode_does_not_decide_the_deployed_mode_beside_a_set(tmp_path: 
         [
             sys.executable,
             "-m",
-            "bitranox_template_py_cli",
+            "datamax_dpl",
             "--set",
             'lib_layered_config.default_permissions.user_directory="0o750"',
             "config-deploy",
@@ -635,7 +635,7 @@ def test_a_malformed_dotenv_does_not_block_the_deploy(tmp_path: Path) -> None:
 
 def _force_deploy_user(tmp_path: Path) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(
-        [sys.executable, "-m", "bitranox_template_py_cli", "config-deploy", "--target", "user", "--force"],
+        [sys.executable, "-m", "datamax_dpl", "config-deploy", "--target", "user", "--force"],
         capture_output=True,
         check=False,
         cwd=tmp_path,

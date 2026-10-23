@@ -18,7 +18,7 @@ import pytest
 import rtoml
 
 _ROOT = Path(__file__).parent.parent
-_PACKAGE = "bitranox_template_py_cli"
+_PACKAGE = "datamax_dpl"
 _SOURCE = _ROOT / "src" / _PACKAGE
 
 

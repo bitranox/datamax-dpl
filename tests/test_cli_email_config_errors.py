@@ -18,10 +18,10 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from lib_layered_config import Config
 
-from bitranox_template_py_cli import __init__conf__
-from bitranox_template_py_cli.adapters.cli.main import main
-from bitranox_template_py_cli.adapters.email.config import load_email_config_from_dict
-from bitranox_template_py_cli.composition import AppServices, build_testing
+from datamax_dpl import __init__conf__
+from datamax_dpl.adapters.cli.main import main
+from datamax_dpl.adapters.email.config import load_email_config_from_dict
+from datamax_dpl.composition import AppServices, build_testing
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -124,7 +124,7 @@ def test_a_real_invalid_email_section_exits_78_before_sending(tmp_path: Path) ->
         '[email]\nsmtp_hosts = ["smtp.invalid:587"]\ntimeout = -5\n', encoding="utf-8"
     )
     completed = subprocess.run(
-        [sys.executable, "-m", "bitranox_template_py_cli", "send-email", "--to", "a@example.com", "--subject", "s"],
+        [sys.executable, "-m", "datamax_dpl", "send-email", "--to", "a@example.com", "--subject", "s"],
         capture_output=True,
         check=False,
         env={**os.environ, "XDG_CONFIG_HOME": str(tmp_path)},

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from bitranox_template_py_cli.domain.errors import (
+from datamax_dpl.domain.errors import (
     ConfigurationError,
     DeliveryError,
     InvalidRecipientError,

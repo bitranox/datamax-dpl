@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 import rtoml
 
-from bitranox_template_py_cli import __init__conf__
+from datamax_dpl import __init__conf__
 
 _PYPROJECT_PATH = Path(__file__).parent.parent / "pyproject.toml"
 

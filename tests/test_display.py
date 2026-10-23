@@ -16,9 +16,9 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from lib_layered_config import Config
 
-from bitranox_template_py_cli import __init__conf__
-from bitranox_template_py_cli.adapters.config.display import display_config
-from bitranox_template_py_cli.domain.enums import OutputFormat
+from datamax_dpl import __init__conf__
+from datamax_dpl.adapters.config.display import display_config
+from datamax_dpl.domain.enums import OutputFormat
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -141,7 +141,7 @@ def _config_json(tmp_path: Path, *options: str) -> dict[str, Any]:
     env = {k: v for k, v in os.environ.items() if not k.startswith((_PREFIX, "LOG_", "LIB_LAYERED_CONFIG"))}
     env.update(dict.fromkeys(_HOMES, str(tmp_path)))
     completed = subprocess.run(  # noqa: S603 - fixed argv: this interpreter running this package
-        [sys.executable, "-m", "bitranox_template_py_cli", *options, "config", "--format", "json"],
+        [sys.executable, "-m", "datamax_dpl", *options, "config", "--format", "json"],
         cwd=tmp_path,
         env=env,
         capture_output=True,

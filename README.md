@@ -1,23 +1,23 @@
-# bitranox_template_py_cli
+# datamax_dpl
 
 <!-- Badges -->
-[![CI](https://github.com/bitranox/bitranox_template_py_cli/actions/workflows/default_cicd_public.yml/badge.svg)](https://github.com/bitranox/bitranox_template_py_cli/actions/workflows/default_cicd_public.yml)
-[![CodeQL](https://github.com/bitranox/bitranox_template_py_cli/actions/workflows/codeql.yml/badge.svg)](https://github.com/bitranox/bitranox_template_py_cli/actions/workflows/codeql.yml)
+[![CI](https://github.com/bitranox/datamax_dpl/actions/workflows/default_cicd_public.yml/badge.svg)](https://github.com/bitranox/datamax_dpl/actions/workflows/default_cicd_public.yml)
+[![CodeQL](https://github.com/bitranox/datamax_dpl/actions/workflows/codeql.yml/badge.svg)](https://github.com/bitranox/datamax_dpl/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Open in Codespaces](https://img.shields.io/badge/Codespaces-Open-blue?logo=github&logoColor=white&style=flat-square)](https://codespaces.new/bitranox/bitranox_template_py_cli?quickstart=1)
-[![PyPI](https://img.shields.io/pypi/v/bitranox_template_py_cli.svg)](https://pypi.org/project/bitranox_template_py_cli/)
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/bitranox_template_py_cli.svg)](https://pypi.org/project/bitranox_template_py_cli/)
+[![Open in Codespaces](https://img.shields.io/badge/Codespaces-Open-blue?logo=github&logoColor=white&style=flat-square)](https://codespaces.new/bitranox/datamax_dpl?quickstart=1)
+[![PyPI](https://img.shields.io/pypi/v/datamax_dpl.svg)](https://pypi.org/project/datamax_dpl/)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/datamax_dpl.svg)](https://pypi.org/project/datamax_dpl/)
 [![Code Style: Ruff](https://img.shields.io/badge/Code%20Style-Ruff-46A3FF?logo=ruff&labelColor=000)](https://docs.astral.sh/ruff/)
-[![codecov](https://codecov.io/gh/bitranox/bitranox_template_py_cli/graph/badge.svg?token=UFBaUDIgRk)](https://codecov.io/gh/bitranox/bitranox_template_py_cli)
-[![Maintainability](https://qlty.sh/badges/041ba2c1-37d6-40bb-85a0-ec5a8a0aca0c/maintainability.svg)](https://qlty.sh/gh/bitranox/projects/bitranox_template_py_cli)
+[![codecov](https://codecov.io/gh/bitranox/datamax_dpl/graph/badge.svg?token=UFBaUDIgRk)](https://codecov.io/gh/bitranox/datamax_dpl)
+[![Maintainability](https://qlty.sh/badges/041ba2c1-37d6-40bb-85a0-ec5a8a0aca0c/maintainability.svg)](https://qlty.sh/gh/bitranox/projects/datamax_dpl)
 [![security: bandit](https://img.shields.io/badge/security-bandit-yellow.svg)](https://github.com/PyCQA/bandit)
 
 
-`bitranox_template_py_cli` is a template CLI application demonstrating configuration management and structured logging. It showcases rich-click for ergonomics and lib_cli_exit_tools for exits, providing a solid foundation for building CLI applications.
+`datamax_dpl` is a template CLI application demonstrating configuration management and structured logging. It showcases rich-click for ergonomics and lib_cli_exit_tools for exits, providing a solid foundation for building CLI applications.
 - CLI entry point styled with rich-click (rich output + click ergonomics).
 - Layered configuration system with lib_layered_config (defaults -> app -> host -> user -> .env -> env).
   The `.env` is the first one found from the current directory upward; when there is none,
-  `$XDG_CONFIG_HOME/bitranox-template-py-cli/.env` (`~/.config/...` when unset) is read on Linux
+  `$XDG_CONFIG_HOME/datamax-dpl/.env` (`~/.config/...` when unset) is read on Linux
   (see [CONFIG.md](CONFIG.md) for macOS and Windows).
 - Rich structured logging with lib_log_rich (console, journald, eventlog, Graylog/GELF).
 - Exit-code and messaging helpers powered by lib_cli_exit_tools.
@@ -58,33 +58,33 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 ### One-shot run (no install needed)
 
 ```bash
-uvx bitranox_template_py_cli@latest --help
+uvx datamax_dpl@latest --help
 ```
 
 ### Persistent install as CLI tool
 
 ```bash
 # One-time install from PyPI (isolated environment, added to PATH)
-uv tool install bitranox-template-py-cli
+uv tool install datamax-dpl
 # or from the git repository
-uv tool install --from "git+https://github.com/bitranox/bitranox_template_py_cli.git" bitranox-template-py-cli
+uv tool install --from "git+https://github.com/bitranox/datamax_dpl.git" datamax-dpl
 # Pick the interpreter explicitly if needed, e.g. --python 3.14
 # Update (requires network)
-uv tool upgrade bitranox-template-py-cli
+uv tool upgrade datamax-dpl
 # Run
-bitranox-template-py-cli --help
+datamax-dpl --help
 ```
 
 ### Install as project dependency
 
 ```bash
 uv venv && source .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
-uv pip install bitranox_template_py_cli
+uv pip install datamax_dpl
 ```
 
 For alternative install paths (pip, pipx, source builds, etc.), see
 [INSTALL.md](INSTALL.md). All supported methods register both the
-`bitranox_template_py_cli` and `bitranox-template-py-cli` commands on your PATH.
+`datamax_dpl` and `datamax-dpl` commands on your PATH.
 
 ### Why we recommend uv: supply-chain protection
 
@@ -104,12 +104,12 @@ To install the command line tool with a cooldown of your own (uv then skips any 
 than 7 days, transitive ones included), or to run the exact tree our CI tests:
 
 ```bash
-uv tool install --exclude-newer "7 days" bitranox_template_py_cli
-git clone https://github.com/bitranox/bitranox_template_py_cli.git && cd bitranox_template_py_cli && uv sync --locked && uv run bitranox_template_py_cli --help
+uv tool install --exclude-newer "7 days" datamax_dpl
+git clone https://github.com/bitranox/datamax_dpl.git && cd datamax_dpl && uv sync --locked && uv run datamax_dpl --help
 ```
 
-If you depend on bitranox_template_py_cli in your own project, give that project the same cooldown (7 days here, as
-an example) and commit the `uv.lock` that `uv add bitranox_template_py_cli` writes:
+If you depend on datamax_dpl in your own project, give that project the same cooldown (7 days here, as
+an example) and commit the `uv.lock` that `uv add datamax_dpl` writes:
 
 ```toml
 [tool.uv]
@@ -128,18 +128,18 @@ See [CONFIG.md](CONFIG.md) for detailed documentation on the layered configurati
 
 ```bash
 # Install
-uv tool install bitranox_template_py_cli
+uv tool install datamax_dpl
 
 # Verify
-bitranox-template-py-cli --version
+datamax-dpl --version
 
 # deploy config files (user level; --target app or host needs sudo)
-bitranox-template-py-cli config-deploy --target user
+datamax-dpl config-deploy --target user
 
 # Try it out
-bitranox-template-py-cli hello
-bitranox-template-py-cli info
-bitranox-template-py-cli config
+datamax-dpl hello
+datamax-dpl info
+datamax-dpl config
 ```
 
 ---
@@ -152,61 +152,61 @@ The CLI leverages [rich-click](https://github.com/ewels/rich-click) so help outp
 
 ```bash
 # Display package information
-bitranox-template-py-cli info
+datamax-dpl info
 
 # Greeting and error-handling demos
-bitranox-template-py-cli hello
-bitranox-template-py-cli fail
-bitranox-template-py-cli --traceback fail
+datamax-dpl hello
+datamax-dpl fail
+datamax-dpl --traceback fail
 
 # Configuration management
-bitranox-template-py-cli config                         # Show current configuration
-bitranox-template-py-cli config --format json           # Show as JSON
-bitranox-template-py-cli config --section lib_log_rich  # Show specific section
-bitranox-template-py-cli config --profile production    # Use a named profile
+datamax-dpl config                         # Show current configuration
+datamax-dpl config --format json           # Show as JSON
+datamax-dpl config --section lib_log_rich  # Show specific section
+datamax-dpl config --profile production    # Use a named profile
 
 # Deploy configuration templates to target directories
 # Without profile:
-bitranox-template-py-cli config-deploy --target app    # -> /etc/xdg/{slug}/config.toml
-bitranox-template-py-cli config-deploy --target host   # -> /etc/xdg/{slug}/hosts/{hostname}.toml
-bitranox-template-py-cli config-deploy --target user   # -> ~/.config/{slug}/config.toml
+datamax-dpl config-deploy --target app    # -> /etc/xdg/{slug}/config.toml
+datamax-dpl config-deploy --target host   # -> /etc/xdg/{slug}/hosts/{hostname}.toml
+datamax-dpl config-deploy --target user   # -> ~/.config/{slug}/config.toml
 
 # With profile:
-bitranox-template-py-cli config-deploy --target app --profile production   # -> /etc/xdg/{slug}/profile/production/config.toml
-bitranox-template-py-cli config-deploy --target host --profile production  # -> /etc/xdg/{slug}/profile/production/hosts/{hostname}.toml
-bitranox-template-py-cli config-deploy --target user --profile production  # -> ~/.config/{slug}/profile/production/config.toml
+datamax-dpl config-deploy --target app --profile production   # -> /etc/xdg/{slug}/profile/production/config.toml
+datamax-dpl config-deploy --target host --profile production  # -> /etc/xdg/{slug}/profile/production/hosts/{hostname}.toml
+datamax-dpl config-deploy --target user --profile production  # -> ~/.config/{slug}/profile/production/config.toml
 
 # With custom permissions (POSIX only):
-bitranox-template-py-cli config-deploy --target user --file-mode 640       # Files with rw-r----- (640)
-bitranox-template-py-cli config-deploy --target user --dir-mode 750        # Directories with rwxr-x--- (750)
-bitranox-template-py-cli config-deploy --target app --no-permissions       # Skip permission setting (use umask)
+datamax-dpl config-deploy --target user --file-mode 640       # Files with rw-r----- (640)
+datamax-dpl config-deploy --target user --dir-mode 750        # Directories with rwxr-x--- (750)
+datamax-dpl config-deploy --target app --no-permissions       # Skip permission setting (use umask)
 
 # Profile names: alphanumeric, hyphens, underscores; max 64 chars; must start with letter/digit
 # See CONFIG.md for full validation rules
 
 # Deploy configuration examples
-bitranox-template-py-cli config-generate-examples --destination ./examples
+datamax-dpl config-generate-examples --destination ./examples
 
 # Load configuration from an explicit .env file (skips upward directory search)
-bitranox-template-py-cli --env-file /path/to/.env config
-bitranox-template-py-cli --env-file ./environments/production.env send-notification ...
+datamax-dpl --env-file /path/to/.env config
+datamax-dpl --env-file ./environments/production.env send-notification ...
 
 # Override configuration at runtime (repeatable --set)
-bitranox-template-py-cli --set lib_log_rich.console_level=DEBUG config
-bitranox-template-py-cli --set email.smtp_hosts='["smtp.example.com:587"]' config --format json
+datamax-dpl --set lib_log_rich.console_level=DEBUG config
+datamax-dpl --set email.smtp_hosts='["smtp.example.com:587"]' config --format json
 
 # Logging demo
-bitranox-template-py-cli logdemo
-LOG_CONSOLE_LEVEL=DEBUG bitranox-template-py-cli logdemo   # logdemo reads LOG_* only, not --set
+datamax-dpl logdemo
+LOG_CONSOLE_LEVEL=DEBUG datamax-dpl logdemo   # logdemo reads LOG_* only, not --set
 
 # Send email
-bitranox-template-py-cli send-email \
+datamax-dpl send-email \
     --to recipient@example.com \
     --subject "Test Email" \
     --body "Hello from bitranox!"
 
 # Send email with HTML body and attachments
-bitranox-template-py-cli send-email \
+datamax-dpl send-email \
     --to recipient@example.com \
     --subject "Monthly Report" \
     --body "See attached." \
@@ -214,14 +214,14 @@ bitranox-template-py-cli send-email \
     --attachment report.pdf
 
 # Send plain-text notification
-bitranox-template-py-cli send-notification \
+datamax-dpl send-notification \
     --to ops@example.com \
     --subject "Deploy OK" \
     --message "Application deployed successfully"
 
 # All commands work with any entry point
-python -m bitranox_template_py_cli info
-uvx bitranox_template_py_cli info
+python -m datamax_dpl info
+uvx datamax_dpl info
 ```
 
 ---
@@ -242,12 +242,12 @@ Environment variables use the format: `<PREFIX>___<SECTION>__<KEY>=value`
 
 ```bash
 # A list is a JSON array; a comma-separated value would be ONE host string
-export BITRANOX_TEMPLATE_PY_CLI___EMAIL__SMTP_HOSTS='["smtp.gmail.com:587","smtp.backup.com:587"]'
-export BITRANOX_TEMPLATE_PY_CLI___EMAIL__FROM_ADDRESS="alerts@myapp.com"
-export BITRANOX_TEMPLATE_PY_CLI___EMAIL__SMTP_USERNAME="your-email@gmail.com"
-export BITRANOX_TEMPLATE_PY_CLI___EMAIL__SMTP_PASSWORD="your-app-password"
-export BITRANOX_TEMPLATE_PY_CLI___EMAIL__USE_STARTTLS="true"
-export BITRANOX_TEMPLATE_PY_CLI___EMAIL__TIMEOUT="60.0"
+export DATAMAX_DPL___EMAIL__SMTP_HOSTS='["smtp.gmail.com:587","smtp.backup.com:587"]'
+export DATAMAX_DPL___EMAIL__FROM_ADDRESS="alerts@myapp.com"
+export DATAMAX_DPL___EMAIL__SMTP_USERNAME="your-email@gmail.com"
+export DATAMAX_DPL___EMAIL__SMTP_PASSWORD="your-app-password"
+export DATAMAX_DPL___EMAIL__USE_STARTTLS="true"
+export DATAMAX_DPL___EMAIL__TIMEOUT="60.0"
 ```
 
 **Configuration File**:
@@ -290,23 +290,23 @@ EMAIL__SMTP_PASSWORD=your-16-char-app-password
 or as environment variables (these need the prefix):
 
 ```bash
-export BITRANOX_TEMPLATE_PY_CLI___EMAIL__SMTP_HOSTS='["smtp.gmail.com:587"]'
-export BITRANOX_TEMPLATE_PY_CLI___EMAIL__FROM_ADDRESS=your-email@gmail.com
-export BITRANOX_TEMPLATE_PY_CLI___EMAIL__SMTP_USERNAME=your-email@gmail.com
-export BITRANOX_TEMPLATE_PY_CLI___EMAIL__SMTP_PASSWORD=your-16-char-app-password
+export DATAMAX_DPL___EMAIL__SMTP_HOSTS='["smtp.gmail.com:587"]'
+export DATAMAX_DPL___EMAIL__FROM_ADDRESS=your-email@gmail.com
+export DATAMAX_DPL___EMAIL__SMTP_USERNAME=your-email@gmail.com
+export DATAMAX_DPL___EMAIL__SMTP_PASSWORD=your-16-char-app-password
 ```
 
 #### Send Simple Email
 
 ```bash
 # Send basic email to one recipient
-bitranox-template-py-cli send-email \
+datamax-dpl send-email \
     --to recipient@example.com \
     --subject "Test Email" \
     --body "Hello from bitranox!"
 
 # Send to multiple recipients
-bitranox-template-py-cli send-email \
+datamax-dpl send-email \
     --to user1@example.com \
     --to user2@example.com \
     --subject "Team Update" \
@@ -316,7 +316,7 @@ bitranox-template-py-cli send-email \
 #### Send HTML Email with Attachments
 
 ```bash
-bitranox-template-py-cli send-email \
+datamax-dpl send-email \
     --to recipient@example.com \
     --subject "Monthly Report" \
     --body "Please find the monthly report attached." \
@@ -331,13 +331,13 @@ For simple plain-text notifications, use the convenience command:
 
 ```bash
 # Single recipient
-bitranox-template-py-cli send-notification \
+datamax-dpl send-notification \
     --to ops@example.com \
     --subject "Deployment Success" \
     --message "Application deployed successfully to production at $(date)"
 
 # Multiple recipients
-bitranox-template-py-cli send-notification \
+datamax-dpl send-notification \
     --to admin1@example.com \
     --to admin2@example.com \
     --subject "System Alert" \
@@ -349,8 +349,8 @@ bitranox-template-py-cli send-notification \
 ```python
 from pydantic import SecretStr
 
-from bitranox_template_py_cli.adapters.email.sender import EmailConfig
-from bitranox_template_py_cli.composition import send_email, send_notification
+from datamax_dpl.adapters.email.sender import EmailConfig
+from datamax_dpl.composition import send_email, send_notification
 
 # Configure email. EmailConfig is a btx_lib_mail ConfMail, so in Python the fields use the
 # library's names (smtphosts, smtp_use_starttls, smtp_timeout, smtp_starttls_verify,

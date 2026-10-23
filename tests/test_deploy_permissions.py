@@ -11,9 +11,9 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from bitranox_template_py_cli.adapters import cli as cli_mod
-from bitranox_template_py_cli.composition import AppServices, build_production
-from bitranox_template_py_cli.domain.enums import DeployTarget
+from datamax_dpl.adapters import cli as cli_mod
+from datamax_dpl.composition import AppServices, build_production
+from datamax_dpl.domain.enums import DeployTarget
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -311,7 +311,7 @@ def test_deploy_configuration_passes_set_permissions_to_library(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """deploy_configuration passes set_permissions to deploy_config."""
-    from bitranox_template_py_cli.adapters.config import deploy as deploy_mod
+    from datamax_dpl.adapters.config import deploy as deploy_mod
 
     captured_kwargs: list[dict[str, Any]] = []
 
@@ -336,7 +336,7 @@ def test_deploy_configuration_passes_permission_overrides_to_library(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """deploy_configuration hands permission_overrides to deploy_config unchanged."""
-    from bitranox_template_py_cli.adapters.config import deploy as deploy_mod
+    from datamax_dpl.adapters.config import deploy as deploy_mod
 
     captured_kwargs: list[dict[str, Any]] = []
 
@@ -358,7 +358,7 @@ def test_deploy_configuration_passes_mode_overrides_to_library(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """deploy_configuration passes dir_mode and file_mode to deploy_config."""
-    from bitranox_template_py_cli.adapters.config import deploy as deploy_mod
+    from datamax_dpl.adapters.config import deploy as deploy_mod
 
     captured_kwargs: list[dict[str, Any]] = []
 

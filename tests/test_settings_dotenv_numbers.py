@@ -16,10 +16,10 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from bitranox_template_py_cli.adapters.logging.setup import (
+from datamax_dpl.adapters.logging.setup import (
     _build_runtime_config,  # pyright: ignore[reportPrivateUsage]
 )
-from bitranox_template_py_cli.composition import build_production
+from datamax_dpl.composition import build_production
 
 if TYPE_CHECKING:
     from pathlib import Path

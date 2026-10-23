@@ -7,12 +7,12 @@
 Testing the application requires in-memory implementations of adapter
 interfaces (e.g. configuration loaders, email senders) that avoid real
 I/O. The question is whether these belong under `tests/` or under the
-production source tree in `src/bitranox_template_py_cli/adapters/memory/`.
+production source tree in `src/datamax_dpl/adapters/memory/`.
 
 ## Decision
 
 Place in-memory adapter implementations in
-`src/bitranox_template_py_cli/adapters/memory/` rather than in the test
+`src/datamax_dpl/adapters/memory/` rather than in the test
 tree.
 
 ## Consequences

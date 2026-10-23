@@ -50,25 +50,25 @@ fallback: it is read only when no `.env` is found in the working directory or on
 
 ### Path Placeholders
 
-| Placeholder  | Linux                      | macOS / Windows            |
-|--------------|----------------------------|----------------------------|
-| `{slug}`     | `bitranox-template-py-cli` | -                          |
-| `{vendor}`   | -                          | `bitranox`                 |
-| `{app}`      | -                          | `bitranox_template_py_cli` |
-| `{hostname}` | System hostname            | System hostname            |
+| Placeholder  | Linux           | macOS / Windows |
+|--------------|-----------------|-----------------|
+| `{slug}`     | `datamax-dpl`   | -               |
+| `{vendor}`   | -               | `bitranox`      |
+| `{app}`      | -               | `datamax_dpl`   |
+| `{hostname}` | System hostname | System hostname |
 
 ### Concrete Examples
 
 **Linux:**
-- User config: `~/.config/bitranox-template-py-cli/config.toml`
-- App config: `/etc/xdg/bitranox-template-py-cli/config.toml`
-- Host config: `/etc/xdg/bitranox-template-py-cli/hosts/myserver.toml`
+- User config: `~/.config/datamax-dpl/config.toml`
+- App config: `/etc/xdg/datamax-dpl/config.toml`
+- Host config: `/etc/xdg/datamax-dpl/hosts/myserver.toml`
 
 **macOS:**
-- User config: `~/Library/Application Support/bitranox/bitranox_template_py_cli/config.toml`
+- User config: `~/Library/Application Support/bitranox/datamax_dpl/config.toml`
 
 **Windows:**
-- User config: `%APPDATA%\bitranox\bitranox_template_py_cli\config.toml`
+- User config: `%APPDATA%\bitranox\datamax_dpl\config.toml`
 
 ---
 
@@ -91,18 +91,18 @@ These options apply to all commands and must be specified **before** the command
 
 ```bash
 # Use a specific profile
-bitranox-template-py-cli --profile production config
+datamax-dpl --profile production config
 
 # Override settings at runtime (repeatable)
-bitranox-template-py-cli --set lib_log_rich.console_level=DEBUG config
-bitranox-template-py-cli --set email.from_address=test@example.com --set email.smtp_hosts='["smtp.example.com:587"]' send-email ...
+datamax-dpl --set lib_log_rich.console_level=DEBUG config
+datamax-dpl --set email.from_address=test@example.com --set email.smtp_hosts='["smtp.example.com:587"]' send-email ...
 
 # Load configuration from an explicit .env file
-bitranox-template-py-cli --env-file /etc/myapp/.env config
-bitranox-template-py-cli --env-file ./environments/production.env send-notification ...
+datamax-dpl --env-file /etc/myapp/.env config
+datamax-dpl --env-file ./environments/production.env send-notification ...
 
 # Show full traceback for debugging
-bitranox-template-py-cli --traceback config-deploy --target user
+datamax-dpl --traceback config-deploy --target user
 ```
 
 ---
@@ -123,19 +123,19 @@ Display the merged configuration from all sources (defaults -> app -> host -> us
 
 ```bash
 # Show merged configuration from all sources
-bitranox-template-py-cli config
+datamax-dpl config
 
 # Output as JSON (useful for scripting)
-bitranox-template-py-cli config --format json
+datamax-dpl config --format json
 
 # Show specific section only
-bitranox-template-py-cli config --section lib_log_rich
+datamax-dpl config --section lib_log_rich
 
 # Load configuration for a specific profile
-bitranox-template-py-cli config --profile production
+datamax-dpl config --profile production
 
 # Combine options
-bitranox-template-py-cli config --profile staging --format json --section email
+datamax-dpl config --profile staging --format json --section email
 ```
 
 ### Deploy Configuration Files
@@ -158,25 +158,25 @@ Deploy bundled default configuration to platform-specific directories.
 
 ```bash
 # Create user configuration file
-bitranox-template-py-cli config-deploy --target user
+datamax-dpl config-deploy --target user
 
 # Deploy to system-wide location (requires privileges)
-sudo bitranox-template-py-cli config-deploy --target app
+sudo datamax-dpl config-deploy --target app
 
 # Deploy host-specific configuration
-sudo bitranox-template-py-cli config-deploy --target host
+sudo datamax-dpl config-deploy --target host
 
 # Deploy to multiple locations at once
-bitranox-template-py-cli config-deploy --target user --target host
+datamax-dpl config-deploy --target user --target host
 
 # Overwrite existing configuration
-bitranox-template-py-cli config-deploy --target user --force
+datamax-dpl config-deploy --target user --force
 
 # Deploy to a specific profile directory
-bitranox-template-py-cli config-deploy --target user --profile production
+datamax-dpl config-deploy --target user --profile production
 
 # Deploy production profile and overwrite if exists
-bitranox-template-py-cli config-deploy --target user --profile production --force
+datamax-dpl config-deploy --target user --profile production --force
 ```
 
 Every target receives `config.toml` plus `config.d/40-layered-config.toml`, `config.d/50-mail.toml`
@@ -192,13 +192,13 @@ To deploy user-level configuration for a different user account, use `sudo -u`:
 
 ```bash
 # Deploy user config for 'serviceaccount' user
-sudo -u serviceaccount bitranox-template-py-cli config-deploy --target user
+sudo -u serviceaccount datamax-dpl config-deploy --target user
 
 # Deploy with a specific profile
-sudo -u serviceaccount bitranox-template-py-cli config-deploy --target user --profile production
+sudo -u serviceaccount datamax-dpl config-deploy --target user --profile production
 
 # The config will be created at that user's home directory:
-# /home/serviceaccount/.config/bitranox-template-py-cli/config.toml
+# /home/serviceaccount/.config/datamax-dpl/config.toml
 ```
 
 **Important notes:**
@@ -212,16 +212,16 @@ sudo -u serviceaccount bitranox-template-py-cli config-deploy --target user --pr
 
 ```bash
 # System admin deploying app-wide config (all users)
-sudo bitranox-template-py-cli config-deploy --target app
+sudo datamax-dpl config-deploy --target app
 
 # System admin deploying for a service account
-sudo -u myservice bitranox-template-py-cli config-deploy --target user
+sudo -u myservice datamax-dpl config-deploy --target user
 
 # System admin deploying host-specific config
-sudo bitranox-template-py-cli config-deploy --target host
+sudo datamax-dpl config-deploy --target host
 
 # Regular user deploying their own config (no sudo needed)
-bitranox-template-py-cli config-deploy --target user
+datamax-dpl config-deploy --target user
 ```
 
 #### File Permissions (POSIX Only)
@@ -238,19 +238,19 @@ On Linux and macOS, `config-deploy` sets Unix file permissions based on the targ
 
 ```bash
 # Skip permission setting entirely (use system umask)
-bitranox-template-py-cli config-deploy --target user --no-permissions
+datamax-dpl config-deploy --target user --no-permissions
 
 # Override directory mode (octal)
-bitranox-template-py-cli config-deploy --target user --dir-mode 750
+datamax-dpl config-deploy --target user --dir-mode 750
 
 # Override file mode (octal)
-bitranox-template-py-cli config-deploy --target user --file-mode 640
+datamax-dpl config-deploy --target user --file-mode 640
 
 # Both overrides together
-bitranox-template-py-cli config-deploy --target user --dir-mode 750 --file-mode 640
+datamax-dpl config-deploy --target user --dir-mode 750 --file-mode 640
 
 # Octal formats: both "750" and "0o750" are accepted
-bitranox-template-py-cli config-deploy --target user --dir-mode 0o750
+datamax-dpl config-deploy --target user --dir-mode 0o750
 ```
 
 A mode must be a plain octal literal (`750` or `0o750`; no sign, whitespace, `_` or other base)
@@ -327,13 +327,13 @@ Create example TOML files showing all available options with default values and 
 
 ```bash
 # Generate examples in a specific directory
-bitranox-template-py-cli config-generate-examples --destination ./examples
+datamax-dpl config-generate-examples --destination ./examples
 
 # Overwrite existing example files
-bitranox-template-py-cli config-generate-examples --destination ./examples --force
+datamax-dpl config-generate-examples --destination ./examples --force
 
 # Generate examples in current directory
-bitranox-template-py-cli config-generate-examples --destination .
+datamax-dpl config-generate-examples --destination .
 ```
 
 #### Generated Files
@@ -362,20 +362,20 @@ Use `--set` to override configuration values without modifying files. This optio
 
 ```bash
 # Override a single value
-bitranox-template-py-cli --set lib_log_rich.console_level=DEBUG config
+datamax-dpl --set lib_log_rich.console_level=DEBUG config
 
 # Override multiple values
-bitranox-template-py-cli --set lib_log_rich.console_level=DEBUG --set lib_log_rich.console_format_preset=short config
+datamax-dpl --set lib_log_rich.console_level=DEBUG --set lib_log_rich.console_format_preset=short config
 
 # Override nested values
-bitranox-template-py-cli --set email.attachments.max_size_bytes=10485760 config
+datamax-dpl --set email.attachments.max_size_bytes=10485760 config
 
 # Override with JSON arrays/objects (use single quotes around the value)
-bitranox-template-py-cli --set email.smtp_hosts='["smtp.example.com:587"]' config
-bitranox-template-py-cli --set email.recipients='["admin@example.com", "ops@example.com"]' config
+datamax-dpl --set email.smtp_hosts='["smtp.example.com:587"]' config
+datamax-dpl --set email.recipients='["admin@example.com", "ops@example.com"]' config
 
 # Combine with profile
-bitranox-template-py-cli --profile production --set lib_log_rich.console_level=DEBUG config
+datamax-dpl --profile production --set lib_log_rich.console_level=DEBUG config
 ```
 
 #### Supported Value Types
@@ -426,10 +426,10 @@ Profile names are validated for security and cross-platform compatibility:
 ### Profile Path Examples
 
 **Without profile:**
-- `~/.config/bitranox-template-py-cli/config.toml`
+- `~/.config/datamax-dpl/config.toml`
 
 **With profile `production`:**
-- `~/.config/bitranox-template-py-cli/profile/production/config.toml`
+- `~/.config/datamax-dpl/profile/production/config.toml`
 
 ### Reading Behavior
 
@@ -458,8 +458,8 @@ Configuration can be overridden via environment variables using two methods:
 For logging configuration, use the native `LOG_*` variables (highest precedence):
 
 ```bash
-LOG_CONSOLE_LEVEL=DEBUG bitranox-template-py-cli hello
-LOG_ENABLE_GRAYLOG=true LOG_GRAYLOG_ENDPOINT="logs.example.com:12201" bitranox-template-py-cli hello
+LOG_CONSOLE_LEVEL=DEBUG datamax-dpl hello
+LOG_ENABLE_GRAYLOG=true LOG_GRAYLOG_ENDPOINT="logs.example.com:12201" datamax-dpl hello
 ```
 
 ### Method 2: Application-Prefixed Variables
@@ -467,8 +467,8 @@ LOG_ENABLE_GRAYLOG=true LOG_GRAYLOG_ENDPOINT="logs.example.com:12201" bitranox-t
 For any configuration section, use the format: `<PREFIX>___<SECTION>__<KEY>=value`
 
 ```bash
-BITRANOX_TEMPLATE_PY_CLI___LIB_LOG_RICH__CONSOLE_LEVEL=DEBUG bitranox-template-py-cli hello
-BITRANOX_TEMPLATE_PY_CLI___EMAIL__SMTP_HOSTS='["smtp.example.com:587"]' bitranox-template-py-cli hello
+DATAMAX_DPL___LIB_LOG_RICH__CONSOLE_LEVEL=DEBUG datamax-dpl hello
+DATAMAX_DPL___EMAIL__SMTP_HOSTS='["smtp.example.com:587"]' datamax-dpl hello
 ```
 
 **Separator reference:**
@@ -502,8 +502,8 @@ To load a specific `.env` file instead, use `--env-file`:
 
 ```bash
 # Load from an explicit path (skips upward directory search)
-bitranox-template-py-cli --env-file /opt/myapp/config/.env config
-bitranox-template-py-cli --env-file ./environments/staging.env send-notification ...
+datamax-dpl --env-file /opt/myapp/config/.env config
+datamax-dpl --env-file ./environments/staging.env send-notification ...
 ```
 
 The file must exist and be readable; Click validates this before the command runs.
@@ -526,19 +526,19 @@ prefix:
 
 ```bash
 # User-level customization (Linux)
-~/.config/bitranox-template-py-cli/config.d/999-myconfig.toml
+~/.config/datamax-dpl/config.d/999-myconfig.toml
 
 # User-level customization (macOS)
-~/Library/Application Support/bitranox/bitranox_template_py_cli/config.d/999-myconfig.toml
+~/Library/Application Support/bitranox/datamax_dpl/config.d/999-myconfig.toml
 
 # User-level customization (Windows)
-%APPDATA%\bitranox\bitranox_template_py_cli\config.d\999-myconfig.toml
+%APPDATA%\bitranox\datamax_dpl\config.d\999-myconfig.toml
 
 # System-wide customization (Linux)
-/etc/xdg/bitranox-template-py-cli/config.d/999-myconfig.toml
+/etc/xdg/datamax-dpl/config.d/999-myconfig.toml
 
 # Host-specific customization (Linux)
-/etc/xdg/bitranox-template-py-cli/hosts/{hostname}.d/999-myconfig.toml
+/etc/xdg/datamax-dpl/hosts/{hostname}.d/999-myconfig.toml
 ```
 
 A file placed directly next to `config.toml` (outside `config.d/`) is never read: each layer reads
@@ -571,7 +571,7 @@ This approach keeps your customizations separate and safe from updates while sti
 You can import the configuration system directly in Python:
 
 ```python
-import bitranox_template_py_cli as btcli
+import datamax_dpl as btcli
 
 # Get the merged configuration object
 config = btcli.get_config()

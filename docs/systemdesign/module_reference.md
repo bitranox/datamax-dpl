@@ -10,24 +10,24 @@ moves or removes a module, a CLI option or a public name.
 ## Related Files
 
 ### Domain Layer
-- `src/bitranox_template_py_cli/domain/behaviors.py`  -  Pure domain functions (greeting)
-- `src/bitranox_template_py_cli/domain/enums.py`  -  Type-safe enums (OutputFormat, DeployTarget)
-- `src/bitranox_template_py_cli/domain/errors.py`  -  Domain exceptions (ConfigurationError, DeliveryError, InvalidRecipientError)
+- `src/datamax_dpl/domain/behaviors.py`  -  Pure domain functions (greeting)
+- `src/datamax_dpl/domain/enums.py`  -  Type-safe enums (OutputFormat, DeployTarget)
+- `src/datamax_dpl/domain/errors.py`  -  Domain exceptions (ConfigurationError, DeliveryError, InvalidRecipientError)
 
 ### Application Layer
-- `src/bitranox_template_py_cli/application/ports.py`  -  Callable Protocol definitions for adapter functions
+- `src/datamax_dpl/application/ports.py`  -  Callable Protocol definitions for adapter functions
 
 ### Adapters Layer
-- `src/bitranox_template_py_cli/adapters/config/loader.py`  -  Configuration loading with LRU caching
-- `src/bitranox_template_py_cli/adapters/config/deploy.py`  -  Configuration deployment
-- `src/bitranox_template_py_cli/adapters/config/display.py`  -  Configuration display (TOML/JSON output, redaction)
-- `src/bitranox_template_py_cli/adapters/config/overrides.py`  -  CLI `--set` override parsing and deep-merge
-- `src/bitranox_template_py_cli/adapters/email/config.py`  -  EmailConfig (a btx_lib_mail ConfMail), the `[email]` key mapping and `load_email_config_from_dict`
-- `src/bitranox_template_py_cli/adapters/email/transport.py`  -  `send_email` / `send_notification` over btx_lib_mail
-- `src/bitranox_template_py_cli/adapters/email/sender.py`  -  Re-exports of `config.py` and `transport.py`
-- `src/bitranox_template_py_cli/adapters/email/validation.py`  -  Email recipient validation
-- `src/bitranox_template_py_cli/adapters/logging/setup.py`  -  lib_log_rich initialization; takes only the `LOG_*` lines of a `.env`, and raises `InvalidLoggingConfigError` for a refused `[lib_log_rich]` value or `LOG_*` variable, after starting logging with its defaults (and without the `LOG_*` variables only when one of them is refused); `check_logging_config` refuses another configuration's logging settings through lib_log_rich's `validate_config`, without touching the running runtime
-- `src/bitranox_template_py_cli/adapters/cli/`  -  CLI adapter package:
+- `src/datamax_dpl/adapters/config/loader.py`  -  Configuration loading with LRU caching
+- `src/datamax_dpl/adapters/config/deploy.py`  -  Configuration deployment
+- `src/datamax_dpl/adapters/config/display.py`  -  Configuration display (TOML/JSON output, redaction)
+- `src/datamax_dpl/adapters/config/overrides.py`  -  CLI `--set` override parsing and deep-merge
+- `src/datamax_dpl/adapters/email/config.py`  -  EmailConfig (a btx_lib_mail ConfMail), the `[email]` key mapping and `load_email_config_from_dict`
+- `src/datamax_dpl/adapters/email/transport.py`  -  `send_email` / `send_notification` over btx_lib_mail
+- `src/datamax_dpl/adapters/email/sender.py`  -  Re-exports of `config.py` and `transport.py`
+- `src/datamax_dpl/adapters/email/validation.py`  -  Email recipient validation
+- `src/datamax_dpl/adapters/logging/setup.py`  -  lib_log_rich initialization; takes only the `LOG_*` lines of a `.env`, and raises `InvalidLoggingConfigError` for a refused `[lib_log_rich]` value or `LOG_*` variable, after starting logging with its defaults (and without the `LOG_*` variables only when one of them is refused); `check_logging_config` refuses another configuration's logging settings through lib_log_rich's `validate_config`, without touching the running runtime
+- `src/datamax_dpl/adapters/cli/`  -  CLI adapter package:
   - `__init__.py`  -  Public facade
   - `constants.py`  -  Shared constants
   - `safe_console.py`  -  Encode-safe terminal output; use `safe_console.echo` instead of `click.echo`
@@ -47,25 +47,25 @@ moves or removes a module, a CLI option or a public name.
   - `commands/logging.py`  -  logdemo command
 
 ### Adapters Layer (In-Memory / Testing)
-- `src/bitranox_template_py_cli/adapters/memory/__init__.py`  -  Public facade + Protocol conformance assertions
-- `src/bitranox_template_py_cli/adapters/memory/config.py`  -  In-memory config adapters
-- `src/bitranox_template_py_cli/adapters/memory/email.py`  -  In-memory email adapters
-- `src/bitranox_template_py_cli/adapters/memory/logging.py`  -  In-memory logging (a quiet lib_log_rich runtime for tests)
+- `src/datamax_dpl/adapters/memory/__init__.py`  -  Public facade + Protocol conformance assertions
+- `src/datamax_dpl/adapters/memory/config.py`  -  In-memory config adapters
+- `src/datamax_dpl/adapters/memory/email.py`  -  In-memory email adapters
+- `src/datamax_dpl/adapters/memory/logging.py`  -  In-memory logging (a quiet lib_log_rich runtime for tests)
 
 ### Composition Layer
-- `src/bitranox_template_py_cli/composition/__init__.py`  -  Wires adapters to ports
+- `src/datamax_dpl/composition/__init__.py`  -  Wires adapters to ports
 
 ### Entry Points
-- `src/bitranox_template_py_cli/entry.py`  -  Console-script entry point; wires production services before invoking the CLI
-- `src/bitranox_template_py_cli/__main__.py`  -  Thin shim for `python -m`
-- `src/bitranox_template_py_cli/__init__.py`  -  Public API exports
-- `src/bitranox_template_py_cli/__init__conf__.py`  -  Package metadata constants
+- `src/datamax_dpl/entry.py`  -  Console-script entry point; wires production services before invoking the CLI
+- `src/datamax_dpl/__main__.py`  -  Thin shim for `python -m`
+- `src/datamax_dpl/__init__.py`  -  Public API exports
+- `src/datamax_dpl/__init__conf__.py`  -  Package metadata constants
 
 ### Configuration Defaults
-- `src/bitranox_template_py_cli/adapters/config/defaultconfig.toml`  -  Base defaults
-- `src/bitranox_template_py_cli/adapters/config/defaultconfig.d/40-layered-config.toml`  -  lib_layered_config integration docs
-- `src/bitranox_template_py_cli/adapters/config/defaultconfig.d/50-mail.toml`  -  Email defaults
-- `src/bitranox_template_py_cli/adapters/config/defaultconfig.d/90-logging.toml`  -  Logging defaults
+- `src/datamax_dpl/adapters/config/defaultconfig.toml`  -  Base defaults
+- `src/datamax_dpl/adapters/config/defaultconfig.d/40-layered-config.toml`  -  lib_layered_config integration docs
+- `src/datamax_dpl/adapters/config/defaultconfig.d/50-mail.toml`  -  Email defaults
+- `src/datamax_dpl/adapters/config/defaultconfig.d/90-logging.toml`  -  Logging defaults
 
 ### Tests
 - `tests/conftest.py`  -  Shared fixtures (see Test Fixtures below)
@@ -159,7 +159,7 @@ POSIX-conventional exit codes defined in `adapters/cli/exit_codes.py`:
 
 ### Root Command
 
-**Command:** `bitranox-template-py-cli`
+**Command:** `datamax-dpl`
 
 | Option                         | Description                                 |
 |--------------------------------|---------------------------------------------|

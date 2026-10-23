@@ -26,8 +26,8 @@ import lib_log_rich.runtime
 import pytest
 from lib_layered_config import Config
 
-from bitranox_template_py_cli import __init__conf__
-from bitranox_template_py_cli.adapters.logging.setup import (
+from datamax_dpl import __init__conf__
+from datamax_dpl.adapters.logging.setup import (
     InvalidLoggingConfigError,
     check_logging_config,
     init_logging,
@@ -45,7 +45,7 @@ def _run(cwd: Path, *args: str, env: dict[str, str] | None = None) -> subprocess
     clean.update(dict.fromkeys(_HOMES, str(cwd)))
     clean.update(env or {})
     return subprocess.run(  # noqa: S603 - fixed argv: this interpreter running this package
-        [sys.executable, "-m", "bitranox_template_py_cli", *args],
+        [sys.executable, "-m", "datamax_dpl", *args],
         cwd=cwd,
         env=clean,
         capture_output=True,

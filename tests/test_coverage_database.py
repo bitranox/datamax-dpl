@@ -19,7 +19,7 @@ REPO = Path(__file__).parent.parent
 
 #: The database a coverage run leaves in the temp directory, and the rollback
 #: journal SQLite keeps beside it while a write is in flight.
-PLANTED = (".coverage.bitranox_template_py_cli", ".coverage.bitranox_template_py_cli-journal")
+PLANTED = (".coverage.datamax_dpl", ".coverage.datamax_dpl-journal")
 
 
 @pytest.mark.os_agnostic

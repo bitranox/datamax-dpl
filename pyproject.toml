@@ -1,5 +1,5 @@
 [project]
-name = "bitranox_template_py_cli"
+name = "datamax_dpl"
 version = "2.4.3"
 description = "Template CLI application with configuration management and structured logging"
 readme = "README.md"
@@ -45,9 +45,9 @@ system-dependencies-windows-choco = []
 os = ["ubuntu-latest", "windows-latest", "macos-latest"]
 
 [project.urls]
-Homepage = "https://github.com/bitranox/bitranox_template_py_cli"
-Repository = "https://github.com/bitranox/bitranox_template_py_cli.git"
-Issues = "https://github.com/bitranox/bitranox_template_py_cli/issues"
+Homepage = "https://github.com/bitranox/datamax_dpl"
+Repository = "https://github.com/bitranox/datamax_dpl.git"
+Issues = "https://github.com/bitranox/datamax_dpl/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -86,8 +86,8 @@ dev = [
 ]
 
 [project.scripts]
-bitranox_template_py_cli = "bitranox_template_py_cli.entry:main"
-bitranox-template-py-cli = "bitranox_template_py_cli.entry:main"
+datamax_dpl = "datamax_dpl.entry:main"
+datamax-dpl = "datamax_dpl.entry:main"
 
 [build-system]
 requires = ["hatchling>=1.32.4"]
@@ -97,11 +97,11 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/bitranox_template_py_cli"]
+packages = ["src/datamax_dpl"]
 include = [
-    "src/bitranox_template_py_cli/py.typed",
-    "src/bitranox_template_py_cli/adapters/config/defaultconfig.toml",
-    "src/bitranox_template_py_cli/adapters/config/defaultconfig.d/*.toml",
+    "src/datamax_dpl/py.typed",
+    "src/datamax_dpl/adapters/config/defaultconfig.toml",
+    "src/datamax_dpl/adapters/config/defaultconfig.d/*.toml",
 ]
 
 # An allowlist, never a denylist: hatchling reads only the root .gitignore, so tracked working
@@ -110,7 +110,7 @@ include = [
 # refuses any other top-level entry.
 [tool.hatch.build.targets.sdist]
 include = [
-    "/src/bitranox_template_py_cli",
+    "/src/datamax_dpl",
     "/tests/*.py",
     "/docs",
     "/README.md",
@@ -168,12 +168,12 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 # body to exercise import-time and cache behaviour, so moving them to module top would defeat intent.
 "tests/*.py" = ["T20", "S101", "S105", "S106", "S108", "FBT001", "FBT003", "PLR0913", "PLR2004", "PLC0415"]
 # CLI: Click framework injects boolean params; commands have many options
-"src/bitranox_template_py_cli/adapters/cli/**/*.py" = ["FBT001", "FBT002", "PLR0913"]
+"src/datamax_dpl/adapters/cli/**/*.py" = ["FBT001", "FBT002", "PLR0913"]
 # Protocols/adapters: many-param signatures by design
-"src/bitranox_template_py_cli/application/*.py" = ["PLR0913"]
-"src/bitranox_template_py_cli/adapters/config/*.py" = ["PLR0913"]
-"src/bitranox_template_py_cli/adapters/email/*.py" = ["PLR0913"]
-"src/bitranox_template_py_cli/adapters/memory/*.py" = ["PLR0913"]
+"src/datamax_dpl/application/*.py" = ["PLR0913"]
+"src/datamax_dpl/adapters/config/*.py" = ["PLR0913"]
+"src/datamax_dpl/adapters/email/*.py" = ["PLR0913"]
+"src/datamax_dpl/adapters/memory/*.py" = ["PLR0913"]
 
 [tool.pyright]
 typeCheckingMode = "strict"
@@ -204,8 +204,8 @@ parallel = false
 # pytest-cov erases it when a run starts and combines the data files beside it
 # when a run ends. bmk and CI each point COVERAGE_FILE at a directory of their
 # own; set it the same way before running pytest --cov beside another run.
-data_file = "/tmp/.coverage.bitranox_template_py_cli"
-source = ["src/bitranox_template_py_cli"]
+data_file = "/tmp/.coverage.datamax_dpl"
+source = ["src/datamax_dpl"]
 
 [tool.coverage.report]
 omit = [
@@ -254,18 +254,18 @@ coverage-report-file = "coverage.xml"
 src-path = "src"
 
 [tool.importlinter]
-root_package = "bitranox_template_py_cli"
+root_package = "datamax_dpl"
 exclude_type_checking_imports = true
 
 [[tool.importlinter.contracts]]
 name = "Domain is pure (no adapter dependencies)"
 type = "forbidden"
 source_modules = [
-  "bitranox_template_py_cli.domain",
+  "datamax_dpl.domain",
 ]
 forbidden_modules = [
-  "bitranox_template_py_cli.adapters",
-  "bitranox_template_py_cli.composition",
+  "datamax_dpl.adapters",
+  "datamax_dpl.composition",
 ]
 
 [[tool.importlinter.contracts]]
@@ -273,13 +273,13 @@ name = "Clean Architecture layers"
 type = "layers"
 layers = [
   # Composition wires adapters - can import everything
-  "bitranox_template_py_cli.composition",
+  "datamax_dpl.composition",
   # Adapters implement ports - can import application and domain
-  "bitranox_template_py_cli.adapters",
+  "datamax_dpl.adapters",
   # Application defines ports - can import domain
-  "bitranox_template_py_cli.application",
+  "datamax_dpl.application",
   # Domain is pure - bottom layer
-  "bitranox_template_py_cli.domain",
+  "datamax_dpl.domain",
 ]
 
 [tool.pip-audit]

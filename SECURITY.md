@@ -13,7 +13,7 @@ responsibly:
 
 1. **Do not** open a public GitHub issue for security vulnerabilities.
 2. Email the maintainer directly or use
-   [GitHub's private vulnerability reporting](https://github.com/bitranox/bitranox_template_py_cli/security/advisories/new).
+   [GitHub's private vulnerability reporting](https://github.com/bitranox/datamax_dpl/security/advisories/new).
 3. Include a description of the vulnerability, steps to reproduce, and any
    relevant logs or screenshots.
 

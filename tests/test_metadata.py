@@ -43,24 +43,24 @@ def _get_package_dir() -> Path:
 @pytest.mark.os_agnostic
 def test_when_print_info_runs_it_outputs_metadata(capsys: pytest.CaptureFixture[str]) -> None:
     """Verify print_info outputs package metadata."""
-    from bitranox_template_py_cli import print_info
+    from datamax_dpl import print_info
 
     print_info()
 
     captured = capsys.readouterr().out
-    assert "bitranox_template_py_cli" in captured
+    assert "datamax_dpl" in captured
     assert "version" in captured
 
 
 @pytest.mark.os_agnostic
 def test_metadata_constants_are_set() -> None:
     """Verify static metadata constants are properly set."""
-    from bitranox_template_py_cli import __init__conf__
+    from datamax_dpl import __init__conf__
 
     # These should be non-empty when package is installed
-    assert __init__conf__.name == "bitranox_template_py_cli"
+    assert __init__conf__.name == "datamax_dpl"
     assert __init__conf__.version  # Should have a version
-    assert __init__conf__.shell_command == "bitranox-template-py-cli"
+    assert __init__conf__.shell_command == "datamax-dpl"
 
 
 @pytest.mark.os_agnostic

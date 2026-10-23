@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from bitranox_template_py_cli.adapters import cli as cli_mod
+from datamax_dpl.adapters import cli as cli_mod
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping

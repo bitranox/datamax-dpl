@@ -23,7 +23,7 @@ The targets used day to day:
 - `make testintegration` (aliases `testi`, `ti`) -- the integration tests only.
 - `make bump-patch` / `bump-minor` / `bump-major` -- bump the version in `pyproject.toml`, turn
   the `[Unreleased]` section of `CHANGELOG.md` into the new version, and rewrite
-  `src/bitranox_template_py_cli/__init__conf__.py` to match.
+  `src/datamax_dpl/__init__conf__.py` to match.
 - `make push` -- run the tests, commit and push. Give the commit message with `MSG="..."` (it
   reaches bmk as `BMK_COMMIT_MESSAGE` and survives punctuation, newlines and `$`); without one,
   bmk prompts.
@@ -60,7 +60,7 @@ EMAIL__SMTP_PASSWORD=your_password
    Alternatively, use `--env-file` to point at an existing `.env` file:
 
 ```bash
-bitranox-template-py-cli --env-file /path/to/my/.env send-notification --subject "Test" --message "Hello"
+datamax-dpl --env-file /path/to/my/.env send-notification --subject "Test" --message "Hello"
 ```
 
 2. **Run the integration tests**:
@@ -110,11 +110,11 @@ a default is structurally compatible. Do not add `transport` to the port.
 
 - Single source of truth for package metadata is `pyproject.toml` (`[project]`).
 - The package reads its own metadata from static constants in
-  `src/bitranox_template_py_cli/__init__conf__.py`; a version bump rewrites that file, so do not
+  `src/datamax_dpl/__init__conf__.py`; a version bump rewrites that file, so do not
   edit the version there by hand.
 - The console script name is the static `shell_command` constant in `__init__conf__.py`
-  (`bitranox-template-py-cli`); `[project.scripts]` in `pyproject.toml` registers it together
-  with `bitranox_template_py_cli`.
+  (`datamax-dpl`); `[project.scripts]` in `pyproject.toml` registers it together
+  with `datamax_dpl`.
 
 ## Dependency Auditing
 

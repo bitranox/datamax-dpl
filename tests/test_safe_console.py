@@ -16,9 +16,9 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from bitranox_template_py_cli.adapters.cli import safe_console
+from datamax_dpl.adapters.cli import safe_console
 
-PKG = Path(__file__).resolve().parent.parent / "src" / "bitranox_template_py_cli"
+PKG = Path(__file__).resolve().parent.parent / "src" / "datamax_dpl"
 
 
 def _cp1252_stream() -> io.TextIOWrapper:
@@ -148,7 +148,7 @@ def test_a_command_echoing_a_surrogate_escaped_path_still_exits_0(tmp_path: Path
     """A destination holding a raw non-UTF-8 byte reaches echo as a lone surrogate; the files
     are written, so the path line must degrade rather than turn the run into a crash."""
     completed = subprocess.run(
-        [sys.executable, "-m", "bitranox_template_py_cli", "config-generate-examples", "--destination", "ex\udcff"],
+        [sys.executable, "-m", "datamax_dpl", "config-generate-examples", "--destination", "ex\udcff"],
         capture_output=True,
         check=False,
         cwd=tmp_path,
@@ -234,7 +234,7 @@ class TestTheStreamsOwnErrorHandlerIsHonoured:
 def test_a_surrogateescape_stdout_prints_the_path_that_is_on_disk(tmp_path: Path) -> None:
     """End to end: with stdout at surrogateescape the printed path names the real directory."""
     completed = subprocess.run(
-        [sys.executable, "-m", "bitranox_template_py_cli", "config-generate-examples", "--destination", "ex\udcff"],
+        [sys.executable, "-m", "datamax_dpl", "config-generate-examples", "--destination", "ex\udcff"],
         capture_output=True,
         check=False,
         cwd=tmp_path,
@@ -291,7 +291,7 @@ class TestTheRealCliSurvivesALegacyCodepage:
 
     def test_help_runs_under_a_cp1252_stdout(self) -> None:
         completed = subprocess.run(
-            [sys.executable, "-X", "utf8=0", "-m", "bitranox_template_py_cli", "--help"],
+            [sys.executable, "-X", "utf8=0", "-m", "datamax_dpl", "--help"],
             capture_output=True,
             # Inherit the real environment: replacing it outright leaves a Windows
             # child with no SYSTEMROOT and no usable PATH, so python.exe never starts.

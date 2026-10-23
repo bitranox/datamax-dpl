@@ -14,7 +14,7 @@ from typing import get_args
 
 import pytest
 
-from bitranox_template_py_cli.adapters.email.config import EmailConfig
+from datamax_dpl.adapters.email.config import EmailConfig
 
 _MODULE_REFERENCE = Path(__file__).parent.parent / "docs" / "systemdesign" / "module_reference.md"
 _ROW = re.compile(r"\|\s*`(\w+)`\s*\|\s*`([^`]+)`\s*\|")

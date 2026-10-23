@@ -53,7 +53,7 @@ the top of the README report the live state.
 
 You do not have to take any of this on faith.
 
-- The source is available. Read `src/bitranox_template_py_cli/`; the module-by-module map is in
+- The source is available. Read `src/datamax_dpl/`; the module-by-module map is in
   [docs/systemdesign/module_reference.md](docs/systemdesign/module_reference.md).
 - The history is available too. Decisions and reversals show up over time.
 - The tests live in `tests/` and the doctests live in the modules. Run `make test` and see.

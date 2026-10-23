@@ -17,8 +17,8 @@ import pytest
 import rtoml
 from btx_lib_mail import AttachmentSecurityError, AttachmentViolation, ConfMail
 
-from bitranox_template_py_cli.adapters.email.config import EmailConfig, load_email_config_from_dict
-from bitranox_template_py_cli.adapters.email.transport import send_email
+from datamax_dpl.adapters.email.config import EmailConfig, load_email_config_from_dict
+from datamax_dpl.adapters.email.transport import send_email
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 _SHIPPED = (
     Path(__file__).parent.parent
     / "src"
-    / "bitranox_template_py_cli"
+    / "datamax_dpl"
     / "adapters"
     / "config"
     / "defaultconfig.d"

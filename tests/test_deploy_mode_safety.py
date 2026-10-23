@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from bitranox_template_py_cli.adapters import cli as cli_mod
+from datamax_dpl.adapters import cli as cli_mod
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
     from click.testing import CliRunner
 
-    from bitranox_template_py_cli.composition import AppServices
+    from datamax_dpl.composition import AppServices
 
 #: Each parses under a bare ``int(value, 8)`` although it is no mode literal: int() strips
 #: whitespace, accepts ``_`` separators and converts non-ASCII decimal digits.

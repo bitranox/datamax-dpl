@@ -1,6 +1,6 @@
 # Contributing Guide
 
-Thanks for helping improve **bitranox_template_py_cli**. The sections below summarise the day-to-day workflow, highlight the repository automation, and list the checks that must pass before a change is merged.
+Thanks for helping improve **datamax_dpl**. The sections below summarise the day-to-day workflow, highlight the repository automation, and list the checks that must pass before a change is merged.
 
 ## 1. Workflow Overview
 
@@ -38,7 +38,7 @@ Before opening a PR, confirm the following:
 - [ ] `make test` passes locally.
 - [ ] Relevant documentation (`README.md`, `DEVELOPMENT.md`, `docs/systemdesign/*`) is updated.
 - [ ] No generated artefacts or virtual environments are committed.
-- [ ] Version bumps, when required, are made with `make bump-patch` / `bump-minor` / `bump-major`, which update `pyproject.toml`, `CHANGELOG.md` and `src/bitranox_template_py_cli/__init__conf__.py` together.
+- [ ] Version bumps, when required, are made with `make bump-patch` / `bump-minor` / `bump-major`, which update `pyproject.toml`, `CHANGELOG.md` and `src/datamax_dpl/__init__conf__.py` together.
 
 ## 6. Security & Configuration
 

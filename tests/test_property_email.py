@@ -12,8 +12,8 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from pydantic import ValidationError
 
-from bitranox_template_py_cli.adapters.email.config import load_email_config_from_dict
-from bitranox_template_py_cli.adapters.email.sender import EmailConfig
+from datamax_dpl.adapters.email.config import load_email_config_from_dict
+from datamax_dpl.adapters.email.sender import EmailConfig
 
 # ======================== Strategy helpers ========================
 
@@ -141,8 +141,8 @@ def test_whitespace_only_from_address_coerces_to_none(whitespace: str) -> None:
 @settings(max_examples=50)
 def test_invalid_runtime_recipients_are_rejected_in_memory_adapter(invalid_email: str) -> None:
     """Invalid runtime recipients raise InvalidRecipientError in memory adapter."""
-    from bitranox_template_py_cli.adapters.memory.email import EmailSpy
-    from bitranox_template_py_cli.domain.errors import InvalidRecipientError
+    from datamax_dpl.adapters.memory.email import EmailSpy
+    from datamax_dpl.domain.errors import InvalidRecipientError
 
     config = EmailConfig(smtphosts=["smtp.example.com:587"])
     spy = EmailSpy()
@@ -161,8 +161,8 @@ def test_invalid_runtime_recipients_are_rejected_in_memory_adapter(invalid_email
 @settings(max_examples=50)
 def test_invalid_runtime_recipients_are_rejected_in_notification(invalid_email: str) -> None:
     """Invalid runtime recipients raise InvalidRecipientError in notification adapter."""
-    from bitranox_template_py_cli.adapters.memory.email import EmailSpy
-    from bitranox_template_py_cli.domain.errors import InvalidRecipientError
+    from datamax_dpl.adapters.memory.email import EmailSpy
+    from datamax_dpl.domain.errors import InvalidRecipientError
 
     config = EmailConfig(smtphosts=["smtp.example.com:587"])
     spy = EmailSpy()

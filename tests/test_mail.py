@@ -22,15 +22,15 @@ from btx_lib_mail import ConfMail
 from pydantic import SecretStr
 from pydantic import ValidationError as PydanticValidationError
 
-from bitranox_template_py_cli.adapters import cli as cli_mod
-from bitranox_template_py_cli.adapters.cli.commands.email._common import EmailConfigOverrides, apply_validated_overrides
-from bitranox_template_py_cli.adapters.email.sender import (
+from datamax_dpl.adapters import cli as cli_mod
+from datamax_dpl.adapters.cli.commands.email._common import EmailConfigOverrides, apply_validated_overrides
+from datamax_dpl.adapters.email.sender import (
     EmailConfig,
     load_email_config_from_dict,
     send_email,
     send_notification,
 )
-from bitranox_template_py_cli.domain.errors import ConfigurationError, DeliveryError
+from datamax_dpl.domain.errors import ConfigurationError, DeliveryError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -1281,7 +1281,7 @@ def test_send_email_logs_success_on_true_result(caplog: pytest.LogCaptureFixture
     )
 
     with (
-        patch("bitranox_template_py_cli.adapters.email.transport.btx_send", return_value=True),
+        patch("datamax_dpl.adapters.email.transport.btx_send", return_value=True),
         caplog.at_level(logging.INFO),
     ):
         result = send_email(
@@ -1307,7 +1307,7 @@ def test_send_email_logs_warning_on_false_result(caplog: pytest.LogCaptureFixtur
     )
 
     with (
-        patch("bitranox_template_py_cli.adapters.email.transport.btx_send", return_value=False),
+        patch("datamax_dpl.adapters.email.transport.btx_send", return_value=False),
         caplog.at_level(logging.WARNING),
     ):
         result = send_email(
@@ -1328,8 +1328,8 @@ def test_send_email_logs_warning_on_false_result(caplog: pytest.LogCaptureFixtur
 @pytest.fixture
 def smtp_config_from_env() -> EmailConfig:
     """Load SMTP configuration via lib_layered_config for integration tests."""
-    from bitranox_template_py_cli.adapters.config.loader import get_config
-    from bitranox_template_py_cli.adapters.email.sender import load_email_config_from_dict
+    from datamax_dpl.adapters.config.loader import get_config
+    from datamax_dpl.adapters.email.sender import load_email_config_from_dict
 
     get_config.cache_clear()
     config = get_config()
@@ -1351,7 +1351,7 @@ def test_real_smtp_sends_email(smtp_config_from_env: EmailConfig) -> None:
     result = send_email(
         config=smtp_config_from_env,
         recipients=smtp_config_from_env.recipients,
-        subject="Test Email from bitranox_template_py_cli",
+        subject="Test Email from datamax_dpl",
         body=(
             "This is a test email sent from the integration test suite."
             "\n\nIf you receive this, the email functionality is working correctly."
@@ -1369,7 +1369,7 @@ def test_real_smtp_sends_html_email(smtp_config_from_env: EmailConfig) -> None:
     result = send_email(
         config=smtp_config_from_env,
         recipients=smtp_config_from_env.recipients,
-        subject="Test HTML Email from bitranox_template_py_cli",
+        subject="Test HTML Email from datamax_dpl",
         body="This is the plain text version.",
         body_html="<html><body><h1>Test Email</h1><p>This is a <strong>HTML</strong> test email.</p></body></html>",
     )
@@ -1385,7 +1385,7 @@ def test_real_smtp_sends_notification(smtp_config_from_env: EmailConfig) -> None
     result = send_notification(
         config=smtp_config_from_env,
         recipients=smtp_config_from_env.recipients,
-        subject="Test Notification from bitranox_template_py_cli",
+        subject="Test Notification from datamax_dpl",
         message="This is a test notification.\n\nSystem: All tests passing!",
     )
 
@@ -1398,7 +1398,7 @@ def test_real_smtp_sends_notification(smtp_config_from_env: EmailConfig) -> None
 @pytest.mark.os_agnostic
 def test_validate_recipients_accepts_none() -> None:
     """None recipients is a no-op (skips validation)."""
-    from bitranox_template_py_cli.adapters.email.validation import validate_recipients
+    from datamax_dpl.adapters.email.validation import validate_recipients
 
     validate_recipients(None)  # Should not raise
 
@@ -1406,7 +1406,7 @@ def test_validate_recipients_accepts_none() -> None:
 @pytest.mark.os_agnostic
 def test_validate_recipients_accepts_single_valid_string() -> None:
     """Single valid email address string is accepted."""
-    from bitranox_template_py_cli.adapters.email.validation import validate_recipients
+    from datamax_dpl.adapters.email.validation import validate_recipients
 
     validate_recipients("valid@example.com")  # Should not raise
 
@@ -1414,7 +1414,7 @@ def test_validate_recipients_accepts_single_valid_string() -> None:
 @pytest.mark.os_agnostic
 def test_validate_recipients_accepts_valid_list() -> None:
     """List of valid email addresses is accepted."""
-    from bitranox_template_py_cli.adapters.email.validation import validate_recipients
+    from datamax_dpl.adapters.email.validation import validate_recipients
 
     validate_recipients(["a@example.com", "b@example.com"])  # Should not raise
 
@@ -1422,7 +1422,7 @@ def test_validate_recipients_accepts_valid_list() -> None:
 @pytest.mark.os_agnostic
 def test_validate_recipients_accepts_empty_list() -> None:
     """Empty list is accepted (no recipients to validate)."""
-    from bitranox_template_py_cli.adapters.email.validation import validate_recipients
+    from datamax_dpl.adapters.email.validation import validate_recipients
 
     validate_recipients([])  # Should not raise
 
@@ -1430,8 +1430,8 @@ def test_validate_recipients_accepts_empty_list() -> None:
 @pytest.mark.os_agnostic
 def test_validate_recipients_raises_on_invalid_single_string() -> None:
     """Invalid single email string raises InvalidRecipientError."""
-    from bitranox_template_py_cli.adapters.email.validation import validate_recipients
-    from bitranox_template_py_cli.domain.errors import InvalidRecipientError
+    from datamax_dpl.adapters.email.validation import validate_recipients
+    from datamax_dpl.domain.errors import InvalidRecipientError
 
     with pytest.raises(InvalidRecipientError, match="Invalid recipient"):
         validate_recipients("not-an-email")
@@ -1440,8 +1440,8 @@ def test_validate_recipients_raises_on_invalid_single_string() -> None:
 @pytest.mark.os_agnostic
 def test_validate_recipients_raises_on_invalid_in_list() -> None:
     """List with one invalid email raises InvalidRecipientError."""
-    from bitranox_template_py_cli.adapters.email.validation import validate_recipients
-    from bitranox_template_py_cli.domain.errors import InvalidRecipientError
+    from datamax_dpl.adapters.email.validation import validate_recipients
+    from datamax_dpl.domain.errors import InvalidRecipientError
 
     with pytest.raises(InvalidRecipientError, match="Invalid recipient"):
         validate_recipients(["valid@example.com", "invalid"])
@@ -1450,8 +1450,8 @@ def test_validate_recipients_raises_on_invalid_in_list() -> None:
 @pytest.mark.os_agnostic
 def test_validate_recipients_error_includes_invalid_address() -> None:
     """Error message includes the specific invalid address."""
-    from bitranox_template_py_cli.adapters.email.validation import validate_recipients
-    from bitranox_template_py_cli.domain.errors import InvalidRecipientError
+    from datamax_dpl.adapters.email.validation import validate_recipients
+    from datamax_dpl.domain.errors import InvalidRecipientError
 
     with pytest.raises(InvalidRecipientError, match="bad-address"):
         validate_recipients("bad-address")
@@ -1527,7 +1527,7 @@ def test_attachments_max_count_from_the_file_refuses_a_larger_send_before_any_de
 
 
 _SHIPPED_MAIL = (
-    Path(__file__).parent.parent / "src" / "bitranox_template_py_cli" / "adapters" / "config" / "defaultconfig.d"
+    Path(__file__).parent.parent / "src" / "datamax_dpl" / "adapters" / "config" / "defaultconfig.d"
 ) / "50-mail.toml"
 
 

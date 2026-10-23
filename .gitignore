@@ -45,7 +45,7 @@ tmp_*
 # __pycache__: compiled .pyc files at any depth
 # *.py[cod]: catches .pyc, .pyo, .pyd
 __pycache__/
-src/bitranox_template_py_cli/__pycache__/
+src/datamax_dpl/__pycache__/
 *.py[cod]
 # other compiled artifacts
 *$py.class

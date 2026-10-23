@@ -27,8 +27,8 @@ if TYPE_CHECKING:
 
     from lib_layered_config.domain.config import SourceInfo
 
-    from bitranox_template_py_cli.adapters.memory.email import EmailSpy
-    from bitranox_template_py_cli.composition import AppServices
+    from datamax_dpl.adapters.memory.email import EmailSpy
+    from datamax_dpl.composition import AppServices
 
 #: Which platforms each ``os_*`` marker lets a test run on. Registering a marker in pyproject only
 #: silences pytest's unknown-marker warning; without this table a marked test runs everywhere.
@@ -182,7 +182,7 @@ def production_factory() -> Callable[[], AppServices]:
             result = cli_runner.invoke(cli, ["info"], obj=production_factory)
             assert result.exit_code == 0
     """
-    from bitranox_template_py_cli.composition import build_production
+    from datamax_dpl.composition import build_production
 
     return build_production
 
@@ -264,7 +264,7 @@ def clear_config_cache() -> Iterator[None]:
             config1 = get_config()
             # Cache was cleared, so this is a fresh load
     """
-    from bitranox_template_py_cli.adapters.config import loader as config_mod
+    from datamax_dpl.adapters.config import loader as config_mod
 
     config_mod.get_config.cache_clear()
     yield
@@ -371,8 +371,8 @@ def inject_config(
             result = cli_runner.invoke(cli, ["config"], obj=factory)
             assert "key" in result.output
     """
-    from bitranox_template_py_cli.adapters.memory import check_logging_config_in_memory, init_logging_in_memory
-    from bitranox_template_py_cli.composition import AppServices, build_production
+    from datamax_dpl.adapters.memory import check_logging_config_in_memory, init_logging_in_memory
+    from datamax_dpl.composition import AppServices, build_production
 
     def _inject(config: Config) -> Callable[[], AppServices]:
         def _fake_get_config(**_kwargs: Any) -> Config:
@@ -426,8 +426,8 @@ def inject_config_with_profile_capture(
             cli_runner.invoke(cli, ["--profile", "staging", "config"], obj=factory)
             assert captured == ["staging"]
     """
-    from bitranox_template_py_cli.adapters.memory import check_logging_config_in_memory, init_logging_in_memory
-    from bitranox_template_py_cli.composition import AppServices, build_production
+    from datamax_dpl.adapters.memory import check_logging_config_in_memory, init_logging_in_memory
+    from datamax_dpl.composition import AppServices, build_production
 
     def _inject(config: Config, captured_profiles: list[str | None]) -> Callable[[], AppServices]:
         def _capturing_get_config(*, profile: str | None = None, **_kwargs: Any) -> Config:
@@ -482,8 +482,8 @@ def inject_deploy_with_profile_capture(
             cli_runner.invoke(cli, ["--profile", "prod", "config-deploy", ...], obj=factory)
             assert captured == ["prod"]
     """
-    from bitranox_template_py_cli.adapters.memory import check_logging_config_in_memory, init_logging_in_memory
-    from bitranox_template_py_cli.composition import AppServices, build_production
+    from datamax_dpl.adapters.memory import check_logging_config_in_memory, init_logging_in_memory
+    from datamax_dpl.composition import AppServices, build_production
 
     def _inject(deployed_path: Path, captured_profiles: list[str | None]) -> Callable[[], AppServices]:
         def _capturing_deploy(
@@ -543,8 +543,8 @@ def inject_deploy_configuration() -> Callable[[Callable[..., list[Path]]], Calla
             cli_runner.invoke(cli, ["config-deploy", "--target", "user"], obj=factory)
             assert len(calls) == 1
     """
-    from bitranox_template_py_cli.adapters.memory import check_logging_config_in_memory, init_logging_in_memory
-    from bitranox_template_py_cli.composition import AppServices, build_production
+    from datamax_dpl.adapters.memory import check_logging_config_in_memory, init_logging_in_memory
+    from datamax_dpl.composition import AppServices, build_production
 
     def _inject(deploy_fn: Callable[..., list[Path]]) -> Callable[[], AppServices]:
         prod = build_production()
@@ -586,7 +586,7 @@ def inject_test_services() -> Callable[[], Callable[[], AppServices]]:
             result = cli_runner.invoke(cli, ["config"], obj=factory)
             # Uses in-memory config, no disk access
     """
-    from bitranox_template_py_cli.composition import build_testing
+    from datamax_dpl.composition import build_testing
 
     def _inject() -> Callable[[], AppServices]:
         return build_testing
@@ -644,10 +644,10 @@ def email_cli_context(
             assert result.exit_code == 0
             assert ctx.spy.sent_notifications[0].subject == "Hi"
     """
-    from bitranox_template_py_cli.adapters.email.config import load_email_config_from_dict
-    from bitranox_template_py_cli.adapters.memory import check_logging_config_in_memory, init_logging_in_memory
-    from bitranox_template_py_cli.adapters.memory.email import EmailSpy as EmailSpyImpl
-    from bitranox_template_py_cli.composition import AppServices, build_production
+    from datamax_dpl.adapters.email.config import load_email_config_from_dict
+    from datamax_dpl.adapters.memory import check_logging_config_in_memory, init_logging_in_memory
+    from datamax_dpl.adapters.memory.email import EmailSpy as EmailSpyImpl
+    from datamax_dpl.composition import AppServices, build_production
 
     def _create(email_data: dict[str, Any]) -> EmailCliContext:
         spy = EmailSpyImpl()
@@ -700,8 +700,8 @@ def config_cli_context(
             result = cli_runner.invoke(cli, ["config"], obj=factory)
             assert "key" in result.output
     """
-    from bitranox_template_py_cli.adapters.memory import check_logging_config_in_memory, init_logging_in_memory
-    from bitranox_template_py_cli.composition import AppServices, build_production
+    from datamax_dpl.adapters.memory import check_logging_config_in_memory, init_logging_in_memory
+    from datamax_dpl.composition import AppServices, build_production
 
     def _create(config_data: dict[str, Any]) -> Callable[[], AppServices]:
         config = Config(config_data, {})

@@ -17,8 +17,8 @@ import pytest
 from btx_lib_mail import ConfMail
 from pydantic import ValidationError
 
-from bitranox_template_py_cli.adapters.config.loader import get_default_config_path
-from bitranox_template_py_cli.adapters.email.config import (
+from datamax_dpl.adapters.config.loader import get_default_config_path
+from datamax_dpl.adapters.email.config import (
     ATTACHMENT_KEYS,
     EmailConfig,
     describe_validation_error,
@@ -220,7 +220,7 @@ def test_a_comma_separated_extension_string_is_refused_not_ignored() -> None:
 @pytest.mark.os_agnostic
 def test_every_email_config_field_but_one_is_reachable_from_exactly_one_file_key() -> None:
     """Pins the key lists against the model: a field ConfMail adds later must be decided here."""
-    from bitranox_template_py_cli.adapters.email import config as module
+    from datamax_dpl.adapters.email import config as module
 
     reachable = [module.FILE_KEY_TO_FIELD.get(key, key) for key in module.SECTION_KEYS - {"attachments"}]
     reachable += [f"attachment_{key}" for key in module.ATTACHMENT_KEYS]

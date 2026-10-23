@@ -16,9 +16,9 @@ import click
 import pytest
 from lib_layered_config import Config
 
-from bitranox_template_py_cli.adapters.cli.main import main
-from bitranox_template_py_cli.adapters.memory.email import EmailSpy
-from bitranox_template_py_cli.composition import AppServices, build_testing
+from datamax_dpl.adapters.cli.main import main
+from datamax_dpl.adapters.memory.email import EmailSpy
+from datamax_dpl.composition import AppServices, build_testing
 
 if TYPE_CHECKING:
     from collections.abc import Callable

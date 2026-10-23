@@ -12,9 +12,9 @@ from typing import TYPE_CHECKING
 import pytest
 from lib_layered_config import Config
 
-from bitranox_template_py_cli.adapters.email.config import load_email_config_from_dict
-from bitranox_template_py_cli.adapters.email.sender import EmailConfig
-from bitranox_template_py_cli.adapters.memory import (
+from datamax_dpl.adapters.email.config import load_email_config_from_dict
+from datamax_dpl.adapters.email.sender import EmailConfig
+from datamax_dpl.adapters.memory import (
     EmailSpy,
     check_logging_config_in_memory,
     get_config_in_memory,
@@ -23,7 +23,7 @@ from bitranox_template_py_cli.adapters.memory import (
 )
 
 if TYPE_CHECKING:
-    from bitranox_template_py_cli.application.ports import (
+    from datamax_dpl.application.ports import (
         CheckLoggingConfig,
         GetConfig,
         GetDefaultConfigPath,
@@ -163,7 +163,7 @@ def test_check_logging_config_in_memory_refuses_nothing(check_logging_config_imp
 @pytest.mark.os_agnostic
 def test_build_production_returns_fully_populated_app_services() -> None:
     """build_production() must return AppServices with all fields populated."""
-    from bitranox_template_py_cli.composition import AppServices, build_production
+    from datamax_dpl.composition import AppServices, build_production
 
     services = build_production()
     assert isinstance(services, AppServices)
@@ -174,7 +174,7 @@ def test_build_production_returns_fully_populated_app_services() -> None:
 @pytest.mark.os_agnostic
 def test_build_testing_returns_fully_populated_app_services() -> None:
     """build_testing() must return AppServices with all in-memory implementations."""
-    from bitranox_template_py_cli.composition import AppServices, build_testing
+    from datamax_dpl.composition import AppServices, build_testing
 
     services = build_testing()
     assert isinstance(services, AppServices)
@@ -185,7 +185,7 @@ def test_build_testing_returns_fully_populated_app_services() -> None:
 @pytest.mark.os_agnostic
 def test_build_production_services_are_callable() -> None:
     """All services from build_production() must be callable."""
-    from bitranox_template_py_cli.composition import build_production
+    from datamax_dpl.composition import build_production
 
     services = build_production()
     for field_name in services.__dataclass_fields__:
@@ -195,7 +195,7 @@ def test_build_production_services_are_callable() -> None:
 @pytest.mark.os_agnostic
 def test_build_testing_services_are_callable() -> None:
     """All services from build_testing() must be callable."""
-    from bitranox_template_py_cli.composition import build_testing
+    from datamax_dpl.composition import build_testing
 
     services = build_testing()
     for field_name in services.__dataclass_fields__:

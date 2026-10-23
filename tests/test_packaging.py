@@ -19,7 +19,7 @@ from hatchling.builders.sdist import SdistBuilder
 from hatchling.builders.wheel import WheelBuilder
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-PACKAGE = "bitranox_template_py_cli"
+PACKAGE = "datamax_dpl"
 
 # hatchling force-includes the root .gitignore into every sdist (so a build from the unpacked
 # sdist applies the same exclusions); no include/exclude setting removes it.

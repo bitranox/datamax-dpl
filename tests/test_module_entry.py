@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING
 import lib_cli_exit_tools
 import pytest
 
-from bitranox_template_py_cli import __init__conf__, entry
-from bitranox_template_py_cli.adapters import cli as cli_mod
+from datamax_dpl import __init__conf__, entry
+from datamax_dpl.adapters import cli as cli_mod
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -35,10 +35,10 @@ def test_module_entry_executes_cli_and_shows_help(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """python -m invocation with no args shows help and exits 0."""
-    monkeypatch.setattr(sys, "argv", ["bitranox_template_py_cli"], raising=False)
+    monkeypatch.setattr(sys, "argv", ["datamax_dpl"], raising=False)
 
     with pytest.raises(SystemExit) as exc:
-        runpy.run_module("bitranox_template_py_cli.__main__", run_name="__main__")
+        runpy.run_module("datamax_dpl.__main__", run_name="__main__")
 
     captured = capsys.readouterr()
     assert exc.value.code == 0
@@ -53,12 +53,12 @@ def test_module_entry_formats_exceptions_via_exit_helpers(
     strip_ansi: Callable[[str], str],
 ) -> None:
     """Exceptions during module entry are formatted by lib_cli_exit_tools."""
-    monkeypatch.setattr(sys, "argv", ["bitranox_template_py_cli", "fail"], raising=False)
+    monkeypatch.setattr(sys, "argv", ["datamax_dpl", "fail"], raising=False)
     monkeypatch.setattr(lib_cli_exit_tools.config, "traceback", False, raising=False)
     monkeypatch.setattr(lib_cli_exit_tools.config, "traceback_force_color", False, raising=False)
 
     with pytest.raises(SystemExit) as exc:
-        runpy.run_module("bitranox_template_py_cli.__main__", run_name="__main__")
+        runpy.run_module("datamax_dpl.__main__", run_name="__main__")
 
     plain_err = strip_ansi(capsys.readouterr().err)
     assert exc.value.code != 0
@@ -72,12 +72,12 @@ def test_module_entry_traceback_flag_prints_full_traceback(
     strip_ansi: Callable[[str], str],
 ) -> None:
     """--traceback via module entry prints complete traceback on error."""
-    monkeypatch.setattr(sys, "argv", ["bitranox_template_py_cli", "--traceback", "fail"])
+    monkeypatch.setattr(sys, "argv", ["datamax_dpl", "--traceback", "fail"])
     monkeypatch.setattr(lib_cli_exit_tools.config, "traceback", False, raising=False)
     monkeypatch.setattr(lib_cli_exit_tools.config, "traceback_force_color", False, raising=False)
 
     with pytest.raises(SystemExit) as exc:
-        runpy.run_module("bitranox_template_py_cli.__main__", run_name="__main__")
+        runpy.run_module("datamax_dpl.__main__", run_name="__main__")
 
     plain_err = strip_ansi(capsys.readouterr().err)
 
@@ -109,13 +109,13 @@ def test_module_entry_cli_exports_all_registered_commands() -> None:
 
 @pytest.mark.os_agnostic
 def test_module_entry_subprocess_help() -> None:
-    """Verify `python -m bitranox_template_py_cli --help` works via subprocess.
+    """Verify `python -m datamax_dpl --help` works via subprocess.
 
     This tests the true CLI invocation path that end-users would experience,
     complementing the runpy-based tests that run in-process.
     """
     result = subprocess.run(
-        [sys.executable, "-m", "bitranox_template_py_cli", "--help"],
+        [sys.executable, "-m", "datamax_dpl", "--help"],
         capture_output=True,
         timeout=30,
         check=False,
@@ -130,9 +130,9 @@ def test_module_entry_subprocess_help() -> None:
 
 @pytest.mark.os_agnostic
 def test_module_entry_subprocess_version() -> None:
-    """Verify `python -m bitranox_template_py_cli --version` outputs version."""
+    """Verify `python -m datamax_dpl --version` outputs version."""
     result = subprocess.run(
-        [sys.executable, "-m", "bitranox_template_py_cli", "--version"],
+        [sys.executable, "-m", "datamax_dpl", "--version"],
         capture_output=True,
         timeout=30,
         check=False,
@@ -152,9 +152,9 @@ def test_entry_main_invokes_cli_with_help(
     """entry.main() wires production services and invokes CLI.
 
     This tests the console script entry point used by pip-installed commands
-    (bitranox_template_py_cli, bitranox-template-py-cli).
+    (datamax_dpl, datamax-dpl).
     """
-    monkeypatch.setattr(sys, "argv", ["bitranox_template_py_cli", "--help"])
+    monkeypatch.setattr(sys, "argv", ["datamax_dpl", "--help"])
 
     exit_code = entry.main()
 
@@ -171,7 +171,7 @@ def test_entry_main_returns_nonzero_on_error(
     strip_ansi: Callable[[str], str],
 ) -> None:
     """entry.main() returns non-zero exit code on CLI errors."""
-    monkeypatch.setattr(sys, "argv", ["bitranox_template_py_cli", "fail"])
+    monkeypatch.setattr(sys, "argv", ["datamax_dpl", "fail"])
     monkeypatch.setattr(lib_cli_exit_tools.config, "traceback", False)
     monkeypatch.setattr(lib_cli_exit_tools.config, "traceback_force_color", False)
 

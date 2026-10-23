@@ -18,17 +18,17 @@ import pytest
 from btx_lib_mail import ConfMail
 from lib_layered_config import Config
 
-from bitranox_template_py_cli.adapters.cli.exit_codes import ExitCode
-from bitranox_template_py_cli.adapters.cli.main import main
-from bitranox_template_py_cli.adapters.email.transport import send_email
-from bitranox_template_py_cli.composition import AppServices, build_testing
+from datamax_dpl.adapters.cli.exit_codes import ExitCode
+from datamax_dpl.adapters.cli.main import main
+from datamax_dpl.adapters.email.transport import send_email
+from datamax_dpl.composition import AppServices, build_testing
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
     from btx_lib_mail.lib_mail import DeliveryOptions
 
-    from bitranox_template_py_cli.adapters.email.config import EmailConfig
+    from datamax_dpl.adapters.email.config import EmailConfig
 
 EMAIL = {"email": {"smtp_hosts": ["smtp.test.com:587"], "from_address": "sender@test.com"}}
 SEND_EMAIL = ["send-email", "--to", "recipient@test.com", "--subject", "s", "--body", "b"]
