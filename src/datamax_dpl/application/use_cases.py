@@ -6,18 +6,15 @@ the CLI wires production adapters and the tests wire in-memory ones.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
 from contextlib import closing
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
 from ..domain.errors import LabelRejectedError, PrinterTimeoutError
-from ..domain.findings import Finding
-from ..domain.label import Label
 from ..domain.placeholders import fill_label
 from ..domain.render import RenderResult, build_job
-from ..domain.render_context import RenderOptions
 from ..domain.status import (
     CANCEL,
     CUT_NOW,
@@ -28,7 +25,14 @@ from ..domain.status import (
     PrinterStatus,
     parse_ascii_status,
 )
-from .ports import Clock, OpenPrinter, Sleep
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+
+    from ..domain.findings import Finding
+    from ..domain.label import Label
+    from ..domain.render_context import RenderOptions
+    from .ports import Clock, OpenPrinter, Sleep
 
 
 class BatchResult(BaseModel):
@@ -90,7 +94,9 @@ def send_bytes(data: bytes, *, uri: str, timeout: float, open_printer: OpenPrint
     return PrintReport(uri=uri, bytes_sent=len(data))
 
 
-def print_result(result: RenderResult | BatchResult, *, uri: str, timeout: float, open_printer: OpenPrinter) -> PrintReport:
+def print_result(
+    result: RenderResult | BatchResult, *, uri: str, timeout: float, open_printer: OpenPrinter
+) -> PrintReport:
     """Send a rendered job, refusing one that has error findings.
 
     Raises:

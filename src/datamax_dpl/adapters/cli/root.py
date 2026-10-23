@@ -70,6 +70,7 @@ if TYPE_CHECKING:
 @click.pass_context
 def cli(
     ctx: click.Context,
+    *,
     traceback: bool,
     profile: str | None,
     set_overrides: tuple[str, ...],
@@ -125,13 +126,25 @@ def cli(
 # modules import from package ancestors. This is the standard Click pattern.
 def _register_commands() -> None:
     from .commands import (  # noqa: PLC0415 - deferred: breaks the root<->commands circular import (see above)
+        cli_capabilities,
         cli_config,
         cli_config_deploy,
         cli_config_generate_examples,
+        cli_explain,
         cli_info,
+        cli_models,
+        cli_render,
+        cli_schema,
+        cli_validate,
     )
 
     for cmd in (
+        cli_render,
+        cli_validate,
+        cli_explain,
+        cli_schema,
+        cli_models,
+        cli_capabilities,
         cli_info,
         cli_config,
         cli_config_deploy,

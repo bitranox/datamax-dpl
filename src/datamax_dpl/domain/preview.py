@@ -14,12 +14,15 @@ the manual's rotations turn is unverified until a test print.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from .enums import FillPattern, Rotation, Unit
 from .label import FONT_9, Barcode, Box, Circle, Element, Image, Label, Line, Polygon, ScalableText, Text
-from .profiles import PrinterProfile
 from .raster import Bitmap
 from .units import to_inches
+
+if TYPE_CHECKING:
+    from .profiles import PrinterProfile
 
 #: Character cell (height, width, gap) in dots at 203 / 300 / 289.56 dpi, for fonts 0-8.
 _CELLS: dict[int, tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]] = {
@@ -174,26 +177,43 @@ def canvas_for(label: Label, profile: PrinterProfile) -> Canvas:
     return Canvas(width=round(width_in * dpi) + 1, height=round(height_in * dpi) + 1, dpi=dpi, unit=label.unit)
 
 
+def _text_top(element: Text | ScalableText, unit: Unit, dpi: float) -> float:
+    text = _as_text(element) if isinstance(element, ScalableText) else element
+    return to_inches(text.y, unit, dpi=dpi) + _text_size(text, dpi)[0] / dpi
+
+
+def _barcode_top(element: Barcode, unit: Unit, dpi: float) -> float:
+    height = to_inches(element.height, unit, dpi=dpi) if element.height else _DEFAULT_BARCODE_HEIGHT_IN
+    return to_inches(element.y, unit, dpi=dpi) + height
+
+
+def _image_top(element: Image, unit: Unit, dpi: float) -> float:
+    rows = len(element.bitmap) if element.bitmap else _PLACEHOLDER_IMAGE_DOTS
+    return to_inches(element.y, unit, dpi=dpi) + rows / dpi
+
+
+def _graphic_top(element: Element) -> float:
+    """Highest point of a box, circle, line or polygon, in label units."""
+    if isinstance(element, Box):
+        return element.y + element.height
+    if isinstance(element, Circle):
+        return element.y + element.radius
+    if isinstance(element, Line):
+        return max(element.y, element.y2) + element.thickness
+    if isinstance(element, Polygon):
+        return max(p.y for p in element.points)
+    return 0.0
+
+
 def _top_inches(element: Element, unit: Unit, dpi: float) -> float:
     """Highest point of ``element`` above the label bottom, in inches."""
-    def inches(value: float) -> float:
-        return to_inches(value, unit, dpi=dpi)
-
     if isinstance(element, (Text, ScalableText)):
-        text = _as_text(element) if isinstance(element, ScalableText) else element
-        return inches(text.y) + _text_size(text, dpi)[0] / dpi
+        return _text_top(element, unit, dpi)
     if isinstance(element, Barcode):
-        return inches(element.y) + (inches(element.height) if element.height else _DEFAULT_BARCODE_HEIGHT_IN)
-    if isinstance(element, Box):
-        return inches(element.y + element.height)
-    if isinstance(element, Circle):
-        return inches(element.y + element.radius)
-    if isinstance(element, Line):
-        return inches(max(element.y, element.y2) + element.thickness)
-    if isinstance(element, Polygon):
-        return inches(max(p.y for p in element.points))
-    rows = len(element.bitmap) if element.bitmap else _PLACEHOLDER_IMAGE_DOTS
-    return inches(element.y) + rows / dpi
+        return _barcode_top(element, unit, dpi)
+    if isinstance(element, Image):
+        return _image_top(element, unit, dpi)
+    return to_inches(_graphic_top(element), unit, dpi=dpi)
 
 
 def _content_height_in(label: Label, dpi: float) -> float:

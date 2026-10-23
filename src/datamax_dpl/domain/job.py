@@ -6,12 +6,16 @@ job does not depend on whatever unit mode the printer was left in.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from .enums import MediaSensor, SpeedCode
-from .label import Label
 from .profiles import Feature, SpeedRange
 from .records import STX, line
-from .render_context import RenderContext
 from .units import DplUnit
+
+if TYPE_CHECKING:
+    from .label import Label
+    from .render_context import RenderContext
 
 INCH_MODE = STX + b"n"
 CUT_NOW = STX + b"o"

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from .enums import Attribute
+from typing import TYPE_CHECKING
+
+from .enums import Attribute, Unit
 from .label import MAX_FIELD_DATA, Counter
 from .profiles import Feature
 from .records import line
-from .render_context import RenderContext
 from .units import DplUnit, to_dpl
-from .enums import Unit
+
+if TYPE_CHECKING:
+    from .render_context import RenderContext
 
 
 def column_of(x: float, *, index: int, ctx: RenderContext) -> int:
@@ -52,7 +55,9 @@ def attribute_lines(attribute: Attribute | None, *, index: int, ctx: RenderConte
     if text and attribute is Attribute.INVERSE:
         ctx.findings.refuse("attribute_unsupported", message, element=index)
     else:
-        ctx.findings.deviate("attribute_unsupported", message, fallback="printed with the default attribute", element=index)
+        ctx.findings.deviate(
+            "attribute_unsupported", message, fallback="printed with the default attribute", element=index
+        )
     return []
 
 
@@ -74,10 +79,7 @@ def counter_lines(counter: Counter | None) -> list[bytes]:
     """
     if counter is None:
         return []
-    if counter.alphanumeric:
-        sign = "<" if counter.decrement else ">"
-    else:
-        sign = "-" if counter.decrement else "+"
+    sign = ("<" if counter.decrement else ">") if counter.alphanumeric else "-" if counter.decrement else "+"
     return [line(f"{sign}{counter.fill}{counter.step:02d}")]
 
 

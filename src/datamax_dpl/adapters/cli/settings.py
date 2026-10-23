@@ -7,7 +7,7 @@ the boundary, so a typo in a config file is reported as a configuration error wi
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -54,8 +54,8 @@ class PrinterOverrides(BaseModel):
 
 
 def _section(config: Config, name: str) -> Mapping[str, Any]:
-    section = config.get(name, {})
-    return section if isinstance(section, Mapping) else {}
+    section: object = config.get(name, {})
+    return cast("Mapping[str, Any]", section) if isinstance(section, Mapping) else {}
 
 
 def _describe(exc: ValidationError, *, section: str) -> str:

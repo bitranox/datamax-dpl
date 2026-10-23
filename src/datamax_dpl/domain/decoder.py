@@ -47,7 +47,14 @@ _SYSTEM_NAMES = {
     "v": "firmware version request",
     "k": "serial port test",
 }
-_IMMEDIATE_NAMES = {"#": "reset", "A": "status request", "B": "toggle pause", "C": "cancel", "E": "batch request", "F": "status byte request"}
+_IMMEDIATE_NAMES = {
+    "#": "reset",
+    "A": "status request",
+    "B": "toggle pause",
+    "C": "cancel",
+    "E": "batch request",
+    "F": "status byte request",
+}
 _FORMAT_NAMES = {
     "D": "dot size",
     "H": "heat",
@@ -226,8 +233,8 @@ def _parse_record(text: str, state: _State) -> tuple[Element | None, str]:
     if kind == "X":
         return _graphic(text, state)
     if kind == "Y":
-        position = {"y": _scale(int(text[7:11]), state), "x": _scale(int(text[11:15]), state)}
-        return Image(name=text[15:], **position), "image"
+        y, x = _scale(int(text[7:11]), state), _scale(int(text[11:15]), state)
+        return Image(name=text[15:], x=x, y=y), "image"
     if kind == "W":
         return _barcode(text, state, identifier="W1c", offset=2), "barcode datamatrix"
     if kind.isdigit():
@@ -260,21 +267,32 @@ def _head(text: str, offset: int = 0) -> _Head:
 def _text(text: str, state: _State) -> Element:
     head = _head(text)
     font = int(text[1])
-    place = {"x": _scale(head.column, state), "y": _scale(head.row, state), "rotation": head.rotation}
+    x, y = _scale(head.column, state), _scale(head.row, state)
     if font == _FONT_9 and head.size[0] in _SCALABLE_SIZE_PREFIXES:
         points = int(text[16:19])
-        return ScalableText(text=text[23:], font_id=head.size, height_points=points, **place)
+        return ScalableText(text=text[23:], font_id=head.size, height_points=points, x=x, y=y, rotation=head.rotation)
     data = text[15:].encode("latin-1").decode("cp437")
-    size = {} if font != _FONT_9 else _font9_size(head.size)
-    return Text(text=data, font=font, width_multiplier=head.width, height_multiplier=head.height, **size, **place)
+    points, font_id = _font9_size(head.size) if font == _FONT_9 else (None, None)
+    return Text(
+        text=data,
+        font=font,
+        width_multiplier=head.width,
+        height_multiplier=head.height,
+        points=points,
+        font_id=font_id,
+        x=x,
+        y=y,
+        rotation=head.rotation,
+    )
 
 
-def _font9_size(code: str) -> dict[str, object]:
-    if code[0] == "A":
-        return {"points": int(code[1:])}
+def _font9_size(code: str) -> tuple[int | None, str | None]:
+    """Return (points, font_id) for a font 9 size code."""
+    if code[0] == "A" and code[1:].isdigit():
+        return int(code[1:]), None
     if code.isdigit() and int(code) < len(OLD_SERIES_POINTS):
-        return {"points": OLD_SERIES_POINTS[int(code)]}
-    return {"font_id": code}
+        return OLD_SERIES_POINTS[int(code)], None
+    return None, code
 
 
 def _barcode(text: str, state: _State, *, identifier: str, offset: int) -> Element:

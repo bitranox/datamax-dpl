@@ -8,9 +8,12 @@ A record is a flat mapping of field names to strings (one CSV row, one JSON obje
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from .label import Barcode, Element, Label, ScalableText, Text
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 _TOKEN = re.compile(r"\{\{|\}\}|\{([A-Za-z_][A-Za-z0-9_]*)\}")
 

@@ -9,13 +9,16 @@ only, which is fine here because the rasterised shape already has its final orie
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from .enums import FillPattern
 from .image_records import download_command
 from .label import Box, Circle, Line, Polygon
 from .raster import Bitmap
 from .records import image_record, line
-from .render_context import RenderContext
+
+if TYPE_CHECKING:
+    from .render_context import RenderContext
 
 Graphic = Line | Box | Circle | Polygon
 

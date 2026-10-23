@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from .barcodes import check_barcode, datamatrix_data_field, pdf417_data_field
 from .encode_common import check_field_length, column_of, counter_lines, row_of
 from .label import MAX_FIELD_DATA, MAX_MULTIPLIER, MAX_PDF417_DATA, Barcode, DataMatrixOptions, Pdf417Options
 from .profiles import Feature
 from .records import MAX_SHORT_FIELD, Header, line
-from .render_context import RenderContext
 from .symbology import SYMBOLOGY_CODES, Symbology
+
+if TYPE_CHECKING:
+    from .render_context import RenderContext
 
 #: Symbologies the manual describes as wide:narrow ratio codes; the others are module codes.
 RATIO_SYMBOLOGIES = frozenset(
@@ -24,9 +28,7 @@ RATIO_SYMBOLOGIES = frozenset(
 )
 
 #: Symbologies that need the extended barcode set (missing on Allegro and the Prodigy family).
-_EXTENDED = frozenset(
-    {Symbology.UCC_EAN128_RANDOM_WEIGHT, Symbology.TELEPEN, Symbology.MAXICODE, Symbology.FIM}
-)
+_EXTENDED = frozenset({Symbology.UCC_EAN128_RANDOM_WEIGHT, Symbology.TELEPEN, Symbology.MAXICODE, Symbology.FIM})
 
 #: Bar widths used when the model cannot take ``00`` (printer default): narrow 2 dots, ratio 3:1.
 FALLBACK_NARROW = 2

@@ -11,6 +11,7 @@ import csv
 import io
 import sys
 from pathlib import Path
+from typing import cast
 
 import orjson
 from pydantic import ValidationError
@@ -84,7 +85,8 @@ def _records_from_json(data: bytes, source: str) -> list[dict[str, str]]:
         document = orjson.loads(data)
     except orjson.JSONDecodeError:
         return _records_from_json_lines(data, source)
-    rows = document if isinstance(document, list) else [document]
+    parsed: object = document
+    rows: list[object] = cast("list[object]", parsed) if isinstance(parsed, list) else [parsed]
     return [_as_record(row, source=source, number=i + 1) for i, row in enumerate(rows)]
 
 
@@ -94,7 +96,8 @@ def _records_from_json_lines(data: bytes, source: str) -> list[dict[str, str]]:
         if not raw.strip():
             continue
         try:
-            records.append(_as_record(orjson.loads(raw), source=source, number=number))
+            parsed: object = orjson.loads(raw)
+            records.append(_as_record(parsed, source=source, number=number))
         except orjson.JSONDecodeError as exc:
             raise LabelInputError(f"{source} line {number} is not JSON: {exc}") from None
     return records
@@ -103,7 +106,8 @@ def _records_from_json_lines(data: bytes, source: str) -> list[dict[str, str]]:
 def _as_record(row: object, *, source: str, number: int) -> dict[str, str]:
     if not isinstance(row, dict):
         raise LabelInputError(f"{source} record {number} is not an object")
-    return {str(key): "" if value is None else str(value) for key, value in row.items()}
+    mapping = cast("dict[object, object]", row)
+    return {str(key): "" if value is None else str(value) for key, value in mapping.items()}
 
 
 def _records_from_csv(data: bytes, source: str) -> list[dict[str, str]]:

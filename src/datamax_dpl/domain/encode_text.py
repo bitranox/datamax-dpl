@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from .charset import EncodedText, encode_for_bitmapped_font, encode_for_symbol_set
+from typing import TYPE_CHECKING
+
+from .charset import CAPITALS_ONLY_FONTS, EncodedText, encode_for_bitmapped_font, encode_for_symbol_set
 from .encode_common import (
     attribute_lines,
     attribute_reset,
@@ -14,7 +16,9 @@ from .encode_common import (
 from .label import FONT_9, ScalableText, Text
 from .profiles import OLD_SERIES_POINTS, Feature
 from .records import Header, line
-from .render_context import RenderContext
+
+if TYPE_CHECKING:
+    from .render_context import RenderContext
 
 _MIN_POINTS = 4
 _MAX_POINTS = 72
@@ -67,6 +71,8 @@ def encode_text(element: Text, *, index: int, ctx: RenderContext) -> list[bytes]
     if element.font == FONT_9:
         size = element.font_id or font9_size(element.points or _MIN_POINTS, index=index, ctx=ctx)
     encoded = encode_for_bitmapped_font(element.text, font=element.font)
+    if element.font in CAPITALS_ONLY_FONTS and element.text != element.text.upper():
+        ctx.findings.info("text_uppercased", f"font {element.font} prints capitals only", element=index)
     _report_unmappable(encoded, index=index, ctx=ctx, font=f"font {element.font}")
     check_field_length(len(encoded.data), index=index, ctx=ctx)
     head = Header(

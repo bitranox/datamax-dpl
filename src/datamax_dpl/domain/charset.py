@@ -197,6 +197,7 @@ def _bitmapped_byte(ch: str, *, allowed: frozenset[int], capitals_only: bool) ->
 
 
 __all__ = [
+    "CAPITALS_ONLY_FONTS",
     "SYMBOL_SET_CODECS",
     "EncodedText",
     "encode_for_bitmapped_font",

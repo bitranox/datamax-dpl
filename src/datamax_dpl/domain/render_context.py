@@ -8,13 +8,16 @@ findings go.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .enums import Attribute, FallbackPolicy, Unit
-from .findings import FindingCollector
-from .profiles import Feature, Firmware, PrinterProfile
 from .units import DplUnit, to_dots, to_dpl, to_inches
+
+if TYPE_CHECKING:
+    from .findings import FindingCollector
+    from .profiles import Feature, Firmware, PrinterProfile
 
 #: Largest value of a four-digit DPL distance field.
 MAX_FIELD_VALUE = 9999

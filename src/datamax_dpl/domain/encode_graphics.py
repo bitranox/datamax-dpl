@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import TYPE_CHECKING
 
 from .encode_common import column_of, row_of
 from .enums import FillPattern
@@ -12,7 +13,9 @@ from .profiles import Feature
 from .raster import Bitmap
 from .raster_fallback import rasterize
 from .records import BoxRecord, circle_record, image_record, line, line_record, polygon_record
-from .render_context import RenderContext
+
+if TYPE_CHECKING:
+    from .render_context import RenderContext
 
 
 def _polygons(ctx: RenderContext) -> bool:
@@ -77,7 +80,12 @@ def _box_outline(element: Box, *, index: int, ctx: RenderContext, solid: bool = 
 
 def _box_corners(element: Box) -> list[Point]:
     right, top = element.x + element.width, element.y + element.height
-    return [Point(x=element.x, y=element.y), Point(x=right, y=element.y), Point(x=right, y=top), Point(x=element.x, y=top)]
+    return [
+        Point(x=element.x, y=element.y),
+        Point(x=right, y=element.y),
+        Point(x=right, y=top),
+        Point(x=element.x, y=top),
+    ]
 
 
 def encode_box(element: Box, *, index: int, ctx: RenderContext) -> list[bytes]:
@@ -90,7 +98,9 @@ def encode_box(element: Box, *, index: int, ctx: RenderContext) -> list[bytes]:
     if element.fill is FillPattern.SOLID:
         ctx.findings.info("solid_fill_as_edges", "solid box drawn as a box whose edges meet", element=index)
         return [_box_outline(element, index=index, ctx=ctx, solid=True)]
-    return rasterize(element, index=index, ctx=ctx, reason=f"patterned fills: {ctx.requirement(Feature.CIRCLE_POLYGON)}")
+    return rasterize(
+        element, index=index, ctx=ctx, reason=f"patterned fills: {ctx.requirement(Feature.CIRCLE_POLYGON)}"
+    )
 
 
 def encode_circle(element: Circle, *, index: int, ctx: RenderContext) -> list[bytes]:

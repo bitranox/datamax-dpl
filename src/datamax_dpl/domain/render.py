@@ -12,6 +12,7 @@ one is needed.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
@@ -22,11 +23,13 @@ from .enums import Attribute, Severity, Unit
 from .errors import LabelRejectedError
 from .findings import Finding, FindingCollector
 from .job import format_footer, format_header, system_prefix
-from .label import Element, Label
 from .placeholders import label_placeholders
 from .profiles import Feature, get_profile, parse_firmware
 from .render_context import RenderContext, RenderOptions
 from .units import DplUnit
+
+if TYPE_CHECKING:
+    from .label import Element, Label
 
 _RECORD_PREFIXES = tuple("1234")
 
@@ -56,7 +59,7 @@ class RenderResult(BaseModel):
         downloads: Names of the images downloaded before the format.
 
     Example:
-        >>> from datamax_dpl.domain.label import Text
+        >>> from datamax_dpl.domain.label import Label, Text
         >>> result = build_job(Label(elements=[Text(x=5, y=5, text="Hi")]), RenderOptions(model="dmx-600"))
         >>> result.ok, result.data.startswith(b"\\x02L")
         (True, True)
@@ -174,7 +177,7 @@ def render(label: Label, options: RenderOptions | None = None) -> RenderResult:
         LabelRejectedError: At least one finding is an error; ``findings`` holds them all.
 
     Example:
-        >>> from datamax_dpl.domain.label import Text
+        >>> from datamax_dpl.domain.label import Label, Text
         >>> render(Label(elements=[Text(x=5, y=5, text="Hi")])).model
         'generic'
     """

@@ -7,13 +7,16 @@ read, ``dpl_base64`` carries them exactly for a caller that wants to send them i
 from __future__ import annotations
 
 import base64
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
 from ...application.use_cases import BatchResult
 from ...domain.decoder import readable
-from ...domain.findings import Finding
-from ...domain.render import RenderResult
+
+if TYPE_CHECKING:
+    from ...domain.findings import Finding
+    from ...domain.render import RenderResult
 
 
 class _Payload(BaseModel):
@@ -75,7 +78,7 @@ def render_payload(result: RenderResult | BatchResult, *, include_dpl: bool) -> 
 def findings_text(findings: list[FindingOut]) -> str:
     """Human lines for findings, most severe first."""
     order = {"error": 0, "warning": 1, "info": 2}
-    lines = []
+    lines: list[str] = []
     for f in sorted(findings, key=lambda item: order.get(item.severity, 3)):
         where = "" if f.element is None else f" [element {f.element}]"
         record = "" if f.record is None else f" [record {f.record}]"

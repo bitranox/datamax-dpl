@@ -128,7 +128,7 @@ class CaptureImage(Protocol):
 class Sleep(Protocol):
     """Pause for ``seconds``; injected so polling loops run instantly under test."""
 
-    def __call__(self, seconds: float) -> None: ...
+    def __call__(self, seconds: float, /) -> None: ...
 
 
 class Clock(Protocol):

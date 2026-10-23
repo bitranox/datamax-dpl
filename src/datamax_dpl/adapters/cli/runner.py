@@ -8,10 +8,9 @@ text of a success goes to stdout, the envelope replaces it in machine mode.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-import rich_click as click
 from pydantic import BaseModel, ValidationError
 
 from ...domain.errors import CameraError, ConfigurationError, LabelRejectedError, TransportError
@@ -21,6 +20,11 @@ from . import safe_console
 from .context import CLIContext, get_cli_context
 from .envelope import Envelope, Outcome, report_failure, write_envelope
 from .label_io import LabelInputError, validation_lines
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    import rich_click as click
 
 #: Failures that mean "the answer is no": the input was understood and refused.
 REFUSALS: tuple[type[BaseException], ...] = (LabelRejectedError,)
@@ -70,7 +74,9 @@ def run_command(ctx: click.Context, *, command: str, body: Callable[[CLIContext]
     cli_ctx = get_cli_context(ctx)
     try:
         result = body(cli_ctx)
-    except (*REFUSALS, *ERRORS, ValidationError) as exc:
+    except Exception as exc:
+        if not isinstance(exc, (*REFUSALS, *ERRORS, ValidationError)):
+            raise
         ctx.exit(_fail(exc, command=command, cli_ctx=cli_ctx))
         return
     if cli_ctx.mode.machine:

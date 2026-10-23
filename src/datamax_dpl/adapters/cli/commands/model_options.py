@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import rich_click as click
 
-from ...domain.enums import FallbackPolicy
+from ....domain.enums import FallbackPolicy
 from ..config_load import require_config
-from ..context import CLIContext
 from ..settings import PrinterOverrides, PrinterSettings, printer_settings
 from ..typed_click import option
+
+if TYPE_CHECKING:
+    from ..context import CLIContext
 
 _Decorator = Callable[[Callable[..., Any]], Callable[..., Any]]
 

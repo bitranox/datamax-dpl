@@ -5,8 +5,9 @@ None of these talks to a printer; ``print`` and the printer commands live in :mo
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import orjson
 import rich_click as click
@@ -16,23 +17,27 @@ from ....application.use_cases import BatchResult, render_batch, render_label
 from ....domain.decoder import explain
 from ....domain.label import Label
 from ....domain.profiles import Feature, PrinterProfile, get_profile, list_profiles
-from ....domain.render import RenderResult
 from ..constants import CLICK_CONTEXT_SETTINGS
-from ..context import CLIContext
 from ..label_io import STDIN, load_label, load_records, read_input
 from ..payloads import RenderPayload, findings_text, render_payload
 from ..runner import CommandResult, run_command
 from ..settings import render_options
-from ..typed_click import argument, option
+from ..typed_click import argument, get_current_context, option
 from .model_options import render_options_decorator, resolve_settings
+
+if TYPE_CHECKING:
+    from ....domain.render import RenderResult
+    from ..context import CLIContext
 
 _LABEL_HELP = "Label JSON file ('-' for stdin); 'datamax-dpl schema' prints its format."
 _DATA_HELP = "Data records (CSV, JSON array or JSON lines) filling {name} placeholders, one label each."
 
 
-def build(label_source: str, data: str | None, settings_given: dict[str, Any], cli_ctx: CLIContext) -> RenderResult | BatchResult:
+def build(
+    label_source: str, data: str | None, settings_given: dict[str, Any], cli_ctx: CLIContext
+) -> RenderResult | BatchResult:
     """Load the label (and records) and render it with the merged printer settings."""
-    ctx = click.get_current_context()
+    ctx = get_current_context()
     settings = resolve_settings(ctx, cli_ctx, **settings_given)
     label = load_label(label_source)
     options = render_options(settings)
@@ -82,7 +87,8 @@ def _write_output(output: str, data: bytes, *, raw_stdout_allowed: bool) -> None
         if not raw_stdout_allowed:
             msg = "--output - cannot be combined with --json: stdout carries the envelope"
             raise ValueError(msg)
-        click.get_binary_stream("stdout").write(data)
+        sys.stdout.buffer.write(data)
+        sys.stdout.buffer.flush()
         return
     Path(output).write_bytes(data)
 
