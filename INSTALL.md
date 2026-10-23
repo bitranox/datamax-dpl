@@ -1,24 +1,22 @@
-# Installation Guide
+# Installation
 
-> The CLI stack uses `rich-click`, which bundles `rich` styling on top of click-style ergonomics.
+datamax-dpl needs Python 3.10 or newer. Every install registers one command, `datamax-dpl`;
+`python -m datamax_dpl` runs the same CLI.
 
-This guide collects every supported method to install `datamax_dpl`, including
-isolated environments and system package managers. Pick the option that matches your workflow.
+The package is not on PyPI yet. Until it is, install from GitHub; the PyPI lines below work once
+the first release is published.
 
+## Extras
 
-## We recommend `uv` to install the package
+| Extra     | Adds                          | Needed for                                                                                   |
+|-----------|-------------------------------|----------------------------------------------------------------------------------------------|
+| `preview` | Pillow (Python 3.11 or newer) | Lettered previews: `preview` and `verify` write the text into the PNG instead of grey cells. |
 
-### `uv` = Ultra-fast Python package manager
+Serial printers work without an extra: pyserial is a regular dependency.
 
-> lightning-fast replacement for `pip`, `venv`, `pip-tools`, and `poetry`
-written in Rust, compatible with PEP 621 (`pyproject.toml`)
+## With uv (recommended)
 
-### `uvx` = On-demand tool runner
-
-> runs tools temporarily in isolated environments without installing them globally
-
-
-## Install uv (if not already installed)
+[uv](https://docs.astral.sh/uv/) installs and runs Python tools in isolated environments.
 
 ```bash
 # macOS/Linux
@@ -27,116 +25,77 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-## One-shot run via uvx (no install needed)
+Run without installing:
 
 ```bash
-uvx datamax_dpl@latest --help
+uvx --from git+https://github.com/bitranox/datamax-dpl datamax-dpl --help
+uvx --from "datamax-dpl[preview] @ git+https://github.com/bitranox/datamax-dpl" datamax-dpl --help
 ```
 
-## Persistent install as CLI tool
+Install as a command line tool (isolated environment, added to PATH):
 
 ```bash
-# install the CLI tool (isolated environment, added to PATH)
-uv tool install datamax_dpl
-
-# upgrade to latest
-uv tool upgrade datamax_dpl
+uv tool install git+https://github.com/bitranox/datamax-dpl
+# once on PyPI
+uv tool install datamax-dpl
+uv tool upgrade datamax-dpl
 ```
 
-## Install as project dependency
+Add it to a project:
 
 ```bash
-uv venv && source .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
-uv pip install datamax_dpl
+uv add git+https://github.com/bitranox/datamax-dpl
+# once on PyPI
+uv add datamax-dpl
 ```
 
-## Verify installation
+## With pip
 
-After any install method, confirm the CLI is available:
+```bash
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install "git+https://github.com/bitranox/datamax-dpl"
+# with lettered previews
+pip install "datamax-dpl[preview] @ git+https://github.com/bitranox/datamax-dpl"
+# once on PyPI
+pip install datamax-dpl
+pip install "datamax-dpl[preview]"
+```
+
+## From a checkout
+
+```bash
+git clone https://github.com/bitranox/datamax-dpl.git
+cd datamax-dpl
+pip install .                  # runtime only
+pip install -e ".[dev]"        # editable, with the development tools
+```
+
+`make dev` does the editable install with uv; see [DEVELOPMENT.md](DEVELOPMENT.md).
+
+## Supply-chain note
+
+The repository commits a `uv.lock` that pins every dependency, transitive ones included, to an
+exact version and file hash, with a cooldown (`exclude-newer` under `[tool.uv]` in
+`pyproject.toml`) that leaves out releases younger than that. CI installs from the lock. The
+installable package only declares lower bounds (`>=`), so a plain `pip install` takes the newest
+release of every dependency at install time. To run the exact dependency tree CI tests, use the
+lock from a checkout:
+
+```bash
+git clone https://github.com/bitranox/datamax-dpl.git
+cd datamax-dpl
+uv sync --locked
+uv run datamax-dpl --help
+```
+
+A cooldown of your own (`uv tool install --exclude-newer "7 days" ...`) fails while the package
+requires a release of one of its own libraries that is younger than the cooldown; the
+`exclude-newer-package` table in `pyproject.toml` exempts those libraries for the lock.
+
+## Check the install
 
 ```bash
 datamax-dpl --version
+datamax-dpl info
 ```
-
----
-
-## Installation via pip
-
-```bash
-# optional, install in a venv (recommended)
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-# install from PyPI
-pip install datamax_dpl
-# optional install from GitHub
-pip install "git+https://github.com/bitranox/datamax_dpl"
-# optional development install from local
-pip install -e ".[dev]"
-# optional install from local runtime only:
-pip install .
-```
-
-## Per-User Installation (No Virtualenv) - from local
-
-```bash
-# install from PyPI
-pip install --user datamax_dpl
-# optional install from GitHub
-pip install --user "git+https://github.com/bitranox/datamax_dpl"
-# optional install from local
-pip install --user .
-```
-
-> Note: This respects PEP 668. Avoid using it on system Python builds marked as
-> "externally managed". Ensure `~/.local/bin` (POSIX) is on your PATH so the CLI is available.
-
-## pipx (Isolated CLI-Friendly Environment)
-
-```bash
-# install pipx via pip
-python -m pip install pipx
-# optional install pipx via apt
-sudo apt install pipx
-# install via pipx from PyPI
-pipx install datamax_dpl
-# optional install via pipx from GitHub
-pipx install "git+https://github.com/bitranox/datamax_dpl"
-# optional install from local
-pipx install .
-pipx upgrade datamax_dpl
-# install from Git tag
-pipx install "git+https://github.com/bitranox/datamax_dpl@v1.1.0"
-```
-
-## From Build Artifacts
-
-```bash
-python -m build
-pip install dist/datamax_dpl-*.whl
-pip install dist/datamax_dpl-*.tar.gz   # sdist
-```
-
-## Poetry or PDM Managed Environments
-
-```bash
-# Poetry
-poetry add datamax_dpl     # as dependency
-poetry install                          # for local dev
-
-# PDM
-pdm add datamax_dpl
-pdm install
-```
-
-## Install Directly from Git
-
-```bash
-pip install "git+https://github.com/bitranox/datamax_dpl"
-```
-
-## System Package Managers (Optional Distribution Channels)
-
-- Use [fpm](https://fpm.readthedocs.io/) to repackage the Python wheel into `.deb` or `.rpm` for distribution via `apt` or `yum`/`dnf`.
-
-All methods register both the `datamax_dpl` and
-`datamax-dpl` commands on your PATH.

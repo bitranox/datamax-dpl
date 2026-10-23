@@ -38,41 +38,44 @@ The targets used day to day:
 | CI                     | All tests EXCEPT those marked `local_only` (`-m "not local_only"`) |
 | `pytest tests/`        | ALL tests (no marker filter)                                       |
 
-A test that needs external resources (a real print server, a database) carries both
+No test needs a real printer or camera yet. The transports are tested against real sockets on
+127.0.0.1 and pseudo-terminals, the CLI against the in-memory `RecordingPrinter` and `FakeCamera`
+from `datamax_dpl.adapters.memory`. A future test that talks to real hardware carries both
 `@pytest.mark.integration` (so `make test` skips it and `make testintegration` runs it) and
-`@pytest.mark.local_only` (so CI skips it).
-
-### Device Integration Tests
-
-A test that talks to a real print server reads its address from the `[device]` section, so
-put the device in a `.env` file in the project root (copy from `.env.example`):
+`@pytest.mark.local_only` (so CI skips it), and reads the printer from the `[printer]` section,
+for example from a `.env` in the project root (copy `.env.example`):
 
 ```bash
 # .env
-DEVICE__HOST=192.0.2.52
-DEVICE__PASSWORD=
+PRINTER__MODEL=dmx-600
+PRINTER__URI=tcp://192.0.2.60:9100
 ```
-
-Then run the integration tests:
-
-```bash
-make testintegration
-```
-
-### Adding New Integration Tests
-
-Mark tests that require external resources:
 
 ```python
 @pytest.mark.local_only
 @pytest.mark.integration
 @pytest.mark.os_agnostic
-def test_real_external_service(...):
-    """Integration test requiring external service."""
-    ...
+def test_a_real_printer_answers_status() -> None: ...
 ```
 
-These tests are skipped by `make test` and in CI, and run with `make testintegration`.
+## Generated documentation
+
+The model tables in `docs/capabilities.md` are generated from `src/datamax_dpl/domain/profiles.py`.
+After changing a profile, regenerate them:
+
+```bash
+.venv/bin/python scripts/gen_capabilities.py --write
+```
+
+`tests/test_capabilities_doc.py` fails while the document is stale, and
+`scripts/gen_capabilities.py --check` answers the same question with exit 1.
+
+## Examples and notebook
+
+`examples/` holds the labels and data records the README uses; keep them valid
+(`datamax-dpl validate examples/<file>.json`). CI executes `notebooks/Quickstart.ipynb` in a fresh
+kernel with errors not allowed, so every `!` shell line there is followed by
+`assert _exit_code == 0`.
 
 ## Versioning & Metadata
 
@@ -81,8 +84,8 @@ These tests are skipped by `make test` and in CI, and run with `make testintegra
   `src/datamax_dpl/__init__conf__.py`; a version bump rewrites that file, so do not
   edit the version there by hand.
 - The console script name is the static `shell_command` constant in `__init__conf__.py`
-  (`datamax-dpl`); `[project.scripts]` in `pyproject.toml` registers it together
-  with `datamax_dpl`.
+  (`datamax-dpl`), and `[project.scripts]` in `pyproject.toml` registers it.
+  `python -m datamax_dpl` runs the same CLI.
 
 ## Dependency Auditing
 

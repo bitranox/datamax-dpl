@@ -1,48 +1,63 @@
 # Contributing Guide
 
-Thanks for helping improve **datamax_dpl**. The sections below summarise the day-to-day workflow, highlight the repository automation, and list the checks that must pass before a change is merged.
+Thanks for helping improve datamax-dpl. This page covers the workflow and the checks a change has
+to pass.
 
-## 1. Workflow Overview
+## 1. Workflow
 
-1. Fork and branch -- use short, imperative branch names (`feature/cli-extension`, `fix/codecov-token`).
-2. Make focused commits -- keep unrelated refactors out of the same change.
-3. Run `make test` locally before pushing (see the automation note below).
-4. Update documentation and changelog entries that are affected by the change.
-5. Open a pull request referencing any relevant issues.
+1. Fork and branch, with a short branch name (`feature/dot-size-preview`, `fix/serial-timeout`).
+2. Keep commits focused; leave unrelated refactors for their own change.
+3. Run `make test` before pushing.
+4. Update the documentation and the changelog entries the change affects.
+5. Open a pull request that references the issue, if there is one.
 
-## 2. Commits & Pushes
+## 2. DPL facts need a source
 
-- Commit messages should be imperative (`Add rich handler`, `Fix CLI exit codes`).
-- The test harness (`make test`) runs the full lint/type/test pipeline. It creates no commit, but it may raise dependency floors in `pyproject.toml` and apply ruff's formatting and fixes, so review the working tree afterwards.
-- `make push` runs the tests, commits and pushes. Give the message with `MSG="..."` (passed to bmk as `BMK_COMMIT_MESSAGE`); without one it prompts. `make help` lists every target.
+Every rule about what a printer accepts must trace to a line in
+[docs/dpl-reference.md](docs/dpl-reference.md), which summarises the 1998 Datamax DPL manual. If a
+change needs a fact that is not there, add it to that file with its source (a manual section, or
+a test print on a named model and firmware). Do not paste text from the manual; it is copyrighted.
 
-## 3. Coding Standards
+Test prints are welcome. A report that says "model X, firmware Y, this label, this photo" is the
+kind of evidence the project lacks most right now.
 
-- Apply the repository's Clean Architecture / SOLID rules (see `CLAUDE.md` and the system prompts listed there).
-- Prefer small, single-purpose modules and functions; avoid mixing orthogonal concerns.
-- Free functions and modules use `snake_case`; classes are `PascalCase`.
-- Keep runtime dependencies minimal. Use the standard library where practical.
+## 3. Commits and pushes
 
-## 4. Tests & Tooling
+- Commit messages are imperative (`Add dot size to the preview`, `Fix serial timeout`).
+- `make test` runs the full lint, type and test pipeline. It makes no commit, but it may raise
+  dependency floors in `pyproject.toml` and apply ruff's formatting, so look at the working tree
+  afterwards.
+- `make push` runs the tests, commits and pushes. Give the message with `MSG="..."`; without one
+  it prompts. `make help` lists every target.
 
-- `make test` runs Ruff (format + lint), bandit, import-linter, pip-audit, Pyright, and Pytest with coverage (all tests except those marked `integration`; CI runs all except `local_only`). See [DEVELOPMENT.md](DEVELOPMENT.md).
-- `make dev` installs the package with its dev extras (`uv pip install -e ".[dev]"`).
-- `make codecov` uploads the coverage report. For private repositories set `CODECOV_TOKEN` in your environment or `.env`.
-- Tests follow a narrative style: prefer names like `test_when_<condition>_<outcome>()`, keep each case laser-focused, and mark OS constraints with the provided markers (`@pytest.mark.os_agnostic`, `@pytest.mark.os_windows`, etc.).
-- Whenever you add a CLI behaviour or change metadata, update the relevant story in the `tests/test_cli_*.py` files or `tests/test_metadata.py` so the specification remains complete.
+## 4. Coding standards
 
-## 5. Documentation Checklist
+- Keep the layers: `domain` (pure label model, profiles, encoders) imports nothing from
+  `application` or `adapters`; adapters (CLI, transports, cameras, configuration) may import both.
+  import-linter enforces this.
+- Small, single-purpose functions; pyright in strict mode with zero errors; Google-style
+  docstrings; an `__all__` in every module.
+- Keep runtime dependencies few. Pillow stays in the optional `preview` extra.
 
-Before opening a PR, confirm the following:
+## 5. Tests
+
+- `make test` runs Ruff, Bandit, import-linter, pip-audit, Pyright and Pytest with coverage. See
+  [DEVELOPMENT.md](DEVELOPMENT.md).
+- Drive the real code through its public functions. Inject collaborators (printer opener,
+  camera, clock) through parameters, use the in-memory adapters in `datamax_dpl.adapters.memory`,
+  and do not monkeypatch the module under test.
+- Mark every test `@pytest.mark.os_agnostic` or with the `os_*` marker it needs.
+- A regression test must fail once on the old code before it counts.
+- After changing a printer profile, run `.venv/bin/python scripts/gen_capabilities.py --write`.
+
+## 6. Checklist
 
 - [ ] `make test` passes locally.
-- [ ] Relevant documentation (`README.md`, `DEVELOPMENT.md`, `docs/systemdesign/*`) is updated.
-- [ ] No generated artefacts or virtual environments are committed.
-- [ ] Version bumps, when required, are made with `make bump-patch` / `bump-minor` / `bump-major`, which update `pyproject.toml`, `CHANGELOG.md` and `src/datamax_dpl/__init__conf__.py` together.
+- [ ] README, `docs/` and `CHANGELOG.md` describe the change.
+- [ ] Every new DPL rule points at `docs/dpl-reference.md`.
+- [ ] No generated files, virtual environments or secrets are committed.
 
-## 6. Security & Configuration
+## 7. Secrets
 
-- Never commit secrets. Tokens (Codecov, PyPI) belong in `.env` (ignored by git) or CI secrets.
-- Sanitise any payloads you emit via logging once richer logging features ship.
-
-Happy hacking!
+Tokens (Codecov, PyPI) and camera passwords belong in `.env` (ignored by git) or CI secrets,
+never in a tracked file.

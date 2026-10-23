@@ -1,302 +1,152 @@
-# Module Reference: Architecture & File Index
+# Module Reference: datamax-dpl
 
 ## Status
 
 Describes the modules as they are in the source tree. Update it with every change that adds,
-moves or removes a module, a CLI option or a public name.
+moves or removes a module. Hardware behaviour is unverified: no real printer or camera has been
+attached yet.
+
+## Links & References
+
+**Repository:** https://github.com/bitranox/datamax-dpl
+**PyPI:** https://pypi.org/project/datamax-dpl/ (not published yet)
+**Documentation:** README.md, INSTALL.md, CONFIG.md, DEVELOPMENT.md, CONTRIBUTING.md,
+docs/label-spec.md, docs/capabilities.md, docs/dpl-reference.md
 
 ---
 
-## Related Files
+## Problem Statement
 
-### Domain Layer
-- `src/datamax_dpl/domain/enums.py`  -  Type-safe enums (OutputFormat, DeployTarget)
-- `src/datamax_dpl/domain/errors.py`  -  Domain exceptions (ConfigurationError)
+Datamax label printers speak DPL, a line-oriented format of fixed-width records. Writing it by
+hand is error-prone, and the 18 models in the 1998 manual differ in resolution, print width,
+speeds, fonts, graphics and barcodes, so a job that prints on one model is refused or misprinted on
+another. Scripts and LLM agents need a format they can write safely and an answer they can parse.
 
-### Application Layer
-- `src/datamax_dpl/application/ports.py`  -  Callable Protocol definitions for adapter functions
+## Solution Overview
 
-### Adapters Layer
-- `src/datamax_dpl/adapters/config/loader.py`  -  Configuration loading with LRU caching
-- `src/datamax_dpl/adapters/config/deploy.py`  -  Configuration deployment
-- `src/datamax_dpl/adapters/config/display.py`  -  Configuration display (TOML/JSON output, redaction)
-- `src/datamax_dpl/adapters/config/overrides.py`  -  CLI `--set` override parsing and deep-merge
-- `src/datamax_dpl/adapters/logging/setup.py`  -  lib_log_rich initialization; takes only the `LOG_*` lines of a `.env`, and raises `InvalidLoggingConfigError` for a refused `[lib_log_rich]` value or `LOG_*` variable, after starting logging with its defaults (and without the `LOG_*` variables only when one of them is refused); `check_logging_config` refuses another configuration's logging settings through lib_log_rich's `validate_config`, without touching the running runtime
-- `src/datamax_dpl/adapters/cli/`  -  CLI adapter package:
-  - `__init__.py`  -  Public facade
-  - `constants.py`  -  Shared constants
-  - `safe_console.py`  -  Encode-safe terminal output; use `safe_console.echo` instead of `click.echo`
-  - `exit_codes.py`  -  POSIX exit codes (ExitCode IntEnum)
-  - `context.py`  -  Click context helpers (`CLIContext`) and the traceback preference state
-  - `config_load.py`  -  Configuration load for the CLI; records a load failure, `require_config` refuses with exit 78, `check_logging` checks the logging settings of a configuration reloaded by `config --profile`, refusing them as the root does
-  - `root.py`  -  Root command group
-  - `main.py`  -  Entry point
-  - `typed_click.py`  -  Strictly typed wrappers for rich_click's `option`, `version_option` and `get_current_context`
-  - `commands/info.py`  -  info command
-  - `commands/config.py`  -  config, config-deploy, config-generate-examples commands
+1. A JSON label model (`domain/label.py`) in millimetres, inches or dots, with DPL's bottom-up
+   coordinates and `{name}` placeholders.
+2. One profile per model (`domain/profiles.py`) with limits and a feature table, plus `generic`
+   and `permissive`.
+3. Encoders that write the DPL records and record a finding for every deviation; the fallback
+   policy (`degrade` or `strict`) decides whether a deviation is a warning or an error.
+4. Transports (tcp, serial, device file, file, stdout), status and model detection, a preview
+   PNG, and a camera loop (`verify`).
+5. A CLI whose label and printer commands answer with a JSON envelope `{ok, command, data,
+   skipped}` and exit 0 / 1 / 2.
 
-### Adapters Layer (In-Memory / Testing)
-- `src/datamax_dpl/adapters/memory/__init__.py`  -  Public facade + Protocol conformance assertions
-- `src/datamax_dpl/adapters/memory/config.py`  -  In-memory config adapters
-- `src/datamax_dpl/adapters/memory/logging.py`  -  In-memory logging (a quiet lib_log_rich runtime for tests)
+## Architecture Integration
 
-### Composition Layer
-- `src/datamax_dpl/composition/__init__.py`  -  Wires adapters to ports
-
-### Entry Points
-- `src/datamax_dpl/entry.py`  -  Console-script entry point; wires production services before invoking the CLI
-- `src/datamax_dpl/__main__.py`  -  Thin shim for `python -m`
-- `src/datamax_dpl/__init__.py`  -  Public API exports
-- `src/datamax_dpl/__init__conf__.py`  -  Package metadata constants
-
-### Configuration Defaults
-- `src/datamax_dpl/adapters/config/defaultconfig.toml`  -  Base defaults
-- `src/datamax_dpl/adapters/config/defaultconfig.d/40-layered-config.toml`  -  lib_layered_config integration docs
-- `src/datamax_dpl/adapters/config/defaultconfig.d/50-device.toml`  -  Device defaults (`[device]`: host, login, password, timeout, raw_port_base)
-- `src/datamax_dpl/adapters/config/defaultconfig.d/90-logging.toml`  -  Logging defaults
-
-### Tests
-- `tests/conftest.py`  -  Shared fixtures (see Test Fixtures below)
-- `tests/test_cache_effectiveness.py`  -  Configuration loading returns consistent (cached) results
-- `tests/test_cli_config.py`  -  `config`, `config-deploy`, `config-generate-examples` commands
-- `tests/test_cli_config_errors.py`  -  A configuration that cannot be loaded: who reports it, and who still runs
-- `tests/test_cli_core.py`  -  Traceback, main entry, help, crash handling through `main()`, info, unknown command
-- `tests/test_cli_env_file.py`  -  `--env-file` path passing, validation and value override
-- `tests/test_cli_exit_codes.py`  -  Exit codes through the CLI
-- `tests/test_cli_main_exit.py`  -  Exit codes and stderr through the real `main()` entry point
-- `tests/test_cli_overrides.py`  -  `--set` through the CLI
-- `tests/test_cli_validation.py`  -  Profile name validation
-- `tests/test_config_overrides.py`  -  `--set` parsing tests
-- `tests/test_coverage_database.py`  -  A pytest run leaves every coverage database it did not create alone
-- `tests/test_declared_dependencies.py`  -  Every third-party module imported at run time is a declared dependency
-- `tests/test_deploy_mode_safety.py`  -  `--dir-mode`/`--file-mode` literal, range and safety checks
-- `tests/test_deploy_permissions.py`  -  `config-deploy` permission options
-- `tests/test_display.py`  -  Config display formatting tests
-- `tests/test_enums.py`  -  Domain enum tests
-- `tests/test_errors.py`  -  Domain error types
-- `tests/test_logging.py`  -  Logging configuration model
-- `tests/test_logging_dotenv_isolation.py`  -  Only `LOG_*` lines of a `.env` reach the environment; an invalid `[lib_log_rich]` section or `LOG_*` variable is a configuration failure that leaves logging running
-- `tests/test_memory_logging.py`  -  Testing-composition logging runtime and the per-test logging reset
-- `tests/test_metadata.py`  -  Package metadata and PEP 561 marker tests
-- `tests/test_metadata_sync.py`  -  `__init__conf__` constants stay in sync with `pyproject.toml`
-- `tests/test_module_entry.py`  -  `python -m` entry tests
-- `tests/test_platform_markers.py`  -  The `os_*` markers skip a test off its platform
-- `tests/test_permission_defaults.py`  -  `config-deploy` hands permissions to lib_layered_config: `--set` overrides, `.env` and deployed destinations never decide a mode, refusals exit 78
-- `tests/test_ports.py`  -  Protocol conformance tests
-- `tests/test_property_overrides.py`  -  Property-based `--set` override tests
-- `tests/test_safe_console.py`  -  Legacy-codepage output tests, plus the guard forbidding direct `click.echo`
-- `tests/test_settings_dotenv_numbers.py`  -  Digit-only `.env` values reach every text setting as the text written
-
----
-
-## Architecture
-
-### Layer Assignments
-
-| Directory/Module       | Layer       | Responsibility                                |
-|------------------------|-------------|-----------------------------------------------|
-| `domain/`              | Domain      | Pure logic  -  no I/O, logging, or frameworks |
-| `application/ports.py` | Application | Protocol definitions for adapters             |
-| `adapters/config/`     | Adapters    | Configuration loading, deployment, display    |
-| `adapters/logging/`    | Adapters    | lib_log_rich initialization                   |
-| `adapters/cli/`        | Adapters    | Click CLI framework integration               |
-| `adapters/memory/`     | Adapters    | In-memory implementations for testing         |
-| `composition/`         | Composition | Wires adapters to ports                       |
-
-### Import Enforcement
-
-Layer boundaries enforced via `import-linter` contracts in `pyproject.toml`:
-- **Domain is pure**: Cannot import from adapters or composition
-- **Clean Architecture layers**: Validates dependency direction (composition -> adapters -> application -> domain)
-
-Run `lint-imports` to verify compliance.
-
----
-
-## Exit Codes
-
-POSIX-conventional exit codes defined in `adapters/cli/exit_codes.py`:
-
-| Code | Name                 | Usage                                                                                                    |
-|------|----------------------|----------------------------------------------------------------------------------------------------------|
-| 0    | `SUCCESS`            | Command completed successfully                                                                           |
-| 1    | `GENERAL_ERROR`      | Unhandled exception, general failure                                                                     |
-| 2    | `FILE_NOT_FOUND`     | File not found; also click's usage error (bad option value, malformed `--set`, invalid `--profile` name) |
-| 13   | `PERMISSION_DENIED`  | Cannot write to target directory                                                                         |
-| 22   | `INVALID_ARGUMENT`   | Invalid CLI argument or section not found                                                                |
-| 69   | `DEVICE_UNAVAILABLE` | The print server did not answer (sysexits `EX_UNAVAILABLE`)                                              |
-| 76   | `PROTOCOL_ERROR`     | The print server answered something unexpected (sysexits `EX_PROTOCOL`)                                  |
-| 77   | `REFUSED`            | Refused by policy, such as a destructive action without its confirmation flags (sysexits `EX_NOPERM`)    |
-| 78   | `CONFIG_ERROR`       | Configuration missing, not loadable or invalid                                                           |
-| 110  | `TIMEOUT`            | Operation timed out                                                                                      |
-| 130  | `SIGNAL_INT`         | Interrupted (SIGINT/Ctrl+C)                                                                              |
-| 141  | `BROKEN_PIPE`        | Output pipe closed                                                                                       |
-| 143  | `SIGNAL_TERM`        | Terminated (SIGTERM)                                                                                     |
-
-No command exits 69, 76 or 77 yet; they are reserved for the print-server commands.
-
----
-
-## CLI Commands
-
-### Root Command
-
-**Command:** `datamax-dpl`
-
-| Option                         | Description                                 |
-|--------------------------------|---------------------------------------------|
-| `--version`                    | Show version and exit                       |
-| `--traceback / --no-traceback` | Show full Python traceback on errors        |
-| `--profile NAME`               | Load configuration from a named profile     |
-| `--set SECTION.KEY=VALUE`      | Override configuration setting (repeatable) |
-| `--env-file PATH`              | Explicit `.env` file path                   |
-| `-h, --help`                   | Show help and exit                          |
-
-### info
-
-Print resolved package metadata.
-
-**Exit codes:** 0
-
-### config
-
-Display merged configuration from all sources.
-
-| Option                   | Description                    |
-|--------------------------|--------------------------------|
-| `--format [human\|json]` | Output format (default: human) |
-| `--section NAME`         | Show only specific section     |
-| `--profile NAME`         | Override the root's profile    |
-
-**Exit codes:** 0, 2 (usage error), 22 (section not found), 78 (configuration not loadable)
-
-### config-deploy
-
-Deploy default configuration to system or user directories.
-
-| Option                             | Description                                                      |
-|------------------------------------|------------------------------------------------------------------|
-| `--target [app\|host\|user]`       | Target layer(s)  -  required, repeatable                         |
-| `--force`                          | Replace differing files, keeping the old one as `<name>.bak`     |
-| `--profile NAME`                   | Deploy to profile subdirectory                                   |
-| `--permissions / --no-permissions` | Set Unix permissions (default: `enabled` from the configuration) |
-| `--dir-mode MODE`                  | Directory mode for every target (octal)                          |
-| `--file-mode MODE`                 | File mode for every target (octal)                               |
-
-**Exit codes:** 0, 1, 2 (usage error, including a refused `--dir-mode`/`--file-mode` or `--profile` name, and `--no-permissions` together with a mode), 13 (permission denied), 78 (lib_layered_config refused the permission settings: a configured one, which both `--dir-mode` and `--file-mode` or `--no-permissions` deploy past, or a `--set` of `lib_layered_config.default_permissions`)
-
-### config-generate-examples
-
-Generate example configuration files.
-
-| Option              | Description                   |
-|---------------------|-------------------------------|
-| `--destination DIR` | Target directory  -  required |
-| `--force`           | Overwrite existing files      |
-
-**Exit codes:** 0, 1
-
----
-
-## Profile Validation
-
-Profile names (`--profile` option) are validated using `lib_layered_config.validate_profile_name()`.
-
-### validate_profile()
-
-**Location:** `adapters/config/loader.py`
-
-```python
-def validate_profile(profile: str, max_length: int | None = None) -> None:
-    """Validate profile name using lib_layered_config."""
+```
+composition/   wires production or in-memory adapters into AppServices
+adapters/      CLI, configuration, logging, transports, cameras, preview lettering, memory doubles
+application/   use cases and ports (Protocols)
+domain/        label model, profiles, encoders, decoder, preview, status parsing; no I/O
 ```
 
-| Parameter    | Type          | Default  | Description                                 |
-|--------------|---------------|----------|---------------------------------------------|
-| `profile`    | `str`         | required | Profile name to validate                    |
-| `max_length` | `int \| None` | 64       | Maximum length (DEFAULT_MAX_PROFILE_LENGTH) |
+import-linter enforces the direction: domain imports nothing above it; application imports
+domain; adapters import application and domain; composition imports everything.
 
-### Validation Rules
-
-| Rule             | Description                                          |
-|------------------|------------------------------------------------------|
-| Maximum length   | 64 characters (configurable via `max_length`)        |
-| Character set    | ASCII alphanumeric, hyphens (`-`), underscores (`_`) |
-| Start character  | Must start with alphanumeric character               |
-| Empty string     | Rejected                                             |
-| Windows reserved | CON, PRN, AUX, NUL, COM1-9, LPT1-9 rejected          |
-| Path traversal   | `/`, `\`, `..` rejected                              |
-| Control chars    | Rejected                                             |
-
-### Error Handling
-
-Raises `ValueError` with descriptive message on invalid input.
+Data flow of `datamax-dpl print`: `adapters/cli/label_io.py` reads the label and records ->
+`application/use_cases.py` fills placeholders and calls `domain/render.py` -> the encoders in
+`domain/encode_*.py` and `domain/job.py` write records and findings -> `print_result` in
+`application/use_cases.py` refuses a job with an error finding or sends the bytes through a
+transport from `adapters/transport/` -> `adapters/cli/runner.py` and `adapters/cli/envelope.py`
+turn the outcome into output and an exit code.
 
 ---
 
-## Device Configuration
+## File Index
 
-`adapters/config/defaultconfig.d/50-device.toml` ships the `[device]` section the print-server
-commands will read. Every key ships empty or at its default; `config` shows `password` as
-`***REDACTED***`.
+### Domain (`src/datamax_dpl/domain/`)
 
-| Key             | Type             | Default | Description                                                             |
-|-----------------|------------------|---------|-------------------------------------------------------------------------|
-| `host`          | string           | `""`    | IPv4 address or host name of the print server                           |
-| `login`         | string           | `""`    | FTP login name; empty means "ask the device for its name first"         |
-| `password`      | string           | `""`    | FTP password (factory default: none)                                    |
-| `timeout`       | float, > 0       | `10.0`  | Network timeout for one operation, in seconds                           |
-| `raw_port_base` | integer, 1-65535 | `9100`  | RAW port of logical printer L1; printer Ln uses `raw_port_base + n - 1` |
+- `label.py` - the label model: job settings and the eight element types.
+- `enums.py` - units, rotations, fill patterns, attributes, speed letters, media, policy, severity.
+- `units.py` - length conversion between label units, DPL units and printer dots.
+- `symbology.py` - barcode symbologies and their DPL identifiers.
+- `barcodes.py` - barcode data checks per symbology, check digits, PDF417 and DataMatrix fields.
+- `charset.py` - text to font bytes (code page 437, symbol sets), unprintable characters.
+- `profiles.py` - the printer model profiles and their feature tables.
+- `findings.py` - findings and the collector that applies the fallback policy.
+- `render_context.py` - render options and the per-render context.
+- `render.py` - `build_job` and `render`: label to DPL bytes plus findings.
+- `job.py` - system commands, format settings, quantity and cutting.
+- `encode_common.py` - positions, field length, attributes and counters shared by encoders.
+- `encode_text.py` - text and scalable text fields and their font fallbacks.
+- `encode_graphics.py` - lines, boxes, circles, polygons, images.
+- `encode_barcode.py` - barcode fields, symbology gates, bar widths.
+- `raster.py` - 1-bit raster drawing.
+- `raster_fallback.py` - graphics a model cannot draw, as downloaded images.
+- `image_records.py` - the Datamax image download format.
+- `records.py` - byte-level formatting of DPL records.
+- `placeholders.py` - `{name}` placeholders and filling them from records.
+- `preview.py` - preview bitmap at printer resolution.
+- `png.py` - minimal PNG writer.
+- `decoder.py` - reads DPL back: explains commands, rebuilds labels.
+- `status.py` - status requests and parsing of the answers.
+- `detect.py` - suggests model profiles from printer answers.
+- `camera.py` - camera settings and captured images.
+- `errors.py` - domain exception types.
+
+### Application (`src/datamax_dpl/application/`)
+
+- `ports.py` - Protocols the adapters implement (printer, camera, clock, configuration, logging).
+- `use_cases.py` - render one label or a batch, print, send commands, query status, detect.
+- `verify.py` - print, wait for the printer, photograph, return photo and expected preview.
+
+### Adapters (`src/datamax_dpl/adapters/`)
+
+- `cli/main.py` - entry point and execution wrapper.
+- `cli/root.py` - root command group and global options (`--json`, `--set`, `--profile` ...).
+- `cli/commands/labels.py` - render, validate, explain, schema, models, capabilities.
+- `cli/commands/printer.py` - print, status, detect, reset/cancel/pause/feed/cut, preview, capture, verify.
+- `cli/commands/model_options.py` - options shared by rendering and printer commands.
+- `cli/commands/config.py` - config, config-deploy, config-generate-examples.
+- `cli/commands/info.py` - info.
+- `cli/label_io.py` - reading labels and data records from files or stdin.
+- `cli/settings.py` - `[printer]` and `[camera]` settings with command-line overrides.
+- `cli/runner.py` - runs a command body, maps outcomes to output and exit codes.
+- `cli/envelope.py` - the JSON envelope.
+- `cli/payloads.py` - per-command JSON payloads.
+- `cli/config_load.py` - configuration loading for the CLI.
+- `cli/context.py`, `cli/constants.py`, `cli/exit_codes.py`, `cli/safe_console.py`, `cli/typed_click.py` - CLI plumbing.
+- `transport/uri.py` - printer URI parsing.
+- `transport/tcp.py`, `transport/serial.py`, `transport/device.py`, `transport/file.py` - the transports.
+- `transport/__init__.py` - `open_printer(uri, timeout=...)`.
+- `camera/command.py`, `camera/http.py`, `camera/file.py` - the camera kinds; `camera/__init__.py` picks one.
+- `preview/__init__.py` - lettered preview with Pillow when the `preview` extra is installed.
+- `config/loader.py`, `config/deploy.py`, `config/display.py`, `config/overrides.py` - layered configuration.
+- `config/defaultconfig.toml`, `config/defaultconfig.d/*.toml` - bundled defaults (`50-printer`, `60-camera`, `90-logging` ...).
+- `logging/setup.py` - lib_log_rich initialisation.
+- `memory/printer.py` (`RecordingPrinter`), `memory/camera.py` (`FakeCamera`), `memory/config.py`, `memory/logging.py` - in-memory doubles.
+
+### Composition and entry points
+
+- `composition/__init__.py` - `build_production()` and `build_testing()`.
+- `entry.py` - console script `datamax-dpl`.
+- `__main__.py` - `python -m datamax_dpl`.
+- `__init__.py` - package exports (`get_config`, `print_info`).
+- `__init__conf__.py` - static package metadata.
+
+### Outside the package
+
+- `scripts/gen_capabilities.py` - generates the model tables of `docs/capabilities.md`.
+- `examples/` - sample labels and data records.
+- `notebooks/Quickstart.ipynb` - executed by CI.
+- `tests/` - one `test_<module>.py` per module or behaviour; `test_capabilities_doc.py` keeps the
+  capabilities document current.
 
 ---
 
-## Configuration Overrides
+## Testing Approach
 
-`adapters/config/overrides.py` parses and applies `--set SECTION.KEY=VALUE`. Public names
-(`__all__`):
+Tests drive public functions and the CLI. Collaborators are injected: the CLI tests wire
+`build_testing()` with a `RecordingPrinter` and a `FakeCamera`; transports are tested against real
+sockets on 127.0.0.1 and pseudo-terminals. Doctests in the modules run with the suite.
 
-| Name              | Kind     | Purpose                                                                                 |
-|-------------------|----------|-----------------------------------------------------------------------------------------|
-| `parse_override`  | function | Split one `SECTION.KEY[.SUBKEY...]=VALUE` string into a `ConfigOverride`                |
-| `coerce_value`    | function | Read a raw value as JSON (bool, number, null, array, object), falling back to the text  |
-| `nest_overrides`  | function | Parse all `--set` values into the nested mapping they override, refusing contradictions |
-| `apply_overrides` | function | Deep-merge the overrides into a `Config`, recording their provenance as `CLI_LAYER`     |
-| `ConfigOverride`  | class    | One parsed override: section, key path and value                                        |
-| `CoercedValue`    | type     | Union of the types `coerce_value` can return                                            |
-| `CLI_LAYER`       | constant | Provenance layer name (`"cli"`) for a value that came from `--set`                      |
+## Known Limitations
 
----
-
-## Testing Infrastructure
-
-### In-Memory Adapters
-
-The `adapters/memory/` package provides lightweight implementations for testing:
-
-| Module              | Protocols Satisfied                                                         |
-|---------------------|-----------------------------------------------------------------------------|
-| `memory/config.py`  | `GetConfig`, `GetDefaultConfigPath`, `DeployConfiguration`, `DisplayConfig` |
-| `memory/logging.py` | `InitLogging`, `CheckLoggingConfig`                                         |
-
-Use `composition.build_testing()` to wire all in-memory adapters. To replace one port, copy the
-container with `dataclasses.replace(build_testing(), get_config=...)`, so a port added later does
-not break the test.
-
-### Test Fixtures (conftest.py)
-
-| Fixture                   | Purpose                                                                                                                                                                 |
-|---------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `config_factory`          | Creates real `Config` instances from test data                                                                                                                          |
-| `inject_config`           | Injects config into CLI path                                                                                                                                            |
-| `cli_runner`              | Fresh `CliRunner` per test                                                                                                                                              |
-| `strip_ansi`              | Strips ANSI escape codes from output                                                                                                                                    |
-| `clear_config_cache`      | Clears LRU cache before tests                                                                                                                                           |
-| `managed_traceback_state` | Resets/restores traceback configuration                                                                                                                                 |
-| `isolated_logging_state`  | Autouse: after every test, shuts the lib_log_rich runtime down and restores the root logger; yields that restore step                                                   |
-| `user_layer_in_tmp_path`  | Points every OS's user-layer location (`HOME`, `USERPROFILE`, `XDG_CONFIG_HOME`, `APPDATA`, `LOCALAPPDATA`) at `tmp_path` and returns it, so a real deploy writes there |
-| `config_cli_context`      | Services factory over a `Config` built from a dict, with production adapters and the quiet logging runtime                                                              |
-| `crashing_services`       | Services factory whose `display_config` raises an unexpected `RuntimeError`, so `config` crashes through `main()`'s generic handler                                     |
-
----
-
-**Last Updated:** 2026-10-23 (email and demo commands removed, `[device]` section, exit codes 69/76/77)
+- Only the 1998 DPL manual is covered; later models and commands (QR codes among them) are not.
+- No output has been checked on a real printer or camera.
+- The library is reached through module paths (`datamax_dpl.domain.render` and so on); the
+  package root exports only configuration and metadata helpers.

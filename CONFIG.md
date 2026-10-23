@@ -86,6 +86,7 @@ These options apply to all commands and must be specified **before** the command
 | `--env-file PATH`         | Explicit `.env` file path. Skips the default upward directory search.     |
 | `--traceback`             | Show full Python traceback on errors (useful for debugging).              |
 | `--no-traceback`          | Hide traceback, show only error message (default).                        |
+| `--json` / `--json-bare`  | Answer with a JSON envelope (indented / one line), see the README.        |
 
 **Example usage:**
 
@@ -95,11 +96,11 @@ datamax-dpl --profile production config
 
 # Override settings at runtime (repeatable)
 datamax-dpl --set lib_log_rich.console_level=DEBUG config
-datamax-dpl --set device.host=192.0.2.52 --set device.timeout=5 config --section device
+datamax-dpl --set printer.model=dmx-600 --set printer.timeout=5 config --section printer
 
 # Load configuration from an explicit .env file
-datamax-dpl --env-file /etc/myapp/.env config
-datamax-dpl --env-file ./environments/production.env config --section device
+datamax-dpl --env-file /etc/datamax-dpl/.env config
+datamax-dpl --env-file ./environments/production.env config --section printer
 
 # Show full traceback for debugging
 datamax-dpl --traceback config-deploy --target user
@@ -113,11 +114,11 @@ Display the merged configuration from all sources (defaults -> app -> host -> us
 
 #### Options Reference
 
-| Option           | Required | Description                                                    |
-|------------------|:--------:|----------------------------------------------------------------|
-| `--format`       | No       | Output format: `human` (default) or `json`.                    |
-| `--section NAME` | No       | Show only a specific section (e.g., `lib_log_rich`, `device`). |
-| `--profile NAME` | No       | Load configuration for a specific profile.                     |
+| Option           | Required | Description                                               |
+|------------------|:--------:|-----------------------------------------------------------|
+| `--format`       | No       | Output format: `human` (default) or `json`.               |
+| `--section NAME` | No       | Show only a specific section (e.g., `printer`, `camera`). |
+| `--profile NAME` | No       | Load configuration for a specific profile.                |
 
 #### Examples
 
@@ -135,7 +136,7 @@ datamax-dpl config --section lib_log_rich
 datamax-dpl config --profile production
 
 # Combine options
-datamax-dpl config --profile staging --format json --section device
+datamax-dpl config --profile staging --format json --section printer
 ```
 
 ### Deploy Configuration Files
@@ -179,8 +180,8 @@ datamax-dpl config-deploy --target user --profile production
 datamax-dpl config-deploy --target user --profile production --force
 ```
 
-Every target receives `config.toml` plus `config.d/40-layered-config.toml`, `config.d/50-device.toml`
-and `config.d/90-logging.toml` (the host target writes `hosts/{hostname}.toml` and
+Every target receives `config.toml` plus `config.d/40-layered-config.toml`, `config.d/50-printer.toml`,
+`config.d/60-camera.toml` and `config.d/90-logging.toml` (the host target writes `hosts/{hostname}.toml` and
 `hosts/{hostname}.d/`). With `--force`, a file whose content differs from the bundled one is
 replaced and the old file is kept as `<name>.bak` (numbered, `<name>.bak.1` and so on, when a
 backup already exists); a file whose content is already identical is left as it is, mode
@@ -371,7 +372,7 @@ datamax-dpl --set lib_log_rich.console_level=DEBUG --set lib_log_rich.console_fo
 datamax-dpl --set lib_log_rich.payload_limits.context_max_keys=30 config
 
 # Override with JSON arrays/objects (use single quotes around the value)
-datamax-dpl --set my_section.hosts='["192.0.2.10", "192.0.2.11"]' config
+datamax-dpl --set printer.options='["datamatrix"]' config --section printer
 
 # Combine with profile
 datamax-dpl --profile production --set lib_log_rich.console_level=DEBUG config
@@ -448,30 +449,74 @@ Profile directories are **separate namespaces**. Configuration deployed with a p
 
 ---
 
-## Device Section
+## Printer Section
 
-The `[device]` section (shipped in `config.d/50-device.toml`) names the SerComm print server the
-CLI talks to. Every key ships empty or at its default, so nothing is contacted until a host is set.
+The `[printer]` section (shipped in `config.d/50-printer.toml`) holds the defaults of every label
+and printer command. A command-line flag (`--model`, `--firmware`, `--printer`, `--policy`,
+`--timeout`, `--cutter`, `--option`) wins over the configured value. The URI ships empty, so
+nothing is contacted until one is set or passed with `--printer`.
 
-| Key             | Type             | Default | Environment variable                  | Meaning                                                                                 |
-|-----------------|------------------|---------|---------------------------------------|-----------------------------------------------------------------------------------------|
-| `host`          | string           | `""`    | `DATAMAX_DPL___DEVICE__HOST`          | IPv4 address or host name of the print server                                           |
-| `login`         | string           | `""`    | `DATAMAX_DPL___DEVICE__LOGIN`         | FTP login name; empty means "ask the device for its name first"                         |
-| `password`      | string           | `""`    | `DATAMAX_DPL___DEVICE__PASSWORD`      | FTP password (factory default: none); shown as `***REDACTED***` by `config`             |
-| `timeout`       | float, > 0       | `10.0`  | `DATAMAX_DPL___DEVICE__TIMEOUT`       | Network timeout for one operation, in seconds                                           |
-| `raw_port_base` | integer, 1-65535 | `9100`  | `DATAMAX_DPL___DEVICE__RAW_PORT_BASE` | RAW (direct socket) port of logical printer L1; printer Ln uses `raw_port_base + n - 1` |
+| Key        | Type                         | Default     | Environment variable              | Meaning                                                                                                                                       |
+|------------|------------------------------|-------------|-----------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| `model`    | string                       | `"generic"` | `DATAMAX_DPL___PRINTER__MODEL`    | Printer model profile; `datamax-dpl models` lists them. `generic` emits only what every model understands.                                    |
+| `firmware` | string `"<major>.<minor>"`   | `""`        | `DATAMAX_DPL___PRINTER__FIRMWARE` | Printer firmware, for features that need a newer one (`"2.01"` unlocks circles on a DMX 400). Empty: the oldest.                              |
+| `uri`      | string                       | `""`        | `DATAMAX_DPL___PRINTER__URI`      | Where jobs and printer commands go: `tcp://HOST:PORT`, `serial:///dev/ttyS0?baud=9600`, `device:///dev/usb/lp0`, `file:PATH` or `-` (stdout). |
+| `policy`   | `"degrade"` or `"strict"`    | `"degrade"` | `DATAMAX_DPL___PRINTER__POLICY`   | `degrade` applies documented fallbacks and reports them; `strict` refuses the label instead.                                                  |
+| `timeout`  | float, > 0                   | `10.0`      | `DATAMAX_DPL___PRINTER__TIMEOUT`  | Seconds for one transport operation: connect, write, wait for a status answer.                                                                |
+| `cutter`   | `"yes"`, `"no"`, `"unknown"` | `"unknown"` | `DATAMAX_DPL___PRINTER__CUTTER`   | Whether a cutter is installed and enabled. `no` refuses a label that asks for cutting; `unknown` sends it with a note.                        |
+| `options`  | list of strings              | `[]`        | `DATAMAX_DPL___PRINTER__OPTIONS`  | Installed hardware options that unlock features; currently only `"datamatrix"`. As a variable: `'["datamatrix"]'`.                            |
+
+The URI forms and what each channel can do are in the README; the models, features and fallbacks
+in [docs/capabilities.md](docs/capabilities.md).
+
+`firmware` must reach the program as text. In a TOML file write it quoted (`firmware = "2.01"`),
+in a `.env` file quote it too (`PRINTER__FIRMWARE="2.01"`). An unquoted `2.01` in a `.env`, an
+environment variable or `--set` is converted to a number and refused with exit 2; there, write it
+with a leading zero (`DATAMAX_DPL___PRINTER__FIRMWARE=02.01`, `--set printer.firmware=02.01`),
+which stays text. The `--firmware` flag takes `2.01` as it is.
+
+## Camera Section
+
+The `[camera]` section (shipped in `config.d/60-camera.toml`) names the camera `capture` and
+`verify` photograph labels with. `kind = "none"` (the default) means no camera; `capture` and
+`verify` then stop with exit 2.
+
+| Key              | Type            | Default  | Environment variable                   | Meaning                                                                                                    |
+|------------------|-----------------|----------|----------------------------------------|------------------------------------------------------------------------------------------------------------|
+| `kind`           | string          | `"none"` | `DATAMAX_DPL___CAMERA__KIND`           | `none`, `command` (run a program), `http` (fetch a snapshot URL) or `file` (newest image in a folder).     |
+| `command`        | list of strings | `[]`     | `DATAMAX_DPL___CAMERA__COMMAND`        | argv of the capture program for `command`; `{output}` is replaced by the image path. No shell is involved. |
+| `url`            | string          | `""`     | `DATAMAX_DPL___CAMERA__URL`            | Snapshot URL for `http`; the response body is the image.                                                   |
+| `user`           | string          | `""`     | `DATAMAX_DPL___CAMERA__USER`           | HTTP basic auth user for `http`.                                                                           |
+| `password`       | string          | `""`     | `DATAMAX_DPL___CAMERA__PASSWORD`       | HTTP basic auth password for `http`; shown as `***REDACTED***` by `config`.                                |
+| `directory`      | string          | `""`     | `DATAMAX_DPL___CAMERA__DIRECTORY`      | Folder watched for `file`; the newest image written after the print started is taken.                      |
+| `settle_seconds` | float, >= 0     | `1.0`    | `DATAMAX_DPL___CAMERA__SETTLE_SECONDS` | Wait after the printer reports it is done, so the label has stopped moving.                                |
+| `timeout`        | float, > 0      | `20.0`   | `DATAMAX_DPL___CAMERA__TIMEOUT`        | Seconds for one capture.                                                                                   |
+
+A USB webcam through `fswebcam`, as a user configuration file
+`~/.config/datamax-dpl/config.d/999-myconfig.toml`:
+
+```toml
+[camera]
+kind = "command"
+command = ["fswebcam", "--no-banner", "-r", "1920x1080", "{output}"]
+settle_seconds = 1.5
+```
 
 In a `.env` file the prefix is dropped:
 
 ```bash
 # .env
-DEVICE__HOST=192.0.2.52
-DEVICE__PASSWORD=secret
+PRINTER__MODEL=dmx-600
+PRINTER__URI=tcp://192.0.2.60:9100
+CAMERA__KIND=http
+CAMERA__URL=http://192.0.2.70/snapshot.jpg
+CAMERA__PASSWORD=secret
 ```
 
 ```bash
-# Show the effective device settings (the password stays redacted)
-datamax-dpl config --section device
+# Show the effective settings (the camera password stays redacted)
+datamax-dpl config --section printer
+datamax-dpl config --section camera
 ```
 
 ---
@@ -495,7 +540,7 @@ For any configuration section, use the format: `<PREFIX>___<SECTION>__<KEY>=valu
 
 ```bash
 DATAMAX_DPL___LIB_LOG_RICH__CONSOLE_LEVEL=DEBUG datamax-dpl info
-DATAMAX_DPL___DEVICE__HOST=192.0.2.52 datamax-dpl config --section device
+DATAMAX_DPL___PRINTER__MODEL=dmx-600 datamax-dpl config --section printer
 ```
 
 **Separator reference:**
@@ -529,8 +574,8 @@ To load a specific `.env` file instead, use `--env-file`:
 
 ```bash
 # Load from an explicit path (skips upward directory search)
-datamax-dpl --env-file /opt/myapp/config/.env config
-datamax-dpl --env-file ./environments/staging.env config --section device
+datamax-dpl --env-file /etc/datamax-dpl/.env config
+datamax-dpl --env-file ./environments/staging.env config --section printer
 ```
 
 The file must exist and be readable; Click validates this before the command runs.
@@ -574,7 +619,7 @@ only `config.toml` plus its `config.d/` files.
 **Why this works:**
 - Files in each layer's `config.d/` directory are loaded in lexical order after `config.toml`
 - Higher-numbered files (e.g., `999-`) load last and override earlier values, including the
-  deployed `40-`, `50-` and `90-` files
+  deployed `40-`, `50-`, `60-` and `90-` files
 - `config-deploy` never writes a `999-myconfig.toml`, so a redeploy leaves your file alone
 
 **Example `999-myconfig.toml`:**
@@ -585,8 +630,9 @@ only `config.toml` plus its `config.d/` files.
 [lib_log_rich]
 console_level = "DEBUG"
 
-[device]
-host = "192.0.2.52"
+[printer]
+model = "dmx-600"
+uri = "tcp://192.0.2.60:9100"
 ```
 
 This approach keeps your customizations separate and safe from updates while still benefiting from new default values added in future versions.
@@ -598,13 +644,14 @@ This approach keeps your customizations separate and safe from updates while sti
 You can import the configuration system directly in Python:
 
 ```python
-import datamax_dpl as btcli
+import datamax_dpl
 
 # Get the merged configuration object
-config = btcli.get_config()
+config = datamax_dpl.get_config()
 print(config.as_dict())
 
 # Access specific sections
-log_config = config.get("lib_log_rich", default={})
-device_config = config.get("device", default={})
+printer_config = config.get("printer", default={})
+camera_config = config.get("camera", default={})
+print(printer_config["model"], camera_config["kind"])
 ```
