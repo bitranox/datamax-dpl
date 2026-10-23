@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 import lib_cli_exit_tools
 
+from .envelope import HUMAN, OutputMode
+
 if TYPE_CHECKING:
     import rich_click as click
     from lib_layered_config import Config
@@ -32,6 +34,7 @@ class CLIContext:
         env_file: The root's ``--env-file``, for the same reload.
         config_error: Why the configuration could not be loaded, None when it loaded. The
             root records the exception; each command that reads the configuration reports it.
+        mode: Output shape requested by ``--json`` / ``--json-bare``.
     """
 
     traceback: bool
@@ -41,6 +44,7 @@ class CLIContext:
     set_overrides: tuple[str, ...] = ()
     env_file: str | None = None
     config_error: Exception | None = None
+    mode: OutputMode = HUMAN
 
 
 def store_cli_context(
@@ -53,6 +57,7 @@ def store_cli_context(
     set_overrides: tuple[str, ...] = (),
     env_file: str | None = None,
     config_error: Exception | None = None,
+    mode: OutputMode = HUMAN,
 ) -> None:
     """Store CLI state in the Click context for subcommand access.
 
@@ -66,6 +71,7 @@ def store_cli_context(
             subcommands reload config with a different profile.
         env_file: The root's ``--env-file``, for the same reload.
         config_error: Why the configuration could not be loaded, None when it loaded.
+        mode: Output shape requested by ``--json`` / ``--json-bare``.
 
     Example:
         >>> from click.testing import CliRunner
@@ -87,6 +93,7 @@ def store_cli_context(
         set_overrides=set_overrides,
         env_file=env_file,
         config_error=config_error,
+        mode=mode,
     )
 
 

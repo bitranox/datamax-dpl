@@ -69,9 +69,18 @@ policy = "degrade"
 # Environment Variable: DATAMAX_DPL___PRINTER__TIMEOUT=10.0
 timeout = 10.0
 
-# Purpose: The printer has a cutter installed and enabled. Cut commands are only
-#          emitted when this is true.
-# Type: boolean
-# Default: false
-# Environment Variable: DATAMAX_DPL___PRINTER__CUTTER=true
-cutter = false
+# Purpose: Whether the printer has its cutter installed and enabled.
+#          yes:     cut commands are sent as the label asks
+#          no:      a label that asks for cutting is refused
+#          unknown: cut commands are sent and the result notes the assumption
+# Type: string, "yes", "no" or "unknown"
+# Default: "unknown"
+# Environment Variable: DATAMAX_DPL___PRINTER__CUTTER=yes
+cutter = "unknown"
+
+# Purpose: Hardware options installed in the printer that unlock features,
+#          currently only "datamatrix" (the DataMatrix barcode option).
+# Type: list of strings
+# Default: []
+# Environment Variable: DATAMAX_DPL___PRINTER__OPTIONS='["datamatrix"]'
+options = []

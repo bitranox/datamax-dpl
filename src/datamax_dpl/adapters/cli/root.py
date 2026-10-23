@@ -19,6 +19,7 @@ from . import safe_console
 from .config_load import load_config, start_logging
 from .constants import CLICK_CONTEXT_SETTINGS
 from .context import apply_traceback_preferences, store_cli_context
+from .envelope import OutputMode
 from .typed_click import option, version_option
 
 if TYPE_CHECKING:
@@ -64,6 +65,8 @@ if TYPE_CHECKING:
     default=None,
     help="Explicit .env file path (skips upward directory search).",
 )
+@option("--json", "as_json", is_flag=True, default=False, help="Answer with an indented JSON envelope on stdout.")
+@option("--json-bare", "as_json_bare", is_flag=True, default=False, help="Answer with a one-line JSON envelope.")
 @click.pass_context
 def cli(
     ctx: click.Context,
@@ -71,6 +74,8 @@ def cli(
     profile: str | None,
     set_overrides: tuple[str, ...],
     env_file: str | None,
+    as_json: bool,
+    as_json_bare: bool,
 ) -> None:
     """Root command storing global flags and syncing shared traceback state.
 
@@ -107,6 +112,7 @@ def cli(
         set_overrides=set_overrides,
         env_file=env_file,
         config_error=config_error,
+        mode=OutputMode.of(as_json=as_json, as_json_bare=as_json_bare),
     )
     apply_traceback_preferences(traceback)
 
