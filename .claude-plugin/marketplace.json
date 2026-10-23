@@ -1,0 +1,16 @@
+{
+  "name": "datamax-dpl",
+  "owner": {
+    "name": "bitranox"
+  },
+  "metadata": {
+    "description": "datamax-dpl as a single Claude Code plugin: a skill to build, check, preview and print Datamax DPL labels."
+  },
+  "plugins": [
+    {
+      "name": "datamax-dpl",
+      "source": ".",
+      "description": "Use the datamax-dpl CLI and library: label JSON, model profiles and fallbacks, cutter jobs, data-driven batches, preview, print and camera verification."
+    }
+  ]
+}

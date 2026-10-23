@@ -7,6 +7,7 @@ actual project metadata.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ import rtoml
 from datamax_dpl import __init__conf__
 
 _PYPROJECT_PATH = Path(__file__).parent.parent / "pyproject.toml"
+_PLUGIN_DIR = Path(__file__).parent.parent / ".claude-plugin"
 
 
 def _read_project_name() -> str:
@@ -78,3 +80,20 @@ def test_name_matches_project_name() -> None:
     assert __init__conf__.name.replace("-", "_") == project_name.replace("-", "_"), (
         f"__init__conf__.name '{__init__conf__.name}' does not match project name '{project_name}'"
     )
+
+
+@pytest.mark.os_agnostic
+def test_plugin_manifest_version_matches_pyproject_toml() -> None:
+    """The Claude Code plugin re-fetches only when its version changes, so it must move with the package."""
+    manifest = json.loads((_PLUGIN_DIR / "plugin.json").read_text(encoding="utf-8"))
+    assert manifest["version"] == rtoml.load(_PYPROJECT_PATH)["project"]["version"]
+
+
+@pytest.mark.os_agnostic
+def test_marketplace_lists_this_repository_as_its_only_plugin() -> None:
+    import json
+
+    marketplace = json.loads(
+        (_PYPROJECT_PATH.parent / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8")
+    )
+    assert [(p["name"], p["source"]) for p in marketplace["plugins"]] == [("datamax-dpl", ".")]

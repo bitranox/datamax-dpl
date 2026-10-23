@@ -264,3 +264,29 @@ def test_verify_prints_waits_photographs_and_writes_the_expected_preview(cli_run
     assert data["status"]["busy_printing"] is False
     assert camera.calls == 1
     assert (tmp_path / data["expected"]).read_bytes().startswith(b"\x89PNG")
+
+
+@pytest.mark.os_agnostic
+def test_a_batch_cuts_after_every_nth_record_and_at_the_end(cli_runner: CliRunner, tmp_path: Path) -> None:
+    printer = RecordingPrinter()
+    label = {"cut": {"every": 2}, "elements": [{"type": "text", "x": 5, "y": 5, "text": "{n}"}]}
+    data = tmp_path / "n.csv"
+    data.write_text("n\n1\n2\n3\n", encoding="utf-8")
+    args = ["--json", "print", write_json(tmp_path / "l.json", label), "--data", str(data), "--model", "dmx-600"]
+    result = run(cli_runner, [*args, "--cutter", "yes", "--printer", PRINTER], factory(printer))
+    assert result.exit_code == 0, result.output
+    jobs = printer.data.split(b"\x02L\r")[1:]
+    assert [job.endswith(b"E\r\x02o") for job in jobs] == [False, True, True]
+    assert "batch_cut_unverified" in {f["code"] for f in envelope(result)["data"]["findings"]}
+
+
+@pytest.mark.os_agnostic
+def test_a_batch_cut_on_a_model_without_cut_now_falls_back(cli_runner: CliRunner, tmp_path: Path) -> None:
+    label = {"cut": {"every": 2}, "elements": [{"type": "text", "x": 5, "y": 5, "text": "{n}"}]}
+    data = tmp_path / "n.csv"
+    data.write_text("n\n1\n2\n3\n", encoding="utf-8")
+    args = ["--json", "render", write_json(tmp_path / "l.json", label), "--data", str(data), "--model", "prodigy"]
+    result = run(cli_runner, args)
+    assert result.exit_code == 0, result.output
+    assert "batch_cut_unsupported" in {f["code"] for f in envelope(result)["data"]["findings"]}
+    assert b"\x02o" not in base64.b64decode(envelope(result)["data"]["dpl_base64"])

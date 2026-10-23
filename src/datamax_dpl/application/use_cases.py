@@ -12,8 +12,12 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
+from ..domain.batch import cut_across_records
 from ..domain.detect import Detection, Evidence, suggest_profiles
+from ..domain.enums import Severity
 from ..domain.errors import LabelRejectedError, PrinterProtocolError, PrinterTimeoutError
+from ..domain.findings import Finding
+from ..domain.label import Cut
 from ..domain.placeholders import fill_label
 from ..domain.render import RenderResult, build_job
 from ..domain.status import (
@@ -35,7 +39,6 @@ from ..domain.status import (
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-    from ..domain.findings import Finding
     from ..domain.label import Label
     from ..domain.render_context import RenderOptions
     from .ports import OpenPrinter, PrinterTransport
@@ -45,19 +48,22 @@ class BatchResult(BaseModel):
     """A label rendered once per data record.
 
     Attributes:
-        data: All jobs back to back, in record order.
+        data: All jobs back to back, in record order, with any batch cut commands between them.
         results: One render result per record.
+        batch_findings: Findings about the batch as a whole (cutting across records).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     data: bytes
     results: tuple[RenderResult, ...]
+    batch_findings: tuple[Finding, ...] = ()
 
     @property
     def ok(self) -> bool:
-        """True when every record rendered without an error finding."""
-        return all(result.ok for result in self.results)
+        """True when no record and no batch finding is an error."""
+        batch_ok = all(f.severity is not Severity.ERROR for f in self.batch_findings)
+        return batch_ok and all(result.ok for result in self.results)
 
     def findings(self) -> list[tuple[int, Finding]]:
         """Every finding with the index of the record it belongs to."""
@@ -76,8 +82,14 @@ def render_batch(label: Label, records: Iterable[Mapping[str, str]], options: Re
         MissingFieldError: A record lacks a field a placeholder names.
         pydantic.ValidationError: A filled value breaks a field limit.
     """
-    results = tuple(build_job(fill_label(label, record), options) for record in records)
-    return BatchResult(data=b"".join(result.data for result in results), results=results)
+    cut = label.cut
+    if cut is None or cut.every == 1 or label.quantity > 1:
+        results = tuple(build_job(fill_label(label, record), options) for record in records)
+        return BatchResult(data=b"".join(result.data for result in results), results=results)
+    per_record = label.model_copy(update={"cut": Cut(every=1, at_end=False)})
+    results = tuple(build_job(fill_label(per_record, record), options) for record in records)
+    data, findings = cut_across_records([r.data for r in results], cut=cut, options=options)
+    return BatchResult(data=data, results=results, batch_findings=findings)
 
 
 class PrintReport(BaseModel):

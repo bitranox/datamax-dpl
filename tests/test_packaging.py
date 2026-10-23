@@ -35,6 +35,9 @@ ALLOWED_TOP_LEVEL = frozenset(
         "src",
         "tests",
         "docs",
+        "examples",
+        ".claude-plugin",
+        "skills",
     }
 )
 REQUIRED_TOP_LEVEL = frozenset({"PKG-INFO", "pyproject.toml", "src", "tests"})

@@ -61,6 +61,8 @@ def render_payload(result: RenderResult | BatchResult, *, include_dpl: bool) -> 
     results = result.results if isinstance(result, BatchResult) else (result,)
     batch = isinstance(result, BatchResult)
     findings = [FindingOut.of(f, record=i if batch else None) for i, r in enumerate(results) for f in r.findings]
+    if isinstance(result, BatchResult):
+        findings += [FindingOut.of(f) for f in result.batch_findings]
     first = results[0]
     return RenderPayload(
         model=first.model,

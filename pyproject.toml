@@ -119,7 +119,11 @@ include = [
     "/LICENSE",
     "/CHANGELOG.md",
     "/pyproject.toml",
+    "/examples",
+    "/.claude-plugin",
+    "/skills",
 ]
+exclude = ["/docs/*.pdf"] # vendor manual: copyrighted, kept locally, never shipped
 
 [tool.ruff]
 line-length = 120
