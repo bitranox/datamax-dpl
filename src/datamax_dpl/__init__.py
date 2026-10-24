@@ -24,7 +24,22 @@ from .adapters.transport import open_printer
 from .application.use_cases import BatchResult, render_batch
 from .composition import get_config
 from .domain.decoder import explain
-from .domain.enums import Attribute, FallbackPolicy, FillPattern, MediaSensor, Rotation, Severity, SpeedCode, Unit
+from .domain.enums import (
+    Attribute,
+    BarcodeProblemCode,
+    CommandKind,
+    FallbackPolicy,
+    FillPattern,
+    FindingCode,
+    HardwareOption,
+    MediaSensor,
+    MediaType,
+    Rotation,
+    Severity,
+    SpeedCode,
+    StatusProblem,
+    Unit,
+)
 from .domain.errors import LabelRejectedError, TransportError
 from .domain.findings import Finding
 from .domain.label import (
@@ -53,9 +68,11 @@ from .domain.symbology import Symbology
 __all__ = [
     "Attribute",
     "Barcode",
+    "BarcodeProblemCode",
     "BatchResult",
     "Box",
     "Circle",
+    "CommandKind",
     "Counter",
     "Cut",
     "DataMatrixOptions",
@@ -63,11 +80,14 @@ __all__ = [
     "FallbackPolicy",
     "FillPattern",
     "Finding",
+    "FindingCode",
+    "HardwareOption",
     "Image",
     "Label",
     "LabelRejectedError",
     "Line",
     "MediaSensor",
+    "MediaType",
     "Pdf417Options",
     "Point",
     "Polygon",
@@ -78,6 +98,7 @@ __all__ = [
     "ScalableText",
     "Severity",
     "SpeedCode",
+    "StatusProblem",
     "Symbology",
     "Text",
     "TransportError",

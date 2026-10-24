@@ -40,7 +40,7 @@ name = "datamax-dpl"
 #: Human-readable summary shown in CLI help output.
 title = "Datamax DPL label printing: library, CLI and LLM-friendly JSON, with per-model capability checks"
 #: Current release version pulled from ``pyproject.toml`` by automation.
-version = "0.1.1"
+version = "0.2.0"
 #: Repository homepage presented to users.
 homepage = "https://github.com/bitranox/datamax-dpl"
 #: Author attribution surfaced in CLI output.

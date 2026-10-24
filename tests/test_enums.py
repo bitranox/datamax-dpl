@@ -4,7 +4,45 @@ from __future__ import annotations
 
 import pytest
 
+import datamax_dpl
+from datamax_dpl.domain import enums
 from datamax_dpl.domain.enums import DeployTarget, OutputFormat
+
+# ======================== Public exports ========================
+
+#: Enums a library caller writes or compares against: a field of a public model or result holds them.
+_PUBLIC_ENUMS = (
+    "Attribute",
+    "BarcodeProblemCode",
+    "CommandKind",
+    "FallbackPolicy",
+    "FillPattern",
+    "FindingCode",
+    "HardwareOption",
+    "MediaSensor",
+    "MediaType",
+    "Rotation",
+    "Severity",
+    "SpeedCode",
+    "StatusProblem",
+    "Unit",
+)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("name", _PUBLIC_ENUMS)
+def test_public_enum_imports_from_the_package(name: str) -> None:
+    """A public enum must be in datamax_dpl.__all__ and be the domain class itself."""
+    assert name in datamax_dpl.__all__
+    assert getattr(datamax_dpl, name) is getattr(enums, name)
+
+
+@pytest.mark.os_agnostic
+def test_render_options_docstring_example_runs_from_the_package() -> None:
+    """The RenderOptions docstring names HardwareOption.DATAMATRIX; it must import from datamax_dpl."""
+    options = datamax_dpl.RenderOptions(options=frozenset({datamax_dpl.HardwareOption.DATAMATRIX}))
+    assert options.options == {datamax_dpl.HardwareOption.DATAMATRIX}
+
 
 # ======================== OutputFormat ========================
 

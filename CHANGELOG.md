@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-24
+
+### Added
+
+- Library: `FindingCode`, `BarcodeProblemCode`, `CommandKind`, `StatusProblem`,
+  `HardwareOption` and `MediaType` import from `datamax_dpl`, like the other
+  enums, so `RenderOptions(options={HardwareOption.DATAMATRIX})` works as its
+  docstring shows.
+
 ### Fixed
 
 - `verify -` read the label from stdin twice, so the second read found nothing
@@ -33,8 +42,9 @@ All notable changes to this project are documented here. The format follows
   `PrinterStatus.problems` holds `StatusProblem`, `MemoryReport.units` is
   `Unit`, `RenderOptions.options` holds `HardwareOption`, and
   `CapturedImage.media_type` is `MediaType`. Each member is a `str` that compares
-  equal to its old value, and the JSON output is unchanged apart from the
-  `detect` unit above.
+  equal to its old value, except `MemoryReport.units`, which was `"IN"` / `"MM"`
+  and is now `"in"` / `"mm"`. The JSON output is unchanged apart from that
+  `detect` unit.
 
 ## [0.1.1] - 2026-10-24
 
