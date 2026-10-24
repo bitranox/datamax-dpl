@@ -1,7 +1,7 @@
 {
   "name": "datamax-dpl",
   "description": "Design, check and print Datamax DPL labels from Claude Code: write a label as JSON, validate it against the printer model, preview it as a PNG, print it over tcp or serial, and photograph the result for comparison. Ships the datamax-dpl skill.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "bitranox"
   },

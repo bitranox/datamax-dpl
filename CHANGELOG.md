@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-24
+
 ### Fixed
 
 - `explain` keeps a field's counter (`+001`, `-005`, `> 02`, `<012`) on the
@@ -14,6 +16,13 @@ All notable changes to this project are documented here. The format follows
 - `explain` on a file holding more than one label format reports why it
   rebuilds no label, and exits 1, instead of returning `label: null` with no
   problem.
+
+### Security
+
+- Development dependencies: filelock 4.2.1 (CVE-2026-112906, CVE-2026-112914,
+  CVE-2026-112940; on Python 3.11 and newer, where the fix exists) and
+  virtualenv 21.14.10 (CVE-2026-113713). The installed package's own
+  dependencies are unchanged.
 
 ## [0.1.0] - 2026-10-23
 

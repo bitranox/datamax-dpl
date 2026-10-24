@@ -94,6 +94,20 @@ printer unreachable, broken config).
   cutter switch (DIP or front panel) is set; the manual's default is a cut after every label. To get groups of N there,
   ask the user: one job per N records, or cut by hand.
 
+## Reading a DPL file, and the printer's own controls
+
+- `datamax-dpl --json explain old.dpl` names every command of an existing DPL file and rebuilds
+  its label as JSON in `data.label`; `data.problems` lists what it could not read. To see it,
+  save `data.label` to a file and `preview` that. A file holding several label formats rebuilds
+  no label and exits 1 (`data.commands` and `data.problems` are still filled).
+- `status` (paper out, ribbon out, paused, busy; tcp or serial only), `feed` (one label), `cut`
+  (cut now; the printer's cutter must be installed and enabled), `pause` (toggles), `cancel`
+  (drops the current job and pauses) and `reset` (clears the printer's buffers) each take
+  `--printer` (default `[printer] uri`) and `--timeout`. To stop a job printing garbage:
+  `cancel`, then `pause` to resume.
+- `capture --output-dir DIR` takes one photo, to check the `[camera]` settings before `verify`.
+  `config-generate-examples --destination DIR` writes example config files listing every key.
+
 ## Library
 
 ```python
@@ -110,6 +124,14 @@ Settings live in a layered config: `datamax-dpl config` shows the merged result,
 
 `render` raises `LabelRejectedError` on an error finding; `build_job` returns the result with
 `.findings` instead. `render_batch(label, records, options)` does the `--data` case.
+`timeout` is in seconds. A printer that refuses, is unreachable or stops answering raises
+`TransportError` from `open_printer` or `send` (a timeout is its subclass): catch that.
+
+`list_profiles()` and `get_profile("dmx-600")` return the model profiles (a profile holds what
+`capabilities` shows); `fill_label(label, record)` fills the placeholders for one record;
+`render_preview_png(label, get_profile(model))` returns the preview PNG bytes; `explain(data)`
+reads DPL bytes back (`.commands`, `.label`, `.problems`). Every name on this page imports from
+`datamax_dpl`.
 
 ## What it cannot tell you
 
