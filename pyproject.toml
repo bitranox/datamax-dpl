@@ -296,4 +296,4 @@ ignores = ["E003"]
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = {lib-cli-exit-tools = false, lib-layered-config = false, lib-log-rich = false, virtualenv = "2026-10-17T17:31:56Z", certifi = "2026-10-20T02:24:17Z", filelock = "2026-10-17T16:48:14Z"}
+exclude-newer-package = {lib-cli-exit-tools = false, lib-layered-config = false, lib-log-rich = false, certifi = "2026-10-20T02:24:17Z", filelock = "2026-10-17T16:48:14Z"}

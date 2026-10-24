@@ -17,7 +17,6 @@ filelock = "2026-10-17T16:48:14Z"
 lib-cli-exit-tools = false
 lib-layered-config = false
 lib-log-rich = false
-virtualenv = "2026-10-17T17:31:56Z"
 
 [[package]]
 name = "annotated-types"
