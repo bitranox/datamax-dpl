@@ -9,10 +9,9 @@ only, which is fine here because the rasterised shape already has its final orie
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, get_args
 
-from .enums import FillPattern
-from .image_records import download_command
+from .enums import FillPattern, FindingCode
 from .label import Box, Circle, Line, Polygon
 from .raster import Bitmap
 from .records import image_record, line
@@ -21,6 +20,17 @@ if TYPE_CHECKING:
     from .render_context import RenderContext
 
 Graphic = Line | Box | Circle | Polygon
+
+# Keyed by class rather than built as f"{element.type}_rasterized", so the code is a FindingCode
+# member a type checker sees, and a graphic added to the union without one fails at import.
+_RASTERIZED: dict[type[Graphic], FindingCode] = {
+    Line: FindingCode.LINE_RASTERIZED,
+    Box: FindingCode.BOX_RASTERIZED,
+    Circle: FindingCode.CIRCLE_RASTERIZED,
+    Polygon: FindingCode.POLYGON_RASTERIZED,
+}
+if set(_RASTERIZED) != set(get_args(Graphic)):  # pragma: no cover - import-time guard
+    raise RuntimeError("every Graphic type needs a *_rasterized FindingCode")
 
 
 @dataclass(frozen=True)
@@ -105,9 +115,9 @@ def rasterize(element: Graphic, *, index: int, ctx: RenderContext, reason: str) 
     bitmap = Bitmap(frame.width_dots, frame.height_dots)
     _draw(element, bitmap, frame, ctx)
     name = ctx.next_image_name()
-    ctx.system_prefix.append(download_command(name, bitmap))
+    ctx.download_image(name, bitmap)
     ctx.findings.deviate(
-        f"{element.type}_rasterized",
+        _RASTERIZED[type(element)],
         f"{element.type} cannot be drawn natively: {reason}",
         fallback=f"drawn as downloaded image {name} ({frame.width_dots}x{frame.height_dots} dots)",
         element=index,

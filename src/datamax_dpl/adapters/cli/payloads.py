@@ -13,6 +13,8 @@ from pydantic import BaseModel, ConfigDict
 
 from ...application.use_cases import BatchResult
 from ...domain.decoder import readable
+from ...domain.enums import FindingCode, Severity
+from ...domain.units import DplUnit
 
 if TYPE_CHECKING:
     from ...domain.findings import Finding
@@ -26,8 +28,8 @@ class _Payload(BaseModel):
 class FindingOut(_Payload):
     """A finding, with the data record it belongs to in a batch (None for a single label)."""
 
-    code: str
-    severity: str
+    code: FindingCode
+    severity: Severity
     message: str
     element: int | None
     fallback: str | None
@@ -36,14 +38,21 @@ class FindingOut(_Payload):
     @classmethod
     def of(cls, finding: Finding, *, record: int | None = None) -> FindingOut:
         """Copy ``finding`` and tag it with its record."""
-        return cls(record=record, **finding.model_dump(mode="json"))
+        return cls(
+            code=finding.code,
+            severity=finding.severity,
+            message=finding.message,
+            element=finding.element,
+            fallback=finding.fallback,
+            record=record,
+        )
 
 
 class RenderPayload(_Payload):
     """Result of ``render``, ``validate`` and ``print``."""
 
     model: str
-    dpl_unit: str
+    dpl_unit: DplUnit
     records: int
     fields: int
     bytes: int
@@ -66,7 +75,7 @@ def render_payload(result: RenderResult | BatchResult, *, include_dpl: bool) -> 
     first = results[0]
     return RenderPayload(
         model=first.model,
-        dpl_unit=first.dpl_unit.value,
+        dpl_unit=first.dpl_unit,
         records=len(results),
         fields=sum(r.record_count for r in results),
         bytes=len(result.data),
@@ -77,15 +86,21 @@ def render_payload(result: RenderResult | BatchResult, *, include_dpl: bool) -> 
     )
 
 
+#: Sort rank of each severity in human output: the most severe first.
+_SEVERITY_ORDER: dict[Severity, int] = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
+# A new Severity without a rank fails here at import, not as a KeyError in human output only.
+if set(_SEVERITY_ORDER) != set(Severity):  # pragma: no cover - import-time guard
+    raise RuntimeError("every Severity needs a rank in _SEVERITY_ORDER")
+
+
 def findings_text(findings: list[FindingOut]) -> str:
     """Human lines for findings, most severe first."""
-    order = {"error": 0, "warning": 1, "info": 2}
     lines: list[str] = []
-    for f in sorted(findings, key=lambda item: order.get(item.severity, 3)):
+    for f in sorted(findings, key=lambda item: _SEVERITY_ORDER[item.severity]):
         where = "" if f.element is None else f" [element {f.element}]"
         record = "" if f.record is None else f" [record {f.record}]"
         fallback = f" -> {f.fallback}" if f.fallback else ""
-        lines.append(f"{f.severity.upper():7} {f.code}{record}{where}: {f.message}{fallback}")
+        lines.append(f"{f.severity.value.upper():7} {f.code.value}{record}{where}: {f.message}{fallback}")
     return "\n".join(lines)
 
 

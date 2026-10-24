@@ -16,6 +16,7 @@ from datamax_dpl.adapters.camera import capture_image
 from datamax_dpl.adapters.camera.http import MAX_IMAGE_BYTES, capture_with_http
 from datamax_dpl.adapters.memory.camera import TINY_PNG
 from datamax_dpl.domain.camera import CameraKind, CameraSettings
+from datamax_dpl.domain.enums import MediaType
 from datamax_dpl.domain.errors import CameraError
 
 if TYPE_CHECKING:
@@ -101,7 +102,7 @@ def test_a_png_snapshot_is_stored_as_png(camera: Camera, tmp_path: Path) -> None
     image = capture_image(_settings(f"{camera.base}/snap.png"), output_dir=tmp_path)
 
     assert image.path.suffix == ".png"
-    assert image.media_type == "image/png"
+    assert image.media_type is MediaType.PNG
     assert image.path.read_bytes() == TINY_PNG
     assert camera.seen_auth == [None]
 
@@ -114,7 +115,7 @@ def test_a_jpeg_snapshot_with_parameters_is_stored_as_jpg(camera: Camera, tmp_pa
     image = capture_image(_settings(f"{camera.base}/cgi?res=high"), output_dir=tmp_path)
 
     assert image.path.suffix == ".jpg"
-    assert image.media_type == "image/jpeg"
+    assert image.media_type is MediaType.JPEG
 
 
 @pytest.mark.os_agnostic

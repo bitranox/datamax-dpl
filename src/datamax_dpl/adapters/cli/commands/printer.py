@@ -11,9 +11,11 @@ from pydantic import BaseModel, ConfigDict
 
 from ....application.use_cases import PrinterCommand, detect_printer, print_result, query_status, send_command
 from ....application.verify import verify_print
+from ....domain.enums import StatusProblem
 from ....domain.preview import canvas_for
 from ....domain.profiles import get_profile
 from ....domain.render import RenderResult
+from ....domain.status import PrinterStatus
 from ...preview import pillow_available, render_preview_png
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..label_io import load_label, load_records
@@ -21,7 +23,7 @@ from ..payloads import render_payload
 from ..runner import CommandResult, run_command
 from ..settings import camera_settings, require_uri
 from ..typed_click import argument, option
-from .labels import build
+from .labels import render_loaded
 from .model_options import loaded_config, printer_options_decorator, render_options_decorator, resolve_settings
 
 if TYPE_CHECKING:
@@ -41,7 +43,7 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
 
     def body(cli_ctx: CLIContext) -> CommandResult:
         settings = resolve_settings(cli_ctx, **given)
-        result = build(label_source, data, given, cli_ctx)
+        result = render_loaded(load_label(label_source), data, settings)
         payload = render_payload(result, include_dpl=False)
         if not result.ok:
             return CommandResult(ok=False, payload=payload, human="REFUSED: nothing sent")
@@ -60,8 +62,8 @@ class StatusPayload(BaseModel):
 
     printer: str
     idle: bool
-    problems: list[str]
-    flags: dict[str, bool]
+    problems: list[StatusProblem]
+    flags: PrinterStatus
 
 
 @click.command("status", context_settings=CLICK_CONTEXT_SETTINGS)
@@ -74,9 +76,8 @@ def cli_status(ctx: click.Context, **given: Any) -> None:
         settings = resolve_settings(cli_ctx, **given)
         uri = require_uri(settings)
         status = query_status(uri=uri, timeout=settings.timeout, open_printer=cli_ctx.services.open_printer)
-        flags = status.model_dump()
-        payload = StatusPayload(printer=uri, idle=status.idle, problems=list(status.problems), flags=flags)
-        lines = [f"{name:16} {'yes' if value else 'no'}" for name, value in flags.items()]
+        payload = StatusPayload(printer=uri, idle=status.idle, problems=list(status.problems), flags=status)
+        lines = [f"{name:16} {'yes' if is_set else 'no'}" for name, is_set in status.flags()]
         return CommandResult(ok=not status.problems, payload=payload, human="\n".join(lines))
 
     run_command(ctx, command="status", body=body)
@@ -105,7 +106,7 @@ class SentPayload(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     printer: str
-    command: str
+    command: PrinterCommand
     bytes_sent: int
 
 
@@ -120,7 +121,7 @@ def _single(command: PrinterCommand, help_text: str) -> click.Command:
             report = send_command(
                 command, uri=uri, timeout=settings.timeout, open_printer=cli_ctx.services.open_printer
             )
-            payload = SentPayload(printer=uri, command=command.value, bytes_sent=report.bytes_sent)
+            payload = SentPayload(printer=uri, command=command, bytes_sent=report.bytes_sent)
             return CommandResult(ok=True, payload=payload, human=f"{command.value} sent to {uri}")
 
         run_command(ctx, command=command.value, body=body)
@@ -199,7 +200,7 @@ class VerifyPayload(BaseModel):
 
     printer: str
     bytes_sent: int
-    status: dict[str, bool] | None
+    status: PrinterStatus | None
     photo: str
     expected: str
 
@@ -215,8 +216,9 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
 
     def body(cli_ctx: CLIContext) -> CommandResult:
         settings = resolve_settings(cli_ctx, **given)
+        # Loaded once and rendered from that copy: LABEL '-' is stdin, which cannot be read twice.
         label = load_label(label_source)
-        result = build(label_source, None, given, cli_ctx)
+        result = render_loaded(label, None, settings)
         if not isinstance(result, RenderResult) or not result.ok:
             return CommandResult(ok=False, payload=render_payload(result, include_dpl=False), human="REFUSED")
         folder = Path(output_dir)
@@ -239,7 +241,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
         payload = VerifyPayload(
             printer=require_uri(settings),
             bytes_sent=report.bytes_sent,
-            status=report.status.model_dump() if report.status else None,
+            status=report.status,
             photo=str(report.photo.path),
             expected=str(expected),
         )

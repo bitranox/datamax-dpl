@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from datamax_dpl.domain.enums import FillPattern, MediaSensor, Rotation, Unit
+from datamax_dpl.domain.enums import FillPattern, FindingCode, MediaSensor, Rotation, Unit
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.label import Barcode, Box, Circle, DotSize, Element, Label, Line, Point, Polygon, Text
 from datamax_dpl.domain.render import build_job, render
@@ -116,7 +116,7 @@ def test_metric_label_is_converted_to_inches_where_the_model_has_no_metric_forma
     result = build_job(Label(elements=[Text(x=25.4, y=12.7, text="A")]), RenderOptions(model="allegro"))
     assert result.data.startswith(STX + b"n" + STX + b"L\r")
     assert b"121100000500100A" in result.data
-    assert "inch_units" in {f.code for f in result.findings}
+    assert FindingCode.INCH_UNITS in {f.code for f in result.findings}
 
 
 @pytest.mark.os_agnostic
@@ -174,3 +174,21 @@ def test_inverse_text_switches_the_attribute_and_back() -> None:
     data = render(label, RenderOptions(model="dmx-600")).data
     assert b"\rA5\r1211" in data
     assert b"INV\rA1\r" in data
+
+
+@pytest.mark.os_agnostic
+def test_downloads_list_stored_and_rasterized_images_in_the_order_they_are_sent() -> None:
+    label = Label.model_validate(
+        {
+            "elements": [
+                {"type": "image", "x": 1, "y": 1, "name": "LOGO_1", "bitmap": ["#.", ".#"]},
+                {"type": "circle", "x": 20, "y": 20, "radius": 5},
+                {"type": "image", "x": 1, "y": 1, "name": "STORED"},
+            ]
+        }
+    )
+    result = build_job(label, RenderOptions(model="allegro"))
+    assert result.downloads == ("LOGO_1", "DPLR0001")
+    assert result.data.index(STX + b"IAAFLOGO_1\r") < result.data.index(STX + b"IAAFDPLR0001\r")
+    assert result.data.index(STX + b"IAAFDPLR0001\r") < result.data.index(STX + b"L\r")
+    assert STX + b"IAAFSTORED\r" not in result.data

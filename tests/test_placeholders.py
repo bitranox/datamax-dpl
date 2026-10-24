@@ -54,3 +54,27 @@ def test_a_backslash_in_a_value_is_copied_verbatim() -> None:
 def test_a_value_that_breaks_a_field_limit_is_refused() -> None:
     with pytest.raises(ValidationError):
         fill_label(TEMPLATE, {"lot": "x" * 300, "qty": "1", "sku": "s"})
+
+
+@pytest.mark.os_agnostic
+def test_every_field_filling_breaks_is_named_as_label_validation_names_it() -> None:
+    with pytest.raises(ValidationError) as caught:
+        fill_label(TEMPLATE, {"lot": "x" * 300, "qty": "1", "sku": "s" * 4000})
+    assert caught.value.title == "Label"
+    assert [(e["loc"], e["type"]) for e in caught.value.errors()] == [
+        (("elements", 0, "text", "text"), "string_too_long"),
+        (("elements", 1, "barcode", "data"), "string_too_long"),
+    ]
+
+
+@pytest.mark.os_agnostic
+def test_a_missing_field_is_reported_before_a_field_filling_made_too_long() -> None:
+    with pytest.raises(MissingFieldError, match="sku"):
+        fill_label(TEMPLATE, {"lot": "x" * 300, "qty": "1"})
+
+
+@pytest.mark.os_agnostic
+def test_filling_leaves_the_template_unchanged() -> None:
+    fill_label(TEMPLATE, {"lot": "A7", "qty": "12", "sku": "SKU-1"})
+    text = TEMPLATE.elements[0]
+    assert isinstance(text, Text) and text.text == "Lot {lot} - {qty} pcs"

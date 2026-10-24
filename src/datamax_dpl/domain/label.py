@@ -36,7 +36,10 @@ Multiplier = Annotated[int, Field(ge=1, le=MAX_MULTIPLIER)]
 
 
 class _Frozen(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    # revalidate_instances: model_copy(update=...) skips validation, so placeholder filling
+    # re-validates the filled copy through Label.model_validate; without this an instance
+    # passed back in is trusted as-is and a filled value past a field limit slips through.
+    model_config = ConfigDict(frozen=True, extra="forbid", revalidate_instances="always")
 
 
 class Counter(_Frozen):

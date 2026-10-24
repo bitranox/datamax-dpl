@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .enums import Attribute, Unit
+from .enums import Attribute, FindingCode, Unit
 from .label import MAX_FIELD_DATA, Counter
 from .profiles import Feature
 from .records import line
@@ -21,7 +21,7 @@ def column_of(x: float, *, index: int, ctx: RenderContext) -> int:
     if column > limit:
         unit = "1/100 in" if ctx.dpl_unit is DplUnit.INCH_HUNDREDTHS else "1/10 mm"
         ctx.findings.refuse(
-            "outside_print_width",
+            FindingCode.OUTSIDE_PRINT_WIDTH,
             f"column {column} {unit} is past the printable width of {ctx.profile.name} ({limit} {unit})",
             element=index,
         )
@@ -38,7 +38,7 @@ def check_field_length(length: int, *, limit: int = MAX_FIELD_DATA, index: int, 
     allowed = min(limit, ctx.profile.max_field_chars)
     if length > allowed:
         ctx.findings.refuse(
-            "field_too_long", f"field data has {length} characters; at most {allowed} fit", element=index
+            FindingCode.FIELD_TOO_LONG, f"field data has {length} characters; at most {allowed} fit", element=index
         )
 
 
@@ -53,10 +53,10 @@ def attribute_lines(attribute: Attribute | None, *, index: int, ctx: RenderConte
         return [line(f"A{attribute.value}")]
     message = f"attribute {attribute.name.lower()}: {ctx.requirement(Feature.ATTRIBUTE)}"
     if text and attribute is Attribute.INVERSE:
-        ctx.findings.refuse("attribute_unsupported", message, element=index)
+        ctx.findings.refuse(FindingCode.ATTRIBUTE_UNSUPPORTED, message, element=index)
     else:
         ctx.findings.deviate(
-            "attribute_unsupported", message, fallback="printed with the default attribute", element=index
+            FindingCode.ATTRIBUTE_UNSUPPORTED, message, fallback="printed with the default attribute", element=index
         )
     return []
 

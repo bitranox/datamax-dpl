@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from datamax_dpl.adapters import cli as cli_mod
+from datamax_dpl.adapters.cli.settings import PrinterSettings, render_options
+from datamax_dpl.domain.enums import CutterPresence, HardwareOption
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
     from click.testing import CliRunner, Result
 
@@ -165,3 +169,108 @@ def test_when_no_set_overrides_config_is_unchanged(
 
     assert result.exit_code == 0
     assert "WARNING" in result.output
+
+
+# --------------------------------------------------------------------------
+# Printer values: cutter and installed options are closed sets, refused at the boundary
+# --------------------------------------------------------------------------
+
+_LABEL = {"elements": [{"type": "text", "x": 5, "y": 5, "text": "Hello"}]}
+
+
+def _validate(
+    cli_runner: CliRunner, factory: Callable[[], Any], tmp_path: Path, *extra: str
+) -> tuple[int, dict[str, Any]]:
+    label = tmp_path / "label.json"
+    label.write_text(json.dumps(_LABEL), encoding="utf-8")
+    result = cli_runner.invoke(cli_mod.cli, ["--json", "validate", str(label), *extra], obj=factory)
+    return result.exit_code, json.loads(result.stdout)
+
+
+@pytest.mark.os_agnostic
+def test_an_unknown_configured_option_is_a_configuration_error(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    tmp_path: Path,
+) -> None:
+    factory = config_cli_context({"printer": {"options": ["laser"]}})
+
+    exit_code, envelope = _validate(cli_runner, factory, tmp_path)
+
+    assert exit_code == 2
+    assert envelope["error"] == "ConfigurationError"
+    assert envelope["message"] == "printer.options.0: Input should be 'datamatrix'"
+
+
+@pytest.mark.os_agnostic
+def test_an_unknown_option_flag_is_a_configuration_error_in_the_asked_shape(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    tmp_path: Path,
+) -> None:
+    exit_code, envelope = _validate(cli_runner, config_cli_context({}), tmp_path, "--option", "laser")
+
+    assert exit_code == 2
+    assert envelope == {
+        "ok": False,
+        "command": "validate",
+        "error": "ConfigurationError",
+        "message": "--option: Input should be 'datamatrix', got 'laser'",
+    }
+
+
+@pytest.mark.os_agnostic
+def test_a_known_option_flag_is_accepted_beside_a_configured_one(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    tmp_path: Path,
+) -> None:
+    factory = config_cli_context({"printer": {"options": ["datamatrix"]}})
+
+    exit_code, envelope = _validate(cli_runner, factory, tmp_path, "--option", "datamatrix")
+
+    assert exit_code == 0, envelope
+    assert envelope["ok"] is True
+
+
+@pytest.mark.os_agnostic
+def test_an_unknown_configured_cutter_names_the_key_and_the_choices(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    tmp_path: Path,
+) -> None:
+    exit_code, envelope = _validate(cli_runner, config_cli_context({"printer": {"cutter": "maybe"}}), tmp_path)
+
+    assert exit_code == 2
+    assert envelope["message"] == "printer.cutter: Input should be 'yes', 'no' or 'unknown'"
+
+
+@pytest.mark.os_agnostic
+def test_an_unknown_cutter_flag_is_a_usage_error_listing_the_choices(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    tmp_path: Path,
+) -> None:
+    label = tmp_path / "label.json"
+    label.write_text(json.dumps(_LABEL), encoding="utf-8")
+
+    result = cli_runner.invoke(cli_mod.cli, ["validate", str(label), "--cutter", "maybe"], obj=config_cli_context({}))
+
+    assert result.exit_code == 2
+    assert "'maybe' is not one of 'yes', 'no', 'unknown'" in result.output
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("cutter", "installed"),
+    [(CutterPresence.YES, True), (CutterPresence.NO, False), (CutterPresence.UNKNOWN, None)],
+)
+def test_every_cutter_presence_maps_to_render_options(cutter: CutterPresence, installed: bool | None) -> None:
+    assert render_options(PrinterSettings(cutter=cutter)).cutter_installed is installed
+
+
+@pytest.mark.os_agnostic
+def test_configured_options_reach_render_options_as_members() -> None:
+    settings = PrinterSettings.model_validate({"options": ["datamatrix"]})
+
+    assert render_options(settings).options == frozenset({HardwareOption.DATAMATRIX})

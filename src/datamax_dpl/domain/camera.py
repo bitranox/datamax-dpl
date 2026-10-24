@@ -13,6 +13,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
+from .enums import MediaType
+
 
 class CameraKind(str, Enum):
     """How a photo is taken.
@@ -57,14 +59,14 @@ class CapturedImage(BaseModel):
 
     Attributes:
         path: Where the image was written.
-        media_type: MIME type, e.g. ``image/jpeg``.
+        media_type: Image format, e.g. ``MediaType.JPEG``.
         captured_at: When the capture finished (timezone-aware).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     path: Path
-    media_type: str
+    media_type: MediaType
     captured_at: datetime
 
 

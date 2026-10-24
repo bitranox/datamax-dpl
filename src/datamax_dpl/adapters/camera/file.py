@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
+from ...domain.enums import MediaType
 from ...domain.errors import CameraError
 
 if TYPE_CHECKING:
@@ -24,10 +25,10 @@ if TYPE_CHECKING:
     from ...domain.camera import CameraSettings
 
 #: Image file suffixes picked up, and the media type each one is reported with.
-MEDIA_TYPE_BY_SUFFIX: dict[str, str] = {
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".png": "image/png",
+MEDIA_TYPE_BY_SUFFIX: dict[str, MediaType] = {
+    ".jpg": MediaType.JPEG,
+    ".jpeg": MediaType.JPEG,
+    ".png": MediaType.PNG,
 }
 
 #: A file this many seconds older than the start of the capture still counts as new.

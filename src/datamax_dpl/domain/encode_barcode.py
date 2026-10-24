@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from .barcodes import check_barcode, datamatrix_data_field, pdf417_data_field
 from .encode_common import check_field_length, column_of, counter_lines, row_of
+from .enums import FindingCode
 from .label import MAX_FIELD_DATA, MAX_MULTIPLIER, MAX_PDF417_DATA, Barcode, DataMatrixOptions, Pdf417Options
 from .profiles import Feature
 from .records import MAX_SHORT_FIELD, Header, line
@@ -44,14 +45,14 @@ def _gate(element: Barcode, *, index: int, ctx: RenderContext) -> bool:
         feature = Feature.PDF417
     if feature is not None and not ctx.supports(feature):
         ctx.findings.refuse(
-            "symbology_unsupported",
+            FindingCode.SYMBOLOGY_UNSUPPORTED,
             f"{element.symbology.value}: {ctx.requirement(feature)}",
             element=index,
         )
         return False
     if element.symbology is Symbology.DATAMATRIX and not ctx.supports(Feature.DATAMATRIX):
         ctx.findings.deviate(
-            "datamatrix_option_unconfirmed",
+            FindingCode.DATAMATRIX_OPTION_UNCONFIRMED,
             "DataMatrix prints only on printers with the DataMatrix option",
             fallback="sent anyway; declare the option to silence this",
             element=index,
@@ -62,10 +63,10 @@ def _gate(element: Barcode, *, index: int, ctx: RenderContext) -> bool:
 def _data_field(element: Barcode, *, index: int, ctx: RenderContext) -> str:
     check = check_barcode(element.symbology, element.data, pdf417=element.pdf417, datamatrix=element.datamatrix)
     for problem in check.problems:
-        ctx.findings.refuse(f"barcode_{problem.code}", problem.message, element=index)
+        ctx.findings.refuse(problem.code.finding_code, problem.message, element=index)
     if check.computed_check_digit is not None:
         ctx.findings.info(
-            "check_digit_added",
+            FindingCode.CHECK_DIGIT_ADDED,
             f"the printer adds check digit {check.computed_check_digit}",
             element=index,
         )
@@ -93,7 +94,7 @@ def bar_widths(element: Barcode, *, index: int, ctx: RenderContext) -> tuple[int
         return 0, 0
     if wants_default:
         ctx.findings.deviate(
-            "default_bar_widths_unsupported",
+            FindingCode.DEFAULT_BAR_WIDTHS_UNSUPPORTED,
             f"{ctx.profile.name} has no default bar widths",
             fallback=f"narrow bar {FALLBACK_NARROW} dots, ratio {FALLBACK_RATIO}:1",
             element=index,
@@ -111,7 +112,7 @@ def _height_field(element: Barcode, *, index: int, ctx: RenderContext) -> str:
     height = ctx.distance(element.height, element=index, what="barcode height")
     if not 1 <= height <= MAX_SHORT_FIELD:
         ctx.findings.refuse(
-            "barcode_height_out_of_range",
+            FindingCode.BARCODE_HEIGHT_OUT_OF_RANGE,
             f"barcode height is {height} units; DPL takes 1-{MAX_SHORT_FIELD}",
             element=index,
         )
@@ -125,7 +126,9 @@ def encode_barcode(element: Barcode, *, index: int, ctx: RenderContext) -> list[
         return []
     code = SYMBOLOGY_CODES[element.symbology]
     if element.human_readable and code.with_text is None:
-        ctx.findings.info("no_human_readable", f"{element.symbology.value} prints no text line", element=index)
+        ctx.findings.info(
+            FindingCode.NO_HUMAN_READABLE, f"{element.symbology.value} prints no text line", element=index
+        )
     data = _data_field(element, index=index, ctx=ctx)
     limit = MAX_PDF417_DATA if element.symbology is Symbology.PDF417 else MAX_FIELD_DATA
     check_field_length(len(data), limit=limit, index=index, ctx=ctx)

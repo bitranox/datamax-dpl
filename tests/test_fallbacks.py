@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from datamax_dpl.domain.enums import FallbackPolicy, Severity, SpeedCode
+from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, Severity, SpeedCode
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.label import Label
 from datamax_dpl.domain.profiles import PROFILES
@@ -20,7 +20,7 @@ def label(**fields: object) -> Label:
     return Label.model_validate(document)
 
 
-def codes(result_label: Label, model: str, *, firmware: str = "") -> set[str]:
+def codes(result_label: Label, model: str, *, firmware: str = "") -> set[FindingCode]:
     result = build_job(result_label, RenderOptions(model=model, firmware=firmware))
     return {f.code for f in result.findings}
 
@@ -70,7 +70,7 @@ def test_circle_is_rasterized_and_downloaded_on_a_model_without_circles() -> Non
     result = build_job(
         label(elements=[{"type": "circle", "x": 20, "y": 20, "radius": 5}]), RenderOptions(model="allegro")
     )
-    assert "circle_rasterized" in {f.code for f in result.warnings}
+    assert FindingCode.CIRCLE_RASTERIZED in {f.code for f in result.warnings}
     assert result.downloads == ("DPLR0001",)
     assert STX + b"IAAFDPLR0001\r" in result.data
     assert b"1Y11000" in result.data
@@ -89,8 +89,8 @@ def test_circle_is_native_where_the_model_has_circles() -> None:
 @pytest.mark.os_agnostic
 def test_firmware_unlocks_circles_on_the_dmx_400() -> None:
     circle = label(elements=[{"type": "circle", "x": 20, "y": 20, "radius": 5}])
-    assert "circle_rasterized" in codes(circle, "dmx-400")
-    assert "circle_rasterized" not in codes(circle, "dmx-400", firmware="2.01")
+    assert FindingCode.CIRCLE_RASTERIZED in codes(circle, "dmx-400")
+    assert FindingCode.CIRCLE_RASTERIZED not in codes(circle, "dmx-400", firmware="2.01")
 
 
 @pytest.mark.os_agnostic
@@ -110,7 +110,7 @@ def test_mirror_has_no_fallback_and_is_refused_even_under_degrade() -> None:
 def test_speed_outside_the_model_range_is_clamped() -> None:
     result = build_job(label(print_speed=SpeedCode.IPS_10_0), RenderOptions(model="dmx-400"))
     assert b"\rPG\r" in result.data
-    assert "speed_out_of_range" in {f.code for f in result.warnings}
+    assert FindingCode.SPEED_OUT_OF_RANGE in {f.code for f in result.warnings}
 
 
 @pytest.mark.os_agnostic
@@ -123,7 +123,7 @@ def test_heat_above_the_model_maximum_is_clamped() -> None:
 def test_cut_by_on_the_prodigy_falls_back_to_cutting_each_label() -> None:
     result = build_job(label(quantity=10, cut={"every": 3}), RenderOptions(model="prodigy", cutter_installed=True))
     found = {f.code for f in result.findings}
-    assert {"cut_by_unsupported", "cut_now_unsupported"} <= found
+    assert {FindingCode.CUT_BY_UNSUPPORTED, FindingCode.CUT_NOW_UNSUPPORTED} <= found
     assert b":0003" not in result.data
     assert not result.data.endswith(STX + b"o")
 
@@ -133,7 +133,7 @@ def test_font9_size_the_model_lacks_is_replaced_by_the_nearest() -> None:
     text = label(elements=[{"type": "text", "x": 1, "y": 1, "text": "A", "font": 9, "points": 11}])
     result = build_job(text, RenderOptions(model="dmx-600"))
     assert b"9110A10" in result.data or b"911A10" in result.data
-    assert "font_size_substituted" in {f.code for f in result.warnings}
+    assert FindingCode.FONT_SIZE_SUBSTITUTED in {f.code for f in result.warnings}
 
 
 @pytest.mark.os_agnostic
@@ -141,7 +141,7 @@ def test_scalable_text_falls_back_to_font_9_on_a_model_without_scalable_fonts() 
     text = label(elements=[{"type": "scalable_text", "x": 1, "y": 1, "text": "A", "height_points": 24}])
     result = build_job(text, RenderOptions(model="dmx-400"))
     assert b"1911007" in result.data
-    assert "scalable_font_unsupported" in {f.code for f in result.warnings}
+    assert FindingCode.SCALABLE_FONT_UNSUPPORTED in {f.code for f in result.warnings}
 
 
 @pytest.mark.os_agnostic
@@ -155,7 +155,7 @@ def test_unmappable_characters_are_replaced_and_reported() -> None:
     text = label(elements=[{"type": "text", "x": 1, "y": 1, "text": "5 \u20ac", "font": 2}])
     result = build_job(text, RenderOptions(model="dmx-600"))
     assert b"5 ?" in result.data
-    assert "characters_unmappable" in {f.code for f in result.warnings}
+    assert FindingCode.CHARACTERS_UNMAPPABLE in {f.code for f in result.warnings}
 
 
 @pytest.mark.os_agnostic
@@ -168,27 +168,27 @@ def test_umlauts_reach_the_printer_as_code_page_437_bytes() -> None:
 def test_a_wrong_check_digit_is_refused() -> None:
     bad = label(elements=[{"type": "barcode", "x": 1, "y": 1, "symbology": "ean13", "data": "4006381333932"}])
     result = build_job(bad, RenderOptions(model="dmx-600"))
-    assert "barcode_bad_check_digit" in {f.code for f in result.errors}
+    assert FindingCode.BARCODE_BAD_CHECK_DIGIT in {f.code for f in result.errors}
 
 
 @pytest.mark.os_agnostic
 def test_extended_symbologies_are_refused_where_the_model_lacks_them() -> None:
     fim = label(elements=[{"type": "barcode", "x": 1, "y": 1, "symbology": "fim", "data": "A"}])
-    assert "symbology_unsupported" in codes(fim, "allegro")
-    assert "symbology_unsupported" not in codes(fim, "dmx-600")
+    assert FindingCode.SYMBOLOGY_UNSUPPORTED in codes(fim, "allegro")
+    assert FindingCode.SYMBOLOGY_UNSUPPORTED not in codes(fim, "dmx-600")
 
 
 @pytest.mark.os_agnostic
 def test_field_past_the_printable_width_is_refused() -> None:
     wide = label(elements=[{"type": "text", "x": 150, "y": 1, "text": "X"}])
-    assert "outside_print_width" in {f.code for f in build_job(wide, RenderOptions(model="dmx-400")).errors}
+    assert FindingCode.OUTSIDE_PRINT_WIDTH in {f.code for f in build_job(wide, RenderOptions(model="dmx-400")).errors}
     assert build_job(wide, RenderOptions(model="dmx-800")).ok
 
 
 @pytest.mark.os_agnostic
 def test_more_fields_than_the_model_takes_are_refused() -> None:
     many = label(elements=[{"type": "text", "x": 1, "y": 1, "text": str(i)} for i in range(101)])
-    assert "too_many_fields" in {f.code for f in build_job(many, RenderOptions(model="prodigy")).errors}
+    assert FindingCode.TOO_MANY_FIELDS in {f.code for f in build_job(many, RenderOptions(model="prodigy")).errors}
     assert build_job(many, RenderOptions(model="dmx-600")).ok
 
 
@@ -197,7 +197,7 @@ def test_default_bar_widths_are_replaced_on_the_prodigy_plus() -> None:
     code = label(elements=[{"type": "barcode", "x": 1, "y": 1, "symbology": "code39", "data": "AB"}])
     result = build_job(code, RenderOptions(model="prodigy-plus"))
     assert b"1A62" in result.data
-    assert "default_bar_widths_unsupported" in {f.code for f in result.warnings}
+    assert FindingCode.DEFAULT_BAR_WIDTHS_UNSUPPORTED in {f.code for f in result.warnings}
 
 
 @pytest.mark.os_agnostic

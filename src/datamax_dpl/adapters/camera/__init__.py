@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from ...domain.camera import CameraSettings
+    from ...domain.enums import MediaType
 
 
 class _Capture(Protocol):
@@ -78,14 +79,14 @@ def capture_image(settings: CameraSettings, *, output_dir: Path) -> CapturedImag
     return CapturedImage(path=path, media_type=media_type_for(path), captured_at=datetime.now(timezone.utc))
 
 
-def media_type_for(path: Path) -> str:
+def media_type_for(path: Path) -> MediaType:
     """Return the media type of an image file from its suffix.
 
     Args:
         path: An image path ending in ``.jpg``, ``.jpeg`` or ``.png`` (any case).
 
     Returns:
-        ``image/jpeg`` or ``image/png``.
+        ``MediaType.JPEG`` or ``MediaType.PNG``.
 
     Raises:
         CameraError: The suffix is not an image suffix this package writes.
@@ -93,7 +94,7 @@ def media_type_for(path: Path) -> str:
     Example:
         >>> from pathlib import Path
         >>> media_type_for(Path("capture.PNG"))
-        'image/png'
+        <MediaType.PNG: 'image/png'>
     """
     media_type = MEDIA_TYPE_BY_SUFFIX.get(path.suffix.lower())
     if media_type is None:

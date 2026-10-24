@@ -8,17 +8,14 @@ other command is reported as ``unknown`` rather than guessed.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from .enums import FillPattern, Rotation, SpeedCode, Unit
-from .label import Barcode, Box, Circle, Counter, Element, Image, Label, Line, Point, Polygon, ScalableText, Text
+from .enums import CommandKind, FillPattern, Rotation, SpeedCode, Unit
+from .label import Barcode, Box, Circle, Counter, Cut, Element, Image, Label, Line, Point, Polygon, ScalableText, Text
 from .profiles import OLD_SERIES_POINTS
 from .records import multiplier_value
 from .symbology import SYMBOLOGY_BY_IDENTIFIER
-
-Kind = Literal["immediate", "system", "download", "format", "record", "counter", "end", "unknown"]
 
 _SOH, _STX, _CR = 0x01, 0x02, 0x0D
 _PRINTABLE = range(32, 127)
@@ -86,7 +83,7 @@ class DecodedCommand(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    kind: Kind
+    kind: CommandKind
     raw: str
     meaning: str
 
@@ -122,16 +119,26 @@ def readable(data: bytes) -> str:
 class _State:
     commands: list[DecodedCommand] = field(default_factory=list[DecodedCommand])
     elements: list[Element] = field(default_factory=list[Element])
-    settings: dict[str, object] = field(default_factory=dict[str, object])
     problems: list[str] = field(default_factory=list[str])
     formats: int = 0
     metric: bool = False
+    #: Job settings the format commands set; the rebuilt label carries them. Quantity 1 is what
+    #: the printer prints when a format has no ``Q`` command.
+    quantity: int = 1
+    heat: int | None = None
+    print_speed: SpeedCode | None = None
+    slew_speed: SpeedCode | None = None
+    cut: Cut | None = None
+    #: Why the latest ``:`` (cut by) command is not a valid cut, or None. It is reported with the
+    #: label's own validation errors, so a stream with a bad cut gets no label, as before the cut
+    #: became a model.
+    invalid_cut: ValidationError | None = None
     #: Index in ``elements`` of the field the latest record produced, or None when that record
     #: produced none; a counter line counts exactly that field.
     latest_field: int | None = None
 
 
-def _add(state: _State, kind: Kind, raw: bytes, meaning: str) -> None:
+def _add(state: _State, kind: CommandKind, raw: bytes, meaning: str) -> None:
     state.commands.append(DecodedCommand(kind=kind, raw=readable(raw), meaning=meaning))
 
 
@@ -145,18 +152,18 @@ def _system(data: bytes, pos: int, state: _State) -> int:
     if letter == "I":
         end = data.find(b"FFFF\r", pos)
         end = len(data) if end < 0 else end + len(b"FFFF\r")
-        _add(state, "download", data[pos : _until_cr(data, pos)], "image download")
+        _add(state, CommandKind.DOWNLOAD, data[pos : _until_cr(data, pos)], "image download")
         return end
     if letter == "K" and data[pos + 2 : pos + 3] == b"f":
         end = pos + 3 + _PRESENT_DISTANCE_DIGITS
-        _add(state, "system", data[pos:end], "present distance")
+        _add(state, CommandKind.SYSTEM, data[pos:end], "present distance")
         return end
     if letter == "K":
         end = _until_cr(data, pos)
-        _add(state, "system", data[pos:end], "extended command")
+        _add(state, CommandKind.SYSTEM, data[pos:end], "extended command")
         return end
     end = pos + 2 + _SYSTEM_WIDTHS.get(letter, 0)
-    _add(state, "system", data[pos:end], _SYSTEM_NAMES.get(letter, f"system command {letter}"))
+    _add(state, CommandKind.SYSTEM, data[pos:end], _SYSTEM_NAMES.get(letter, f"system command {letter}"))
     if letter == "m":
         state.metric = True
     return end
@@ -168,16 +175,16 @@ def _scan(data: bytes, state: _State) -> None:
         byte = data[pos]
         if byte == _SOH:
             letter = chr(data[pos + 1]) if pos + 1 < len(data) else ""
-            _add(state, "immediate", data[pos : pos + 2], _IMMEDIATE_NAMES.get(letter, "immediate command"))
+            _add(state, CommandKind.IMMEDIATE, data[pos : pos + 2], _IMMEDIATE_NAMES.get(letter, "immediate command"))
             pos += 2
         elif byte == _STX and data[pos + 1 : pos + 2] == b"L":
-            _add(state, "format", data[pos : pos + 2], _SYSTEM_NAMES["L"])
+            _add(state, CommandKind.FORMAT, data[pos : pos + 2], _SYSTEM_NAMES["L"])
             pos = _format(data, _until_cr(data, pos), state)
         elif byte == _STX:
             pos = _system(data, pos, state)
         else:
             end = _until_cr(data, pos)
-            _add(state, "unknown", data[pos:end], "outside any command")
+            _add(state, CommandKind.UNKNOWN, data[pos:end], "outside any command")
             pos = end
 
 
@@ -188,7 +195,12 @@ def _format(data: bytes, pos: int, state: _State) -> int:
         text = data[pos:end].rstrip(b"\r")
         pos = end
         if text in {b"E", b"X"} or text[:1] == b"s":
-            _add(state, "end", text, {b"E": "end and print", b"X": "end without printing"}.get(text, "store format"))
+            _add(
+                state,
+                CommandKind.END,
+                text,
+                {b"E": "end and print", b"X": "end without printing"}.get(text, "store format"),
+            )
             return pos
         _format_line(text, state)
     return pos
@@ -197,25 +209,49 @@ def _format(data: bytes, pos: int, state: _State) -> int:
 def _format_line(text: bytes, state: _State) -> None:
     first = chr(text[0]) if text else ""
     if first in "1234" and len(text) >= _HEADER_LENGTH:
-        _add(state, "record", text, _record(text, state))
+        _add(state, CommandKind.RECORD, text, _record(text, state))
     elif first in _COUNTER_SIGNS:
-        _add(state, "counter", text, _counter(text, state))
+        _add(state, CommandKind.COUNTER, text, _counter(text, state))
     else:
-        _add(state, "format", text, _FORMAT_NAMES.get(first, "unknown format command"))
+        _add(state, CommandKind.FORMAT, text, _format_setting(first, text, state))
+
+
+def _format_setting(first: str, text: bytes, state: _State) -> str:
+    """Apply one format setting and return its meaning; an unreadable one is a problem, not a crash.
+
+    Reported the way an unreadable record is: the setting is ignored and the rest of the stream
+    is still explained, so one bad line does not hide every command around it.
+    """
+    meaning = _FORMAT_NAMES.get(first, "unknown format command")
+    try:
         _setting(first, text.decode("latin-1"), state)
+    except ValueError as exc:
+        state.problems.append(f"{readable(text)}: {exc.__class__.__name__}")
+        return f"{meaning} (not understood)"
+    return meaning
 
 
 def _setting(first: str, text: str, state: _State) -> None:
     if first == "m":
         state.metric = True
     elif first == "Q":
-        state.settings["quantity"] = int(text[1:5] or "1")
+        state.quantity = int(text[1:5] or "1")
     elif first == "H":
-        state.settings["heat"] = int(text[1:3])
-    elif first in "PS" and len(text[1:]) == 1:
-        state.settings["print_speed" if first == "P" else "slew_speed"] = SpeedCode(text[1])
+        state.heat = int(text[1:3])
+    elif first == "P" and len(text[1:]) == 1:
+        state.print_speed = SpeedCode(text[1])
+    elif first == "S" and len(text[1:]) == 1:
+        state.slew_speed = SpeedCode(text[1])
     elif first == ":":
-        state.settings["cut"] = {"every": int(text[1:5])}
+        _cut_setting(int(text[1:5]), state)
+
+
+def _cut_setting(every: int, state: _State) -> None:
+    """Keep the cut a ``:`` command asks for, or why it is invalid; a later command replaces both."""
+    try:
+        state.cut, state.invalid_cut = Cut(every=every), None
+    except ValidationError as exc:
+        state.cut, state.invalid_cut = None, exc
 
 
 def _scale(value: int, state: _State) -> float:
@@ -369,16 +405,25 @@ def _rebuild(state: _State) -> Label | None:
         return None
     if state.formats != 1 or not state.elements:
         return None
+    cut_errors = state.invalid_cut.error_count() if state.invalid_cut is not None else 0
     try:
-        document: dict[str, object] = {
-            "unit": Unit.MM if state.metric else Unit.INCH,
-            "elements": [element.model_dump() for element in state.elements],
-            **state.settings,
-        }
-        return Label.model_validate(document)
+        label = Label(
+            unit=Unit.MM if state.metric else Unit.INCH,
+            elements=list(state.elements),
+            quantity=state.quantity,
+            heat=state.heat,
+            print_speed=state.print_speed,
+            slew_speed=state.slew_speed,
+            cut=state.cut,
+        )
     except ValidationError as exc:
-        state.problems.append(f"label: {exc.error_count()} validation errors")
-        return None
+        errors = exc.error_count() + cut_errors
+    else:
+        if not cut_errors:
+            return label
+        errors = cut_errors
+    state.problems.append(f"label: {errors} validation errors")
+    return None
 
 
 def explain(data: bytes) -> Explanation:
@@ -386,7 +431,7 @@ def explain(data: bytes) -> Explanation:
 
     Example:
         >>> result = explain(b"\\x02L\\r121100000500025Hi\\rE\\r")
-        >>> [c.kind for c in result.commands]
+        >>> [c.kind.value for c in result.commands]
         ['format', 'record', 'end']
         >>> result.label.elements[0].text
         'Hi'

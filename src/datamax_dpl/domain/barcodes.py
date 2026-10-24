@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from .enums import BarcodeProblemCode
 from .label import MAX_FIELD_DATA, MAX_PDF417_DATA, DataMatrixOptions, Pdf417Options
 from .symbology import Symbology
 
@@ -72,13 +73,13 @@ class BarcodeProblem(BaseModel, frozen=True, extra="forbid"):
     """One reason the printer would refuse or misprint the data.
 
     Attributes:
-        code: Stable slug (``empty``, ``bad_character``, ``bad_length``, ``bad_check_digit``,
-            ``bad_price_marker``, ``bad_escape``, ``bad_start_stop``, ``missing_prefix``,
-            ``too_long``, ``record_terminator``).
+        code: Why the data is refused; its value is a stable slug such as ``bad_length``, and
+            :attr:`~datamax_dpl.domain.enums.BarcodeProblemCode.finding_code` names the finding
+            a render reports for it.
         message: Human-readable explanation, ASCII only.
     """
 
-    code: str
+    code: BarcodeProblemCode
     message: str
 
 
@@ -174,7 +175,7 @@ _UPC_E = _Gs1(name="UPC-E", body_length=UPC_E_BODY_DIGITS, check_source=_expand_
 _EAN13 = _Gs1(name="EAN-13", body_length=EAN13_BODY_DIGITS, price_positions=EAN13_PRICE_POSITIONS)
 _EAN8 = _Gs1(name="EAN-8", body_length=EAN8_BODY_DIGITS)
 
-_EMPTY = BarcodeProblem(code="empty", message="barcode data is empty")
+_EMPTY = BarcodeProblem(code=BarcodeProblemCode.EMPTY, message="barcode data is empty")
 
 
 def gs1_mod10_check_digit(digits: str) -> str:
@@ -259,7 +260,7 @@ def check_barcode(
         The data, every problem found, and the computed UPC/EAN check digit when there is one.
 
     Example:
-        >>> check_barcode(Symbology.UPC_A, "1234567890").problems[0].code
+        >>> check_barcode(Symbology.UPC_A, "1234567890").problems[0].code.value
         'bad_length'
         >>> check_barcode(Symbology.CODE128, "AB&G12").ok
         True
@@ -281,12 +282,14 @@ def _record_problems(
     problems: list[BarcodeProblem] = []
     if RECORD_TERMINATOR in data:
         problems.append(
-            BarcodeProblem(code="record_terminator", message="data contains <CR>, which ends the DPL record early")
+            BarcodeProblem(
+                code=BarcodeProblemCode.RECORD_TERMINATOR, message="data contains <CR>, which ends the DPL record early"
+            )
         )
     limit, length = _field_budget(symbology, data, pdf417=pdf417, datamatrix=datamatrix)
     if length > limit:
         message = f"record data is {length} characters, the printer takes at most {limit}"
-        problems.append(BarcodeProblem(code="too_long", message=message))
+        problems.append(BarcodeProblem(code=BarcodeProblemCode.TOO_LONG, message=message))
     return tuple(problems)
 
 
@@ -329,14 +332,14 @@ def _character_problems(data: str, allowed: Callable[[str], bool], *, descriptio
     if not bad:
         return ()
     rendered = _render_list([_render_character(ch) for ch in bad])
-    return (BarcodeProblem(code="bad_character", message=f"{rendered} not allowed; {description}"),)
+    return (BarcodeProblem(code=BarcodeProblemCode.BAD_CHARACTER, message=f"{rendered} not allowed; {description}"),)
 
 
 def _length_problems(length: int, lengths: _Lengths, *, unit: str) -> tuple[BarcodeProblem, ...]:
     if lengths.accepts(length):
         return ()
     message = f"{length} {unit} given, {lengths.describe()} expected"
-    return (BarcodeProblem(code="bad_length", message=message),)
+    return (BarcodeProblem(code=BarcodeProblemCode.BAD_LENGTH, message=message),)
 
 
 def _check_charset(
@@ -378,7 +381,7 @@ def _price_marker_problems(data: str, spec: _Gs1) -> tuple[BarcodeProblem, ...]:
         return ()
     allowed = " or ".join(str(p) for p in spec.price_positions)
     message = f"{spec.name} takes one price marker V, at position {allowed}"
-    return (BarcodeProblem(code="bad_price_marker", message=message),)
+    return (BarcodeProblem(code=BarcodeProblemCode.BAD_PRICE_MARKER, message=message),)
 
 
 def _gs1_character_problems(data: str, spec: _Gs1) -> tuple[BarcodeProblem, ...]:
@@ -399,7 +402,7 @@ def _check_gs1(data: str, *, spec: _Gs1) -> _Outcome:
     expected = gs1_mod10_check_digit(spec.check_source(data[: spec.body_length]))
     if len(data) > spec.body_length and data[-1] != expected:
         message = f"{spec.name} check digit {data[-1]} is wrong, expected {expected}"
-        problems = (BarcodeProblem(code="bad_check_digit", message=message),)
+        problems = (BarcodeProblem(code=BarcodeProblemCode.BAD_CHECK_DIGIT, message=message),)
     return _Outcome(problems=problems, check_digit=expected)
 
 
@@ -420,17 +423,19 @@ def _check_code128(data: str) -> _Outcome:
     lone = _lone_escape_positions(data)
     if lone:
         message = f"'&' at position {_render_list(lone)} is not followed by A-G (the escapes &A-&G)"
-        problems += (BarcodeProblem(code="bad_escape", message=message),)
+        problems += (BarcodeProblem(code=BarcodeProblemCode.BAD_ESCAPE, message=message),)
     return _Outcome(problems=problems)
 
 
 def _check_codabar(data: str) -> _Outcome:
     problems: list[BarcodeProblem] = []
     if len(data) < CODABAR_MIN_LENGTH:
-        problems.append(BarcodeProblem(code="bad_length", message="Codabar needs a start and a stop character"))
+        problems.append(
+            BarcodeProblem(code=BarcodeProblemCode.BAD_LENGTH, message="Codabar needs a start and a stop character")
+        )
     if data[0] not in CODABAR_START_STOP or data[-1] not in CODABAR_START_STOP:
         message = "Codabar data must start and end with one of A B C D"
-        problems.append(BarcodeProblem(code="bad_start_stop", message=message))
+        problems.append(BarcodeProblem(code=BarcodeProblemCode.BAD_START_STOP, message=message))
     body = data[1:-1]
     problems.extend(_character_problems(body, CODABAR_BODY_CHARACTERS.__contains__, description="0-9 - $ : / . +"))
     return _Outcome(problems=tuple(problems))
@@ -439,7 +444,10 @@ def _check_codabar(data: str) -> _Outcome:
 def _check_hibc(data: str) -> _Outcome:
     problems = _character_problems(data, CODE39_CHARACTERS.__contains__, description="the Code 39 set")
     if not data.startswith(HIBC_PREFIX):
-        problems = (BarcodeProblem(code="missing_prefix", message="HIBC data must start with '+'"), *problems)
+        problems = (
+            BarcodeProblem(code=BarcodeProblemCode.MISSING_PREFIX, message="HIBC data must start with '+'"),
+            *problems,
+        )
     return _Outcome(problems=problems)
 
 

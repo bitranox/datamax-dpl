@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .enums import MediaSensor, SpeedCode
+from .enums import FindingCode, MediaSensor, SpeedCode
 from .profiles import Feature, SpeedRange
 from .records import STX, line
 from .units import DplUnit
@@ -32,12 +32,14 @@ def _media_commands(label: Label, ctx: RenderContext) -> list[bytes]:
     if label.media is MediaSensor.CONTINUOUS:
         length = label.continuous_length or label.height
         if length is None:
-            ctx.findings.refuse("continuous_length_missing", "continuous media needs continuous_length or height")
+            ctx.findings.refuse(
+                FindingCode.CONTINUOUS_LENGTH_MISSING, "continuous media needs continuous_length or height"
+            )
             return []
         return [_system(f"c{ctx.inch_hundredths(length):04d}")]
     if not ctx.supports(Feature.SENSOR_SELECT):
         ctx.findings.deviate(
-            "sensor_select_unsupported",
+            FindingCode.SENSOR_SELECT_UNSUPPORTED,
             f"choosing the media sensor: {ctx.requirement(Feature.SENSOR_SELECT)}",
             fallback="the printer keeps its configured sensor",
         )
@@ -49,7 +51,9 @@ def _media_commands(label: Label, ctx: RenderContext) -> list[bytes]:
 def _stop_command(value: float, ctx: RenderContext) -> list[bytes]:
     hundredths = ctx.inch_hundredths(value)
     if hundredths > _MAX_STOP_POSITION:
-        ctx.findings.refuse("stop_position_too_large", f"stop position takes at most {_MAX_STOP_POSITION}/100 in")
+        ctx.findings.refuse(
+            FindingCode.STOP_POSITION_TOO_LARGE, f"stop position takes at most {_MAX_STOP_POSITION}/100 in"
+        )
         return []
     return [_system(f"f{hundredths:03d}")]
 
@@ -61,7 +65,7 @@ def _present_commands(label: Label, ctx: RenderContext) -> list[bytes]:
             commands += _stop_command(label.stop_position, ctx)
         else:
             ctx.findings.deviate(
-                "stop_position_unsupported",
+                FindingCode.STOP_POSITION_UNSUPPORTED,
                 f"stop position: {ctx.requirement(Feature.STOP_POSITION)}",
                 fallback="labels stop at the printer's default position",
             )
@@ -75,13 +79,13 @@ def _present_distance(value: float, ctx: RenderContext) -> list[bytes]:
         return [_system(f"Kf{ctx.inch_hundredths(value):04d}")]
     if ctx.supports(Feature.STOP_POSITION):
         ctx.findings.deviate(
-            "present_distance_unsupported",
+            FindingCode.PRESENT_DISTANCE_UNSUPPORTED,
             f"present distance: {ctx.requirement(Feature.PRESENT_DISTANCE)}",
             fallback="sent as stop position (measured from the sensor, not from the next label)",
         )
         return _stop_command(value, ctx)
     ctx.findings.deviate(
-        "present_distance_unsupported",
+        FindingCode.PRESENT_DISTANCE_UNSUPPORTED,
         f"present distance: {ctx.requirement(Feature.PRESENT_DISTANCE)}",
         fallback="ignored",
     )
@@ -92,10 +96,10 @@ def _pause_command(label: Label, ctx: RenderContext) -> list[bytes]:
     if not label.pause_each_label:
         return []
     if ctx.supports(Feature.PAUSE_EACH_LABEL):
-        ctx.findings.info("pause_persists", "pause after each label stays on until the printer is reset")
+        ctx.findings.info(FindingCode.PAUSE_PERSISTS, "pause after each label stays on until the printer is reset")
         return [_system("J")]
     ctx.findings.deviate(
-        "pause_each_label_unsupported",
+        FindingCode.PAUSE_EACH_LABEL_UNSUPPORTED,
         f"pause after each label: {ctx.requirement(Feature.PAUSE_EACH_LABEL)}",
         fallback="the batch prints without pausing",
     )
@@ -114,13 +118,15 @@ def _speed_line(prefix: str, wanted: SpeedCode | None, allowed: SpeedRange | Non
         return []
     if allowed is None:
         ctx.findings.deviate(
-            "speed_unsupported", f"{ctx.profile.name} has no setting for '{prefix}'", fallback="printer default kept"
+            FindingCode.SPEED_UNSUPPORTED,
+            f"{ctx.profile.name} has no setting for '{prefix}'",
+            fallback="printer default kept",
         )
         return []
     if not allowed.contains(wanted):
         clamped = allowed.clamp(wanted)
         ctx.findings.deviate(
-            "speed_out_of_range",
+            FindingCode.SPEED_OUT_OF_RANGE,
             f"speed {wanted.value} is outside {allowed.low.value}-{allowed.high.value} on {ctx.profile.name}",
             fallback=f"speed {clamped.value}",
         )
@@ -134,7 +140,7 @@ def _heat_line(label: Label, ctx: RenderContext) -> list[bytes]:
     heat = label.heat
     if heat > ctx.profile.heat_max:
         ctx.findings.deviate(
-            "heat_out_of_range",
+            FindingCode.HEAT_OUT_OF_RANGE,
             f"heat {heat} is above the {ctx.profile.name} maximum {ctx.profile.heat_max}",
             fallback=f"heat {ctx.profile.heat_max}",
         )
@@ -166,14 +172,14 @@ def _look_lines(label: Label, ctx: RenderContext) -> list[bytes]:
         lines.append(line(f"A{label.attribute.value}"))
     elif label.attribute is not None:
         ctx.findings.deviate(
-            "attribute_unsupported",
+            FindingCode.ATTRIBUTE_UNSUPPORTED,
             f"label attribute: {ctx.requirement(Feature.ATTRIBUTE)}",
             fallback="printed with the default attribute",
         )
     if label.mirror and ctx.supports(Feature.MIRROR):
         lines.append(line("M"))
     elif label.mirror:
-        ctx.findings.refuse("mirror_unsupported", f"mirror: {ctx.requirement(Feature.MIRROR)}")
+        ctx.findings.refuse(FindingCode.MIRROR_UNSUPPORTED, f"mirror: {ctx.requirement(Feature.MIRROR)}")
     return lines
 
 
@@ -183,7 +189,7 @@ def _symbol_set_line(label: Label, ctx: RenderContext) -> list[bytes]:
     if ctx.supports(Feature.SCALABLE_FONTS):
         return [line(f"yS{label.symbol_set}")]
     ctx.findings.deviate(
-        "symbol_set_unsupported",
+        FindingCode.SYMBOL_SET_UNSUPPORTED,
         f"symbol sets apply to scalable fonts: {ctx.requirement(Feature.SCALABLE_FONTS)}",
         fallback="ignored",
     )
@@ -196,14 +202,14 @@ def _cut_lines(label: Label, ctx: RenderContext) -> list[bytes]:
         return []
     if cut.every >= label.quantity:
         ctx.findings.info(
-            "cut_by_not_below_quantity",
+            FindingCode.CUT_BY_NOT_BELOW_QUANTITY,
             f"cut every {cut.every} needs more than {cut.every} labels; the printer's own cut setting applies",
         )
         return []
     if ctx.supports(Feature.CUT_BY):
         return [line(f":{cut.every:04d}")]
     ctx.findings.deviate(
-        "cut_by_unsupported",
+        FindingCode.CUT_BY_UNSUPPORTED,
         f"cutting every {cut.every} labels: {ctx.requirement(Feature.CUT_BY)}",
         fallback="the printer cuts after every label",
     )
@@ -232,9 +238,13 @@ def _check_cutter(label: Label, ctx: RenderContext) -> None:
     if label.cut is None:
         return
     if ctx.cutter_installed is False:
-        ctx.findings.refuse("no_cutter", "the label asks for cutting but the printer is configured without a cutter")
+        ctx.findings.refuse(
+            FindingCode.NO_CUTTER, "the label asks for cutting but the printer is configured without a cutter"
+        )
     elif ctx.cutter_installed is None:
-        ctx.findings.info("cutter_assumed", "cut commands assume the printer's cutter is installed and enabled")
+        ctx.findings.info(
+            FindingCode.CUTTER_ASSUMED, "cut commands assume the printer's cutter is installed and enabled"
+        )
 
 
 def _rest_cut(label: Label, ctx: RenderContext) -> list[bytes]:
@@ -244,7 +254,7 @@ def _rest_cut(label: Label, ctx: RenderContext) -> list[bytes]:
     if ctx.supports(Feature.CUT_NOW):
         return [CUT_NOW]
     ctx.findings.deviate(
-        "cut_now_unsupported",
+        FindingCode.CUT_NOW_UNSUPPORTED,
         f"cutting the last group now: {ctx.requirement(Feature.CUT_NOW)}",
         fallback="the last group is cut when the next job starts",
     )

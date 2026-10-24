@@ -8,12 +8,14 @@ committed document, so a change to ``domain/profiles.py`` without a regenerated 
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from datamax_dpl.domain.enums import FindingCode
 from datamax_dpl.domain.profiles import Feature, list_profiles
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -93,3 +95,60 @@ def test_a_document_without_markers_is_refused(tmp_path: Path) -> None:
     assert result.returncode == 2
     assert "BEGIN GENERATED" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+_CODES_HEADING = "## Finding codes"
+_CODE_ROW = re.compile(r"^\| `([a-z0-9_]+)` ", re.MULTILINE)
+_PARENTHESES = re.compile(r"\(([^)]*)\)")
+_TICKED = re.compile(r"`([^`]+)`")
+
+
+def _codes_section(document: str) -> str:
+    """The text of the ``## Finding codes`` section, up to the next second-level heading."""
+    _, found, rest = document.partition(_CODES_HEADING + "\n")
+    assert found, f"{_DOC} lacks a '{_CODES_HEADING}' section"
+    return rest.split("\n## ", 1)[0]
+
+
+def _listed_codes(document: str) -> list[str]:
+    """Every code in the first column of the finding-code table, in document order."""
+    return _CODE_ROW.findall(_codes_section(document))
+
+
+def _fallback_table_codes(document: str) -> set[str]:
+    """Codes the fallback tables name in their parentheses, e.g. ``(info `inch_units`)``."""
+    head, _, _ = document.partition(_CODES_HEADING)
+    rows = [line for line in head.splitlines() if line.startswith("|")]
+    return {
+        token
+        for row in rows
+        for group in _PARENTHESES.findall(row)
+        for token in _TICKED.findall(group)
+        if not token.startswith("--")
+    }
+
+
+@pytest.mark.os_agnostic
+def test_the_finding_code_table_lists_every_code_exactly_once() -> None:
+    listed = _listed_codes(_DOC.read_text(encoding="utf-8"))
+
+    duplicates = sorted({code for code in listed if listed.count(code) > 1})
+    missing = sorted({c.value for c in FindingCode} - set(listed))
+    unknown = sorted(set(listed) - {c.value for c in FindingCode})
+    assert (duplicates, missing, unknown) == ([], [], [])
+
+
+@pytest.mark.os_agnostic
+def test_every_code_the_fallback_tables_name_is_a_real_code() -> None:
+    named = _fallback_table_codes(_DOC.read_text(encoding="utf-8"))
+
+    assert named, "the fallback tables name no codes: the parser no longer matches the document"
+    assert sorted(named - {c.value for c in FindingCode}) == []
+
+
+@pytest.mark.os_agnostic
+def test_the_code_table_check_notices_a_dropped_row() -> None:
+    document = _DOC.read_text(encoding="utf-8")
+    row = next(line for line in _codes_section(document).splitlines() if line.startswith("| `too_many_fields` "))
+
+    assert "too_many_fields" not in _listed_codes(document.replace(row + "\n", "", 1))

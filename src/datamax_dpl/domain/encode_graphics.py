@@ -6,8 +6,7 @@ import math
 from typing import TYPE_CHECKING
 
 from .encode_common import column_of, row_of
-from .enums import FillPattern
-from .image_records import download_command
+from .enums import FillPattern, FindingCode
 from .label import Box, Circle, Image, Line, Point, Polygon
 from .profiles import Feature
 from .raster import Bitmap
@@ -96,7 +95,7 @@ def encode_box(element: Box, *, index: int, ctx: RenderContext) -> list[bytes]:
         fill = line(polygon_record(_points(_box_corners(element), index=index, ctx=ctx), fill=element.fill))
         return [fill, _box_outline(element, index=index, ctx=ctx)]
     if element.fill is FillPattern.SOLID:
-        ctx.findings.info("solid_fill_as_edges", "solid box drawn as a box whose edges meet", element=index)
+        ctx.findings.info(FindingCode.SOLID_FILL_AS_EDGES, "solid box drawn as a box whose edges meet", element=index)
         return [_box_outline(element, index=index, ctx=ctx, solid=True)]
     return rasterize(
         element, index=index, ctx=ctx, reason=f"patterned fills: {ctx.requirement(Feature.CIRCLE_POLYGON)}"
@@ -126,9 +125,11 @@ def encode_polygon(element: Polygon, *, index: int, ctx: RenderContext) -> list[
 def encode_image(element: Image, *, index: int, ctx: RenderContext) -> list[bytes]:
     """Queue the image download (when a bitmap is given) and return its placing record."""
     if element.bitmap is not None:
-        ctx.system_prefix.append(download_command(element.name, Bitmap.from_rows(element.bitmap)))
+        ctx.download_image(element.name, Bitmap.from_rows(element.bitmap))
     else:
-        ctx.findings.info("image_must_be_stored", f"image {element.name} must already be on the printer", element=index)
+        ctx.findings.info(
+            FindingCode.IMAGE_MUST_BE_STORED, f"image {element.name} must already be on the printer", element=index
+        )
     record = image_record(
         row=row_of(element.y, index=index, ctx=ctx),
         column=column_of(element.x, index=index, ctx=ctx),

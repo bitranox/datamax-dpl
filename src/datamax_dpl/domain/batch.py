@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .enums import Attribute, Unit
+from .enums import Attribute, FindingCode, Unit
 from .findings import Finding, FindingCollector
 from .profiles import Feature, get_profile, parse_firmware
 from .render_context import RenderContext, RenderOptions
@@ -57,13 +57,13 @@ def cut_across_records(jobs: Sequence[bytes], *, cut: Cut, options: RenderOption
     supported, requirement = _supports(options, Feature.CUT_NOW, findings)
     if not supported:
         findings.deviate(
-            "batch_cut_unsupported",
+            FindingCode.BATCH_CUT_UNSUPPORTED,
             f"cutting every {cut.every} labels of a batch needs the cut-now command: {requirement}",
             fallback="the printer cuts as its own cutter setting says",
         )
         return b"".join(jobs), findings.findings()
     findings.warn(
-        "batch_cut_unverified",
+        FindingCode.BATCH_CUT_UNVERIFIED,
         f"a cut command follows every {cut.every}th label; the printer must not also cut each label "
         "by itself (unverified on hardware)",
     )

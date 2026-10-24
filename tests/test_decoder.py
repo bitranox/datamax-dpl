@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import string
+
 import pytest
 
 from datamax_dpl.domain.decoder import explain, readable
-from datamax_dpl.domain.enums import Rotation, Unit
-from datamax_dpl.domain.label import Barcode, Box, Circle, Counter, Label, Line, Point, Polygon, Text
+from datamax_dpl.domain.enums import CommandKind, Rotation, SpeedCode, Unit
+from datamax_dpl.domain.label import Barcode, Box, Circle, Counter, Cut, Label, Line, Point, Polygon, Text
 from datamax_dpl.domain.render import render
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.symbology import Symbology
@@ -17,7 +19,15 @@ APPENDIX_B = b"\x02L\rH07\rD11\r19110080100002510K OHM 1/4 WATT\r1a6210000000050
 @pytest.mark.os_agnostic
 def test_the_manuals_sample_program_is_explained_command_by_command() -> None:
     result = explain(APPENDIX_B)
-    assert [c.kind for c in result.commands] == ["format", "format", "format", "record", "record", "end"]
+    assert [c.kind for c in result.commands] == [
+        CommandKind.FORMAT,
+        CommandKind.FORMAT,
+        CommandKind.FORMAT,
+        CommandKind.RECORD,
+        CommandKind.RECORD,
+        CommandKind.END,
+    ]
+    assert all(type(c.kind) is CommandKind for c in result.commands)
     assert result.commands[3].meaning == "text font 9"
     assert result.commands[4].meaning == "barcode code39"
     assert result.problems == ()
@@ -110,11 +120,11 @@ def test_metric_job_rebuilds_in_millimetres() -> None:
 def test_system_and_immediate_commands_are_named() -> None:
     kinds = [(c.kind, c.meaning) for c in explain(b"\x01A\x02n\x02Kf0100\x02f230\x02o").commands]
     assert kinds == [
-        ("immediate", "status request"),
-        ("system", "inch mode"),
-        ("system", "present distance"),
-        ("system", "stop position (backfeed)"),
-        ("system", "cut now"),
+        (CommandKind.IMMEDIATE, "status request"),
+        (CommandKind.SYSTEM, "inch mode"),
+        (CommandKind.SYSTEM, "present distance"),
+        (CommandKind.SYSTEM, "stop position (backfeed)"),
+        (CommandKind.SYSTEM, "cut now"),
     ]
 
 
@@ -122,7 +132,73 @@ def test_system_and_immediate_commands_are_named() -> None:
 def test_an_image_download_is_one_command_and_its_rows_are_skipped() -> None:
     data = b"\x02IAAFLOGO\r8001FF\r0000FF02\rFFFF\r\x02L\r1Y1100000000000LOGO\rE\r"
     result = explain(data)
-    assert [c.kind for c in result.commands] == ["download", "format", "record", "end"]
+    assert [c.kind for c in result.commands] == [
+        CommandKind.DOWNLOAD,
+        CommandKind.FORMAT,
+        CommandKind.RECORD,
+        CommandKind.END,
+    ]
+
+
+@pytest.mark.os_agnostic
+def test_job_settings_are_rebuilt_into_the_label() -> None:
+    label = explain(b"\x02L\rQ0003\rH12\rPC\rSE\r:0002\r121100000500025Hi\rE\r").label
+    assert label is not None
+    assert (label.quantity, label.heat, label.print_speed, label.slew_speed, label.cut) == (
+        3,
+        12,
+        SpeedCode.IPS_2_0,
+        SpeedCode.IPS_3_0,
+        Cut(every=2),
+    )
+
+
+@pytest.mark.os_agnostic
+def test_without_settings_the_label_has_the_printer_defaults() -> None:
+    label = explain(b"\x02L\r121100000500025Hi\rE\r").label
+    assert label is not None
+    assert (label.quantity, label.heat, label.print_speed, label.slew_speed, label.cut) == (1, None, None, None, None)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("settings", "errors"),
+    [
+        (b":0000\r", 1),
+        (b"Q0000\r:0000\r", 2),
+        (b"Q0000\rH99\r", 2),
+        (b":0002\r:0000\r", 1),
+    ],
+)
+def test_an_invalid_setting_is_counted_with_the_label_and_leaves_no_label(settings: bytes, errors: int) -> None:
+    result = explain(b"\x02L\r" + settings + b"121100000500025Hi\rE\r")
+    assert result.label is None
+    assert result.problems == (f"label: {errors} validation errors",)
+
+
+_NO_SPEED = next(letter for letter in reversed(string.ascii_uppercase) if letter not in {c.value for c in SpeedCode})
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("setting", [b"Qab12", b"Hxx", b":", b"P" + _NO_SPEED.encode(), b"S" + _NO_SPEED.encode()])
+def test_an_unreadable_setting_is_a_problem_and_the_rest_is_still_explained(setting: bytes) -> None:
+    result = explain(b"\x02L\r" + setting + b"\r121100000500025Hi\rE\r")
+    assert result.problems == (f"{readable(setting)}: ValueError",)
+    bad = next(c for c in result.commands if c.raw == readable(setting))
+    assert bad.kind is CommandKind.FORMAT
+    assert bad.meaning.endswith("(not understood)")
+    assert [c.kind for c in result.commands][-2:] == [CommandKind.RECORD, CommandKind.END]
+    assert result.label is not None
+    assert [e.text for e in result.label.elements if isinstance(e, Text)] == ["Hi"]
+    assert (result.label.quantity, result.label.heat, result.label.cut) == (1, None, None)
+    assert (result.label.print_speed, result.label.slew_speed) == (None, None)
+
+
+@pytest.mark.os_agnostic
+def test_a_later_valid_cut_replaces_an_invalid_one() -> None:
+    result = explain(b"\x02L\r:0000\r:0004\r121100000500025Hi\rE\r")
+    assert result.problems == ()
+    assert result.label is not None and result.label.cut == Cut(every=4)
 
 
 @pytest.mark.os_agnostic

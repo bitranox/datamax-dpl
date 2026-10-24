@@ -13,6 +13,7 @@ from datamax_dpl.domain.barcodes import (
     gs1_mod10_check_digit,
     pdf417_data_field,
 )
+from datamax_dpl.domain.enums import BarcodeProblemCode
 from datamax_dpl.domain.label import DataMatrixOptions, Pdf417Options
 from datamax_dpl.domain.symbology import Symbology
 
@@ -20,7 +21,7 @@ ARABIC_INDIC_TWO = chr(0x0662)
 NUL = chr(0)
 
 
-def _codes(check: BarcodeCheck) -> list[str]:
+def _codes(check: BarcodeCheck) -> list[BarcodeProblemCode]:
     return [problem.code for problem in check.problems]
 
 
@@ -77,7 +78,7 @@ def test_accepts_valid_data(symbology: Symbology, data: str) -> None:
 def test_upc_a_ten_digits_is_bad_length() -> None:
     """The manual's 10-digit UPC-A sample is one digit short of the 11 the symbology needs."""
     check = check_barcode(Symbology.UPC_A, "1234567890")
-    assert _codes(check) == ["bad_length"]
+    assert _codes(check) == [BarcodeProblemCode.BAD_LENGTH]
     assert check.computed_check_digit is None
 
 
@@ -103,7 +104,7 @@ def test_ean13_twelve_digits_reports_the_digit_the_printer_adds() -> None:
 def test_wrong_included_check_digit_names_the_expected_one(symbology: Symbology, data: str, expected: str) -> None:
     """A wrong included check digit is a problem that names the right digit."""
     check = check_barcode(symbology, data)
-    assert _codes(check) == ["bad_check_digit"]
+    assert _codes(check) == [BarcodeProblemCode.BAD_CHECK_DIGIT]
     assert f"expected {expected}" in check.problems[0].message
     assert check.computed_check_digit == expected
 
@@ -149,14 +150,14 @@ def test_price_marker_in_documented_position_is_accepted(symbology: Symbology, d
 @pytest.mark.parametrize(
     ("symbology", "data", "code"),
     [
-        (Symbology.UPC_A, "1234V678901", "bad_price_marker"),
-        (Symbology.UPC_A, "12345VV8901", "bad_price_marker"),
-        (Symbology.EAN13, "12345V789012", "bad_price_marker"),
-        (Symbology.EAN8, "123V567", "bad_character"),
-        (Symbology.UPC_E, "12V456", "bad_character"),
+        (Symbology.UPC_A, "1234V678901", BarcodeProblemCode.BAD_PRICE_MARKER),
+        (Symbology.UPC_A, "12345VV8901", BarcodeProblemCode.BAD_PRICE_MARKER),
+        (Symbology.EAN13, "12345V789012", BarcodeProblemCode.BAD_PRICE_MARKER),
+        (Symbology.EAN8, "123V567", BarcodeProblemCode.BAD_CHARACTER),
+        (Symbology.UPC_E, "12V456", BarcodeProblemCode.BAD_CHARACTER),
     ],
 )
-def test_price_marker_elsewhere_is_a_problem(symbology: Symbology, data: str, code: str) -> None:
+def test_price_marker_elsewhere_is_a_problem(symbology: Symbology, data: str, code: BarcodeProblemCode) -> None:
     """A V outside the price position, twice, or in a symbology without one is refused."""
     assert code in _codes(check_barcode(symbology, data))
 
@@ -168,38 +169,38 @@ def test_price_marker_elsewhere_is_a_problem(symbology: Symbology, data: str, co
 @pytest.mark.parametrize(
     ("symbology", "data", "code"),
     [
-        (Symbology.CODE39, "abc", "bad_character"),
-        (Symbology.CODE93, "*", "bad_character"),
-        (Symbology.CODE128, "A&", "bad_escape"),
-        (Symbology.CODE128, "A&H", "bad_escape"),
-        (Symbology.CODE128, "&&A", "bad_escape"),
-        (Symbology.CODE128, "tab\there", "bad_character"),
-        (Symbology.CODABAR, "12345", "bad_start_stop"),
-        (Symbology.CODABAR, "A123", "bad_start_stop"),
-        (Symbology.CODABAR, "A12C34B", "bad_character"),
-        (Symbology.CODABAR, "A", "bad_length"),
-        (Symbology.HIBC, "A123", "missing_prefix"),
-        (Symbology.HIBC, "+a1", "bad_character"),
-        (Symbology.POSTNET, "123456", "bad_length"),
-        (Symbology.PLESSEY, "1" * 15, "bad_length"),
-        (Symbology.I2OF5_BEARER, "123456789012", "bad_length"),
-        (Symbology.ADDON2, "123", "bad_length"),
-        (Symbology.ADDON5, "1234", "bad_length"),
-        (Symbology.UCC_EAN128, "1" * 18, "bad_length"),
-        (Symbology.UCC_EAN128_KMART, "1" * 19, "bad_length"),
-        (Symbology.UCC_EAN128_RANDOM_WEIGHT, "1" * 33, "bad_length"),
-        (Symbology.TELEPEN, "x" + chr(128), "bad_character"),
-        (Symbology.FIM, "E", "bad_character"),
-        (Symbology.FIM, "AB", "bad_length"),
-        (Symbology.MAXICODE, "x" * 85, "bad_length"),
-        (Symbology.MAXICODE, chr(0xE9), "bad_character"),
-        (Symbology.I2OF5, "12a", "bad_character"),
-        (Symbology.I2OF5_MOD10, "1 2", "bad_character"),
-        (Symbology.DATAMATRIX, "x" + chr(0x100), "bad_character"),
-        (Symbology.PDF417, chr(0x20AC), "bad_character"),
+        (Symbology.CODE39, "abc", BarcodeProblemCode.BAD_CHARACTER),
+        (Symbology.CODE93, "*", BarcodeProblemCode.BAD_CHARACTER),
+        (Symbology.CODE128, "A&", BarcodeProblemCode.BAD_ESCAPE),
+        (Symbology.CODE128, "A&H", BarcodeProblemCode.BAD_ESCAPE),
+        (Symbology.CODE128, "&&A", BarcodeProblemCode.BAD_ESCAPE),
+        (Symbology.CODE128, "tab\there", BarcodeProblemCode.BAD_CHARACTER),
+        (Symbology.CODABAR, "12345", BarcodeProblemCode.BAD_START_STOP),
+        (Symbology.CODABAR, "A123", BarcodeProblemCode.BAD_START_STOP),
+        (Symbology.CODABAR, "A12C34B", BarcodeProblemCode.BAD_CHARACTER),
+        (Symbology.CODABAR, "A", BarcodeProblemCode.BAD_LENGTH),
+        (Symbology.HIBC, "A123", BarcodeProblemCode.MISSING_PREFIX),
+        (Symbology.HIBC, "+a1", BarcodeProblemCode.BAD_CHARACTER),
+        (Symbology.POSTNET, "123456", BarcodeProblemCode.BAD_LENGTH),
+        (Symbology.PLESSEY, "1" * 15, BarcodeProblemCode.BAD_LENGTH),
+        (Symbology.I2OF5_BEARER, "123456789012", BarcodeProblemCode.BAD_LENGTH),
+        (Symbology.ADDON2, "123", BarcodeProblemCode.BAD_LENGTH),
+        (Symbology.ADDON5, "1234", BarcodeProblemCode.BAD_LENGTH),
+        (Symbology.UCC_EAN128, "1" * 18, BarcodeProblemCode.BAD_LENGTH),
+        (Symbology.UCC_EAN128_KMART, "1" * 19, BarcodeProblemCode.BAD_LENGTH),
+        (Symbology.UCC_EAN128_RANDOM_WEIGHT, "1" * 33, BarcodeProblemCode.BAD_LENGTH),
+        (Symbology.TELEPEN, "x" + chr(128), BarcodeProblemCode.BAD_CHARACTER),
+        (Symbology.FIM, "E", BarcodeProblemCode.BAD_CHARACTER),
+        (Symbology.FIM, "AB", BarcodeProblemCode.BAD_LENGTH),
+        (Symbology.MAXICODE, "x" * 85, BarcodeProblemCode.BAD_LENGTH),
+        (Symbology.MAXICODE, chr(0xE9), BarcodeProblemCode.BAD_CHARACTER),
+        (Symbology.I2OF5, "12a", BarcodeProblemCode.BAD_CHARACTER),
+        (Symbology.I2OF5_MOD10, "1 2", BarcodeProblemCode.BAD_CHARACTER),
+        (Symbology.DATAMATRIX, "x" + chr(0x100), BarcodeProblemCode.BAD_CHARACTER),
+        (Symbology.PDF417, chr(0x20AC), BarcodeProblemCode.BAD_CHARACTER),
     ],
 )
-def test_rule_violations_are_reported(symbology: Symbology, data: str, code: str) -> None:
+def test_rule_violations_are_reported(symbology: Symbology, data: str, code: BarcodeProblemCode) -> None:
     """Each documented rule produces its own problem code."""
     assert code in _codes(check_barcode(symbology, data))
 
@@ -208,7 +209,7 @@ def test_rule_violations_are_reported(symbology: Symbology, data: str, code: str
 def test_code128_escapes_are_consumed_in_pairs() -> None:
     """``&&G`` is a lone ``&`` followed by the ``&G`` escape: only position 1 is reported."""
     check = check_barcode(Symbology.CODE128, "&&G")
-    assert _codes(check) == ["bad_escape"]
+    assert _codes(check) == [BarcodeProblemCode.BAD_ESCAPE]
     assert "position 1 " in check.problems[0].message
 
 
@@ -225,7 +226,7 @@ def test_plain_interleaved_two_of_five_accepts_an_odd_digit_count() -> None:
 def test_empty_data_is_one_problem() -> None:
     """Empty data is reported once, with no other findings."""
     check = check_barcode(Symbology.CODE128, "")
-    assert _codes(check) == ["empty"]
+    assert _codes(check) == [BarcodeProblemCode.EMPTY]
 
 
 @pytest.mark.os_agnostic
@@ -237,19 +238,19 @@ def test_whitespace_only_is_not_digits(symbology: Symbology) -> None:
     if symbology is Symbology.CODE39:
         assert check.ok
     else:
-        assert "bad_character" in _codes(check)
+        assert BarcodeProblemCode.BAD_CHARACTER in _codes(check)
 
 
 @pytest.mark.os_agnostic
 def test_carriage_return_ends_the_record_early() -> None:
     """A CR inside the data would end the DPL record, even where the character set allows it."""
-    assert "record_terminator" in _codes(check_barcode(Symbology.TELEPEN, "AB\rCD"))
+    assert BarcodeProblemCode.RECORD_TERMINATOR in _codes(check_barcode(Symbology.TELEPEN, "AB\rCD"))
 
 
 @pytest.mark.os_agnostic
 def test_record_longer_than_255_characters_is_too_long() -> None:
     """One-dimensional data is bounded by the record limit."""
-    assert _codes(check_barcode(Symbology.CODE128, "A" * 256)) == ["too_long"]
+    assert _codes(check_barcode(Symbology.CODE128, "A" * 256)) == [BarcodeProblemCode.TOO_LONG]
     assert check_barcode(Symbology.CODE128, "A" * 255).ok
 
 
@@ -257,7 +258,7 @@ def test_record_longer_than_255_characters_is_too_long() -> None:
 def test_pdf417_limit_counts_the_parameter_header() -> None:
     """PDF417 takes 3000 characters including its 8-character parameter header."""
     assert check_barcode(Symbology.PDF417, "x" * 2992).ok
-    assert _codes(check_barcode(Symbology.PDF417, "x" * 2993)) == ["too_long"]
+    assert _codes(check_barcode(Symbology.PDF417, "x" * 2993)) == [BarcodeProblemCode.TOO_LONG]
 
 
 @pytest.mark.os_agnostic
@@ -265,7 +266,7 @@ def test_datamatrix_limit_counts_the_parameter_header() -> None:
     """DataMatrix stays within the 255-character record including its 10-character header."""
     options = DataMatrixOptions(ecc=140)
     assert check_barcode(Symbology.DATAMATRIX, "x" * 245, datamatrix=options).ok
-    assert _codes(check_barcode(Symbology.DATAMATRIX, "x" * 246, datamatrix=options)) == ["too_long"]
+    assert _codes(check_barcode(Symbology.DATAMATRIX, "x" * 246, datamatrix=options)) == [BarcodeProblemCode.TOO_LONG]
 
 
 # ======================== adversarial inputs ========================
@@ -280,7 +281,7 @@ def test_non_ascii_digits_are_refused(symbology: Symbology) -> None:
     """Unicode digits such as U+0662 are digits to str.isdigit but not to the printer."""
     data = "1" * 5 + ARABIC_INDIC_TWO
     check = check_barcode(symbology, data)
-    assert "bad_character" in _codes(check)
+    assert BarcodeProblemCode.BAD_CHARACTER in _codes(check)
     assert "U+0662" in " ".join(p.message for p in check.problems)
 
 
@@ -289,7 +290,7 @@ def test_non_ascii_digits_are_refused(symbology: Symbology) -> None:
 def test_nul_is_refused_and_rendered_as_a_code_point(symbology: Symbology) -> None:
     """NUL never reaches a message raw; it is named by code point."""
     check = check_barcode(symbology, "12" + NUL + "3")
-    assert "bad_character" in _codes(check)
+    assert BarcodeProblemCode.BAD_CHARACTER in _codes(check)
     messages = " ".join(p.message for p in check.problems)
     assert "U+0000" in messages
     assert NUL not in messages
@@ -300,7 +301,7 @@ def test_very_long_input_keeps_messages_short() -> None:
     """A huge input with many distinct bad characters yields a bounded message."""
     data = "".join(chr(0x4E00 + n) for n in range(5000)) * 20
     check = check_barcode(Symbology.CODE39, data)
-    assert set(_codes(check)) == {"too_long", "bad_character"}
+    assert set(_codes(check)) == {BarcodeProblemCode.TOO_LONG, BarcodeProblemCode.BAD_CHARACTER}
     assert all(len(p.message) < 300 for p in check.problems)
     assert "and 4990 more" in " ".join(p.message for p in check.problems)
 
@@ -353,7 +354,7 @@ def test_changing_one_digit_always_fails(body: str, position: int, shift: int) -
     full = body + gs1_mod10_check_digit(body)
     changed_digit = str((int(full[position]) + shift) % 10)
     tampered = full[:position] + changed_digit + full[position + 1 :]
-    assert _codes(check_barcode(Symbology.EAN13, tampered)) == ["bad_check_digit"]
+    assert _codes(check_barcode(Symbology.EAN13, tampered)) == [BarcodeProblemCode.BAD_CHECK_DIGIT]
 
 
 # ======================== 2-D data headers ========================

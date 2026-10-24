@@ -12,6 +12,7 @@ import pytest
 from datamax_dpl.adapters.memory import FakeCamera
 from datamax_dpl.adapters.memory.camera import PNG_SIGNATURE, TINY_PNG
 from datamax_dpl.domain.camera import CameraSettings
+from datamax_dpl.domain.enums import MediaType
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -66,7 +67,7 @@ def test_each_call_writes_a_new_file_and_is_counted(tmp_path: Path) -> None:
     assert camera.calls == 2
     assert first.path != second.path
     assert first.path.read_bytes() == TINY_PNG
-    assert first.media_type == "image/png"
+    assert first.media_type is MediaType.PNG
     assert first.captured_at.utcoffset() == timedelta(0)
 
 
@@ -78,7 +79,7 @@ def test_a_jpeg_payload_is_written_as_jpeg(tmp_path: Path) -> None:
     image = FakeCamera(payload)(CameraSettings(), output_dir=tmp_path)
 
     assert image.path.suffix == ".jpg"
-    assert image.media_type == "image/jpeg"
+    assert image.media_type is MediaType.JPEG
     assert image.path.read_bytes() == payload
 
 

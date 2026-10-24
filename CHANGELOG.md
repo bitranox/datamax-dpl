@@ -6,6 +6,36 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `verify -` read the label from stdin twice, so the second read found nothing
+  and the command failed with "- is not valid JSON". The label is now read once.
+- `explain` on a stream with an unreadable format setting (`Qab12`, `Hxx`, a
+  bare `:`, a speed letter that is no speed) reported only a `ValueError` and
+  exited 2, hiding every other command. It now explains the whole stream,
+  reports the setting as a problem (`Qab12: ValueError`), ignores it, and exits
+  1, the way an unreadable record is already handled.
+- `docs/capabilities.md` named 32 of the finding codes. A new "Finding codes"
+  section lists every one with its severity, and a test keeps it in step with
+  the code.
+
+### Changed
+
+- `detect --json` reports the label size unit as `"in"` or `"mm"`, the values
+  `Unit` uses everywhere else, instead of the printer's raw `"IN"` / `"MM"`.
+- An unknown hardware option is refused with exit 2 instead of being ignored:
+  in `[printer] options`, in its environment variable, and in `--option`. A
+  misspelt option used to make the feature it unlocks look unavailable, with no
+  message saying why.
+- Library: fixed vocabularies are enums instead of plain strings.
+  `Finding.code` is `FindingCode`, `BarcodeProblem.code` is
+  `BarcodeProblemCode`, `DecodedCommand.kind` is `CommandKind`,
+  `PrinterStatus.problems` holds `StatusProblem`, `MemoryReport.units` is
+  `Unit`, `RenderOptions.options` holds `HardwareOption`, and
+  `CapturedImage.media_type` is `MediaType`. Each member is a `str` that compares
+  equal to its old value, and the JSON output is unchanged apart from the
+  `detect` unit above.
+
 ## [0.1.1] - 2026-10-24
 
 ### Fixed

@@ -12,6 +12,7 @@ import pytest
 from datamax_dpl.adapters.camera import capture_image
 from datamax_dpl.adapters.camera.command import STDERR_TAIL_CHARS, capture_with_command
 from datamax_dpl.domain.camera import CameraKind, CameraSettings
+from datamax_dpl.domain.enums import MediaType
 from datamax_dpl.domain.errors import CameraError
 
 if TYPE_CHECKING:
@@ -32,7 +33,7 @@ def test_capture_image_runs_the_program_and_returns_a_jpeg(tmp_path: Path) -> No
     assert image.path.parent == tmp_path / "out"
     assert image.path.name.startswith("capture-")
     assert image.path.suffix == ".jpg"
-    assert image.media_type == "image/jpeg"
+    assert image.media_type is MediaType.JPEG
     assert image.path.read_bytes() == b"\xff\xd8\xff-image"
     assert image.captured_at.utcoffset() == timedelta(0)
 
@@ -43,7 +44,7 @@ def test_a_png_suffix_after_the_placeholder_makes_a_png(tmp_path: Path) -> None:
     image = capture_image(_settings(sys.executable, "-c", WRITE_IMAGE, "{output}.PNG"), output_dir=tmp_path)
 
     assert image.path.suffix == ".png"
-    assert image.media_type == "image/png"
+    assert image.media_type is MediaType.PNG
     assert image.path.is_file()
 
 
@@ -66,9 +67,11 @@ def test_a_non_zero_exit_carries_the_stderr_tail(tmp_path: Path) -> None:
         capture_with_command(_settings(sys.executable, "-c", script, "{output}"), stem=tmp_path / "shot")
 
     message = str(caught.value)
+    tail = ("x" * 2000 + "camera busy")[-STDERR_TAIL_CHARS:]
     assert "status 3" in message
-    assert message.endswith("camera busy")
-    assert len(message) < STDERR_TAIL_CHARS + 200
+    # Checked against the stderr text itself, not the message length: the message also names
+    # the program's path, whose length depends on where the checkout lives.
+    assert message.endswith(": " + tail)
 
 
 @pytest.mark.os_agnostic

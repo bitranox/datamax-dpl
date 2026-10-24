@@ -19,6 +19,7 @@ import ssl
 from typing import TYPE_CHECKING
 from urllib.parse import SplitResult, unquote, urlsplit
 
+from ...domain.enums import MediaType
 from ...domain.errors import CameraError
 
 if TYPE_CHECKING:
@@ -29,11 +30,12 @@ if TYPE_CHECKING:
 #: Largest image body accepted, in bytes (50 MiB).
 MAX_IMAGE_BYTES = 50 * 1024 * 1024
 
-#: Media types accepted from the camera and the extension each one is stored with.
+#: Media types accepted from the camera and the extension each one is stored with. Keyed by the
+#: raw header text because cameras also send ``image/jpg``, which is no registered media type.
 EXTENSION_BY_CONTENT_TYPE: dict[str, str] = {
-    "image/jpeg": ".jpg",
+    MediaType.JPEG.value: ".jpg",
     "image/jpg": ".jpg",
-    "image/png": ".png",
+    MediaType.PNG.value: ".png",
 }
 
 _HTTP_OK = 200
@@ -133,7 +135,8 @@ def _extension(response: http.client.HTTPResponse) -> str:
     content_type = response.headers.get_content_type()
     extension = EXTENSION_BY_CONTENT_TYPE.get(content_type)
     if extension is None:
-        raise CameraError(f"camera sent media type {content_type!r}, expected image/jpeg or image/png")
+        expected = f"{MediaType.JPEG.value} or {MediaType.PNG.value}"
+        raise CameraError(f"camera sent media type {content_type!r}, expected {expected}")
     return extension
 
 

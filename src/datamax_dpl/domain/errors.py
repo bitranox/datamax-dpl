@@ -6,6 +6,11 @@ JSON envelope carries the class name as the error type.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .findings import Finding
+
 
 class ConfigurationError(Exception):
     """Configuration is missing or invalid.
@@ -24,7 +29,7 @@ class LabelRejectedError(Exception):
     The findings travel with the exception so a caller can report every reason at once.
     """
 
-    def __init__(self, message: str, findings: tuple[object, ...] = ()) -> None:
+    def __init__(self, message: str, findings: tuple[Finding, ...] = ()) -> None:
         """Keep the message and the findings that caused the rejection."""
         super().__init__(message)
         self.findings = findings

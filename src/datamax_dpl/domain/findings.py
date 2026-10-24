@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from .enums import FallbackPolicy, Severity
+from .enums import FallbackPolicy, FindingCode, Severity
 
 
 class Finding(BaseModel):
@@ -24,13 +24,13 @@ class Finding(BaseModel):
         fallback: What was done instead, when a fallback was applied.
 
     Example:
-        >>> Finding(code="x", severity=Severity.INFO, message="m").element is None
+        >>> Finding(code=FindingCode.INCH_UNITS, severity=Severity.INFO, message="m").element is None
         True
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    code: str
+    code: FindingCode
     severity: Severity
     message: str
     element: int | None = None
@@ -42,7 +42,7 @@ class FindingCollector:
 
     Example:
         >>> collector = FindingCollector(FallbackPolicy.STRICT)
-        >>> collector.deviate("mirror_ignored", "no mirror", fallback="printed unmirrored")
+        >>> collector.deviate(FindingCode.CIRCLE_RASTERIZED, "no circles", fallback="drawn as an image")
         >>> collector.has_errors
         True
     """
@@ -52,22 +52,22 @@ class FindingCollector:
         self.policy = policy
         self._findings: list[Finding] = []
 
-    def info(self, code: str, message: str, *, element: int | None = None) -> None:
+    def info(self, code: FindingCode, message: str, *, element: int | None = None) -> None:
         """Record a neutral observation."""
         self._findings.append(Finding(code=code, severity=Severity.INFO, message=message, element=element))
 
-    def warn(self, code: str, message: str, *, element: int | None = None) -> None:
+    def warn(self, code: FindingCode, message: str, *, element: int | None = None) -> None:
         """Record something the caller should look at; never an error."""
         self._findings.append(Finding(code=code, severity=Severity.WARNING, message=message, element=element))
 
-    def deviate(self, code: str, message: str, *, fallback: str, element: int | None = None) -> None:
+    def deviate(self, code: FindingCode, message: str, *, fallback: str, element: int | None = None) -> None:
         """Record a feature replaced by ``fallback``: a warning under degrade, an error under strict."""
         severity = Severity.ERROR if self.policy is FallbackPolicy.STRICT else Severity.WARNING
         self._findings.append(
             Finding(code=code, severity=severity, message=message, element=element, fallback=fallback)
         )
 
-    def refuse(self, code: str, message: str, *, element: int | None = None) -> None:
+    def refuse(self, code: FindingCode, message: str, *, element: int | None = None) -> None:
         """Record something no fallback can repair; always an error."""
         self._findings.append(Finding(code=code, severity=Severity.ERROR, message=message, element=element))
 

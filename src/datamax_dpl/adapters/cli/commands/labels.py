@@ -14,9 +14,9 @@ import rich_click as click
 from pydantic import BaseModel, ConfigDict
 
 from ....application.use_cases import BatchResult, render_batch, render_label
-from ....domain.decoder import explain
+from ....domain.decoder import DecodedCommand, explain
 from ....domain.label import Label
-from ....domain.profiles import Feature, PrinterProfile, get_profile, list_profiles
+from ....domain.profiles import Feature, PrinterProfile, SpeedRange, get_profile, list_profiles
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..label_io import STDIN, load_label, load_records, read_input
 from ..payloads import RenderPayload, findings_text, render_payload
@@ -28,6 +28,7 @@ from .model_options import render_options_decorator, resolve_settings
 if TYPE_CHECKING:
     from ....domain.render import RenderResult
     from ..context import CLIContext
+    from ..settings import PrinterSettings
 
 _LABEL_HELP = "Label JSON file ('-' for stdin); 'datamax-dpl schema' prints its format."
 _DATA_HELP = "Data records (CSV, JSON array or JSON lines) filling {name} placeholders, one label each."
@@ -38,7 +39,23 @@ def build(
 ) -> RenderResult | BatchResult:
     """Load the label (and records) and render it with the merged printer settings."""
     settings = resolve_settings(cli_ctx, **settings_given)
-    label = load_label(label_source)
+    return render_loaded(load_label(label_source), data, settings)
+
+
+def render_loaded(label: Label, data: str | None, settings: PrinterSettings) -> RenderResult | BatchResult:
+    """Render an already loaded label (one per record of ``data`` when given).
+
+    A command that needs the label itself as well as its rendering loads it once and calls this:
+    loading again would read LABEL a second time, and stdin ('-') can be read only once.
+
+    Args:
+        label: The label to render.
+        data: Data records source filling the placeholders, or None for one label.
+        settings: The merged printer settings.
+
+    Returns:
+        The single render, or the batch when ``data`` is given.
+    """
     options = render_options(settings)
     if data is None:
         return render_label(label, options)
@@ -115,8 +132,8 @@ class ExplainPayload(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    commands: list[dict[str, str]]
-    label: dict[str, Any] | None
+    commands: list[DecodedCommand]
+    label: Label | None
     problems: list[str]
 
 
@@ -128,11 +145,10 @@ def cli_explain(ctx: click.Context, dpl_source: str) -> None:
 
     def body(_cli_ctx: CLIContext) -> CommandResult:
         explanation = explain(read_input(dpl_source))
-        label = explanation.label.model_dump(mode="json") if explanation.label else None
         payload = ExplainPayload(
-            commands=[c.model_dump() for c in explanation.commands], label=label, problems=list(explanation.problems)
+            commands=list(explanation.commands), label=explanation.label, problems=list(explanation.problems)
         )
-        lines = [f"{c.kind:9} {c.raw:40} {c.meaning}" for c in explanation.commands] + list(explanation.problems)
+        lines = [f"{c.kind.value:9} {c.raw:40} {c.meaning}" for c in explanation.commands] + list(explanation.problems)
         return CommandResult(ok=not explanation.problems, payload=payload, human="\n".join(lines))
 
     run_command(ctx, command="explain", body=body)
@@ -219,11 +235,11 @@ class CapabilitiesPayload(BaseModel):
     slew_speed: str
     backup_speed: str | None
     font9_points: list[int]
-    features: dict[str, str]
+    features: dict[Feature, str]
 
 
-def _speed(text: Any) -> str:
-    return f"{text.low.value}-{text.high.value} (default {text.default.value})"
+def _speed(speeds: SpeedRange) -> str:
+    return f"{speeds.low.value}-{speeds.high.value} (default {speeds.default.value})"
 
 
 def capabilities_payload(profile: PrinterProfile) -> CapabilitiesPayload:
@@ -241,8 +257,29 @@ def capabilities_payload(profile: PrinterProfile) -> CapabilitiesPayload:
         slew_speed=_speed(profile.slew_speed),
         backup_speed=_speed(profile.backup_speed) if profile.backup_speed else None,
         font9_points=sorted(set(profile.a_series_points) | set(profile.old_series_points)),
-        features={feature.value: profile.support(feature).describe() for feature in Feature},
+        features={feature: profile.support(feature).describe() for feature in Feature},
     )
+
+
+def _capabilities_text(payload: CapabilitiesPayload) -> str:
+    """The human form of ``capabilities``: one line per field, then one per feature."""
+    rows: list[tuple[str, object]] = [
+        ("id", payload.id),
+        ("name", payload.name),
+        ("dpi", payload.dpi),
+        ("max_column", payload.max_column),
+        ("print_width_in", payload.print_width_in),
+        ("max_fields", payload.max_fields),
+        ("max_field_chars", payload.max_field_chars),
+        ("heat_max", payload.heat_max),
+        ("print_speed", payload.print_speed),
+        ("slew_speed", payload.slew_speed),
+        ("backup_speed", payload.backup_speed),
+        ("font9_points", payload.font9_points),
+    ]
+    lines = [f"{key:18} {value}" for key, value in rows]
+    lines += [f"  {feature.value:20} {state}" for feature, state in payload.features.items()]
+    return "\n".join(lines)
 
 
 @click.command("capabilities", context_settings=CLICK_CONTEXT_SETTINGS)
@@ -253,9 +290,7 @@ def cli_capabilities(ctx: click.Context, model: str) -> None:
 
     def body(_cli_ctx: CLIContext) -> CommandResult:
         payload = capabilities_payload(get_profile(model))
-        lines = [f"{key:18} {value}" for key, value in payload.model_dump().items() if key != "features"]
-        lines += [f"  {name:20} {state}" for name, state in payload.features.items()]
-        return CommandResult(ok=True, payload=payload, human="\n".join(lines))
+        return CommandResult(ok=True, payload=payload, human=_capabilities_text(payload))
 
     run_command(ctx, command="capabilities", body=body)
 
@@ -269,4 +304,5 @@ __all__ = [
     "cli_render",
     "cli_schema",
     "cli_validate",
+    "render_loaded",
 ]

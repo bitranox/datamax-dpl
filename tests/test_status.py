@@ -8,6 +8,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from datamax_dpl.domain.enums import StatusProblem, Unit
 from datamax_dpl.domain.errors import PrinterProtocolError
 from datamax_dpl.domain.status import (
     BATCH_REQUEST,
@@ -199,7 +200,16 @@ def test_a_non_busy_flag_keeps_the_printer_idle(flag: str) -> None:
 @pytest.mark.os_agnostic
 def test_problems_lists_every_condition_that_needs_a_person_in_order() -> None:
     status = _status(paused=True, paper_out=True, ribbon_out=True, label_presented=True)
-    assert status.problems == ("paper_out", "ribbon_out", "paused")
+    assert status.problems == (StatusProblem.PAPER_OUT, StatusProblem.RIBBON_OUT, StatusProblem.PAUSED)
+    assert all(type(problem) is StatusProblem for problem in status.problems)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("flag", FLAG_ORDER)
+def test_flags_names_every_field_in_the_printer_order_with_its_own_value(flag: str) -> None:
+    flags = _status(**{flag: True}).flags()
+    assert [name for name, _ in flags] == list(FLAG_ORDER) == list(PrinterStatus.model_fields)
+    assert [name for name, is_set in flags if is_set] == [flag]
 
 
 @pytest.mark.os_agnostic
@@ -291,7 +301,7 @@ def test_a_full_memory_report_is_read() -> None:
         available_blocks=256,
         label_width=410,
         label_length=600,
-        units="IN",
+        units=Unit.INCH,
         raw=FULL_REPORT.decode("ascii"),
     )
 
@@ -300,7 +310,8 @@ def test_a_full_memory_report_is_read() -> None:
 def test_missing_memory_lines_read_as_none() -> None:
     report = parse_memory_report(b"INTERNAL MEMORY\r\n\x11LABEL SIZE: 1000:2000:MM\r\n")
     assert (report.version, report.installed_blocks, report.available_blocks) == (None, None, None)
-    assert (report.label_width, report.label_length, report.units) == (1000, 2000, "MM")
+    assert (report.label_width, report.label_length, report.units) == (1000, 2000, Unit.MM)
+    assert report.units is Unit.MM
     assert "\x11" not in report.raw
 
 
@@ -310,7 +321,7 @@ def test_missing_memory_lines_read_as_none() -> None:
     [
         (b"LABEL SIZE: 0410:0600:XX\r", (410, 600, None)),
         (b"LABEL SIZE: 0410:0600\r", (None, None, None)),
-        (b"LABEL SIZE: wide:0600:IN\r", (None, 600, "IN")),
+        (b"LABEL SIZE: wide:0600:IN\r", (None, 600, Unit.INCH)),
         (b"LABEL SIZE: 0410:0600:IN:EXTRA\r", (None, None, None)),
     ],
 )

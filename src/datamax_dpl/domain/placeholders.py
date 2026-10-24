@@ -72,15 +72,23 @@ def fill_label(label: Label, record: Mapping[str, str]) -> Label:
         MissingFieldError: A placeholder has no value in ``record``.
         pydantic.ValidationError: A filled field breaks the label model's limits.
     """
+    # Every element is filled before anything is validated, so a missing field is reported
+    # ahead of a field that filling made too long, whichever element comes first. The label
+    # models set revalidate_instances, which is what makes this model_validate re-check the copy.
     elements = [_fill_element(element, record) for element in label.elements]
-    return Label.model_validate({**label.model_dump(), "elements": [e.model_dump() for e in elements]})
+    return Label.model_validate(label.model_copy(update={"elements": elements}))
 
 
 def label_placeholders(label: Label) -> list[str]:
     """Return every distinct placeholder name the label uses, in first-seen order."""
     names: list[str] = []
     for element in label.elements:
-        text = element.data if isinstance(element, Barcode) else getattr(element, "text", "")
+        if isinstance(element, Barcode):
+            text = element.data
+        elif isinstance(element, (Text, ScalableText)):
+            text = element.text
+        else:
+            continue
         names.extend(n for n in placeholders_in(text) if n not in names)
     return names
 

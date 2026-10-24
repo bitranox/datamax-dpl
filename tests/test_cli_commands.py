@@ -214,6 +214,17 @@ def test_explain_reads_a_dpl_file(cli_runner: CliRunner, tmp_path: Path) -> None
 
 
 @pytest.mark.os_agnostic
+def test_explain_reports_an_unreadable_setting_as_a_problem_and_exits_1(cli_runner: CliRunner, tmp_path: Path) -> None:
+    job = tmp_path / "job.dpl"
+    job.write_bytes(b"\x02L\rQab12\r121100000500025Hi\rE\r")
+    result = run(cli_runner, ["--json", "explain", str(job)])
+    document = envelope(result)
+    assert (result.exit_code, document["ok"]) == (1, False), result.output
+    assert document["data"]["problems"] == ["Qab12: ValueError"]
+    assert document["data"]["label"]["elements"][0]["text"] == "Hi"
+
+
+@pytest.mark.os_agnostic
 def test_schema_describes_the_label_document(cli_runner: CliRunner) -> None:
     schema = envelope(run(cli_runner, ["--json", "schema"]))["data"]["label_schema"]
     assert "elements" in schema["properties"]
@@ -225,6 +236,17 @@ def test_capabilities_name_firmware_gates(cli_runner: CliRunner) -> None:
     features = envelope(run(cli_runner, ["--json", "capabilities", "dmx-400"]))["data"]["features"]
     assert features["circle_polygon"] == "fw 2.01"
     assert features["mirror"] == "no"
+
+
+@pytest.mark.os_agnostic
+def test_capabilities_human_output_has_a_row_for_every_json_field(cli_runner: CliRunner) -> None:
+    # The human rows are listed by hand; this keeps a field added to the payload from showing up
+    # in --json only.
+    data = envelope(run(cli_runner, ["--json", "capabilities", "dmx-400"]))["data"]
+    lines = run(cli_runner, ["capabilities", "dmx-400"]).output.splitlines()
+    fields = [key for key in data if key != "features"]
+    assert [line.split()[0] for line in lines[: len(fields)]] == fields
+    assert [line.split()[0] for line in lines[len(fields) :]] == list(data["features"])
 
 
 @pytest.mark.os_agnostic
@@ -266,6 +288,16 @@ def test_verify_prints_waits_photographs_and_writes_the_expected_preview(cli_run
     assert data["status"]["busy_printing"] is False
     assert camera.calls == 1
     assert (tmp_path / data["expected"]).read_bytes().startswith(b"\x89PNG")
+
+
+@pytest.mark.os_agnostic
+def test_verify_reads_a_label_from_stdin_once(cli_runner: CliRunner, tmp_path: Path) -> None:
+    # stdin can be read only once: a second load of LABEL '-' would see an empty stream.
+    printer = RecordingPrinter(answers={b"\x01A": IDLE})
+    args = ["--json", "--set", "camera.kind=file", "verify", "-", "--printer", PRINTER, "--output-dir", str(tmp_path)]
+    result = cli_runner.invoke(cli_mod.cli, args, obj=factory(printer, FakeCamera()), input=json.dumps(SIMPLE))
+    assert result.exit_code == 0, result.output
+    assert printer.data.startswith(render(Label.model_validate(SIMPLE), RenderOptions()).data)
 
 
 @pytest.mark.os_agnostic

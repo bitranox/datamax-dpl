@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Any
 
 import rich_click as click
 
-from ....domain.enums import FallbackPolicy
+from ....domain.enums import CutterPresence, FallbackPolicy, HardwareOption
 from ....domain.errors import ConfigurationError
 from ..settings import PrinterOverrides, PrinterSettings, printer_settings
 from ..typed_click import option
@@ -31,7 +31,7 @@ _RENDER_OPTIONS: tuple[_Decorator, ...] = (
     option("--option", "options", multiple=True, help="Installed printer option, e.g. datamatrix (repeatable)."),
     option(
         "--cutter",
-        type=click.Choice(["yes", "no", "unknown"]),
+        type=click.Choice([c.value for c in CutterPresence]),
         default=None,
         help="Whether the printer has a working cutter; default [printer] cutter.",
     ),
@@ -72,9 +72,52 @@ def loaded_config(cli_ctx: CLIContext) -> Config:
 def resolve_settings(cli_ctx: CLIContext, **given: Any) -> PrinterSettings:
     """Merge the ``[printer]`` configuration with the options this command was given."""
     config = loaded_config(cli_ctx)
-    known = {key: given.get(key) for key in ("model", "firmware", "uri", "policy", "timeout", "cutter")}
-    overrides = PrinterOverrides(**known, options=tuple(given.get("options") or ()))
+    # The click options are this command's raw input, so they are validated whole: the model's
+    # extra="forbid" refuses an option name it does not know, where picking known names out of
+    # ``given`` would silently drop a renamed one. ``--option`` is read first so an unknown value
+    # is refused as a configuration error (see hardware_options).
+    options = hardware_options(given.get("options") or ())
+    overrides = PrinterOverrides.model_validate({**given, "options": options})
     return printer_settings(config, overrides)
 
 
-__all__ = ["loaded_config", "printer_options_decorator", "render_options_decorator", "resolve_settings"]
+def hardware_options(values: Iterable[str]) -> frozenset[HardwareOption]:
+    """Read the ``--option`` values, refusing one this package does not know.
+
+    The refusal is a configuration error rather than a click usage error so that it reaches the
+    caller in the output shape it asked for (a JSON envelope under ``--json``), the same way an
+    unknown ``[printer] options`` entry does.
+
+    Raises:
+        ConfigurationError: A value names no :class:`HardwareOption`.
+
+    Example:
+        >>> sorted(o.value for o in hardware_options(["datamatrix"]))
+        ['datamatrix']
+        >>> hardware_options(["laser"])
+        Traceback (most recent call last):
+        ...
+        datamax_dpl.domain.errors.ConfigurationError: --option: Input should be 'datamatrix', got 'laser'
+    """
+    given = tuple(values)
+    known = {member.value: member for member in HardwareOption}
+    unknown = [value for value in given if value not in known]
+    if unknown:
+        msg = f"--option: Input should be {_alternatives(list(known))}, got {unknown[0]!r}"
+        raise ConfigurationError(msg)
+    return frozenset(known[value] for value in given)
+
+
+def _alternatives(values: list[str]) -> str:
+    """Quote and join ``values`` the way pydantic lists an enum's members: 'a', 'b' or 'c'."""
+    quoted = [repr(value) for value in values]
+    return quoted[0] if len(quoted) == 1 else f"{', '.join(quoted[:-1])} or {quoted[-1]}"
+
+
+__all__ = [
+    "hardware_options",
+    "loaded_config",
+    "printer_options_decorator",
+    "render_options_decorator",
+    "resolve_settings",
+]

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
+from .enums import Unit
 from .profiles import MODEL_PROFILES, PrinterProfile
 from .status import MemoryReport
 
@@ -63,7 +64,7 @@ class Detection(BaseModel):
 def _width_inches(memory: MemoryReport) -> float | None:
     if memory.label_width is None:
         return None
-    per_inch = _MM_TENTHS_PER_INCH if memory.units == "MM" else _HUNDREDTHS
+    per_inch = _MM_TENTHS_PER_INCH if memory.units is Unit.MM else _HUNDREDTHS
     return memory.label_width / per_inch
 
 

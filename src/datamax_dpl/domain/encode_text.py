@@ -13,6 +13,7 @@ from .encode_common import (
     counter_lines,
     row_of,
 )
+from .enums import FindingCode
 from .label import FONT_9, ScalableText, Text
 from .profiles import OLD_SERIES_POINTS, Feature
 from .records import Header, line
@@ -44,7 +45,7 @@ def font9_size(points: int, *, index: int, ctx: RenderContext) -> str:
         return code
     nearest = min(_available_points(ctx), key=lambda p: (abs(p - points), p))
     ctx.findings.deviate(
-        "font_size_substituted",
+        FindingCode.FONT_SIZE_SUBSTITUTED,
         f"{ctx.profile.name} has no {points} pt size of font 9",
         fallback=f"printed at {nearest} pt",
         element=index,
@@ -58,7 +59,7 @@ def _report_unmappable(encoded: EncodedText, *, index: int, ctx: RenderContext, 
         return
     shown = " ".join(f"U+{ord(c):04X}" for c in encoded.unmappable)
     ctx.findings.deviate(
-        "characters_unmappable",
+        FindingCode.CHARACTERS_UNMAPPABLE,
         f"{font} cannot print {shown}",
         fallback="each replaced by '?'",
         element=index,
@@ -72,7 +73,7 @@ def encode_text(element: Text, *, index: int, ctx: RenderContext) -> list[bytes]
         size = element.font_id or font9_size(element.points or _MIN_POINTS, index=index, ctx=ctx)
     encoded = encode_for_bitmapped_font(element.text, font=element.font)
     if element.font in CAPITALS_ONLY_FONTS and element.text != element.text.upper():
-        ctx.findings.info("text_uppercased", f"font {element.font} prints capitals only", element=index)
+        ctx.findings.info(FindingCode.TEXT_UPPERCASED, f"font {element.font} prints capitals only", element=index)
     _report_unmappable(encoded, index=index, ctx=ctx, font=f"font {element.font}")
     check_field_length(len(encoded.data), index=index, ctx=ctx)
     head = Header(
@@ -108,7 +109,7 @@ def encode_scalable_text(element: ScalableText, *, index: int, ctx: RenderContex
     """Return the format lines of a scalable-font field, or its font 9 fallback."""
     if not ctx.supports(Feature.SCALABLE_FONTS):
         ctx.findings.deviate(
-            "scalable_font_unsupported",
+            FindingCode.SCALABLE_FONT_UNSUPPORTED,
             f"scalable fonts: {ctx.requirement(Feature.SCALABLE_FONTS)}",
             fallback="printed in font 9 at the nearest point size",
             element=index,

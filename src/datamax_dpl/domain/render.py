@@ -11,7 +11,6 @@ one is needed.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
@@ -19,10 +18,11 @@ from pydantic import BaseModel, ConfigDict
 from .encode_barcode import encode_barcode
 from .encode_graphics import encode_box, encode_circle, encode_image, encode_line, encode_polygon
 from .encode_text import encode_scalable_text, encode_text
-from .enums import Attribute, Severity, Unit
+from .enums import Attribute, FindingCode, Severity, Unit
 from .errors import LabelRejectedError
 from .findings import Finding, FindingCollector
 from .job import format_footer, format_header, system_prefix
+from .label import Barcode, Box, Circle, Image, Line, Polygon, ScalableText, Text
 from .placeholders import label_placeholders
 from .profiles import Feature, get_profile, parse_firmware
 from .render_context import RenderContext, RenderOptions
@@ -32,19 +32,6 @@ if TYPE_CHECKING:
     from .label import Element, Label
 
 _RECORD_PREFIXES = tuple("1234")
-
-Encoder = Callable[..., list[bytes]]
-
-_ENCODERS: dict[str, Encoder] = {
-    "text": encode_text,
-    "scalable_text": encode_scalable_text,
-    "barcode": encode_barcode,
-    "line": encode_line,
-    "box": encode_box,
-    "circle": encode_circle,
-    "polygon": encode_polygon,
-    "image": encode_image,
-}
 
 
 class RenderResult(BaseModel):
@@ -107,7 +94,9 @@ def _context(label: Label, options: RenderOptions) -> RenderContext:
     if label.unit is Unit.MM and probe.supports(Feature.FORMAT_METRIC):
         probe.dpl_unit = DplUnit.MM_TENTHS
     elif label.unit is Unit.MM:
-        findings.info("inch_units", f"{profile.name} formats take inches; millimetres are rounded to 1/100 in")
+        findings.info(
+            FindingCode.INCH_UNITS, f"{profile.name} formats take inches; millimetres are rounded to 1/100 in"
+        )
     return probe
 
 
@@ -115,18 +104,45 @@ def _check_label_level(label: Label, ctx: RenderContext, *, filled: bool) -> Non
     # A filled record's remaining braces are literal text that came from {{ }}, not placeholders.
     unfilled = [] if filled else label_placeholders(label)
     if unfilled:
-        ctx.findings.warn("placeholders_unfilled", f"placeholders without data: {', '.join(unfilled)}")
+        ctx.findings.warn(FindingCode.PLACEHOLDERS_UNFILLED, f"placeholders without data: {', '.join(unfilled)}")
     if label.width is not None and ctx.inch_hundredths(label.width) > round(ctx.profile.print_width_in * 100):
         ctx.findings.warn(
-            "label_wider_than_print_width",
+            FindingCode.LABEL_WIDER_THAN_PRINT_WIDTH,
             f"label is wider than the {ctx.profile.print_width_in} in printable width of {ctx.profile.name}",
         )
+
+
+def _encode_element(element: Element, *, index: int, ctx: RenderContext) -> list[bytes]:
+    """Dispatch ``element`` to its encoder.
+
+    A match on the class rather than a table keyed by ``element.type``: pyright narrows the union
+    in each case, so every encoder is checked against its own element type, and ``lines`` reads
+    as possibly unbound the moment a new element type has no case.
+    """
+    match element:
+        case Text():
+            lines = encode_text(element, index=index, ctx=ctx)
+        case ScalableText():
+            lines = encode_scalable_text(element, index=index, ctx=ctx)
+        case Barcode():
+            lines = encode_barcode(element, index=index, ctx=ctx)
+        case Line():
+            lines = encode_line(element, index=index, ctx=ctx)
+        case Box():
+            lines = encode_box(element, index=index, ctx=ctx)
+        case Circle():
+            lines = encode_circle(element, index=index, ctx=ctx)
+        case Polygon():
+            lines = encode_polygon(element, index=index, ctx=ctx)
+        case Image():
+            lines = encode_image(element, index=index, ctx=ctx)
+    return lines
 
 
 def _encode_elements(elements: list[Element], ctx: RenderContext) -> list[bytes]:
     lines: list[bytes] = []
     for index, element in enumerate(elements):
-        lines.extend(_ENCODERS[element.type](element, index=index, ctx=ctx))
+        lines.extend(_encode_element(element, index=index, ctx=ctx))
     return lines
 
 
@@ -149,11 +165,12 @@ def build_job(label: Label, options: RenderOptions | None = None, *, filled: boo
     record_count = _count_records(body)
     if record_count > ctx.profile.max_fields:
         ctx.findings.refuse(
-            "too_many_fields", f"{record_count} fields; {ctx.profile.name} takes at most {ctx.profile.max_fields}"
+            FindingCode.TOO_MANY_FIELDS,
+            f"{record_count} fields; {ctx.profile.name} takes at most {ctx.profile.max_fields}",
         )
     head = format_header(label, ctx)
     foot = format_footer(label, ctx)
-    downloads = list(ctx.system_prefix)
+    downloads = [download.command for download in ctx.downloads]
     data = b"".join([*prefix, *downloads, *head, *body, *foot, *ctx.system_suffix])
     return RenderResult(
         data=data,
@@ -161,14 +178,8 @@ def build_job(label: Label, options: RenderOptions | None = None, *, filled: boo
         model=ctx.profile.id,
         dpl_unit=ctx.dpl_unit,
         record_count=record_count,
-        downloads=tuple(_download_name(cmd) for cmd in downloads),
+        downloads=tuple(download.name for download in ctx.downloads),
     )
-
-
-def _download_name(command: bytes) -> str:
-    """Name in an ``<STX>IAAF<name><CR>`` download command."""
-    header_end = command.index(b"\r")
-    return command[5:header_end].decode("ascii")
 
 
 def render(label: Label, options: RenderOptions | None = None) -> RenderResult:

@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
-from .enums import SpeedCode
+from .enums import HardwareOption, ModelFamily, SpeedCode
 
 
 class Feature(str, Enum):
@@ -66,13 +66,13 @@ class Support:
     Attributes:
         available: The model has the feature at all.
         min_firmware: Lowest firmware ``(major, minor)`` that has it, or None for every firmware.
-        option: Name of a hardware option the printer must have installed (``datamatrix``).
+        option: Hardware option the printer must have installed, or None.
         source: Whether the manual says so or a test print measured it.
     """
 
     available: bool
     min_firmware: Firmware | None = None
-    option: str | None = None
+    option: HardwareOption | None = None
     source: Source = Source.MANUAL
 
     def describe(self) -> str:
@@ -87,7 +87,7 @@ class Support:
         if self.min_firmware is not None:
             return f"fw {self.min_firmware[0]}.{self.min_firmware[1]:02d}"
         if self.option is not None:
-            return f"option {self.option}"
+            return f"option {self.option.value}"
         return "yes"
 
 
@@ -100,7 +100,7 @@ def from_firmware(major: int, minor: int) -> Support:
     return Support(available=True, min_firmware=(major, minor))
 
 
-DATAMATRIX_OPTION = Support(available=True, option="datamatrix")
+DATAMATRIX_OPTION = Support(available=True, option=HardwareOption.DATAMATRIX)
 
 
 @dataclass(frozen=True)
@@ -191,8 +191,8 @@ _ALL_FEATURES_YES: dict[Feature, Support] = dict.fromkeys(Feature, YES) | {
     Feature.DATAMATRIX: DATAMATRIX_OPTION,
 }
 
-_FAMILY_FEATURES: dict[str, dict[Feature, Support]] = {
-    "allegro": _ALL_FEATURES_YES
+_FAMILY_FEATURES: dict[ModelFamily, dict[Feature, Support]] = {
+    ModelFamily.ALLEGRO: _ALL_FEATURES_YES
     | {
         Feature.ATTRIBUTE: NO,
         Feature.MIRROR: NO,
@@ -204,14 +204,14 @@ _FAMILY_FEATURES: dict[str, dict[Feature, Support]] = {
         Feature.EXTENDED_BARCODES: NO,
         Feature.PDF417: from_firmware(3, 20),
     },
-    "prodigy": dict.fromkeys(Feature, NO)
+    ModelFamily.PRODIGY: dict.fromkeys(Feature, NO)
     | {
         Feature.CUTTER_PULSE: YES,
         Feature.DEFAULT_BAR_WIDTHS: YES,
         Feature.PDF417: from_firmware(3, 20),
         Feature.DATAMATRIX: DATAMATRIX_OPTION,
     },
-    "prodigy-plus": _ALL_FEATURES_YES
+    ModelFamily.PRODIGY_PLUS: _ALL_FEATURES_YES
     | {
         Feature.CUT_NOW: from_firmware(1, 18),
         Feature.CUTTER_PULSE: YES,
@@ -225,15 +225,16 @@ _FAMILY_FEATURES: dict[str, dict[Feature, Support]] = {
         Feature.PDF417: from_firmware(3, 20),
         Feature.DEFAULT_BAR_WIDTHS: NO,
     },
-    "dmx-400": _ALL_FEATURES_YES
+    ModelFamily.DMX_400: _ALL_FEATURES_YES
     | {Feature.MIRROR: NO, Feature.CIRCLE_POLYGON: from_firmware(2, 1), Feature.SCALABLE_FONTS: NO},
-    "dmx-430": _ALL_FEATURES_YES | {Feature.MIRROR: NO, Feature.SCALABLE_FONTS: NO},
-    "dmx-600": _ALL_FEATURES_YES | {Feature.MIRROR: from_firmware(2, 1), Feature.SCALABLE_FONTS: from_firmware(2, 1)},
-    "dmx-800": _ALL_FEATURES_YES,
-    "max-pe": _ALL_FEATURES_YES,
-    "pe": _ALL_FEATURES_YES | {Feature.PRESENT_DISTANCE: YES},
-    "ovation": _ALL_FEATURES_YES | {Feature.PRESENT_DISTANCE: YES, Feature.SCALABLE_FONTS: NO},
-    "titan": _ALL_FEATURES_YES,
+    ModelFamily.DMX_430: _ALL_FEATURES_YES | {Feature.MIRROR: NO, Feature.SCALABLE_FONTS: NO},
+    ModelFamily.DMX_600: _ALL_FEATURES_YES
+    | {Feature.MIRROR: from_firmware(2, 1), Feature.SCALABLE_FONTS: from_firmware(2, 1)},
+    ModelFamily.DMX_800: _ALL_FEATURES_YES,
+    ModelFamily.MAX_PE: _ALL_FEATURES_YES,
+    ModelFamily.PE: _ALL_FEATURES_YES | {Feature.PRESENT_DISTANCE: YES},
+    ModelFamily.OVATION: _ALL_FEATURES_YES | {Feature.PRESENT_DISTANCE: YES, Feature.SCALABLE_FONTS: NO},
+    ModelFamily.TITAN: _ALL_FEATURES_YES,
 }
 
 # A72 exists on the DMX 600/800 only; PE42/PE43 and the Prodigy Max lack A04 and A05.
@@ -248,7 +249,7 @@ _OLD_NO_5PT = OLD_SERIES_POINTS[1:]
 class _Row:
     id: str
     name: str
-    family: str
+    family: ModelFamily
     dpi: float
     max_column: int
     width: float
@@ -261,16 +262,31 @@ class _Row:
 
 
 _ROWS: tuple[_Row, ...] = (
-    _Row("allegro", "Allegro", "allegro", 203, 410, 4.10, 200, 5000, 20, ("C C", "C C", "C C"), (), _OLD_NO_5PT),
     _Row(
-        "allegro-2", "Allegro 2", "allegro", 203, 410, 4.10, 200, 5000, 20, ("C-E C", "C-E C", "C-E C"), (), _OLD_NO_5PT
+        "allegro", "Allegro", ModelFamily.ALLEGRO, 203, 410, 4.10, 200, 5000, 20, ("C C", "C C", "C C"), (), _OLD_NO_5PT
     ),
-    _Row("prodigy", "Prodigy", "prodigy", 203, 410, 4.10, 100, 3000, 20, ("A-G E", "A-G G", None), ()),
-    _Row("prodigy-152", "Prodigy 152", "prodigy", 152, 410, 4.15, 100, 3000, 20, ("A-G E", "A-G G", None), ()),
+    _Row(
+        "allegro-2",
+        "Allegro 2",
+        ModelFamily.ALLEGRO,
+        203,
+        410,
+        4.10,
+        200,
+        5000,
+        20,
+        ("C-E C", "C-E C", "C-E C"),
+        (),
+        _OLD_NO_5PT,
+    ),
+    _Row("prodigy", "Prodigy", ModelFamily.PRODIGY, 203, 410, 4.10, 100, 3000, 20, ("A-G E", "A-G G", None), ()),
+    _Row(
+        "prodigy-152", "Prodigy 152", ModelFamily.PRODIGY, 152, 410, 4.15, 100, 3000, 20, ("A-G E", "A-G G", None), ()
+    ),
     _Row(
         "prodigy-plus",
         "Prodigy Plus",
-        "prodigy-plus",
+        ModelFamily.PRODIGY_PLUS,
         203,
         410,
         4.10,
@@ -284,7 +300,7 @@ _ROWS: tuple[_Row, ...] = (
     _Row(
         "prodigy-plus-152",
         "Prodigy Plus 152",
-        "prodigy-plus",
+        ModelFamily.PRODIGY_PLUS,
         152,
         410,
         4.21,
@@ -295,14 +311,50 @@ _ROWS: tuple[_Row, ...] = (
         (),
         _OLD_NO_5PT,
     ),
-    _Row("dmx-400", "DMX 400", "dmx-400", 203, 410, 4.10, 199, 5000, 20, ("C-G G", "C-I K", "C-I E"), ()),
-    _Row("dmx-430", "DMX 430", "dmx-430", 289.56, 398, 3.98, 399, 10000, 20, ("C-K G", "C-K K", "C-I E"), _A_FULL),
-    _Row("dmx-600", "DMX 600", "dmx-600", 300, 640, 6.40, 399, 10000, 20, ("C-O K", "C-S O", "C-I E"), A_SERIES_POINTS),
-    _Row("dmx-800", "DMX 800", "dmx-800", 300, 860, 8.53, 399, 10000, 20, ("C-I G", "C-K K", "C-I E"), A_SERIES_POINTS),
+    _Row("dmx-400", "DMX 400", ModelFamily.DMX_400, 203, 410, 4.10, 199, 5000, 20, ("C-G G", "C-I K", "C-I E"), ()),
+    _Row(
+        "dmx-430",
+        "DMX 430",
+        ModelFamily.DMX_430,
+        289.56,
+        398,
+        3.98,
+        399,
+        10000,
+        20,
+        ("C-K G", "C-K K", "C-I E"),
+        _A_FULL,
+    ),
+    _Row(
+        "dmx-600",
+        "DMX 600",
+        ModelFamily.DMX_600,
+        300,
+        640,
+        6.40,
+        399,
+        10000,
+        20,
+        ("C-O K", "C-S O", "C-I E"),
+        A_SERIES_POINTS,
+    ),
+    _Row(
+        "dmx-800",
+        "DMX 800",
+        ModelFamily.DMX_800,
+        300,
+        860,
+        8.53,
+        399,
+        10000,
+        20,
+        ("C-I G", "C-K K", "C-I E"),
+        A_SERIES_POINTS,
+    ),
     _Row(
         "prodigy-max-203",
         "Prodigy Max 203",
-        "max-pe",
+        ModelFamily.MAX_PE,
         203,
         410,
         4.10,
@@ -315,7 +367,7 @@ _ROWS: tuple[_Row, ...] = (
     _Row(
         "prodigy-max-300",
         "Prodigy Max 300",
-        "max-pe",
+        ModelFamily.MAX_PE,
         300,
         410,
         4.16,
@@ -325,12 +377,50 @@ _ROWS: tuple[_Row, ...] = (
         ("C-O K", "C-O O", "C-I E"),
         _A_NO_SMALL,
     ),
-    _Row("pe42", "PE42", "pe", 203, 410, 4.10, 319, 7000, 30, ("C-S K", "C-S O", "C-I E"), _A_NO_SMALL),
-    _Row("pe43", "PE43", "pe", 300, 410, 4.16, 319, 7000, 30, ("C-O K", "C-O M", "C-I E"), _A_NO_SMALL),
-    _Row("ovation", "Ovation!", "ovation", 203, 410, 4.10, 319, 7000, 30, ("A-C C", "A-C C", "A-C C"), _A_FULL),
-    _Row("ovation-300", "Ovation! 300", "ovation", 300, 410, 4.16, 319, 7000, 30, ("A-C C", "A-C C", "A-C C"), _A_FULL),
-    _Row("ovation-2", "Ovation 2", "ovation", 203, 425, 4.256, 319, 7000, 30, ("A-C C", "A-C C", "A-C C"), _A_FULL),
-    _Row("titan-6200", "Titan 6200", "titan", 203, 661, 6.62, 399, 10000, 30, ("C-K G", "C-K K", "C-G C"), _A_FULL),
+    _Row("pe42", "PE42", ModelFamily.PE, 203, 410, 4.10, 319, 7000, 30, ("C-S K", "C-S O", "C-I E"), _A_NO_SMALL),
+    _Row("pe43", "PE43", ModelFamily.PE, 300, 410, 4.16, 319, 7000, 30, ("C-O K", "C-O M", "C-I E"), _A_NO_SMALL),
+    _Row(
+        "ovation", "Ovation!", ModelFamily.OVATION, 203, 410, 4.10, 319, 7000, 30, ("A-C C", "A-C C", "A-C C"), _A_FULL
+    ),
+    _Row(
+        "ovation-300",
+        "Ovation! 300",
+        ModelFamily.OVATION,
+        300,
+        410,
+        4.16,
+        319,
+        7000,
+        30,
+        ("A-C C", "A-C C", "A-C C"),
+        _A_FULL,
+    ),
+    _Row(
+        "ovation-2",
+        "Ovation 2",
+        ModelFamily.OVATION,
+        203,
+        425,
+        4.256,
+        319,
+        7000,
+        30,
+        ("A-C C", "A-C C", "A-C C"),
+        _A_FULL,
+    ),
+    _Row(
+        "titan-6200",
+        "Titan 6200",
+        ModelFamily.TITAN,
+        203,
+        661,
+        6.62,
+        399,
+        10000,
+        30,
+        ("C-K G", "C-K K", "C-G C"),
+        _A_FULL,
+    ),
 )
 
 

@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import re
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from .enums import StatusProblem, Unit
 from .errors import PrinterProtocolError
 
 if TYPE_CHECKING:
@@ -97,6 +98,8 @@ _LINE_BREAK = re.compile(r"[\r\n]+")
 _MEMORY_HEADER = "INTERNAL MEMORY"
 _MEMORY_KEYS = frozenset({"VER", "INSTALLED", "AVAILABLE", "MODULE", "SCALABLE", "LABEL MEM", "LABEL SIZE"})
 _LABEL_SIZE_PARTS = 3
+#: The ``oo`` units code of ``LABEL SIZE`` as the printer writes it, and the unit it names.
+_LABEL_SIZE_UNITS: Mapping[str, Unit] = MappingProxyType({"IN": Unit.INCH, "MM": Unit.MM})
 
 
 class PrinterStatus(BaseModel, frozen=True, extra="forbid"):
@@ -104,8 +107,8 @@ class PrinterStatus(BaseModel, frozen=True, extra="forbid"):
 
     Example:
         >>> status = parse_ascii_status(b"NYNNNNNN\\r")
-        >>> status.paper_out, status.idle, status.problems
-        (True, True, ('paper_out',))
+        >>> status.paper_out, status.idle, [problem.value for problem in status.problems]
+        (True, True, ['paper_out'])
     """
 
     interpreter_busy: bool
@@ -116,16 +119,32 @@ class PrinterStatus(BaseModel, frozen=True, extra="forbid"):
     paused: bool
     label_presented: bool
 
+    def flags(self) -> tuple[tuple[str, bool], ...]:
+        """Each condition's name and whether it is set, in the order the printer reports them."""
+        return (
+            ("interpreter_busy", self.interpreter_busy),
+            ("paper_out", self.paper_out),
+            ("ribbon_out", self.ribbon_out),
+            ("printing_batch", self.printing_batch),
+            ("busy_printing", self.busy_printing),
+            ("paused", self.paused),
+            ("label_presented", self.label_presented),
+        )
+
     @property
     def idle(self) -> bool:
         """True when the printer is neither interpreting nor printing."""
         return not (self.busy_printing or self.printing_batch or self.interpreter_busy)
 
     @property
-    def problems(self) -> tuple[str, ...]:
-        """Names of the set conditions that need a person: ``paper_out``, ``ribbon_out``, ``paused``."""
-        flagged = (("paper_out", self.paper_out), ("ribbon_out", self.ribbon_out), ("paused", self.paused))
-        return tuple(name for name, is_set in flagged if is_set)
+    def problems(self) -> tuple[StatusProblem, ...]:
+        """The set conditions that need a person, in the order paper out, ribbon out, paused."""
+        flagged = (
+            (StatusProblem.PAPER_OUT, self.paper_out),
+            (StatusProblem.RIBBON_OUT, self.ribbon_out),
+            (StatusProblem.PAUSED, self.paused),
+        )
+        return tuple(problem for problem, is_set in flagged if is_set)
 
 
 class MemoryReport(BaseModel, frozen=True, extra="forbid"):
@@ -137,7 +156,7 @@ class MemoryReport(BaseModel, frozen=True, extra="forbid"):
         available_blocks: Number after ``AVAILABLE:``.
         label_width: ``wwww`` of ``LABEL SIZE: wwww:gggg:oo``.
         label_length: ``gggg`` of the same line.
-        units: ``oo`` of the same line when it is ``IN`` or ``MM``.
+        units: The unit ``oo`` of the same line names (``IN`` inches, ``MM`` millimetres), else None.
         raw: The whole answer as text, flow-control bytes removed.
     """
 
@@ -146,7 +165,7 @@ class MemoryReport(BaseModel, frozen=True, extra="forbid"):
     available_blocks: int | None
     label_width: int | None
     label_length: int | None
-    units: Literal["IN", "MM"] | None
+    units: Unit | None
     raw: str
 
 
@@ -279,7 +298,7 @@ def parse_memory_report(answer: bytes) -> MemoryReport:
     Example:
         >>> report = parse_memory_report(b"INTERNAL MEMORY\\rVER: 2.03\\rLABEL SIZE: 0400:0600:IN\\r")
         >>> report.version, report.label_width, report.label_length, report.units, report.available_blocks
-        ('2.03', 400, 600, 'IN', None)
+        ('2.03', 400, 600, <Unit.INCH: 'in'>, None)
     """
     raw = _drop_flow_control(answer).decode("ascii", errors="replace")
     fields = _memory_fields(raw)
@@ -338,17 +357,12 @@ def _memory_fields(raw: str) -> dict[str, str]:
     return fields
 
 
-def _label_size(value: str) -> tuple[int | None, int | None, Literal["IN", "MM"] | None]:
+def _label_size(value: str) -> tuple[int | None, int | None, Unit | None]:
     """Split ``wwww:gggg:oo`` into width, length and units; a malformed part reads as None."""
     parts = [part.strip() for part in value.split(":")]
     if len(parts) != _LABEL_SIZE_PARTS:
         return None, None, None
-    units: Literal["IN", "MM"] | None = None
-    if parts[2] == "IN":
-        units = "IN"
-    elif parts[2] == "MM":
-        units = "MM"
-    return _number(parts[0]), _number(parts[1]), units
+    return _number(parts[0]), _number(parts[1]), _LABEL_SIZE_UNITS.get(parts[2])
 
 
 def _number(text: str) -> int | None:

@@ -11,6 +11,7 @@ import pytest
 from datamax_dpl.adapters.camera import capture_image
 from datamax_dpl.adapters.camera.file import POLL_INTERVAL_SECONDS, capture_from_directory
 from datamax_dpl.domain.camera import CameraKind, CameraSettings
+from datamax_dpl.domain.enums import MediaType
 from datamax_dpl.domain.errors import CameraError
 
 if TYPE_CHECKING:
@@ -189,7 +190,7 @@ def test_capture_image_dispatches_to_the_folder_camera(tmp_path: Path) -> None:
 
     image = capture_image(_settings(watched), output_dir=tmp_path / "out")
 
-    assert image.media_type == "image/png"
+    assert image.media_type is MediaType.PNG
     assert image.path.parent == tmp_path / "out"
     assert image.path.read_bytes() == b"png bytes"
 

@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from ...domain.camera import CapturedImage
+from ...domain.enums import MediaType
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -59,7 +60,7 @@ class FakeCamera:
         >>> camera = FakeCamera()
         >>> with tempfile.TemporaryDirectory() as tmp:
         ...     image = camera(CameraSettings(), output_dir=Path(tmp))
-        ...     (image.path.name, image.media_type, image.path.read_bytes() == TINY_PNG)
+        ...     (image.path.name, image.media_type.value, image.path.read_bytes() == TINY_PNG)
         ('capture-0001.png', 'image/png', True)
         >>> camera.calls
         1
@@ -75,9 +76,9 @@ class FakeCamera:
             ValueError: ``payload`` starts with neither the PNG nor the JPEG signature.
         """
         if payload.startswith(PNG_SIGNATURE):
-            self._extension, self._media_type = ".png", "image/png"
+            self._extension, self._media_type = ".png", MediaType.PNG
         elif payload.startswith(JPEG_SIGNATURE):
-            self._extension, self._media_type = ".jpg", "image/jpeg"
+            self._extension, self._media_type = ".jpg", MediaType.JPEG
         else:
             raise ValueError("FakeCamera payload must be PNG or JPEG bytes")
         self._payload = payload
