@@ -43,7 +43,8 @@ class VerifyReport(BaseModel):
         expected_png: Preview of the label at printer resolution, as PNG bytes.
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    # PNG bytes are never UTF-8, so JSON carries them as base64.
+    model_config = ConfigDict(frozen=True, extra="forbid", ser_json_bytes="base64", val_json_bytes="base64")
 
     bytes_sent: int
     status: PrinterStatus | None

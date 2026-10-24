@@ -89,7 +89,7 @@ SYMBOL_SET_CODECS: dict[str, str] = {
 }
 
 
-class EncodedText(BaseModel, frozen=True, extra="forbid"):
+class EncodedText(BaseModel, frozen=True, extra="forbid", ser_json_bytes="base64", val_json_bytes="base64"):
     """Bytes ready for a DPL record, plus the characters the font could not print.
 
     Attributes:

@@ -52,7 +52,9 @@ class RenderResult(BaseModel):
         (True, True)
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    # A job is not UTF-8 (charset-mapped text, image records): pydantic's default JSON form for
+    # bytes is a UTF-8 string and raises on the first umlaut, so the bytes travel as base64.
+    model_config = ConfigDict(frozen=True, extra="forbid", ser_json_bytes="base64", val_json_bytes="base64")
 
     data: bytes
     findings: tuple[Finding, ...]

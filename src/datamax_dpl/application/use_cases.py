@@ -53,7 +53,8 @@ class BatchResult(BaseModel):
         batch_findings: Findings about the batch as a whole (cutting across records).
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    # Base64 in JSON for the same reason as RenderResult: the joined jobs are not UTF-8.
+    model_config = ConfigDict(frozen=True, extra="forbid", ser_json_bytes="base64", val_json_bytes="base64")
 
     data: bytes
     results: tuple[RenderResult, ...]

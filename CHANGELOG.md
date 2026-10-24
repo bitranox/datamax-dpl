@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-25
+
+### Fixed
+
+- Library: `RenderResult.model_dump_json()` and `BatchResult.model_dump_json()`
+  raised `PydanticSerializationError` on any job that is not valid UTF-8, which
+  includes plain text with an umlaut (`Größe` is written as `Gr\x94\xe1e`). The
+  job bytes are now written to JSON as base64 and read back from it the same
+  way. The CLI's own JSON output is unchanged.
+
 ## [0.2.0] - 2026-10-24
 
 ### Added
