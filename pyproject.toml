@@ -10,7 +10,7 @@ dependencies = [
     "click>=8.5.0",
     "lib_cli_exit_tools>=2.4.1",
     # 6.4.2: validate_config, the check config --profile runs, refuses exactly what init() refuses.
-    "lib_log_rich>=6.5.7",
+    "lib_log_rich>=7.0.1",
     "python-dotenv>=1.2.4",
     "lib_layered_config>=7.3.0",
     "pydantic>=2.14.1",
@@ -185,12 +185,14 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 typeCheckingMode = "strict"
 extraPaths = [
   "src",
+  "tests",
 ]
+executionEnvironments = [{root = "tests"}]
 
 [tool.pytest.ini_options]
 addopts = ["--doctest-modules"]
 doctest_optionflags = ["ELLIPSIS", "NORMALIZE_WHITESPACE"]
-pythonpath = ["src"]
+pythonpath = ["src", "tests"]
 markers = [
   "os_agnostic: test runs on every supported operating system",
   "os_windows: test exercises Windows-only behavior",
@@ -201,6 +203,7 @@ markers = [
   "integration: tests requiring external resources (a real printer, camera or network); run via 'bmk ti'",
 ]
 timeout = 300 # a hung test fails with a stack dump instead of holding a CI runner for hours
+testpaths = ["src", "tests"]
 
 [tool.coverage.run]
 branch = true

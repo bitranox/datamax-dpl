@@ -14,7 +14,7 @@ import sys
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from conftest import SYSTEM_LAYER_ROOT_VARIABLES
+from layer_roots import SYSTEM_LAYER_ROOT_VARIABLES
 from lib_layered_config import Config
 
 from datamax_dpl import __init__conf__

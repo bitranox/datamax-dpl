@@ -36,9 +36,9 @@ def _load_dotenv(tmp_path: Path, line: str) -> Config:
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("key", ["SERVICE", "ENVIRONMENT"])
 def test_a_digit_only_logging_name_reaches_lib_log_rich_as_its_text(
-    user_layer_in_tmp_path: Path, clear_config_cache: None, key: str
+    tmp_path: Path, clear_config_cache: None, key: str
 ) -> None:
-    config = _load_dotenv(user_layer_in_tmp_path, f"LIB_LOG_RICH__{key}=4711")
+    config = _load_dotenv(tmp_path, f"LIB_LOG_RICH__{key}=4711")
     # Premise: the library hands the value over as a number. Without it the test proves nothing.
     assert isinstance(config.get("lib_log_rich", {})[key.lower()], int)
 
@@ -48,8 +48,8 @@ def test_a_digit_only_logging_name_reaches_lib_log_rich_as_its_text(
 
 
 @pytest.mark.os_agnostic
-def test_an_invalid_logging_value_is_still_refused(user_layer_in_tmp_path: Path, clear_config_cache: None) -> None:
-    config = _load_dotenv(user_layer_in_tmp_path, "LIB_LOG_RICH__SERVICE=[1, 2]")
+def test_an_invalid_logging_value_is_still_refused(tmp_path: Path, clear_config_cache: None) -> None:
+    config = _load_dotenv(tmp_path, "LIB_LOG_RICH__SERVICE=[1, 2]")
 
     with pytest.raises(ValidationError):
         _build_runtime_config(config)
