@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The test suite no longer reads the app and host configuration layers of the
+  machine it runs on. An autouse fixture points lib_layered_config's three
+  app-root variables (`LIB_LAYERED_CONFIG_ETC`, `_MAC_APP_ROOT`, `_PROGRAMDATA`)
+  at an empty directory under `tmp_path`, so a system-wide deploy (for example a
+  `/etc/xdg/<slug>/config.d/99-*.toml`) can no longer fail tests locally while
+  CI stays green. The subprocess tests in `test_display.py` and
+  `test_logging_dotenv_isolation.py` dropped every `LIB_LAYERED_CONFIG*`
+  variable and so read the real system layers; they now keep the redirect.
+
 ## [0.2.1] - 2026-10-25
 
 ### Fixed

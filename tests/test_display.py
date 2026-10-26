@@ -14,6 +14,7 @@ import sys
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from conftest import SYSTEM_LAYER_ROOT_VARIABLES
 from lib_layered_config import Config
 
 from datamax_dpl import __init__conf__
@@ -136,9 +137,14 @@ _PREFIX = __init__conf__.LAYEREDCONF_SLUG.upper().replace("-", "_")
 _HOMES = ("HOME", "USERPROFILE", "XDG_CONFIG_HOME", "APPDATA", "LOCALAPPDATA")
 
 
+def _inherited(name: str) -> bool:
+    """Keep the system-layer redirect the autouse fixture set; drop the developer's own config variables."""
+    return name in SYSTEM_LAYER_ROOT_VARIABLES or not name.startswith((_PREFIX, "LOG_", "LIB_LAYERED_CONFIG"))
+
+
 def _config_json(tmp_path: Path, *options: str) -> dict[str, Any]:
     """Run the real ``config --format json`` with every configuration location under ``tmp_path``."""
-    env = {k: v for k, v in os.environ.items() if not k.startswith((_PREFIX, "LOG_", "LIB_LAYERED_CONFIG"))}
+    env = {k: v for k, v in os.environ.items() if _inherited(k)}
     env.update(dict.fromkeys(_HOMES, str(tmp_path)))
     completed = subprocess.run(  # noqa: S603 - fixed argv: this interpreter running this package
         [sys.executable, "-m", "datamax_dpl", *options, "config", "--format", "json"],
@@ -184,3 +190,15 @@ def test_config_shows_the_shipped_scrub_patterns_but_hides_an_added_one(tmp_path
 
     assert _value(shown, f"lib_log_rich.scrub_patterns.{field}") == ".+"
     assert _value(shown, "lib_log_rich.scrub_patterns.api_key") == "***REDACTED***"
+
+
+@pytest.mark.os_agnostic
+def test_config_in_a_subprocess_reads_the_redirected_app_layer_not_the_host_s(
+    tmp_path: Path, app_layer_config_file: Path
+) -> None:
+    """The subprocess keeps the conftest's system-layer redirect while dropping the developer's variables."""
+    app_layer_config_file.write_text('[layer_isolation_probe]\nread_from = "redirected app layer"\n', encoding="utf-8")
+
+    shown = _config_json(tmp_path)
+
+    assert _value(shown, "layer_isolation_probe.read_from") == "redirected app layer"
