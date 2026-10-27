@@ -10,7 +10,7 @@ dependencies = [
     "click>=8.5.0",
     "lib_cli_exit_tools>=2.4.1",
     # 6.4.2: validate_config, the check config --profile runs, refuses exactly what init() refuses.
-    "lib_log_rich>=7.0.1",
+    "lib_log_rich>=8.0.3",
     "python-dotenv>=1.2.4",
     "lib_layered_config>=7.3.0",
     "pydantic>=2.14.1",
@@ -54,6 +54,7 @@ dev = [
   "pillow>=13.0.0; python_version >= '3.11'",
   "pytest>=9.1.1",
   "pytest-cov>=7.1.0",
+  "pytest-xdist>=3.8.0",
   "pytest-timeout>=2.4.0",
   "hypothesis>=6.168.5",
   "ruff>=0.17.1",
@@ -299,4 +300,4 @@ ignores = ["E003"]
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = {lib-cli-exit-tools = false, lib-layered-config = false, lib-log-rich = false, certifi = "2026-10-20T02:24:17Z" }
+exclude-newer-package = {lib-cli-exit-tools = false, lib-layered-config = false, lib-log-rich = false}
