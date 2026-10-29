@@ -219,10 +219,9 @@ def _cut_lines(label: Label, ctx: RenderContext) -> list[bytes]:
 def format_header(label: Label, ctx: RenderContext) -> list[bytes]:
     """Return ``<STX>L`` and the format settings that precede the records."""
     unit_line = [line("m" if ctx.dpl_unit is DplUnit.MM_TENTHS else "n")] if ctx.supports(Feature.FORMAT_METRIC) else []
-    dot_size = [line(f"D{label.dot_size.width}{label.dot_size.height}")] if label.dot_size else []
     settings = (
         unit_line
-        + dot_size
+        + _dot_size_lines(label, ctx)
         + _heat_line(label, ctx)
         + _speed_lines(label, ctx)
         + _offset_lines(label, ctx)
@@ -232,6 +231,20 @@ def format_header(label: Label, ctx: RenderContext) -> list[bytes]:
     )
     extras = ([line("z")] if label.plain_zero else []) + ([line(f"^{label.count_by:02d}")] if label.count_by else [])
     return [line(STX + b"L"), *settings, *extras]
+
+
+def _dot_size_lines(label: Label, ctx: RenderContext) -> list[bytes]:
+    """Return the ``Dwh`` line: the label's own dot size, else ``D11`` where the default is larger.
+
+    Everything the library measures in dots (images, barcode modules, preview, validation) counts
+    one dot as one printhead dot, which holds only at ``D11``; most models default to ``D22`` and
+    print every dot as 2x2 (measured on an Allegro 2).
+    """
+    if label.dot_size:
+        return [line(f"D{label.dot_size.width}{label.dot_size.height}")]
+    if ctx.profile.default_dot_size != (1, 1):
+        return [line("D11")]
+    return []
 
 
 def _check_cutter(label: Label, ctx: RenderContext) -> None:

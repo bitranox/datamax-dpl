@@ -102,7 +102,8 @@ whose slew range ends at K is clamped by the range.
 ```
 [system commands]          e.g. <STX>m, <STX>V, <STX>Kf0100, <STX>f230
 <STX>L<CR>                 enter label formatting
-Dwh<CR>                    dot size (D11, D22 ...)
+Dwh<CR>                    dot size (D11, D22 ...); sent as D11 when the label sets none
+                           and the model's default is D22
 Hnn<CR> Pa<CR> Sa<CR> pa<CR> Cnnnn<CR> Rnnnn<CR> An<CR> M<CR> m<CR> ySxx<CR> :nnnn<CR> / cnn<CR> z<CR>
 <records>...               one per line, each ending in <CR>
 Qnnnn<CR>                  quantity

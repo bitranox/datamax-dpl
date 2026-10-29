@@ -52,7 +52,8 @@ printer unreachable, broken config).
 ```
 
 - Lengths are in `unit` (mm by default); `narrow_dots`/`wide_dots` are printer dots
-  (`capabilities MODEL` gives the dpi). Barcodes print their text line unless
+  (`capabilities MODEL` gives the dpi); one label dot is one printhead dot, because the
+  format sends `D11` unless the label sets `dot_size`. Barcodes print their text line unless
   `"human_readable": false`.
 - **y counts from the BOTTOM edge**, x from the left; a field's reference point is its
   lower-left corner (a circle's is its centre). "At the top" means a HIGH `y`.

@@ -52,7 +52,7 @@ formats reports the info finding `inch_units`. Check placement without paper wit
 | `print_speed`       | letter `A`-`S`                         | none    | Print speed (`Pa`): `A` = 1.0 inch per second, each letter 0.5 more, `S` = 10.0.                      |
 | `slew_speed`        | letter `A`-`S`                         | none    | Feed speed without printing (`Sa`).                                                                   |
 | `backup_speed`      | letter `A`-`S`                         | none    | Backfeed speed (`pa`).                                                                                |
-| `dot_size`          | object `{"width": 1-2, "height": 1-3}` | none    | Dot size command `Dwh`; the printer default is `D22`.                                                 |
+| `dot_size`          | object `{"width": 1-2, "height": 1-3}` | none    | Dot size command `Dwh`. Without it the format sends `D11` where the model's default is `D22`.         |
 | `column_offset`     | number >= 0                            | none    | Shift every field to the right (`Cnnnn`).                                                             |
 | `row_offset`        | number >= 0                            | none    | Shift every field up (`Rnnnn`).                                                                       |
 | `attribute`         | 1, 2, 3, 5                             | none    | How fields combine with what is already printed: 1 XOR, 2 transparent, 3 opaque, 5 inverse (`An`).    |

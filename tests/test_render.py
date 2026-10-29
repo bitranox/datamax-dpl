@@ -192,3 +192,35 @@ def test_downloads_list_stored_and_rasterized_images_in_the_order_they_are_sent(
     assert result.data.index(STX + b"IAAFLOGO_1\r") < result.data.index(STX + b"IAAFDPLR0001\r")
     assert result.data.index(STX + b"IAAFDPLR0001\r") < result.data.index(STX + b"L\r")
     assert STX + b"IAAFSTORED\r" not in result.data
+
+
+# ======================== dot size ========================
+
+
+def _format_lines(label: Label, model: str) -> list[bytes]:
+    data = build_job(label, RenderOptions(model=model)).data
+    start = data.index(STX + b"L")
+    return data[start:].split(b"\r")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("model", ["allegro-2", "prodigy", "dmx-400", "dmx-430", "generic"])
+def test_a_model_whose_default_dot_is_2x2_gets_d11_when_the_label_sets_none(model: str) -> None:
+    """One label dot is one printhead dot: D11 overrides the D22 default (measured on an Allegro 2)."""
+    lines = _format_lines(Label(elements=[Text(x=5, y=5, text="A")]), model)
+    assert b"D11" in lines
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("model", ["dmx-600", "dmx-800"])
+def test_a_model_whose_default_dot_is_already_1x1_gets_no_d_command(model: str) -> None:
+    lines = _format_lines(Label(elements=[Text(x=5, y=5, text="A")]), model)
+    assert not [line for line in lines if line.startswith(b"D") and len(line) == 3]
+
+
+@pytest.mark.os_agnostic
+def test_a_label_dot_size_wins_over_the_default() -> None:
+    label = Label(dot_size=DotSize(width=2, height=2), elements=[Text(x=5, y=5, text="A")])
+    lines = _format_lines(label, "allegro-2")
+    assert b"D22" in lines
+    assert b"D11" not in lines

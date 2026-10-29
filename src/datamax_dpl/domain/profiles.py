@@ -161,6 +161,8 @@ class PrinterProfile:
         old_series_points: Font 9 point sizes this model has in the old ``000``-``010`` numbering.
         features: Support for each :class:`Feature`.
         synthetic: True for ``generic`` and ``permissive``, which are not real models.
+        default_dot_size: The dot size (width, height multiplier) the printer uses when a format
+            sends no ``D`` command: 2x2 on every model except the DMX 600/800 (manual, ``D``).
     """
 
     id: str
@@ -178,6 +180,7 @@ class PrinterProfile:
     old_series_points: tuple[int, ...]
     features: dict[Feature, Support] = field(default_factory=dict[Feature, Support])
     synthetic: bool = False
+    default_dot_size: tuple[int, int] = (2, 2)
 
     def support(self, feature: Feature) -> Support:
         """Return how this model supports ``feature`` (missing entries mean no)."""
@@ -424,6 +427,10 @@ _ROWS: tuple[_Row, ...] = (
 )
 
 
+#: The manual's ``D`` command: "Default setting: D22 for all printers except the DMX 600/800".
+_FAMILIES_DEFAULTING_TO_D11 = frozenset({ModelFamily.DMX_600, ModelFamily.DMX_800})
+
+
 def _build(row: _Row) -> PrinterProfile:
     print_speed, slew_speed, backup_speed = row.speeds
     return PrinterProfile(
@@ -441,6 +448,7 @@ def _build(row: _Row) -> PrinterProfile:
         a_series_points=row.a_points,
         old_series_points=row.old_points,
         features=dict(_FAMILY_FEATURES[row.family]),
+        default_dot_size=(1, 1) if row.family in _FAMILIES_DEFAULTING_TO_D11 else (2, 2),
     )
 
 

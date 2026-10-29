@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A label that sets no `dot_size` now gets `D11` in its format on every model
+  whose own default is `D22`, which is every profile except `dmx-600` and
+  `dmx-800`. Measured on an Allegro 2:
+  with the printer's default every image and bitmap-font field printed at
+  twice the size the preview showed. One dot in the label JSON is now one
+  printhead dot; a label that sets `dot_size` keeps its own value.
 - A `tcp://` connection that the print server refuses is retried for up to
   3 seconds before it is reported. Some print servers refuse a new
   connection for a moment after the previous one closed (about 1-2 s measured
