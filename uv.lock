@@ -625,6 +625,7 @@ dependencies = [
     { name = "pyserial" },
     { name = "python-dotenv" },
     { name = "rich-click" },
+    { name = "tomlkit" },
 ]
 
 [package.optional-dependencies]
@@ -696,6 +697,7 @@ requires-dist = [
     { name = "rtoml", marker = "extra == 'dev'", specifier = ">=0.14.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.17.1" },
     { name = "textual", marker = "extra == 'dev'", specifier = ">=8.2.8" },
+    { name = "tomlkit", specifier = ">=0.15.2" },
     { name = "twine", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "urllib3", marker = "extra == 'dev'", specifier = ">=2.8.0" },
     { name = "virtualenv", marker = "extra == 'dev'", specifier = ">=21.14.12" },

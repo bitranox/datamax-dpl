@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from datamax_dpl.domain.calibration import ALONG_LENGTH_MM, across_label, along_label
+from datamax_dpl.domain.calibration import ALONG_LENGTH_MM, across_label, along_label, scale_from_measurement
 from datamax_dpl.domain.decoder import explain
 from datamax_dpl.domain.label import Box, Element, Label, Line, Text
 from datamax_dpl.domain.preview import Canvas, canvas_for, text_box
@@ -136,3 +136,27 @@ def test_an_along_length_over_two_hundred_millimetres_is_refused() -> None:
 def test_a_title_that_does_not_fit_is_refused() -> None:
     with pytest.raises(ValueError, match="too small for its text"):
         across_label(width=20, height=20, title="A VERY LONG PRINTER NAME THAT TAKES MANY LINES TO WRAP")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("current", "measured", "nominal", "expected"),
+    [
+        (0.977, 199, 200, 0.9721),
+        (1.0, 99.2, 100, 0.992),
+        (1.0, 100, 100, 1.0),
+        (0.5, 100, 100, 0.5),
+        (1.5, 100, 100, 1.5),
+    ],
+)
+def test_the_new_scale_is_the_old_one_times_measured_over_nominal(
+    current: float, measured: float, nominal: float, expected: float
+) -> None:
+    assert scale_from_measurement(current, measured=measured, nominal=nominal) == expected
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("measured", "nominal"), [(49.9, 100), (150.1, 100), (0, 100), (100, 0), (-5, 100)])
+def test_a_scale_outside_the_range_or_a_length_not_over_zero_is_refused(measured: float, nominal: float) -> None:
+    with pytest.raises(ValueError, match=f"{measured:g} mm"):
+        scale_from_measurement(1.0, measured=measured, nominal=nominal)

@@ -15,6 +15,9 @@ from enum import Enum
 from .enums import Unit
 
 MM_PER_INCH = 25.4
+#: The range a printer's scale factor may take: printed length divided by nominal length.
+MIN_SCALE = 0.5
+MAX_SCALE = 1.5
 
 
 class DplUnit(str, Enum):
@@ -197,6 +200,8 @@ def from_dpl(value: int, *, source: DplUnit, unit: Unit, dpi: float) -> float:
 
 
 __all__ = [
+    "MAX_SCALE",
+    "MIN_SCALE",
     "MM_PER_INCH",
     "NOMINAL",
     "Axis",

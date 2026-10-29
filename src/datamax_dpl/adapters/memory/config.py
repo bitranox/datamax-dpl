@@ -48,6 +48,11 @@ def deploy_configuration_in_memory(
     return []
 
 
+def set_user_printer_values_in_memory(*, printer: str, values: Mapping[str, float], profile: str | None = None) -> Path:
+    """Simulate writing the user configuration -- no filesystem changes, returns a synthetic path."""
+    return Path(tempfile.gettempdir()) / "datamax_dpl" / "config.toml"
+
+
 def display_config_in_memory(
     config: Config,
     *,
@@ -63,4 +68,5 @@ __all__ = [
     "display_config_in_memory",
     "get_config_in_memory",
     "get_default_config_path_in_memory",
+    "set_user_printer_values_in_memory",
 ]

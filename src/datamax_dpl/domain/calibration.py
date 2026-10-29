@@ -16,6 +16,7 @@ from __future__ import annotations
 import textwrap
 
 from datamax_dpl.domain.label import Box, Element, Label, Line, Text
+from datamax_dpl.domain.units import MAX_SCALE, MIN_SCALE
 
 __all__ = [
     "ALONG_LENGTH_MM",
@@ -24,6 +25,7 @@ __all__ = [
     "across_label",
     "along_label",
     "calibration_labels",
+    "scale_from_measurement",
 ]
 
 ALONG_LENGTH_MM = 200.0
@@ -159,6 +161,39 @@ def calibration_labels(
         across_label(width=width, height=height, title=title),
         along_label(width=width, length=along_length, title=title),
     )
+
+
+def scale_from_measurement(current: float, *, measured: float, nominal: float) -> float:
+    """Return the scale factor that makes a length print at its nominal size.
+
+    The label was printed with ``current``, so the printer's own ratio is
+    ``measured / nominal * current``; that ratio is the new factor.
+
+    Args:
+        current: The scale factor the calibration label was printed with.
+        measured: The length measured on paper, in mm.
+        nominal: The length the label asked for, in mm.
+
+    Returns:
+        The new factor, rounded to 4 places.
+
+    Raises:
+        ValueError: A length is not positive, or the factor falls outside 0.5-1.5 (a mismeasured
+            or mistyped length, more likely than a printer that far off).
+
+    Example:
+        >>> scale_from_measurement(0.977, measured=199, nominal=200)
+        0.9721
+    """
+    if measured <= 0 or nominal <= 0:
+        raise ValueError(f"measured {measured:g} mm and nominal {nominal:g} mm must both be over 0")
+    scale = round(current * measured / nominal, 4)
+    if not MIN_SCALE <= scale <= MAX_SCALE:
+        raise ValueError(
+            f"measured {measured:g} mm of {nominal:g} mm gives a scale of {scale:g}, outside "
+            f"{MIN_SCALE:g}-{MAX_SCALE:g}: check the measurement"
+        )
+    return scale
 
 
 def _require_min(name: str, value: float) -> None:

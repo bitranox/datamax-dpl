@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .enums import Attribute, FallbackPolicy, FindingCode, HardwareOption, Unit
 from .image_records import download_command
-from .units import NOMINAL, Axis, Correction, DplUnit, exact_dots, to_dots, to_dpl
+from .units import MAX_SCALE, MIN_SCALE, NOMINAL, Axis, Correction, DplUnit, exact_dots, to_dots, to_dpl
 
 if TYPE_CHECKING:
     from .findings import FindingCollector
@@ -52,8 +52,8 @@ class RenderOptions(BaseModel):
     options: frozenset[HardwareOption] = Field(default_factory=frozenset[HardwareOption])
     # A real printer is a few percent off; a factor outside this range is a typo or an
     # inverted measurement (nominal / printed), which would double the error instead.
-    scale_across: float = Field(default=1.0, ge=0.5, le=1.5)
-    scale_along: float = Field(default=1.0, ge=0.5, le=1.5)
+    scale_across: float = Field(default=1.0, ge=MIN_SCALE, le=MAX_SCALE)
+    scale_along: float = Field(default=1.0, ge=MIN_SCALE, le=MAX_SCALE)
 
 
 @dataclass(frozen=True)

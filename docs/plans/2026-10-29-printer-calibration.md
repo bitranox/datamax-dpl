@@ -486,6 +486,15 @@ printer, name, model, labels, both factors, bytes_sent and the findings.
   for the active profile.
 - After writing, clear the loader cache, re-read the config and warn on stderr when the
   effective value differs (a `.env` or environment variable wins).
-- [ ] Tests: arithmetic (0.977 x 199 / 200), a commented file keeps its comments, a missing file is
+- [x] Tests: arithmetic (0.977 x 199 / 200), a commented file keeps its comments, a missing file is
   created, the precedence warning fires when `DATAMAX_DPL___PRINTERS__LAGER__SCALE_ALONG` is set,
   a URI is refused.
+
+As built: inside the user layer a later `config.d/*.toml` wins over `config.toml`, so the value
+goes into the LAST file holding the printer's section (else `config.toml`); without `--printer`
+the `[printer]` section is calibrated; the writer is a port (`SetPrinterValues`,
+`adapters/config/user_edit.py`) that clears the loader cache, and the CLI tests inject it with the
+real file writer; the precedence warning is tested with a higher-layer stand-in, the real
+write-then-reload round trip in `tests/test_config_user_edit.py`; the current factor is the
+EFFECTIVE one (the label printed with it); the 0.5-1.5 range is `units.MIN_SCALE`/`MAX_SCALE`.
+Mutation battery (compuse-toolbox `mutation_arm`): 11 arms killed, the inert control survived.

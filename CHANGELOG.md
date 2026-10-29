@@ -34,6 +34,15 @@ All notable changes to this project are documented here. The format follows
   `--width` and `--height` are given; `--axis across|along|both` picks the
   labels, `--along-length` shortens the along bar. Each label names the printer
   and the factor it was printed with.
+- `datamax-dpl calibrate set --printer NAME --across MM --along MM`: the new
+  factor is the old one times measured over nominal length (the label width
+  across, 200 mm or `--along-length` along), rounded to 4 places and refused
+  outside 0.5-1.5. It is written into the printer's section of the user
+  configuration, in the last file of that layer that holds the section (else
+  `config.toml`), keeping comments and key order; without `--printer` the
+  `[printer]` section is calibrated. The configuration is then read again,
+  and a value that a `.env` file, an environment variable or `--set` still
+  overrides is reported on stderr.
 
 ### Fixed
 

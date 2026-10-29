@@ -15,6 +15,7 @@ from ...domain.camera import CameraSettings
 from ...domain.enums import CutterPresence, FallbackPolicy, HardwareOption
 from ...domain.errors import ConfigurationError
 from ...domain.render_context import RenderOptions
+from ...domain.units import MAX_SCALE, MIN_SCALE
 from ..transport.uri import is_printer_name, is_printer_uri
 
 if TYPE_CHECKING:
@@ -44,8 +45,8 @@ class PrinterSettings(BaseModel):
     cutter: CutterPresence = CutterPresence.UNKNOWN
     options: frozenset[HardwareOption] = Field(default_factory=frozenset[HardwareOption])
     # Same range as RenderOptions, so a bad value is refused here with its config key named.
-    scale_across: float = Field(default=1.0, ge=0.5, le=1.5)
-    scale_along: float = Field(default=1.0, ge=0.5, le=1.5)
+    scale_across: float = Field(default=1.0, ge=MIN_SCALE, le=MAX_SCALE)
+    scale_along: float = Field(default=1.0, ge=MIN_SCALE, le=MAX_SCALE)
     name: str = ""
     label_width: float | None = Field(default=None, gt=0)
     label_height: float | None = Field(default=None, gt=0)

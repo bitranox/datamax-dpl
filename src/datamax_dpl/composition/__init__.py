@@ -13,6 +13,7 @@ from ..adapters.config.display import display_config
 
 # Configuration services
 from ..adapters.config.loader import get_config, get_default_config_path
+from ..adapters.config.user_edit import set_user_printer_values
 
 # Logging services
 from ..adapters.logging.setup import check_logging_config, init_logging
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
         GetDefaultConfigPath,
         InitLogging,
         OpenPrinter,
+        SetPrinterValues,
         Sleep,
     )
 
@@ -43,6 +45,7 @@ if TYPE_CHECKING:
     _assert_check_logging_config: CheckLoggingConfig = check_logging_config
     _assert_open_printer: OpenPrinter = open_printer
     _assert_capture_image: CaptureImage = capture_image
+    _assert_set_printer_values: SetPrinterValues = set_user_printer_values
     _assert_sleep: Sleep = time.sleep
     _assert_clock: Clock = time.monotonic
 
@@ -54,6 +57,7 @@ class AppServices:
     get_config: GetConfig
     get_default_config_path: GetDefaultConfigPath
     deploy_configuration: DeployConfiguration
+    set_printer_values: SetPrinterValues
     display_config: DisplayConfig
     init_logging: InitLogging
     check_logging_config: CheckLoggingConfig
@@ -82,6 +86,7 @@ def build_production() -> AppServices:
         get_config=get_config,
         get_default_config_path=get_default_config_path,
         deploy_configuration=deploy_configuration,
+        set_printer_values=set_user_printer_values,
         display_config=display_config,
         init_logging=init_logging,
         check_logging_config=check_logging_config,
@@ -116,6 +121,7 @@ def build_testing(
         get_default_config_path_in_memory,
         init_logging_in_memory,
         open_recording_printer,
+        set_user_printer_values_in_memory,
     )
 
     clock = _FakeClock()
@@ -123,6 +129,7 @@ def build_testing(
         get_config=get_config_in_memory,
         get_default_config_path=get_default_config_path_in_memory,
         deploy_configuration=deploy_configuration_in_memory,
+        set_printer_values=set_user_printer_values_in_memory,
         display_config=display_config_in_memory,
         init_logging=init_logging_in_memory,
         check_logging_config=check_logging_config_in_memory,

@@ -1,16 +1,21 @@
-"""`calibrate print`: the two calibration labels, rendered with the chosen printer's settings and sent."""
+"""`calibrate print` sends the two calibration labels; `calibrate set` stores what was measured on them."""
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from typing import TYPE_CHECKING, Any
 
 import pytest
+import tomlkit
+from lib_layered_config import Config
 
 from datamax_dpl.adapters import cli as cli_mod
+from datamax_dpl.adapters.config.user_edit import write_printer_values
+from datamax_dpl.composition import AppServices, build_testing
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
     from pathlib import Path
 
     from click.testing import CliRunner, Result
@@ -116,9 +121,21 @@ def test_a_missing_label_size_names_the_keys_and_sends_nothing(
 
     envelope = json.loads(result.stdout)
     assert result.exit_code == 2
-    assert "label_width" in envelope["message"]
-    assert "label_height" in envelope["message"]
+    assert envelope["message"] == "no label width: pass --width in mm, or set label_width in [printers.lager]"
     assert not target.exists()
+
+
+@pytest.mark.os_agnostic
+def test_a_missing_label_height_is_named_too(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    target = tmp_path / "out.dpl"
+    config = {"printers": {"lager": {"model": "allegro-2", "uri": f"file:{target}", "label_width": 100}}}
+
+    result = _calibrate(cli_runner, config_cli_context(config), "--printer", "lager")
+
+    assert result.exit_code == 2
+    assert "set label_height in [printers.lager]" in json.loads(result.stdout)["message"]
 
 
 @pytest.mark.os_agnostic
@@ -160,3 +177,171 @@ def test_a_label_with_an_error_finding_is_refused_and_nothing_is_sent(
     assert any(finding["severity"] == "error" for finding in envelope["data"]["findings"])
     assert envelope["data"]["bytes_sent"] == 0
     assert not target.exists()
+
+
+# ======================== calibrate set ========================
+
+_LAGER_TOML = """\
+# stock room
+[printers.lager]
+model = "allegro-2"  # Allegro 2 behind the print server
+scale_along = 0.977
+label_width = 100
+"""
+
+
+def _user_layer(
+    base: Path, *, override: dict[str, Any] | None = None, profiles: list[str | None] | None = None
+) -> Callable[[], AppServices]:
+    """Services reading and writing ``base`` as the whole configuration.
+
+    ``override`` stands in for a higher layer; ``profiles`` collects the profile each write was for.
+    """
+
+    def read(**_kwargs: Any) -> Config:
+        data: dict[str, Any] = tomlkit.parse(base.read_text(encoding="utf-8")).unwrap() if base.exists() else {}
+        for section, values in (override or {}).items():
+            for name, keys in values.items():
+                data.setdefault(section, {}).setdefault(name, {}).update(keys)
+        return Config(data, {})
+
+    def write(*, printer: str, values: Mapping[str, float], profile: str | None = None) -> Path:
+        if profiles is not None:
+            profiles.append(profile)
+        return write_printer_values([base], printer=printer, values=values)
+
+    return lambda: dataclasses.replace(build_testing(), get_config=read, set_printer_values=write)
+
+
+def _set(cli_runner: CliRunner, factory: Callable[[], AppServices], *args: str) -> Result:
+    return cli_runner.invoke(cli_mod.cli, ["--json", "calibrate", "set", *args], obj=factory)
+
+
+def _stored(base: Path, *keys: str) -> object:
+    value: Any = tomlkit.parse(base.read_text(encoding="utf-8")).unwrap()
+    for key in keys:
+        value = value[key]
+    return value
+
+
+@pytest.mark.os_agnostic
+def test_a_measured_along_bar_updates_the_printers_feed_scale(cli_runner: CliRunner, tmp_path: Path) -> None:
+    base = tmp_path / "config.toml"
+    base.write_text(_LAGER_TOML, encoding="utf-8")
+
+    result = _set(cli_runner, _user_layer(base), "--printer", "lager", "--along", "199")
+
+    assert result.exit_code == 0, result.output
+    assert _stored(base, "printers", "lager", "scale_along") == 0.9721
+    assert "# Allegro 2 behind the print server" in base.read_text(encoding="utf-8")
+    data = json.loads(result.stdout)["data"]
+    assert data["file"] == str(base)
+    assert data["changes"] == [
+        {"key": "scale_along", "measured": 199.0, "nominal": 200.0, "old": 0.977, "new": 0.9721, "effective": 0.9721}
+    ]
+    assert data["warnings"] == []
+    assert result.stderr == ""
+
+
+@pytest.mark.os_agnostic
+def test_a_measured_frame_updates_the_across_scale_against_the_label_width(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    base = tmp_path / "config.toml"
+    base.write_text(_LAGER_TOML, encoding="utf-8")
+
+    result = _set(cli_runner, _user_layer(base), "--printer", "lager", "--across", "99.2")
+
+    assert result.exit_code == 0, result.output
+    assert _stored(base, "printers", "lager", "scale_across") == 0.992
+    assert _stored(base, "printers", "lager", "scale_along") == 0.977
+
+
+@pytest.mark.os_agnostic
+def test_both_measurements_at_once_with_a_shorter_bar_and_a_given_width(cli_runner: CliRunner, tmp_path: Path) -> None:
+    base = tmp_path / "config.toml"
+    base.write_text(_LAGER_TOML, encoding="utf-8")
+
+    args = ("--printer", "lager", "--across", "49.5", "--width", "50", "--along", "149", "--along-length", "150")
+    result = _set(cli_runner, _user_layer(base), *args)
+
+    assert result.exit_code == 0, result.output
+    assert _stored(base, "printers", "lager", "scale_across") == 0.99
+    assert _stored(base, "printers", "lager", "scale_along") == 0.9705
+
+
+@pytest.mark.os_agnostic
+def test_without_a_printer_name_the_printer_section_is_calibrated(cli_runner: CliRunner, tmp_path: Path) -> None:
+    base = tmp_path / "config.toml"
+    base.write_text('[printer]\nmodel = "allegro-2"\n', encoding="utf-8")
+
+    result = _set(cli_runner, _user_layer(base), "--along", "195")
+
+    assert result.exit_code == 0, result.output
+    assert _stored(base, "printer", "scale_along") == 0.975
+
+
+@pytest.mark.os_agnostic
+def test_a_higher_layer_that_still_wins_is_reported_on_stderr(cli_runner: CliRunner, tmp_path: Path) -> None:
+    base = tmp_path / "config.toml"
+    base.write_text(_LAGER_TOML, encoding="utf-8")
+    factory = _user_layer(base, override={"printers": {"lager": {"scale_along": 0.95}}})
+
+    result = _set(cli_runner, factory, "--printer", "lager", "--along", "199")
+
+    # The label printed with the factor in force, 0.95, so the new one is 0.95 x 199 / 200.
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)["data"]
+    assert data["changes"][0]["effective"] == 0.95
+    assert len(data["warnings"]) == 1
+    assert "scale_along is 0.95, not 0.9452" in result.stderr
+    assert _stored(base, "printers", "lager", "scale_along") == 0.9452
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (("--printer", "tcp://192.0.2.60:9100", "--along", "199"), "configured printer name"),
+        (("--printer", "lager"), "--across"),
+        (("--printer", "lager", "--along", "400"), "check the measurement"),
+        (("--printer", "kasse", "--along", "199"), "no printer named 'kasse'"),
+    ],
+    ids=["uri", "no-measurement", "out-of-range", "unknown-name"],
+)
+def test_set_refuses_and_leaves_the_file_alone(
+    cli_runner: CliRunner, tmp_path: Path, args: tuple[str, ...], message: str
+) -> None:
+    base = tmp_path / "config.toml"
+    base.write_text(_LAGER_TOML, encoding="utf-8")
+
+    result = _set(cli_runner, _user_layer(base), *args)
+
+    assert result.exit_code == 2, result.output
+    assert message in json.loads(result.stdout)["message"]
+    assert base.read_text(encoding="utf-8") == _LAGER_TOML
+
+
+@pytest.mark.os_agnostic
+def test_an_across_measurement_without_a_known_width_is_refused(cli_runner: CliRunner, tmp_path: Path) -> None:
+    base = tmp_path / "config.toml"
+    base.write_text('[printers.lager]\nmodel = "allegro-2"\n', encoding="utf-8")
+
+    result = _set(cli_runner, _user_layer(base), "--printer", "lager", "--across", "99")
+
+    assert result.exit_code == 2
+    assert "label_width" in json.loads(result.stdout)["message"]
+
+
+@pytest.mark.os_agnostic
+def test_the_write_goes_to_the_active_profiles_user_layer(cli_runner: CliRunner, tmp_path: Path) -> None:
+    base = tmp_path / "config.toml"
+    base.write_text(_LAGER_TOML, encoding="utf-8")
+    profiles: list[str | None] = []
+
+    args = ["--json", "--profile", "lager-test", "calibrate", "set", "--printer", "lager", "--along", "199"]
+    result = cli_runner.invoke(cli_mod.cli, args, obj=_user_layer(base, profiles=profiles))
+
+    assert result.exit_code == 0, result.output
+    assert profiles == ["lager-test"]

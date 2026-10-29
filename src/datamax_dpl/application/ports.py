@@ -32,6 +32,15 @@ class GetConfig(Protocol):
     ) -> Config: ...
 
 
+class SetPrinterValues(Protocol):
+    """Write values into a printer's section of the user configuration layer; return the file written.
+
+    ``printer`` names a ``[printers.<name>]`` section, or is "" for ``[printer]``.
+    """
+
+    def __call__(self, *, printer: str, values: Mapping[str, float], profile: str | None = ...) -> Path: ...
+
+
 class GetDefaultConfigPath(Protocol):
     """Return the path to the bundled default configuration file."""
 
@@ -151,5 +160,6 @@ __all__ = [
     "InitLogging",
     "OpenPrinter",
     "PrinterTransport",
+    "SetPrinterValues",
     "Sleep",
 ]

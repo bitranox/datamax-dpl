@@ -21,6 +21,7 @@ from .config import (
     display_config_in_memory,
     get_config_in_memory,
     get_default_config_path_in_memory,
+    set_user_printer_values_in_memory,
 )
 from .logging import check_logging_config_in_memory, init_logging_in_memory
 from .printer import RecordingPrinter, open_recording_printer
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
         GetDefaultConfigPath,
         InitLogging,
         PrinterTransport,
+        SetPrinterValues,
     )
 
     _assert_get_config: GetConfig = get_config_in_memory
@@ -40,6 +42,7 @@ if TYPE_CHECKING:
     _assert_init_logging: InitLogging = init_logging_in_memory
     _assert_check_logging_config: CheckLoggingConfig = check_logging_config_in_memory
     _assert_recording_printer: PrinterTransport = RecordingPrinter()
+    _assert_set_printer_values: SetPrinterValues = set_user_printer_values_in_memory
 
 __all__ = [
     "FakeCamera",
@@ -51,4 +54,5 @@ __all__ = [
     "get_default_config_path_in_memory",
     "init_logging_in_memory",
     "open_recording_printer",
+    "set_user_printer_values_in_memory",
 ]
