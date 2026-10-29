@@ -213,7 +213,7 @@ def test_a_usable_timeout_passes(timeout: float) -> None:
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("timeout", [0.0, -1.0, math.inf, math.nan, MAX_TIMEOUT_SECONDS + 1])
 def test_an_unusable_timeout_is_refused(timeout: float) -> None:
-    with pytest.raises(ValueError, match="timeout"):
+    with pytest.raises(ValueError, match="timeout must be above 0 and at most 2147483 seconds"):
         check_timeout(timeout)
 
 

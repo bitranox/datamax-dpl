@@ -61,7 +61,7 @@ def test_a_device_cannot_answer_a_query(tmp_path: Path) -> None:
     device.write_bytes(b"")
     with (
         DeviceTransport.open(DeviceUri(path=str(device))) as printer,
-        pytest.raises(UnsupportedOperationError, match="one-way"),
+        pytest.raises(UnsupportedOperationError, match="is one-way: it cannot read the printer's answer"),
     ):
         printer.query(b"\x01A", timeout=1.0)
 
@@ -73,7 +73,7 @@ def test_a_closed_device_refuses_and_closes_twice(tmp_path: Path) -> None:
     printer = DeviceTransport.open(DeviceUri(path=str(device)))
     printer.close()
     printer.close()
-    with pytest.raises(TransportError, match="closed"):
+    with pytest.raises(TransportError, match="the transport is closed"):
         printer.send(b"x")
 
 
@@ -128,7 +128,7 @@ def test_a_directory_as_file_target_is_a_transport_error(tmp_path: Path) -> None
 def test_a_file_cannot_answer_a_query(tmp_path: Path) -> None:
     with (
         FileTransport.open(FileUri(path=str(tmp_path / "job.dpl"))) as printer,
-        pytest.raises(UnsupportedOperationError, match="file"),
+        pytest.raises(UnsupportedOperationError, match=r"^file .* is one-way"),
     ):
         printer.query(b"\x01A", timeout=1.0)
 
@@ -158,7 +158,10 @@ def test_open_printer_dash_writes_to_the_real_stdout(capfdbinary: pytest.Capture
 
 @pytest.mark.os_agnostic
 def test_stdout_cannot_answer_a_query() -> None:
-    with StdoutTransport(io.BytesIO()) as printer, pytest.raises(UnsupportedOperationError, match="stdout"):
+    with (
+        StdoutTransport(io.BytesIO()) as printer,
+        pytest.raises(UnsupportedOperationError, match=r"^stdout is one-way"),
+    ):
         printer.query(b"\x01A", timeout=1.0)
 
 
@@ -199,6 +202,6 @@ def test_a_bad_uri_is_a_configuration_error_naming_the_accepted_forms() -> None:
 @pytest.mark.os_agnostic
 def test_a_bad_timeout_is_refused_before_anything_opens(tmp_path: Path) -> None:
     target = tmp_path / "job.dpl"
-    with pytest.raises(ValueError, match="timeout"):
+    with pytest.raises(ValueError, match="timeout must be above 0"):
         open_printer(f"file:{target}", timeout=0.0)
     assert not target.exists()

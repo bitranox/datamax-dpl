@@ -357,7 +357,7 @@ def test_the_allegro_2_prints_one_hundredth_of_an_inch_as_two_whole_dots() -> No
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("scale", [0.49, 1.51])
 def test_a_scale_outside_half_to_one_and_a_half_is_refused(scale: float) -> None:
-    with pytest.raises(ValueError, match="scale_along"):
+    with pytest.raises(ValueError, match=r"scale_along\n\s+Input should be (greater|less) than or equal to"):
         RenderOptions(model="allegro", scale_along=scale)
 
 

@@ -96,13 +96,13 @@ def test_firmware_unlocks_circles_on_the_dmx_400() -> None:
 @pytest.mark.os_agnostic
 def test_strict_policy_refuses_a_label_that_needs_a_fallback() -> None:
     circle = label(elements=[{"type": "circle", "x": 20, "y": 20, "radius": 5}])
-    with pytest.raises(LabelRejectedError, match="circle"):
+    with pytest.raises(LabelRejectedError, match="circle cannot be drawn natively"):
         render(circle, RenderOptions(model="allegro", policy=FallbackPolicy.STRICT))
 
 
 @pytest.mark.os_agnostic
 def test_mirror_has_no_fallback_and_is_refused_even_under_degrade() -> None:
-    with pytest.raises(LabelRejectedError, match="mirror"):
+    with pytest.raises(LabelRejectedError, match="mirror: Allegro does not have it"):
         render(label(mirror=True), RenderOptions(model="allegro"))
 
 

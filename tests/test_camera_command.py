@@ -141,7 +141,7 @@ def test_a_command_without_the_placeholder_is_refused(tmp_path: Path) -> None:
 @pytest.mark.os_agnostic
 def test_conflicting_suffixes_are_refused(tmp_path: Path) -> None:
     """Two different image suffixes in one argv cannot both be the collected file."""
-    with pytest.raises(CameraError, match="conflicting"):
+    with pytest.raises(CameraError, match="names conflicting image suffixes"):
         capture_with_command(
             _settings(sys.executable, "-c", WRITE_IMAGE, "{output}.png", "{output}.jpg"), stem=tmp_path / "shot"
         )

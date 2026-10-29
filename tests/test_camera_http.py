@@ -123,7 +123,7 @@ def test_a_non_image_media_type_is_refused(camera: Camera, tmp_path: Path) -> No
     """text/html is named in the error and nothing is written."""
     camera.routes["/"] = Route(content_type="text/html", body=b"<html>login</html>")
 
-    with pytest.raises(CameraError, match="'text/html'"):
+    with pytest.raises(CameraError, match="media type 'text/html', expected"):
         capture_with_http(_settings(f"{camera.base}/"), stem=tmp_path / "shot")
     assert list(tmp_path.iterdir()) == []
 
@@ -144,7 +144,7 @@ def test_basic_auth_with_a_wrong_password_fails_without_leaking_it(camera: Camer
     camera.routes["/snap"] = Route(credentials=("admin", PASSWORD))
     wrong = "wrong-Pa55word-xyz"
 
-    with pytest.raises(CameraError, match="401") as caught:
+    with pytest.raises(CameraError, match="answered HTTP 401") as caught:
         capture_with_http(_settings(f"{camera.base}/snap", user="admin", password=wrong), stem=tmp_path / "s")
 
     rendered = f"{caught.value} {caught.value!r} {caught.value.__cause__!r}"

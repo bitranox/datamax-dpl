@@ -300,7 +300,7 @@ def test_a_connection_refused_for_good_fails_within_the_retry_window() -> None:
     """Retrying refused connections is bounded: a host that stays down is reported, not waited on."""
     port = _free_port()
     started = time.monotonic()
-    with pytest.raises(TransportError, match="refused"):
+    with pytest.raises(TransportError, match=r"cannot connect to tcp .*refused"):
         TcpTransport.connect(TcpUri(host="127.0.0.1", port=port), timeout=30.0)
     assert time.monotonic() - started < REFUSED_RETRY_SECONDS + 1.0
 
@@ -323,9 +323,9 @@ def test_a_closed_transport_refuses_and_closes_twice(serve: Callable[..., Printe
     printer = TcpTransport.connect(server.uri, timeout=2.0)
     printer.close()
     printer.close()
-    with pytest.raises(TransportError, match="closed"):
+    with pytest.raises(TransportError, match="the transport is closed"):
         printer.send(b"x")
-    with pytest.raises(TransportError, match="closed"):
+    with pytest.raises(TransportError, match="the transport is closed"):
         printer.query(b"x", timeout=1.0)
 
 
@@ -333,9 +333,9 @@ def test_a_closed_transport_refuses_and_closes_twice(serve: Callable[..., Printe
 def test_query_arguments_are_checked(serve: Callable[..., PrinterServer]) -> None:
     server = serve(_silent)
     with TcpTransport.connect(server.uri, timeout=2.0) as printer:
-        with pytest.raises(ValueError, match="terminator"):
+        with pytest.raises(ValueError, match="terminator must not be empty"):
             printer.query(b"x", timeout=1.0, terminator=b"")
-        with pytest.raises(ValueError, match="timeout"):
+        with pytest.raises(ValueError, match="timeout must be above 0"):
             printer.query(b"x", timeout=0.0)
-    with pytest.raises(ValueError, match="timeout"):
+    with pytest.raises(ValueError, match="timeout must be above 0"):
         TcpTransport.connect(server.uri, timeout=-1.0)

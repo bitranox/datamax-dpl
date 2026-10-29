@@ -36,7 +36,7 @@ def test_fill_label_replaces_text_and_barcode_data_only() -> None:
 
 @pytest.mark.os_agnostic
 def test_a_missing_field_is_named() -> None:
-    with pytest.raises(MissingFieldError, match="sku"):
+    with pytest.raises(MissingFieldError, match="has no field 'sku'"):
         fill_label(TEMPLATE, {"lot": "A7", "qty": "1"})
 
 
@@ -69,7 +69,7 @@ def test_every_field_filling_breaks_is_named_as_label_validation_names_it() -> N
 
 @pytest.mark.os_agnostic
 def test_a_missing_field_is_reported_before_a_field_filling_made_too_long() -> None:
-    with pytest.raises(MissingFieldError, match="sku"):
+    with pytest.raises(MissingFieldError, match="has no field 'sku'"):
         fill_label(TEMPLATE, {"lot": "x" * 300, "qty": "1"})
 
 

@@ -59,9 +59,9 @@ def test_a_closed_recording_printer_refuses_like_a_real_channel() -> None:
         printer.send(b"x")
     assert printer.closed
     printer.close()
-    with pytest.raises(TransportError, match="closed"):
+    with pytest.raises(TransportError, match="the transport is closed"):
         printer.send(b"y")
-    with pytest.raises(TransportError, match="closed"):
+    with pytest.raises(TransportError, match="the transport is closed"):
         printer.query(STATUS_REQUEST, timeout=1.0)
     assert printer.sent == [b"x"]
 

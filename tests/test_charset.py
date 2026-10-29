@@ -131,7 +131,7 @@ def test_unmappable_characters_are_listed_once_in_first_seen_order() -> None:
 @pytest.mark.parametrize("font", [-1, 10, 99])
 def test_unknown_font_is_refused(font: int) -> None:
     """Only fonts 0-9 are bitmapped fonts."""
-    with pytest.raises(ValueError, match="0-9"):
+    with pytest.raises(ValueError, match="bitmapped font must be 0-9"):
         encode_for_bitmapped_font("A", font=font)
 
 

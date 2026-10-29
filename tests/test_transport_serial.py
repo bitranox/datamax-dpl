@@ -64,9 +64,9 @@ def test_a_closed_port_refuses_and_closes_twice() -> None:
 @pytest.mark.os_agnostic
 def test_query_arguments_are_checked() -> None:
     with SerialTransport.open(LOOP, timeout=1.0) as printer:
-        with pytest.raises(ValueError, match="terminator"):
+        with pytest.raises(ValueError, match="terminator must not be empty"):
             printer.query(b"x", timeout=1.0, terminator=b"")
-        with pytest.raises(ValueError, match="timeout"):
+        with pytest.raises(ValueError, match="timeout must be above 0"):
             printer.query(b"x", timeout=-1.0)
 
 
@@ -79,7 +79,7 @@ def test_a_port_that_cannot_be_opened_is_a_transport_error(path: str) -> None:
 
 @pytest.mark.os_agnostic
 def test_open_printer_reports_a_missing_serial_port_as_a_transport_error() -> None:
-    with pytest.raises(TransportError, match="/nonexistent-dir/ttyS99"):
+    with pytest.raises(TransportError, match="cannot open serial /nonexistent-dir/ttyS99"):
         open_printer("serial:///nonexistent-dir/ttyS99?baud=19200", timeout=1.0)
 
 
@@ -252,5 +252,5 @@ def test_a_pty_answer_longer_than_the_bound_is_a_protocol_error(pty_printer: Pty
     with SerialTransport.open(SerialUri(path=pty_printer.path, baud=115200), timeout=1.5) as printer:
         thread = threading.Thread(target=flood, daemon=True)
         thread.start()
-        with pytest.raises(PrinterProtocolError, match="terminator"):
+        with pytest.raises(PrinterProtocolError, match="no answer terminator within"):
             printer.query(b"\x02KQ", timeout=1.5)
