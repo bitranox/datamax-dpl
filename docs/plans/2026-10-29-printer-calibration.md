@@ -461,8 +461,14 @@ As built (deviations from the text above):
   current factors) and sends them; width and height come from the printer's `label_width` /
   `label_height` unless given; missing both refuses with exit 2 naming the keys. The title line
   names the printer and the factors in use. `--json` envelope lists what was sent.
-- [ ] Tests with a `file:` URI printer: both formats are in the file; the factor in use shows in
+- [x] Tests with a `file:` URI printer: both formats are in the file; the factor in use shows in
   the title; a missing size is refused.
+
+As built: each label's title is `<NAME> SCALE <factor>` with its own axis's factor (one title
+holding both factors did not fit a 20 mm label); both formats go out in ONE send, since the PS301
+refuses a reconnect for 1-2 s; `--axis along` needs only the width; a label with an error finding
+(e.g. ticks past the print width) is refused with exit 1 and nothing sent; the JSON payload holds
+printer, name, model, labels, both factors, bytes_sent and the findings.
 
 ### Task 9: `datamax-dpl calibrate set` and the config write
 

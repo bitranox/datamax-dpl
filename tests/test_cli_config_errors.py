@@ -77,6 +77,7 @@ NEEDS_CONFIG_ENVELOPE: dict[str, list[str]] = {
         "cancel": [],
         "pause": [],
         "capture": [],
+        "calibrate": ["print"],
     }.items()
 }
 CONFIG_FREE_LABEL_COMMANDS: dict[str, list[str]] = {

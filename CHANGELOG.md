@@ -28,6 +28,12 @@ All notable changes to this project are documented here. The format follows
   200 mm long along the feed. Both have a tick every 10 mm, and no two of
   their fields share a dot, since printers without field attributes cancel
   overlapping dots.
+- `datamax-dpl calibrate print --printer NAME`: renders both calibration
+  labels with that printer's model and current scale factors and sends them in
+  one job. The label size comes from `label_width` and `label_height` unless
+  `--width` and `--height` are given; `--axis across|along|both` picks the
+  labels, `--along-length` shortens the along bar. Each label names the printer
+  and the factor it was printed with.
 
 ### Fixed
 

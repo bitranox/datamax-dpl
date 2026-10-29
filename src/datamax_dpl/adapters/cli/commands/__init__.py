@@ -10,6 +10,7 @@ Contents:
 
 from __future__ import annotations
 
+from .calibrate import cli_calibrate
 from .config import cli_config, cli_config_deploy, cli_config_generate_examples
 from .info import cli_info
 from .labels import cli_capabilities, cli_explain, cli_models, cli_render, cli_schema, cli_validate
@@ -28,6 +29,7 @@ from .printer import (
 )
 
 __all__ = [
+    "cli_calibrate",
     "cli_cancel",
     "cli_capabilities",
     "cli_capture",
