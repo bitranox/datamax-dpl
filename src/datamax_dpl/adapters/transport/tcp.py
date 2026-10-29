@@ -16,6 +16,12 @@ MAX_ANSWER_BYTES = 64 * 1024
 #: in one call never times out there; pieces no larger than its default 64 KiB send buffer block
 #: once the printer stops reading, on every OS.
 SEND_CHUNK_BYTES = 64 * 1024
+#: Longest time a REFUSED connection is retried. A print server that just closed a job's
+#: connection refuses the next one for a moment (about 1-2 s measured on a SerComm PS301), so a
+#: status query sent right after a print would otherwise fail although nothing is wrong. Other
+#: connect errors (unknown host, unreachable, timeout) are not retried.
+REFUSED_RETRY_SECONDS = 3.0
+_REFUSED_RETRY_INTERVAL = 0.25
 _RECV_CHUNK = 4096
 
 
@@ -44,13 +50,16 @@ class TcpTransport(ClosingTransport):
         Returns:
             The connected transport.
 
+        A refused connection is retried for up to :data:`REFUSED_RETRY_SECONDS` (never longer than
+        ``timeout``) before it is reported.
+
         Raises:
             PrinterTimeoutError: The connection was not made in time.
-            TransportError: The host is unknown or refused the connection.
+            TransportError: The host is unknown or kept refusing the connection.
         """
         check_timeout(timeout)
         try:
-            sock = socket.create_connection((uri.host, uri.port), timeout=timeout)
+            sock = _connect_retrying_refusals(uri, timeout=timeout)
         except OSError as exc:
             raise transport_error(uri, action="connect to", error=exc) from exc
         return cls(sock, uri=uri, timeout=timeout)
@@ -154,6 +163,29 @@ class TcpTransport(ClosingTransport):
         return chunk
 
 
+def _connect_retrying_refusals(uri: TcpUri, *, timeout: float) -> socket.socket:
+    """Connect, retrying a refused connection until the retry window closes.
+
+    The last attempt is made without catching anything, so a host that keeps refusing raises its
+    own ``ConnectionRefusedError``.
+    """
+    deadline = time.monotonic() + min(timeout, REFUSED_RETRY_SECONDS)
+    while time.monotonic() + _REFUSED_RETRY_INTERVAL < deadline:
+        sock = _connect_unless_refused(uri, timeout=timeout)
+        if sock is not None:
+            return sock
+        time.sleep(_REFUSED_RETRY_INTERVAL)
+    return socket.create_connection((uri.host, uri.port), timeout=timeout)
+
+
+def _connect_unless_refused(uri: TcpUri, *, timeout: float) -> socket.socket | None:
+    """Connect once; ``None`` when the host refused, any other error propagates."""
+    try:
+        return socket.create_connection((uri.host, uri.port), timeout=timeout)
+    except ConnectionRefusedError:
+        return None
+
+
 def _nth(data: bytearray, needle: bytes, count: int) -> int:
     """Index of the ``count``-th occurrence of ``needle`` in ``data``, or -1."""
     index = -len(needle)
@@ -164,4 +196,4 @@ def _nth(data: bytearray, needle: bytes, count: int) -> int:
     return index
 
 
-__all__ = ["MAX_ANSWER_BYTES", "TcpTransport"]
+__all__ = ["MAX_ANSWER_BYTES", "REFUSED_RETRY_SECONDS", "TcpTransport"]

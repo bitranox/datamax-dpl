@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A `tcp://` connection that the print server refuses is retried for up to
+  3 seconds before it is reported. Some print servers refuse a new
+  connection for a moment after the previous one closed (about 1-2 s measured
+  on a SerComm PS301), so `datamax-dpl status` run right after `print` failed
+  with "Connection refused" although nothing was wrong.
 - Downloaded images (the `image` element, and circles and polygons drawn as
   images on models without those commands) printed upside down and could lose
   rows or print empty. Image rows are now sent bottom row first, one row record

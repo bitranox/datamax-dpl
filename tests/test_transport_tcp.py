@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from datamax_dpl.adapters.transport import open_printer
-from datamax_dpl.adapters.transport.tcp import MAX_ANSWER_BYTES, SEND_CHUNK_BYTES, TcpTransport
+from datamax_dpl.adapters.transport.tcp import MAX_ANSWER_BYTES, REFUSED_RETRY_SECONDS, SEND_CHUNK_BYTES, TcpTransport
 from datamax_dpl.adapters.transport.uri import TcpUri
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
 
@@ -258,6 +258,51 @@ def test_a_refused_connection_is_a_transport_error() -> None:
         port = probe.getsockname()[1]
     with pytest.raises(TransportError, match=f"tcp 127.0.0.1:{port}"):
         open_printer(f"tcp://127.0.0.1:{port}", timeout=1.0)
+
+
+def _free_port() -> int:
+    with socket.create_server(("127.0.0.1", 0)) as probe:
+        return int(probe.getsockname()[1])
+
+
+@pytest.mark.os_agnostic
+def test_a_connection_refused_for_a_moment_is_retried() -> None:
+    """A print server refuses a new connection for a moment after closing the last one.
+
+    Measured on a SerComm PS301: about 1-2 s after a print job's connection closed, a status
+    query's connect was refused. The listener here appears 0.6 s after the first attempt.
+    """
+    port = _free_port()
+    received = bytearray()
+
+    def late_printer() -> None:
+        time.sleep(0.6)
+        with socket.create_server(("127.0.0.1", port)) as listener:
+            listener.settimeout(JOIN_SECONDS)
+            connection, _ = listener.accept()
+            with connection:
+                while chunk := connection.recv(4096):
+                    received.extend(chunk)
+
+    thread = threading.Thread(target=late_printer, daemon=True)
+    thread.start()
+    printer = TcpTransport.connect(TcpUri(host="127.0.0.1", port=port), timeout=5.0)
+    try:
+        printer.send(b"\x01A")
+    finally:
+        printer.close()
+    thread.join(JOIN_SECONDS)
+    assert bytes(received) == b"\x01A"
+
+
+@pytest.mark.os_agnostic
+def test_a_connection_refused_for_good_fails_within_the_retry_window() -> None:
+    """Retrying refused connections is bounded: a host that stays down is reported, not waited on."""
+    port = _free_port()
+    started = time.monotonic()
+    with pytest.raises(TransportError, match="refused"):
+        TcpTransport.connect(TcpUri(host="127.0.0.1", port=port), timeout=30.0)
+    assert time.monotonic() - started < REFUSED_RETRY_SECONDS + 1.0
 
 
 @pytest.mark.os_agnostic
