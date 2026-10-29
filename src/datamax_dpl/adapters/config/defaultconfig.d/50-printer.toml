@@ -84,3 +84,20 @@ cutter = "unknown"
 # Default: []
 # Environment Variable: DATAMAX_DPL___PRINTER__OPTIONS='["datamatrix"]'
 options = []
+
+# Purpose: Printed length divided by nominal length across the web, for this one
+#          printer: print a long line, measure it, divide by its nominal length.
+#          1.0 prints nominal lengths.
+#          Fonts and images sized in dots are not scaled.
+# Type: float, 0.5 to 1.5
+# Default: 1.0
+# Environment Variable: DATAMAX_DPL___PRINTER__SCALE_ACROSS=0.995
+scale_across = 1.0
+
+# Purpose: Printed length divided by nominal length along the feed. It depends on
+#          the platen roller, so two printers of one model can differ (an Allegro 2
+#          measured 0.977).
+# Type: float, 0.5 to 1.5
+# Default: 1.0
+# Environment Variable: DATAMAX_DPL___PRINTER__SCALE_ALONG=0.977
+scale_along = 1.0

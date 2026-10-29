@@ -223,8 +223,11 @@ anywhere besides `render.py` (grep `RenderContext(`).
 def test_scale_along_lengthens_rows_and_vertical_lines_only() -> None:
     label = Label(elements=[Line(x=10, y=10, x2=10, y2=110, thickness=0.5)])
     nominal = records(label, "allegro")
-    scaled = [line for line in build_job(label, RenderOptions(model="allegro", scale_along=0.8)).data.split(b"\r")
-              if line[:1] == b"1"]
+    scaled = [
+        line
+        for line in build_job(label, RenderOptions(model="allegro", scale_along=0.8)).data.split(b"\r")
+        if line[:1] == b"1"
+    ]
     assert nominal != scaled
     # column (x) unchanged, row (y) and vertical length grow by 1/0.8
     assert nominal[0][9:13] == scaled[0][9:13]
@@ -273,11 +276,27 @@ def test_allegro_2_writes_100_mm_as_400_hundredths() -> None:
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize(("rotation", "changes"), [(0, True), (90, False)])
 def test_barcode_height_follows_the_feed_only_when_unrotated(rotation: int, changes: bool) -> None:
-    label = Label.model_validate({"elements": [{"type": "barcode", "x": 5, "y": 5, "symbology": "code128",
-                                                 "data": "A1", "height": 10, "rotation": rotation}]})
+    label = Label.model_validate(
+        {
+            "elements": [
+                {
+                    "type": "barcode",
+                    "x": 5,
+                    "y": 5,
+                    "symbology": "code128",
+                    "data": "A1",
+                    "height": 10,
+                    "rotation": rotation,
+                }
+            ]
+        }
+    )
     plain = records(label, "allegro")
-    along = [r for r in build_job(label, RenderOptions(model="allegro", scale_along=0.8)).data.split(b"\r")
-             if r[:1] in (b"1", b"2", b"3", b"4")]
+    along = [
+        r
+        for r in build_job(label, RenderOptions(model="allegro", scale_along=0.8)).data.split(b"\r")
+        if r[:1] in (b"1", b"2", b"3", b"4")
+    ]
     assert (plain[0][6:9] != along[0][6:9]) is changes
 
 

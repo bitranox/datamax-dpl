@@ -39,6 +39,9 @@ class PrinterSettings(BaseModel):
     timeout: float = Field(default=10.0, gt=0)
     cutter: CutterPresence = CutterPresence.UNKNOWN
     options: frozenset[HardwareOption] = Field(default_factory=frozenset[HardwareOption])
+    # Same range as RenderOptions, so a bad value is refused here with its config key named.
+    scale_across: float = Field(default=1.0, ge=0.5, le=1.5)
+    scale_along: float = Field(default=1.0, ge=0.5, le=1.5)
 
     @field_validator("firmware", mode="before")
     @classmethod
@@ -139,6 +142,8 @@ def render_options(settings: PrinterSettings) -> RenderOptions:
         policy=settings.policy,
         cutter_installed=_CUTTER[settings.cutter],
         options=settings.options,
+        scale_across=settings.scale_across,
+        scale_along=settings.scale_along,
     )
 
 

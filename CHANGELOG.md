@@ -14,6 +14,9 @@ All notable changes to this project are documented here. The format follows
   present distances and the shapes drawn as images are corrected on the axis
   they run along; fonts and user bitmaps, which are sized in dots, are not.
   Measured on an Allegro 2: along the feed it prints 0.977 of nominal.
+- `[printer] scale_across` and `scale_along` in the configuration (and
+  `--set printer.scale_along=0.977`) pass those factors to every command that
+  renders; a value outside 0.5-1.5 is refused with its key named.
 
 ### Fixed
 

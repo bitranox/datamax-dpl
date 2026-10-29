@@ -274,3 +274,57 @@ def test_configured_options_reach_render_options_as_members() -> None:
     settings = PrinterSettings.model_validate({"options": ["datamatrix"]})
 
     assert render_options(settings).options == frozenset({HardwareOption.DATAMATRIX})
+
+
+_VERTICAL_LINE = {"elements": [{"type": "line", "x": 10, "y": 10, "x2": 10, "y2": 110, "thickness": 0.5}]}
+
+
+def _render_dpl(cli_runner: CliRunner, factory: Callable[[], Any], tmp_path: Path, *extra: str) -> str:
+    label = tmp_path / "line.json"
+    label.write_text(json.dumps(_VERTICAL_LINE), encoding="utf-8")
+    result = cli_runner.invoke(cli_mod.cli, [*extra, "--json", "render", str(label), "--model", "allegro"], obj=factory)
+    assert result.exit_code == 0, result.output
+    return json.loads(result.stdout)["data"]["dpl"]
+
+
+@pytest.mark.os_agnostic
+def test_a_configured_feed_scale_reaches_the_rendered_rows(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    tmp_path: Path,
+) -> None:
+    plain = _render_dpl(cli_runner, config_cli_context({}), tmp_path)
+    scaled = _render_dpl(cli_runner, config_cli_context({"printer": {"scale_along": 0.8}}), tmp_path)
+
+    assert "1X1100000390039L002394" in plain
+    assert "1X1100000490039L002492" in scaled
+
+
+@pytest.mark.os_agnostic
+def test_a_set_override_of_the_feed_scale_reaches_the_rendered_rows(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    tmp_path: Path,
+) -> None:
+    scaled = _render_dpl(cli_runner, config_cli_context({}), tmp_path, "--set", "printer.scale_along=0.8")
+
+    assert "1X1100000490039L002492" in scaled
+
+
+@pytest.mark.os_agnostic
+def test_a_configured_scale_outside_the_range_names_the_key(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    tmp_path: Path,
+) -> None:
+    exit_code, envelope = _validate(cli_runner, config_cli_context({"printer": {"scale_across": 3}}), tmp_path)
+
+    assert exit_code == 2
+    assert envelope["message"] == "printer.scale_across: Input should be less than or equal to 1.5"
+
+
+@pytest.mark.os_agnostic
+def test_both_configured_scales_reach_render_options() -> None:
+    options = render_options(PrinterSettings(scale_across=0.99, scale_along=0.977))
+
+    assert (options.scale_across, options.scale_along) == (0.99, 0.977)
