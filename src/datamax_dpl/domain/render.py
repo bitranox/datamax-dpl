@@ -115,18 +115,21 @@ def _calibration(options: RenderOptions, model: CalibrationDefaults) -> tuple[Ca
     return resolved, from_model
 
 
+def _report_model_defaults(label: Label, ctx: RenderContext, *, provenance: str, from_model: dict[str, str]) -> None:
+    """Record which model defaults this job uses, naming the stop position only where it is sent."""
+    if not stops_at_tear_off(label, ctx):
+        # The label's own or the cutter's stop position replaces the model's: it is never sent.
+        from_model = {name: text for name, text in from_model.items() if name != "stop_position"}
+    if from_model:
+        ctx.findings.info(
+            FindingCode.MODEL_DEFAULTS_APPLIED, f"model defaults ({provenance}): {', '.join(from_model.values())}"
+        )
+
+
 def _context(label: Label, options: RenderOptions) -> RenderContext:
     profile = get_profile(options.model)
     findings = FindingCollector(options.policy)
     calibration, from_model = _calibration(options, profile.calibration)
-    if not stops_at_tear_off(label):
-        # The label's own or the cutter's stop position replaces the model's: it is never sent.
-        from_model.pop("stop_position", None)
-    if from_model:
-        findings.info(
-            FindingCode.MODEL_DEFAULTS_APPLIED,
-            f"model defaults ({calibration.provenance}): {', '.join(from_model.values())}",
-        )
     probe = RenderContext(
         profile=profile,
         firmware=parse_firmware(options.firmware),
@@ -145,6 +148,7 @@ def _context(label: Label, options: RenderOptions) -> RenderContext:
         stop_position_mm=calibration.stop_position_mm,
         cutter_stop_position_mm=options.cutter_stop_position_mm,
     )
+    _report_model_defaults(label, probe, provenance=calibration.provenance, from_model=from_model)
     if label.unit is Unit.MM and probe.supports(Feature.FORMAT_METRIC):
         probe.dpl_unit = DplUnit.MM_TENTHS
     elif label.unit is Unit.MM:

@@ -580,3 +580,29 @@ def test_a_configured_stop_position_past_the_command_limit_is_refused(
     result = _stop_job(label_fields, **options)
     assert [f.code for f in result.errors] == [FindingCode.STOP_POSITION_TOO_LARGE]
     assert _stop_commands(result) == []
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("label_fields", "options"),
+    [
+        ({"present_distance": 30}, {}),
+        ({"present_distance": 30}, {"stop_position_mm": 40}),
+        ({"present_distance": 30, "cut": {"every": 1}}, {"cutter_installed": True, "cutter_stop_position_mm": 80}),
+    ],
+)
+def test_a_present_distance_sent_as_the_stop_position_is_the_labels_own_stop(
+    label_fields: dict[str, object], options: dict[str, object]
+) -> None:
+    """The Allegro 2 has no present-distance command, so the label's present distance is its stop."""
+    result = _stop_job(label_fields, **options)
+    assert _stop_commands(result) == [STX + b"f123"]
+    assert FindingCode.PRESENT_DISTANCE_UNSUPPORTED in {f.code for f in result.findings}
+    assert not _names_the_model_stop(result)
+
+
+@pytest.mark.os_agnostic
+def test_a_model_with_a_present_distance_command_sends_it_beside_the_configured_stop() -> None:
+    result = _stop_job({"present_distance": 30}, model="pe42", stop_position_mm=40)
+    assert result.data.startswith(STX + b"n" + STX + b"f157" + STX + b"Kf0118" + STX + b"L\r")
+    assert result.findings == ()

@@ -48,13 +48,24 @@ def _media_commands(label: Label, ctx: RenderContext) -> list[bytes]:
     return [_system("c0000"), _system(letter)]
 
 
-def stops_at_tear_off(label: Label) -> bool:
+def _present_distance_is_a_stop(ctx: RenderContext) -> bool:
+    """Return True when this model can send a present distance only as a stop position."""
+    return not ctx.supports(Feature.PRESENT_DISTANCE) and ctx.supports(Feature.STOP_POSITION)
+
+
+def _label_sets_stop(label: Label, ctx: RenderContext) -> bool:
+    """Return True when the label stops itself: its ``stop_position``, or a present distance sent as one."""
+    return label.stop_position is not None or (label.present_distance is not None and _present_distance_is_a_stop(ctx))
+
+
+def stops_at_tear_off(label: Label, ctx: RenderContext) -> bool:
     """Return True when the job stops at the configured tear-off position.
 
-    The label's own stop position wins over any configured one, and a job that cuts stops where the
-    cutter needs it (``cutter_stop_position_mm``), never at the tear-off position.
+    The label's own stop wins over any configured one (a present distance this model can only send
+    as a stop position counts as the label's stop), and a job that cuts stops where the cutter
+    needs it (``cutter_stop_position_mm``), never at the tear-off position.
     """
-    return label.stop_position is None and label.cut is None
+    return not _label_sets_stop(label, ctx) and label.cut is None
 
 
 def _wanted_stop(label: Label, ctx: RenderContext) -> int | None:
@@ -68,7 +79,11 @@ def _wanted_stop(label: Label, ctx: RenderContext) -> int | None:
     """
     if label.stop_position is not None:
         return ctx.inch_hundredths(label.stop_position, axis=Axis.ALONG)
-    configured = ctx.stop_position_mm if stops_at_tear_off(label) else ctx.cutter_stop_position_mm
+    if _label_sets_stop(label, ctx):
+        # The present distance goes out as the stop position (_present_distance); a second
+        # stop command beside it would only be overwritten by it.
+        return None
+    configured = ctx.stop_position_mm if stops_at_tear_off(label, ctx) else ctx.cutter_stop_position_mm
     return None if configured is None else ctx.nominal_inch_hundredths(configured)
 
 
@@ -100,7 +115,7 @@ def _present_commands(label: Label, ctx: RenderContext) -> list[bytes]:
 def _present_distance(value: float, ctx: RenderContext) -> list[bytes]:
     if ctx.supports(Feature.PRESENT_DISTANCE):
         return [_system(f"Kf{ctx.inch_hundredths(value, axis=Axis.ALONG):04d}")]
-    if ctx.supports(Feature.STOP_POSITION):
+    if _present_distance_is_a_stop(ctx):
         ctx.findings.deviate(
             FindingCode.PRESENT_DISTANCE_UNSUPPORTED,
             f"present distance: {ctx.requirement(Feature.PRESENT_DISTANCE)}",
