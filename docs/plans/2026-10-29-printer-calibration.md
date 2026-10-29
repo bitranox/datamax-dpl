@@ -411,3 +411,75 @@ same for `scale_along`; `render_options()` passes both.
 
 M3 (calibration labels and commands) and M4 (docs, skill, real calibration round) are detailed
 once M2 is in.
+
+## DETAILED: M3 tasks (calibration labels and commands)
+
+M2 is done (ef43593). Layout rules learned on the printer: the Allegro 2 XORs overlapping
+fields, so no two shapes on a calibration label may share a dot.
+
+### Task 7: The two calibration labels (domain)
+
+**Files:** Create `src/datamax_dpl/domain/calibration.py`; Test `tests/test_calibration.py`.
+
+**Interfaces:** Produces `ALONG_LENGTH_MM = 200.0`, `TICK_SPACING_MM = 10.0`,
+`across_label(*, width: float, height: float, title: str) -> Label` and
+`along_label(*, length: float = ALONG_LENGTH_MM, title: str) -> Label`, both in mm, and
+`calibration_labels(...)` re-exported from `datamax_dpl`.
+
+- Across: a box frame at (0, 0) of `width` x `height`, thickness 0.25 mm - its OUTER width is the
+  measured length; a horizontal bar 1 mm thick at mid-height from the frame's inner left edge to
+  its inner right edge (touching, never overlapping); ticks every 10 mm from x = 10 to the last
+  multiple below `width`, each 0.25 mm wide, 3 mm tall, starting 0.25 mm above the bar; text
+  lines: `title`, "MEASURE THE FRAME OUTSIDE: <width> MM ACROSS".
+- Along: label height `length + 5`; a vertical bar 0.5 mm wide from y = 2 to y = 2 + `length`
+  at x = 40; ticks every 10 mm to its right (3 mm long, 0.25 mm gap); text: `title`,
+  "MEASURE THE LINE: <length> MM ALONG THE FEED", placed right of the ticks.
+- Refuse (ValueError) a width or height under 20 mm, or a length over 200 mm (the measured cutoff
+  is ~201.5 mm on the Allegro 2; one format cannot be longer).
+- [x] Tests: no two elements' bounding boxes overlap (XOR rule), frame outer size equals the
+  given size, tick count and positions, rendered DPL for allegro-2 at scale 1.0 has the frame
+  width 400 units; refusals.
+
+As built (deviations from the text above):
+
+- `along_label(*, width, length=ALONG_LENGTH_MM, title)` takes the label width: the text has to
+  wrap to it, and on a narrow label x = 40 would be off the media, so the bar sits at x = 5.
+- Text is word-wrapped (font 1, cell of a 203 dpi head, 2.5 mm lines); the across title sits above
+  the ticks and the sentence below the bar; text that does not fit raises ValueError.
+- `MIN_LABEL_MM = 20` also bounds the along length from below.
+- The overlap test decodes the rendered DPL and intersects the record rectangles, for allegro-2
+  and dmx-600 at 100 x 55, 20 x 20 and 57.3 x 31.7 mm. The preview is no oracle for it: it draws
+  a thick line centred and past its ends (OPEN-WORK [115]).
+
+### Task 8: `datamax-dpl calibrate print`
+
+**Files:** Create `src/datamax_dpl/adapters/cli/commands/calibrate.py` (a click group
+`calibrate` with `print` and `set`), register it in the CLI root; Test `tests/test_cli_calibrate.py`.
+
+- `calibrate print --printer NAME|URI [--width MM] [--height MM] [--along-length MM]
+  [--axis across|along|both]` renders both labels with the resolved settings (the printer's
+  current factors) and sends them; width and height come from the printer's `label_width` /
+  `label_height` unless given; missing both refuses with exit 2 naming the keys. The title line
+  names the printer and the factors in use. `--json` envelope lists what was sent.
+- [ ] Tests with a `file:` URI printer: both formats are in the file; the factor in use shows in
+  the title; a missing size is refused.
+
+### Task 9: `datamax-dpl calibrate set` and the config write
+
+**Files:** Create `src/datamax_dpl/adapters/config/user_edit.py` (tomlkit), the `set` command in
+`calibrate.py`; add `tomlkit>=0.15.2` to `pyproject.toml`; Tests `tests/test_config_user_edit.py`,
+`tests/test_cli_calibrate.py`.
+
+- `calibrate set --printer NAME (--along MM | --across MM | both) [--along-length MM]`:
+  new factor = current factor x measured / nominal (nominal across = the printer's label width,
+  along = `--along-length`, default 200), rounded to 4 places, refused outside 0.5-1.5 with both
+  numbers named; refuses a URI (`--printer` must name a configured printer).
+- `user_edit.set_printer_values(path, name, values)`: load the user `config.toml` with tomlkit
+  (create it if absent), set `printers.<name>.<key>`, write it back; comments and key order
+  survive. The path comes from `lib_layered_config.deploy_config_paths(..., targets=["user"])`
+  for the active profile.
+- After writing, clear the loader cache, re-read the config and warn on stderr when the
+  effective value differs (a `.env` or environment variable wins).
+- [ ] Tests: arithmetic (0.977 x 199 / 200), a commented file keeps its comments, a missing file is
+  created, the precedence warning fires when `DATAMAX_DPL___PRINTERS__LAGER__SCALE_ALONG` is set,
+  a URI is refused.

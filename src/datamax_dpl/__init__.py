@@ -23,6 +23,7 @@ from .adapters.preview import render_preview_png
 from .adapters.transport import open_printer
 from .application.use_cases import BatchResult, render_batch
 from .composition import get_config
+from .domain.calibration import ALONG_LENGTH_MM, across_label, along_label, calibration_labels
 from .domain.decoder import explain
 from .domain.enums import (
     Attribute,
@@ -66,6 +67,7 @@ from .domain.render_context import RenderOptions
 from .domain.symbology import Symbology
 
 __all__ = [
+    "ALONG_LENGTH_MM",
     "Attribute",
     "Barcode",
     "BarcodeProblemCode",
@@ -103,7 +105,10 @@ __all__ = [
     "Text",
     "TransportError",
     "Unit",
+    "across_label",
+    "along_label",
     "build_job",
+    "calibration_labels",
     "explain",
     "fill_label",
     "get_config",

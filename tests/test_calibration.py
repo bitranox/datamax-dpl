@@ -1,0 +1,138 @@
+"""The calibration labels: what a user measures, and the rule that no two shapes share a dot."""
+
+from __future__ import annotations
+
+import pytest
+
+from datamax_dpl.domain.calibration import ALONG_LENGTH_MM, across_label, along_label
+from datamax_dpl.domain.decoder import explain
+from datamax_dpl.domain.label import Box, Element, Label, Line, Text
+from datamax_dpl.domain.preview import Canvas, canvas_for, text_box
+from datamax_dpl.domain.profiles import get_profile
+from datamax_dpl.domain.render import build_job
+from datamax_dpl.domain.render_context import RenderOptions
+
+Rect = tuple[int, int, int, int]
+"""A half-open rectangle (left, bottom, right, top) in DPL record units."""
+
+
+def _units(value: float) -> int:
+    return round(value * 100)
+
+
+def _rects(element: Element, canvas: Canvas) -> list[Rect]:
+    """The area a decoded record covers, as the printer draws it: from its reference corner up and right."""
+    if isinstance(element, Line):
+        left, right = sorted((_units(element.x), _units(element.x2)))
+        bottom, top = sorted((_units(element.y), _units(element.y2)))
+        thickness = _units(element.thickness)
+        horizontal = element.y == element.y2
+        return [(left, bottom, right, bottom + thickness) if horizontal else (left, bottom, left + thickness, top)]
+    if isinstance(element, Box):
+        x, y, w, h = (_units(v) for v in (element.x, element.y, element.width, element.height))
+        edge, side = _units(element.thickness), _units(element.side_thickness or element.thickness)
+        return [
+            (x, y, x + w, y + edge),
+            (x, y + h - edge, x + w, y + h),
+            (x, y, x + side, y + h),
+            (x + w - side, y, x + w, y + h),
+        ]
+    assert isinstance(element, Text)
+    # Text is taken as its whole box: the printer's glyphs differ from the preview's.
+    _, _, width_px, height_px = text_box(element, canvas)
+    x, y = _units(element.x), _units(element.y)
+    return [(x, y, x + round(width_px * 100 / canvas.dpi), y + round(height_px * 100 / canvas.dpi))]
+
+
+def _touching_pairs(label: Label, model: str = "allegro-2") -> list[tuple[int, int]]:
+    """Pairs of rendered fields that share a dot: the printer XORs such dots away."""
+    decoded = explain(build_job(label, RenderOptions(model=model)).data).label
+    assert decoded is not None
+    canvas = canvas_for(decoded, get_profile(model))
+    areas = [_rects(element, canvas) for element in decoded.elements]
+    return [
+        (i, j)
+        for i, first in enumerate(areas)
+        for j in range(i + 1, len(areas))
+        if any(_intersect(a, b) for a in first for b in areas[j])
+    ]
+
+
+def _intersect(a: Rect, b: Rect) -> bool:
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("model", ["allegro-2", "dmx-600"])
+@pytest.mark.parametrize(("width", "height"), [(100, 55), (20, 20), (57.3, 31.7)])
+def test_no_two_shapes_of_the_across_label_share_a_dot(model: str, width: float, height: float) -> None:
+    assert _touching_pairs(across_label(width=width, height=height, title="LAGER 0.9770"), model) == []
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("model", ["allegro-2", "dmx-600"])
+@pytest.mark.parametrize("width", [100, 20])
+def test_no_two_shapes_of_the_along_label_share_a_dot(model: str, width: float) -> None:
+    assert _touching_pairs(along_label(width=width, length=60, title="LAGER 0.9770"), model) == []
+
+
+@pytest.mark.os_agnostic
+def test_the_across_frame_is_the_label_size_and_the_bar_fills_its_inside() -> None:
+    label = across_label(width=100, height=55, title="LAGER")
+    (frame,) = [e for e in label.elements if isinstance(e, Box)]
+    bar = max((e for e in label.elements if isinstance(e, Line)), key=lambda e: abs(e.x2 - e.x))
+    assert (frame.x, frame.y, frame.width, frame.height) == (0, 0, 100, 55)
+    assert (bar.x, bar.x2) == (frame.thickness, 100 - frame.thickness)
+
+
+@pytest.mark.os_agnostic
+def test_the_across_ticks_stand_every_ten_millimetres() -> None:
+    label = across_label(width=100, height=55, title="LAGER")
+    ticks = sorted(e.x for e in label.elements if isinstance(e, Line) and e.x == e.x2)
+    assert ticks == [10, 20, 30, 40, 50, 60, 70, 80, 90]
+
+
+@pytest.mark.os_agnostic
+def test_the_along_bar_has_the_asked_length_and_ticks_every_ten_millimetres() -> None:
+    label = along_label(width=100, length=ALONG_LENGTH_MM, title="LAGER")
+    bar = max((e for e in label.elements if isinstance(e, Line)), key=lambda e: abs(e.y2 - e.y))
+    ticks = [e for e in label.elements if isinstance(e, Line) and e.y == e.y2]
+    assert abs(bar.y2 - bar.y) == ALONG_LENGTH_MM
+    assert len(ticks) == 21
+    assert label.height is not None
+    assert label.height >= bar.y2
+
+
+@pytest.mark.os_agnostic
+def test_the_labels_say_what_to_measure() -> None:
+    across = across_label(width=100, height=55, title="LAGER 0.977")
+    along = along_label(width=100, length=150, title="LAGER 0.977")
+    across_text = " ".join(getattr(e, "text", "") for e in across.elements)
+    along_text = " ".join(getattr(e, "text", "") for e in along.elements)
+    assert "LAGER 0.977" in across_text and "100 MM" in across_text
+    assert "LAGER 0.977" in along_text and "150 MM" in along_text
+
+
+@pytest.mark.os_agnostic
+def test_the_across_frame_renders_as_the_full_label_width_on_the_allegro_2() -> None:
+    data = build_job(across_label(width=100, height=55, title="X"), RenderOptions(model="allegro-2")).data
+    assert b"B400220001001" in data
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("width", "height"), [(19, 55), (100, 19)])
+def test_a_label_under_twenty_millimetres_is_refused(width: float, height: float) -> None:
+    with pytest.raises(ValueError, match="20 mm"):
+        across_label(width=width, height=height, title="X")
+
+
+@pytest.mark.os_agnostic
+def test_an_along_length_over_two_hundred_millimetres_is_refused() -> None:
+    with pytest.raises(ValueError, match="200 mm"):
+        along_label(width=100, length=201, title="X")
+
+
+@pytest.mark.os_agnostic
+def test_a_title_that_does_not_fit_is_refused() -> None:
+    with pytest.raises(ValueError, match="too small for its text"):
+        across_label(width=20, height=20, title="A VERY LONG PRINTER NAME THAT TAKES MANY LINES TO WRAP")

@@ -22,6 +22,12 @@ All notable changes to this project are documented here. The format follows
   `label_height`. `--printer` takes a name or a URI; `render` and `validate`
   take it too, so a named printer supplies its model and scale factors. An
   unknown name is refused with the configured names listed.
+- `across_label`, `along_label` and `calibration_labels`: the two labels to
+  measure a printer's scale factors with. The across label has a frame on the
+  label edges and a bar filling its inside; the along label has a bar up to
+  200 mm long along the feed. Both have a tick every 10 mm, and no two of
+  their fields share a dot, since printers without field attributes cancel
+  overlapping dots.
 
 ### Fixed
 
