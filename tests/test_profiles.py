@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from datamax_dpl.domain.profiles import CalibrationDefaults, get_profile
+from datamax_dpl.domain.profiles import CalibrationDefaults, Feature, get_profile, list_profiles
 
 
 def _values(calibration: CalibrationDefaults) -> tuple[float, float, float, float, float | None]:
@@ -29,3 +29,10 @@ def test_other_models_keep_neutral_calibration() -> None:
     calibration = get_profile("dmx-600").calibration
     assert _values(calibration) == (1.0, 1.0, 0.0, 0.0, None)
     assert calibration.provenance == ""
+
+
+@pytest.mark.os_agnostic
+def test_only_a_model_that_has_a_stop_position_ships_a_default_for_it() -> None:
+    shipping = [p for p in list_profiles() if p.calibration.stop_position_mm is not None]
+    assert shipping
+    assert all(p.support(Feature.STOP_POSITION).available for p in shipping)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 import pytest
@@ -483,3 +484,99 @@ def test_a_field_clear_of_the_edge_needs_no_clamp_under_the_models_default_offse
     result = build_job(label, RenderOptions(model="allegro-2"))
     assert _clamped(result) == []
     assert result.errors == ()
+
+
+# ======================== stop position from the options and the model ========================
+
+
+def _stop_job(label_fields: dict[str, object] | None = None, **options: object) -> RenderResult:
+    """A one-text label with ``label_fields``, rendered with ``options`` (default model allegro-2)."""
+    label = Label.model_validate({"elements": [{"type": "text", "x": 5, "y": 5, "text": "X"}], **(label_fields or {})})
+    return build_job(label, RenderOptions.model_validate({"model": "allegro-2", **options}))
+
+
+def _stop_commands(result: RenderResult) -> list[bytes]:
+    return re.findall(rb"\x02f[0-9]{3}", result.data)
+
+
+def _names_the_model_stop(result: RenderResult) -> bool:
+    return any("stop_position" in f.message for f in result.findings if f.code is FindingCode.MODEL_DEFAULTS_APPLIED)
+
+
+@pytest.mark.os_agnostic
+def test_an_allegro_2_without_options_stops_where_the_user_measured_it() -> None:
+    """67.4 mm is what ``<STX>f265`` stopped at on the printer, so no scale or offset may move it."""
+    result = _stop_job()
+    assert result.data.startswith(STX + b"n" + STX + b"f265" + STX + b"L\r")
+    assert _names_the_model_stop(result)
+
+
+@pytest.mark.os_agnostic
+def test_a_stop_position_option_is_sent_as_configured_without_the_printers_scale() -> None:
+    assert _stop_commands(_stop_job(stop_position_mm=40)) == [STX + b"f157"]
+
+
+@pytest.mark.os_agnostic
+def test_the_labels_own_stop_position_wins_over_the_model_default() -> None:
+    result = _stop_job({"stop_position": 60})
+    assert _stop_commands(result) == [STX + b"f246"]
+    assert not _names_the_model_stop(result)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("tear_off", [{}, {"stop_position_mm": 40}])
+def test_a_job_that_cuts_sends_no_stop_position_without_a_cutter_stop_position(tear_off: dict[str, object]) -> None:
+    result = _stop_job({"cut": {"every": 1}}, cutter_installed=True, **tear_off)
+    assert _stop_commands(result) == []
+    assert result.errors == ()
+    assert not _names_the_model_stop(result)
+
+
+@pytest.mark.os_agnostic
+def test_a_job_that_cuts_sends_the_cutter_stop_position() -> None:
+    result = _stop_job({"cut": {"every": 1}}, cutter_installed=True, cutter_stop_position_mm=80)
+    assert _stop_commands(result) == [STX + b"f315"]
+
+
+@pytest.mark.os_agnostic
+def test_a_job_that_does_not_cut_ignores_the_cutter_stop_position() -> None:
+    assert _stop_commands(_stop_job(cutter_stop_position_mm=80)) == [STX + b"f265"]
+
+
+@pytest.mark.os_agnostic
+def test_a_model_without_a_measured_stop_position_sends_none() -> None:
+    assert _stop_commands(_stop_job(model="dmx-600")) == []
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("label_fields", "options"),
+    [
+        ({}, {"stop_position_mm": 40}),
+        ({"cut": {"every": 1}}, {"cutter_installed": True, "cutter_stop_position_mm": 80}),
+    ],
+)
+def test_a_configured_stop_position_on_a_model_without_one_is_a_deviation(
+    label_fields: dict[str, object], options: dict[str, object]
+) -> None:
+    result = _stop_job(label_fields, model="prodigy", **options)
+    assert _stop_commands(result) == []
+    (deviation,) = [f for f in result.findings if f.code is FindingCode.STOP_POSITION_UNSUPPORTED]
+    assert deviation.severity is Severity.WARNING
+    assert deviation.fallback == "labels stop at the printer's default position"
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("label_fields", "options"),
+    [
+        ({}, {"stop_position_mm": 254}),
+        ({"cut": {"every": 1}}, {"cutter_installed": True, "cutter_stop_position_mm": 254}),
+    ],
+)
+def test_a_configured_stop_position_past_the_command_limit_is_refused(
+    label_fields: dict[str, object], options: dict[str, object]
+) -> None:
+    result = _stop_job(label_fields, **options)
+    assert [f.code for f in result.errors] == [FindingCode.STOP_POSITION_TOO_LARGE]
+    assert _stop_commands(result) == []

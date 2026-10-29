@@ -53,10 +53,11 @@ class RenderOptions(BaseModel):
         offset_across: Millimetres every field is moved to the right, measured for one printer
             (``datamax-dpl calibrate``); negative moves left. None takes the model's default.
         offset_along: Millimetres every field is moved toward the label top; negative moves down.
-        stop_position_mm: Tear-off stop position in mm; None takes the model's default, which
-            for most models leaves the printer's own setting.
-        cutter_stop_position_mm: Stop position in mm when the label is cut; None leaves the
-            printer's own setting.
+        stop_position_mm: Tear-off stop position in mm, sent as configured (no scale or offset
+            applies); None takes the model's default, which for most models leaves the printer's
+            own setting. A label's own ``stop_position`` wins, and a job that cuts never uses it.
+        cutter_stop_position_mm: Stop position in mm for a job that cuts, sent as configured;
+            None sends no stop position for such a job and leaves the printer's own setting.
 
     Example:
         >>> RenderOptions(model="dmx-600").policy
@@ -195,6 +196,14 @@ class RenderContext:
         return to_dpl(
             value, self.unit, target=DplUnit.INCH_HUNDREDTHS, dpi=self.profile.dpi, correction=self.correction(axis)
         ).value
+
+    def nominal_inch_hundredths(self, mm: float) -> int:
+        """Convert a millimetre distance set outside the label to hundredths of an inch, uncorrected.
+
+        For distances found by trial on the printer (a stop position), where what is configured
+        is what must be sent: neither the label's unit nor this printer's scale applies.
+        """
+        return to_dpl(mm, Unit.MM, target=DplUnit.INCH_HUNDREDTHS, dpi=self.profile.dpi).value
 
     def dots(self, value: float, *, axis: Axis) -> int:
         """Convert a label length on ``axis`` to whole printer dots, at least one (a size)."""

@@ -21,7 +21,7 @@ from .encode_text import encode_scalable_text, encode_text
 from .enums import Attribute, FindingCode, Severity, Unit
 from .errors import LabelRejectedError
 from .findings import Finding, FindingCollector
-from .job import format_footer, format_header, system_prefix
+from .job import format_footer, format_header, stops_at_tear_off, system_prefix
 from .label import Barcode, Box, Circle, Image, Line, Polygon, ScalableText, Text
 from .placeholders import label_placeholders
 from .profiles import CalibrationDefaults, Feature, get_profile, parse_firmware
@@ -119,6 +119,9 @@ def _context(label: Label, options: RenderOptions) -> RenderContext:
     profile = get_profile(options.model)
     findings = FindingCollector(options.policy)
     calibration, from_model = _calibration(options, profile.calibration)
+    if not stops_at_tear_off(label):
+        # The label's own or the cutter's stop position replaces the model's: it is never sent.
+        from_model.pop("stop_position", None)
     if from_model:
         findings.info(
             FindingCode.MODEL_DEFAULTS_APPLIED,

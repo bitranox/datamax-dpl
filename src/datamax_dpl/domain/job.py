@@ -48,8 +48,31 @@ def _media_commands(label: Label, ctx: RenderContext) -> list[bytes]:
     return [_system("c0000"), _system(letter)]
 
 
-def _stop_command(value: float, ctx: RenderContext) -> list[bytes]:
-    hundredths = ctx.inch_hundredths(value, axis=Axis.ALONG)
+def stops_at_tear_off(label: Label) -> bool:
+    """Return True when the job stops at the configured tear-off position.
+
+    The label's own stop position wins over any configured one, and a job that cuts stops where the
+    cutter needs it (``cutter_stop_position_mm``), never at the tear-off position.
+    """
+    return label.stop_position is None and label.cut is None
+
+
+def _wanted_stop(label: Label, ctx: RenderContext) -> int | None:
+    """Return the stop position to send in 1/100 in, or None to leave the printer's own setting.
+
+    A configured stop position (an option, the config file, or the model's default) is a distance
+    found by trying stop values on the printer, so it is sent exactly as configured, without the
+    printer's scale or offset: the Allegro 2's 67.4 mm is what ``<STX>f265`` stopped at, and a
+    scaled conversion would move that stop. The label's own stop position is a length on the
+    label, so it prints through the printer's correction like every other length.
+    """
+    if label.stop_position is not None:
+        return ctx.inch_hundredths(label.stop_position, axis=Axis.ALONG)
+    configured = ctx.stop_position_mm if stops_at_tear_off(label) else ctx.cutter_stop_position_mm
+    return None if configured is None else ctx.nominal_inch_hundredths(configured)
+
+
+def _stop_command(hundredths: int, ctx: RenderContext) -> list[bytes]:
     if hundredths > _MAX_STOP_POSITION:
         ctx.findings.refuse(
             FindingCode.STOP_POSITION_TOO_LARGE, f"stop position takes at most {_MAX_STOP_POSITION}/100 in"
@@ -60,15 +83,15 @@ def _stop_command(value: float, ctx: RenderContext) -> list[bytes]:
 
 def _present_commands(label: Label, ctx: RenderContext) -> list[bytes]:
     commands: list[bytes] = []
-    if label.stop_position is not None:
-        if ctx.supports(Feature.STOP_POSITION):
-            commands += _stop_command(label.stop_position, ctx)
-        else:
-            ctx.findings.deviate(
-                FindingCode.STOP_POSITION_UNSUPPORTED,
-                f"stop position: {ctx.requirement(Feature.STOP_POSITION)}",
-                fallback="labels stop at the printer's default position",
-            )
+    wanted = _wanted_stop(label, ctx)
+    if wanted is not None and ctx.supports(Feature.STOP_POSITION):
+        commands += _stop_command(wanted, ctx)
+    elif wanted is not None:
+        ctx.findings.deviate(
+            FindingCode.STOP_POSITION_UNSUPPORTED,
+            f"stop position: {ctx.requirement(Feature.STOP_POSITION)}",
+            fallback="labels stop at the printer's default position",
+        )
     if label.present_distance is not None:
         commands += _present_distance(label.present_distance, ctx)
     return commands
@@ -83,7 +106,7 @@ def _present_distance(value: float, ctx: RenderContext) -> list[bytes]:
             f"present distance: {ctx.requirement(Feature.PRESENT_DISTANCE)}",
             fallback="sent as stop position (measured from the sensor, not from the next label)",
         )
-        return _stop_command(value, ctx)
+        return _stop_command(ctx.inch_hundredths(value, axis=Axis.ALONG), ctx)
     ctx.findings.deviate(
         FindingCode.PRESENT_DISTANCE_UNSUPPORTED,
         f"present distance: {ctx.requirement(Feature.PRESENT_DISTANCE)}",
@@ -283,4 +306,4 @@ def format_footer(label: Label, ctx: RenderContext) -> list[bytes]:
     return [line(f"Q{label.quantity:04d}"), line("E")]
 
 
-__all__ = ["CUT_NOW", "INCH_MODE", "format_footer", "format_header", "system_prefix"]
+__all__ = ["CUT_NOW", "INCH_MODE", "format_footer", "format_header", "stops_at_tear_off", "system_prefix"]
