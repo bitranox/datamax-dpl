@@ -481,10 +481,18 @@ keeps the printer's own stop position. A value you set, even 1.0 or 0.0, wins ov
 and the result of `render` and `print` names each model default it used. `calibrate print` prints
 with these effective values and `calibrate set` starts from them.
 
+A configuration deployed by 0.3.0 (`datamax-dpl config-deploy`, usually `--target user`) still holds
+`scale_across = 1.0`, `scale_along = 1.0`, `offset_across = 0.0` and `offset_along = 0.0` in its
+`config.d/50-printer.toml`, and those explicit values win over the model's. Comment the four keys
+out there, or redeploy with `config-deploy --force` (the old file is kept as `.bak`), to get the
+model defaults.
+
 Both stop positions are distances found by trying stop values on the printer, so they are sent
 unscaled, rounded to 1/100 inch (60 mm is `<STX>f236`); 253.746 mm, the 999/100 inch a three-digit
 `<STX>f` takes, is the most either key accepts. On a model without a stop-position command neither
 is sent: the job still prints and reports the info finding `configured_stop_position_unsupported`.
+There is no lower bound beyond 0: `stop_position = 0.1` sends `<STX>f000`, which the manual allows,
+but a stop has an effect only past the start-of-print position set on the printer.
 
 The URI forms and what each channel can do are in the README; the models, features and fallbacks
 in [docs/capabilities.md](docs/capabilities.md).

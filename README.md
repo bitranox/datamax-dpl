@@ -210,6 +210,17 @@ the borders on opposite sides and pass them in pairs (`--top`/`--bottom`, `--lef
 print sits centred, independent of the tear-off position. Print again to confirm. Fonts and images
 sized in printer dots are not scaled.
 
+Where nothing is configured, a model's measured defaults apply: the `allegro-2` profile prints with
+`scale_along` 0.976, `offset_along` -0.25 mm and a 67.4 mm tear-off stop, every other model nominal.
+The result names each default it used (`model_defaults_applied`); `calibrate print` prints with
+them and `calibrate set` starts from them. Any key you set, even `scale_along = 1.0`, wins.
+
+The printer stops a label at one of two positions: `stop_position` (tear-off) for a job that does
+not cut, `cutter_stop_position` for one that cuts; a job that cuts never uses the tear-off value.
+Both are sent exactly as configured, without scale or offset, and a label's own `stop_position`
+wins over either. Keys, bounds and the note for configurations deployed by 0.3.0 are in
+[CONFIG.md](CONFIG.md).
+
 ## JSON output for scripts and LLMs
 
 Put `--json` (indented) or `--json-bare` (one line) before the command. The answer on stdout is

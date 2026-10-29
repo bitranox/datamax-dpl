@@ -6,6 +6,52 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Per-model calibration defaults (`PrinterProfile.calibration`), used where
+  neither the options nor the configuration set a value. The `allegro-2`
+  profile carries the values measured on one Allegro 2 (firmware CA02 03.04,
+  2026-10-29): `scale_along` 0.976, `offset_along` -0.25 mm and a tear-off
+  stop position of 67.4 mm; every other model stays nominal (scale 1.0,
+  offset 0.0, the printer's own stop position). `effective_calibration`
+  returns the values a job renders with.
+- Info finding `model_defaults_applied`, naming each model default a job used
+  and where it was measured.
+- Deviation `model_offset_clamped`: a field that only the model's default
+  offset pushes past the label edge is placed on the edge (where the printer
+  put it without the correction) instead of being refused; `strict` refuses
+  it. An offset the caller set still refuses such a field.
+- Stop positions, in this order: the label's own `stop_position` (a
+  `present_distance` the model can only send as a stop position counts as
+  the label's stop); for a job that cuts, `cutter_stop_position` or no stop
+  command at all, never the tear-off value; otherwise the configured
+  tear-off `stop_position`, then the model's default. Configured and model
+  stop positions are distances found on the printer, so they are sent
+  unscaled, rounded to 1/100 in.
+- `[printer]` (and `[printers.<name>]`) keys `stop_position` and
+  `cutter_stop_position`, in mm, greater than 0 and at most 253.746 mm (the
+  999/100 in a three-digit `<STX>f` takes); a value outside is refused with
+  its key named.
+- Info finding `configured_stop_position_unsupported`: a configured or model
+  stop position on a model without a stop-position command is not sent, and
+  the job still prints, under `strict` too.
+
+### Changed
+
+- Unset `scale_across`, `scale_along`, `offset_across` and `offset_along` now
+  mean the model's default, and the shipped `config.d/50-printer.toml` no
+  longer sets them. An `allegro-2` therefore prints with scale 0.976 along,
+  offset -0.25 mm along and a 67.4 mm stop position unless configured
+  otherwise, and `calibrate print` / `calibrate set` report and start from
+  those values. A value you set, even 1.0 or 0.0, still wins.
+- Migration: a configuration deployed by 0.3.0 (`config-deploy`, usually
+  `--target user`) still holds `scale_across = 1.0`, `scale_along = 1.0`,
+  `offset_across = 0.0` and `offset_along = 0.0` in its
+  `config.d/50-printer.toml`, and those explicit values win over the model's.
+  Comment the four keys out, or redeploy with `config-deploy --force` (the
+  old file is kept as `.bak`), to get the model defaults. Earlier releases
+  did not ship these keys.
+
 ## [0.3.0] - 2026-10-29
 
 ### Added
