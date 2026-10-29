@@ -1,8 +1,8 @@
-"""``{name}`` placeholders in text and barcode data, filled from one data record per label.
+"""``{name}`` placeholders in text, barcode and QR data, filled from one data record per label.
 
 A record is a flat mapping of field names to strings (one CSV row, one JSON object). ``{{`` and
 ``}}`` stand for literal braces. Filling never touches anything but the text of ``text``,
-``scalable_text`` and ``barcode`` elements, so coordinates and settings cannot be injected.
+``scalable_text``, ``barcode`` and ``qr`` elements, so coordinates and settings cannot be injected.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from .label import Barcode, Element, Label, ScalableText, Text
+from .label import Barcode, Element, Label, Qr, ScalableText, Text
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -58,7 +58,7 @@ def fill_text(text: str, record: Mapping[str, str]) -> str:
 def _fill_element(element: Element, record: Mapping[str, str]) -> Element:
     if isinstance(element, (Text, ScalableText)):
         return element.model_copy(update={"text": fill_text(element.text, record)})
-    if isinstance(element, Barcode):
+    if isinstance(element, (Barcode, Qr)):
         return element.model_copy(update={"data": fill_text(element.data, record)})
     return element
 
@@ -83,7 +83,7 @@ def label_placeholders(label: Label) -> list[str]:
     """Return every distinct placeholder name the label uses, in first-seen order."""
     names: list[str] = []
     for element in label.elements:
-        if isinstance(element, Barcode):
+        if isinstance(element, (Barcode, Qr)):
             text = element.data
         elif isinstance(element, (Text, ScalableText)):
             text = element.text

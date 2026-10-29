@@ -1,6 +1,6 @@
 """Approximate picture of a label at the printer's resolution (one pixel per printer dot).
 
-Graphics (lines, boxes, circles, polygons, images) are drawn exactly as the encoder places them.
+Graphics (lines, boxes, circles, polygons, images, QR Codes) are drawn exactly as the encoder places them.
 Text is drawn as one grey block per character cell, sized from the font tables in
 ``docs/dpl-reference.md`` section 6; barcodes as a hatched area of their estimated size. The
 picture answers "does everything sit where I meant and fit the label", not "what does the text
@@ -17,7 +17,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .enums import FillPattern, Rotation, Unit
-from .label import FONT_9, Barcode, Box, Circle, Element, Image, Label, Line, Polygon, ScalableText, Text
+from .label import FONT_9, Barcode, Box, Circle, Element, Image, Label, Line, Polygon, Qr, ScalableText, Text
+from .qr import QrDataTooLongError, qr_bitmap
 from .raster import Bitmap
 from .units import to_inches
 
@@ -185,6 +186,28 @@ def _draw_image(element: Image, bitmap: Bitmap, canvas: Canvas) -> None:
     bitmap.blit(picture, x=x, y=y - picture.height + 1)
 
 
+def _qr_symbol(element: Qr) -> Bitmap | None:
+    """The QR Code's module matrix, or None when the data fits no version (the render refuses it)."""
+    try:
+        return qr_bitmap(element.data, error=element.error)
+    except QrDataTooLongError:
+        return None
+
+
+def _draw_qr(element: Qr, bitmap: Bitmap, canvas: Canvas) -> None:
+    """Draw each dark module ``module_dots`` square, the quiet zone in from ``(x, y)``."""
+    symbol = _qr_symbol(element)
+    if symbol is None:
+        return
+    size, quiet = element.module_dots, element.quiet_zone * element.module_dots
+    x, y = canvas.point(element.x, element.y)
+    left, top = x + quiet, y - quiet - symbol.height * size + 1
+    for row in range(symbol.height):
+        for column in range(symbol.width):
+            if symbol.get(column, row):
+                bitmap.fill_rect(left + column * size, top + row * size, size, size)
+
+
 def _as_text(element: ScalableText) -> Text:
     points = round(min(max(element.height_points, _MIN_POINTS), _MAX_POINTS))
     return Text(x=element.x, y=element.y, rotation=element.rotation, text=element.text, font=FONT_9, points=points)
@@ -202,6 +225,8 @@ def draw_element(element: Element, bitmap: Bitmap, canvas: Canvas) -> None:
         _draw_box(element, bitmap, canvas)
     elif isinstance(element, Image):
         _draw_image(element, bitmap, canvas)
+    elif isinstance(element, Qr):
+        _draw_qr(element, bitmap, canvas)
     else:
         _draw_graphic(element, bitmap, canvas)
 
@@ -229,6 +254,12 @@ def _image_top(element: Image, unit: Unit, dpi: float) -> float:
     return to_inches(element.y, unit, dpi=dpi) + rows / dpi
 
 
+def _qr_top(element: Qr, unit: Unit, dpi: float) -> float:
+    symbol = _qr_symbol(element)
+    modules = (symbol.height if symbol is not None else 0) + 2 * element.quiet_zone
+    return to_inches(element.y, unit, dpi=dpi) + modules * element.module_dots / dpi
+
+
 def _graphic_top(element: Element) -> float:
     """Highest point of a box, circle, line or polygon, in label units."""
     if isinstance(element, Box):
@@ -250,6 +281,8 @@ def _top_inches(element: Element, unit: Unit, dpi: float) -> float:
         return _barcode_top(element, unit, dpi)
     if isinstance(element, Image):
         return _image_top(element, unit, dpi)
+    if isinstance(element, Qr):
+        return _qr_top(element, unit, dpi)
     return to_inches(_graphic_top(element), unit, dpi=dpi)
 
 

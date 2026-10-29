@@ -24,6 +24,8 @@ MAX_SHORT_FIELD = 999
 #: Largest width or height multiplier (written ``1``-``9``, then ``A``-``O``).
 MAX_MULTIPLIER = 24
 _DIGIT_MULTIPLIERS = 9
+#: Largest image magnification :func:`image_record` writes: the single digits of the manual's 1-24.
+MAX_IMAGE_MAGNIFICATION = _DIGIT_MULTIPLIERS
 
 
 def multiplier_char(value: int) -> str:
@@ -168,18 +170,40 @@ def circle_record(*, row: int, column: int, radius: int, fill: FillPattern) -> b
     return f"{head}C0010001{radius:04d}".encode("ascii")
 
 
-def image_record(*, row: int, column: int, name: str) -> bytes:
-    """Place a stored image (rotation 1 only).
+def image_record(*, row: int, column: int, name: str, magnification: tuple[int, int] = (1, 1)) -> bytes:
+    """Place a stored image (rotation 1 only), each image dot printed as ``across x along`` dots.
+
+    The manual's image fields (Table 7-8) make ``c`` the dot width and ``d`` the dot height,
+    ``1``-``9`` and ``A``-``O``; only the single digits are written here.
+
+    Args:
+        row: Row of the image's lower-left corner.
+        column: Column of the image's lower-left corner.
+        name: Name the image was stored under.
+        magnification: Printer dots per image dot across and along, 1-9 each.
+
+    Returns:
+        The record, without its ``<CR>``.
+
+    Raises:
+        ValueError: When either magnification is outside 1-9.
 
     Example:
         >>> image_record(row=0, column=0, name="LOGO")
         b'1Y1100000000000LOGO'
+        >>> image_record(row=0, column=0, name="QR", magnification=(3, 3))
+        b'1Y3300000000000QR'
     """
-    return f"1Y11000{row:04d}{column:04d}{name}".encode("ascii")
+    across, along = magnification
+    if not all(1 <= value <= MAX_IMAGE_MAGNIFICATION for value in magnification):
+        msg = f"image magnification must be 1-{MAX_IMAGE_MAGNIFICATION} across and along, got {across} x {along}"
+        raise ValueError(msg)
+    return f"1Y{across}{along}000{row:04d}{column:04d}{name}".encode("ascii")
 
 
 __all__ = [
     "CR",
+    "MAX_IMAGE_MAGNIFICATION",
     "MAX_MULTIPLIER",
     "MAX_SHORT_FIELD",
     "SOH",

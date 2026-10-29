@@ -8,6 +8,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `qr` element: a QR Code from `data` (with `{name}` placeholders), error
+  level `L`/`M`/`Q`/`H` (default `M`), `module_dots` 1-9 printer dots per
+  module (default 3) and a `quiet_zone` of 0-10 modules kept free on every
+  side (default 4). It is drawn with segno, downloaded as an image of one dot
+  per module and placed magnified, so it prints on every model. Refusals
+  `qr_data_too_long` (no QR Code version holds the data at that level) and
+  `qr_past_print_width` (the area, quiet zone included, ends past the
+  printable width). Unverified on paper.
+- Image placement records carry a magnification: `image_record(...,
+  magnification=(across, along))` writes the dot width and height digits
+  1-9 (the manual's image fields), and `explain` names a magnified image.
+  Unverified on paper.
 - Per-model calibration defaults (`PrinterProfile.calibration`), used where
   neither the options nor the configuration set a value. The `allegro-2`
   profile carries the values measured on one Allegro 2 (firmware CA02 03.04,

@@ -18,7 +18,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .enums import Attribute, FillPattern, MediaSensor, Rotation, SpeedCode, Unit
+from .enums import Attribute, FillPattern, MediaSensor, QrError, Rotation, SpeedCode, Unit
+from .records import MAX_IMAGE_MAGNIFICATION
 from .symbology import Symbology
 
 MAX_FIELD_DATA = 255
@@ -27,6 +28,10 @@ MAX_MULTIPLIER = 24
 MAX_IMAGE_NAME = 8
 MAX_FORMAT_NAME = 16
 MAX_QUANTITY = 9999
+#: Most characters a QR Code holds (version 40, error level L, numeric data).
+MAX_QR_DATA = 4296
+#: Most modules of reserved white space the ``qr`` element keeps on each side.
+MAX_QUIET_ZONE = 10
 #: The font number that selects CG Triumvirate point sizes (and downloaded fonts).
 FONT_9 = 9
 
@@ -281,8 +286,32 @@ class Image(_Frozen):
         return self
 
 
+class Qr(_Frozen):
+    """A QR Code, drawn by the library and sent as an image (no model has a QR barcode record).
+
+    ``(x, y)`` is the lower-left corner of the quiet zone: the symbol starts ``quiet_zone`` modules
+    in from it on every side, and nothing is printed in that space (keep other fields out of it).
+    Each module is ``module_dots`` printer dots square, so the whole area is
+    ``(modules + 2 * quiet_zone) * module_dots`` dots wide and high; the module count follows from
+    the data and the error level (21 for a short text at M). ``data`` may hold ``{name}``
+    placeholders. A QR Code cannot be rotated (DPL images print in rotation 1 only).
+
+    Example:
+        >>> Qr(x=5, y=5, data="https://example.com").module_dots
+        3
+    """
+
+    type: Literal["qr"] = "qr"
+    x: NonNegative
+    y: NonNegative
+    data: str = Field(min_length=1, max_length=MAX_QR_DATA)
+    error: QrError = QrError.M
+    module_dots: int = Field(default=3, ge=1, le=MAX_IMAGE_MAGNIFICATION)
+    quiet_zone: int = Field(default=4, ge=0, le=MAX_QUIET_ZONE)
+
+
 Element = Annotated[
-    Text | ScalableText | Line | Box | Circle | Polygon | Barcode | Image,
+    Text | ScalableText | Line | Box | Circle | Polygon | Barcode | Image | Qr,
     Field(discriminator="type"),
 ]
 
@@ -352,7 +381,9 @@ __all__ = [
     "MAX_IMAGE_NAME",
     "MAX_MULTIPLIER",
     "MAX_PDF417_DATA",
+    "MAX_QR_DATA",
     "MAX_QUANTITY",
+    "MAX_QUIET_ZONE",
     "Barcode",
     "Box",
     "Circle",
@@ -367,6 +398,7 @@ __all__ = [
     "Pdf417Options",
     "Point",
     "Polygon",
+    "Qr",
     "ScalableText",
     "Text",
 ]

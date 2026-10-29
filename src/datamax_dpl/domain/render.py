@@ -16,13 +16,13 @@ from typing import TYPE_CHECKING, TypeVar
 from pydantic import BaseModel, ConfigDict
 
 from .encode_barcode import encode_barcode
-from .encode_graphics import encode_box, encode_circle, encode_image, encode_line, encode_polygon
+from .encode_graphics import encode_box, encode_circle, encode_image, encode_line, encode_polygon, encode_qr
 from .encode_text import encode_scalable_text, encode_text
 from .enums import Attribute, FindingCode, Severity, Unit
 from .errors import LabelRejectedError
 from .findings import Finding, FindingCollector
 from .job import format_footer, format_header, stops_at_tear_off, system_prefix
-from .label import Barcode, Box, Circle, Image, Line, Polygon, ScalableText, Text
+from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText, Text
 from .placeholders import label_placeholders
 from .profiles import CalibrationDefaults, Feature, get_profile, parse_firmware
 from .render_context import RenderContext, RenderOptions
@@ -220,6 +220,8 @@ def _encode_element(element: Element, *, index: int, ctx: RenderContext) -> list
             lines = encode_polygon(element, index=index, ctx=ctx)
         case Image():
             lines = encode_image(element, index=index, ctx=ctx)
+        case Qr():
+            lines = encode_qr(element, index=index, ctx=ctx)
     return lines
 
 

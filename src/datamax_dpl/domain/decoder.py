@@ -295,13 +295,21 @@ def _parse_record(text: str, state: _State) -> tuple[Element | None, str]:
     if kind == "X":
         return _graphic(text, state)
     if kind == "Y":
-        y, x = _scale(int(text[7:11]), state), _scale(int(text[11:15]), state)
-        return Image(name=text[15:], x=x, y=y), "image"
+        return _image(text, state)
     if kind == "W":
         return _barcode(text, state, identifier="W1c", offset=2), "barcode datamatrix"
     if kind.isdigit():
         return _text(text, state), f"text font {kind}"
     return _barcode(text, state, identifier=kind, offset=0), f"barcode {SYMBOLOGY_BY_IDENTIFIER[kind].value}"
+
+
+def _image(text: str, state: _State) -> tuple[Element, str]:
+    """An image placement; a dot width or height other than 1 is named, the rebuilt Image cannot hold it."""
+    head = _head(text)
+    image = Image(name=text[_HEADER_LENGTH:], x=_scale(head.column, state), y=_scale(head.row, state))
+    if (head.width, head.height) == (1, 1):
+        return image, "image"
+    return image, f"image, magnified {head.width}x{head.height}"
 
 
 @dataclass(frozen=True)

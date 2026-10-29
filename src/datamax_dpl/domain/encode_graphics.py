@@ -1,4 +1,4 @@
-"""Encode lines, boxes, circles, polygons and images, falling back to raster images where needed."""
+"""Encode lines, boxes, circles, polygons, images and QR Codes, falling back to raster images where needed."""
 
 from __future__ import annotations
 
@@ -6,13 +6,14 @@ import math
 from typing import TYPE_CHECKING
 
 from .encode_common import column_of, row_of
-from .enums import FillPattern, FindingCode
-from .label import Box, Circle, Image, Line, Point, Polygon
+from .enums import FillPattern, FindingCode, Unit
+from .label import Box, Circle, Image, Line, Point, Polygon, Qr
 from .profiles import Feature
+from .qr import QrDataTooLongError, qr_bitmap
 from .raster import Bitmap
 from .raster_fallback import rasterize
 from .records import BoxRecord, circle_record, image_record, line, line_record, polygon_record
-from .units import Axis
+from .units import MM_PER_INCH, Axis, to_inches
 
 if TYPE_CHECKING:
     from .render_context import RenderContext
@@ -142,4 +143,58 @@ def encode_image(element: Image, *, index: int, ctx: RenderContext) -> list[byte
     return [line(record)]
 
 
-__all__ = ["encode_box", "encode_circle", "encode_image", "encode_line", "encode_polygon"]
+def _label_length_of_dots(dots: int, ctx: RenderContext) -> float:
+    """Return ``dots`` printer dots as a length in the label's unit."""
+    inches = dots / ctx.profile.dpi
+    if ctx.unit is Unit.DOTS:
+        return float(dots)
+    return inches * MM_PER_INCH if ctx.unit is Unit.MM else inches
+
+
+def _check_right_edge(element: Qr, *, width_dots: int, index: int, ctx: RenderContext) -> None:
+    """Refuse a QR Code whose area, quiet zone included, ends past the model's print width.
+
+    The left edge is the field's position after the printer's offset; a calibrated length prints
+    at its nominal size, so the edge in printer dots is that position at the model's resolution.
+    """
+    dpi = ctx.profile.dpi
+    left = round(to_inches(max(ctx.shifted(element.x, axis=Axis.ACROSS), 0.0), ctx.unit, dpi=dpi) * dpi)
+    limit = round(ctx.profile.print_width_in * dpi)
+    if left + width_dots > limit:
+        ctx.findings.refuse(
+            FindingCode.QR_PAST_PRINT_WIDTH,
+            f"the QR Code with its quiet zone ends at dot {left + width_dots}; it passes the {limit}-dot "
+            f"print width of {ctx.profile.name}",
+            element=index,
+        )
+
+
+def encode_qr(element: Qr, *, index: int, ctx: RenderContext) -> list[bytes]:
+    """Queue the QR Code's module matrix as an image and return its magnified placing record.
+
+    The image holds one dot per module, the smallest download; the record's dot width and height
+    print each module ``module_dots`` dots square. ``(x, y)`` goes through the same position rules
+    as every other field, and the symbol starts the quiet zone in from it.
+    """
+    try:
+        symbol = qr_bitmap(element.data, error=element.error)
+    except QrDataTooLongError as exc:
+        ctx.findings.refuse(FindingCode.QR_DATA_TOO_LONG, str(exc), element=index)
+        return []
+    quiet_dots = element.quiet_zone * element.module_dots
+    _check_right_edge(element, width_dots=symbol.width * element.module_dots + 2 * quiet_dots, index=index, ctx=ctx)
+    name = ctx.next_image_name()
+    ctx.download_image(name, symbol)
+    quiet = _label_length_of_dots(quiet_dots, ctx)
+    record = image_record(
+        row=row_of(element.y, index=index, ctx=ctx)
+        + ctx.distance(quiet, axis=Axis.ALONG, element=index, what="quiet zone"),
+        column=column_of(element.x, index=index, ctx=ctx)
+        + ctx.distance(quiet, axis=Axis.ACROSS, element=index, what="quiet zone"),
+        name=name,
+        magnification=(element.module_dots, element.module_dots),
+    )
+    return [line(record)]
+
+
+__all__ = ["encode_box", "encode_circle", "encode_image", "encode_line", "encode_polygon", "encode_qr"]

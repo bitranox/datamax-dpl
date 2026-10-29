@@ -21,6 +21,7 @@ _PUBLIC_ENUMS = (
     "HardwareOption",
     "MediaSensor",
     "MediaType",
+    "QrError",
     "Rotation",
     "Severity",
     "SpeedCode",

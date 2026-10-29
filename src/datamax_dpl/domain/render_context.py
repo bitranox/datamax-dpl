@@ -113,7 +113,7 @@ class RenderContext:
         default_attribute: Attribute the format is in when no element overrides it.
         downloads: Images to download before ``<STX>L``, in the order they were queued.
         system_suffix: System commands sent after the format (cut now).
-        image_counter: Number of raster fallback images created so far, for their names.
+        image_counter: Number of images the library drew so far (raster fallbacks, QR Codes), for their names.
         across: How this printer prints lengths across the web.
         along: How this printer prints lengths along the feed.
         offset_across: Millimetres every field moves to the right on this printer.
@@ -223,7 +223,7 @@ class RenderContext:
         self.downloads.append(ImageDownload(name=name, command=download_command(name, bitmap)))
 
     def next_image_name(self) -> str:
-        """Return a fresh name for a raster fallback image (at most 8 characters)."""
+        """Return a fresh name for an image the library draws: a raster fallback or a QR Code (8 characters)."""
         self.image_counter += 1
         return f"DPLR{self.image_counter:04d}"
 

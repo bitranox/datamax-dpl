@@ -98,6 +98,23 @@ class FillPattern(IntEnum):
     GRID = 11
 
 
+class QrError(str, Enum):
+    """Error correction level of a QR Code: share of the symbol that may be lost and still read.
+
+    L restores about 7 percent, M 15, Q 25 and H 30; a higher level makes a larger symbol for the
+    same data.
+
+    Example:
+        >>> QrError("M") is QrError.M
+        True
+    """
+
+    L = "L"
+    M = "M"
+    Q = "Q"
+    H = "H"
+
+
 class Attribute(IntEnum):
     """How a field combines with what is already printed (format command ``An``).
 
@@ -249,6 +266,8 @@ class FindingCode(str, Enum):
     PAUSE_PERSISTS = "pause_persists"
     PLACEHOLDERS_UNFILLED = "placeholders_unfilled"
     PRESENT_DISTANCE_UNSUPPORTED = "present_distance_unsupported"
+    QR_DATA_TOO_LONG = "qr_data_too_long"
+    QR_PAST_PRINT_WIDTH = "qr_past_print_width"
     SCALABLE_FONT_UNSUPPORTED = "scalable_font_unsupported"
     SENSOR_SELECT_UNSUPPORTED = "sensor_select_unsupported"
     SOLID_FILL_AS_EDGES = "solid_fill_as_edges"
@@ -427,6 +446,7 @@ __all__ = [
     "MediaType",
     "ModelFamily",
     "OutputFormat",
+    "QrError",
     "Rotation",
     "Severity",
     "SpeedCode",
