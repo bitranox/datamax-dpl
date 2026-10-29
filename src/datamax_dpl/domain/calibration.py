@@ -19,9 +19,11 @@ from datamax_dpl.domain.label import Box, Element, Label, Line, Text
 from datamax_dpl.domain.units import MAX_SCALE, MIN_SCALE
 
 __all__ = [
+    "ACROSS_INSET_MM",
     "ALONG_LENGTH_MM",
     "MIN_LABEL_MM",
     "TICK_SPACING_MM",
+    "across_frame_width",
     "across_label",
     "along_label",
     "calibration_labels",
@@ -33,6 +35,10 @@ ALONG_LENGTH_MM = 200.0
 
 TICK_SPACING_MM = 10.0
 MIN_LABEL_MM = 20.0
+
+ACROSS_INSET_MM = 5.0
+"""How far the across frame stands in from each side edge: a frame on the label edges loses a side
+to any sideways shift of the media, and its end can no longer be found with a ruler."""
 
 _FRAME = 0.25
 _BAR = 1.0
@@ -47,14 +53,31 @@ _LINE_MM = 2.5
 _FONT = 1
 
 
-def across_label(*, width: float, height: float, title: str) -> Label:
-    """Build the across label: a frame on the label edges and a bar filling its inside.
-
-    The frame's OUTER width is the length to measure. The bar runs from the frame's inner left
-    edge to its inner right edge, with a tick every 10 mm above it.
+def across_frame_width(width: float) -> float:
+    """Return the outer width of the across label's frame, the length to measure on it.
 
     Args:
-        width: Label width in mm, at least 20.
+        width: Label width in mm.
+
+    Returns:
+        The label width less :data:`ACROSS_INSET_MM` on each side.
+
+    Example:
+        >>> across_frame_width(100)
+        90.0
+    """
+    return width - 2 * ACROSS_INSET_MM
+
+
+def across_label(*, width: float, height: float, title: str) -> Label:
+    """Build the across label: a frame 5 mm in from each side edge and a bar filling its inside.
+
+    The frame's OUTER width (:func:`across_frame_width`) is the length to measure; it runs the
+    full label height. The bar runs from the frame's inner left edge to its inner right edge,
+    with a tick every 10 mm, counted from the frame's outer left edge, above it.
+
+    Args:
+        width: Label width in mm, at least 30 (20 inside the frame).
         height: Label height in mm, at least 20.
         title: First text line, typically the printer name and the factors in use.
 
@@ -62,33 +85,36 @@ def across_label(*, width: float, height: float, title: str) -> Label:
         The label, in mm.
 
     Raises:
-        ValueError: A side is under 20 mm, or the text does not fit.
+        ValueError: The width is under 30 mm, the height under 20 mm, or the text does not fit.
 
     Example:
         >>> label = across_label(width=100, height=55, title="LAGER")
         >>> (label.width, label.height)
         (100.0, 55.0)
     """
-    _require_min("width", width)
+    _require_min("width", width, minimum=MIN_LABEL_MM + 2 * ACROSS_INSET_MM)
     _require_min("height", height)
+    frame = across_frame_width(width)
+    left, right = ACROSS_INSET_MM, ACROSS_INSET_MM + frame
     bar_y = height / 2 - _BAR / 2
     tick_y = bar_y + _BAR + _GAP
-    text_width = width - 2 * (_FRAME + _MARGIN)
+    text_x = left + _FRAME + _MARGIN
+    text_width = frame - 2 * (_FRAME + _MARGIN)
     elements: list[Element] = [
-        Box(x=0, y=0, width=width, height=height, thickness=_FRAME),
-        Line(x=_FRAME, y=bar_y, x2=width - _FRAME, y2=bar_y, thickness=_BAR),
+        Box(x=left, y=0, width=frame, height=height, thickness=_FRAME),
+        Line(x=left + _FRAME, y=bar_y, x2=right - _FRAME, y2=bar_y, thickness=_BAR),
     ]
-    elements += _across_ticks(width, tick_y)
+    elements += _across_ticks(left=left, right=right, y=tick_y)
     elements += _text_block(
         title,
-        x=_FRAME + _MARGIN,
+        x=text_x,
         top=height - _FRAME - _MARGIN,
         bottom=tick_y + _TICK_LENGTH + _GAP,
         width=text_width,
     )
     elements += _text_block(
-        f"MEASURE THE FRAME OUTSIDE: {width:g} MM ACROSS",
-        x=_FRAME + _MARGIN,
+        f"MEASURE THE FRAME OUTSIDE: {frame:g} MM ACROSS",
+        x=text_x,
         top=bar_y - _MARGIN,
         bottom=_FRAME + _GAP,
         width=text_width,
@@ -141,7 +167,7 @@ def calibration_labels(
     """Build both calibration labels for one printer's media.
 
     Args:
-        width: Label width in mm.
+        width: Label width in mm, at least 30.
         height: Label height in mm (the across label's height).
         title: First text line of both labels.
         along_length: Length of the along bar in mm.
@@ -196,16 +222,17 @@ def scale_from_measurement(current: float, *, measured: float, nominal: float) -
     return scale
 
 
-def _require_min(name: str, value: float) -> None:
-    if value < MIN_LABEL_MM:
-        raise ValueError(f"{name} {value:g} mm is under {MIN_LABEL_MM:g} mm, too small to calibrate on")
+def _require_min(name: str, value: float, *, minimum: float = MIN_LABEL_MM) -> None:
+    if value < minimum:
+        raise ValueError(f"{name} {value:g} mm is under {minimum:g} mm, too small to calibrate on")
 
 
-def _across_ticks(width: float, y: float) -> list[Line]:
-    # A tick stops short of the frame's inner right edge so the two never share a dot.
-    last = width - _FRAME - _GAP - _TICK_WIDTH
+def _across_ticks(*, left: float, right: float, y: float) -> list[Line]:
+    # Counted from the frame's outer left edge; a tick stops short of the frame's inner right
+    # edge so the two never share a dot.
+    last = right - _FRAME - _GAP - _TICK_WIDTH - left
     count = int(last // TICK_SPACING_MM)
-    positions = [step * TICK_SPACING_MM for step in range(1, count + 1)]
+    positions = [left + step * TICK_SPACING_MM for step in range(1, count + 1)]
     return [Line(x=x, y=y, x2=x, y2=y + _TICK_LENGTH, thickness=_TICK_WIDTH) for x in positions]
 
 

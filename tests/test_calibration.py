@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from datamax_dpl.domain.calibration import ALONG_LENGTH_MM, across_label, along_label, scale_from_measurement
+from datamax_dpl.domain.calibration import (
+    ACROSS_INSET_MM,
+    ALONG_LENGTH_MM,
+    across_frame_width,
+    across_label,
+    along_label,
+    scale_from_measurement,
+)
 from datamax_dpl.domain.decoder import explain
 from datamax_dpl.domain.label import Box, Element, Label, Line, Text
 from datamax_dpl.domain.preview import Canvas, canvas_for, text_box
@@ -64,7 +71,7 @@ def _intersect(a: Rect, b: Rect) -> bool:
 
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("model", ["allegro-2", "dmx-600"])
-@pytest.mark.parametrize(("width", "height"), [(100, 55), (20, 20), (57.3, 31.7)])
+@pytest.mark.parametrize(("width", "height"), [(100, 55), (30, 20), (57.3, 31.7)])
 def test_no_two_shapes_of_the_across_label_share_a_dot(model: str, width: float, height: float) -> None:
     assert _touching_pairs(across_label(width=width, height=height, title="LAGER 0.9770"), model) == []
 
@@ -77,19 +84,27 @@ def test_no_two_shapes_of_the_along_label_share_a_dot(model: str, width: float) 
 
 
 @pytest.mark.os_agnostic
-def test_the_across_frame_is_the_label_size_and_the_bar_fills_its_inside() -> None:
+def test_the_across_frame_stands_five_millimetres_in_from_each_side_and_the_bar_fills_it() -> None:
     label = across_label(width=100, height=55, title="LAGER")
     (frame,) = [e for e in label.elements if isinstance(e, Box)]
     bar = max((e for e in label.elements if isinstance(e, Line)), key=lambda e: abs(e.x2 - e.x))
-    assert (frame.x, frame.y, frame.width, frame.height) == (0, 0, 100, 55)
-    assert (bar.x, bar.x2) == (frame.thickness, 100 - frame.thickness)
+    assert (frame.x, frame.y, frame.width, frame.height) == (5, 0, 90, 55)
+    assert (bar.x, bar.x2) == (5 + frame.thickness, 95 - frame.thickness)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("width", "frame"), [(100, 90), (57.3, 47.3), (30, 20)])
+def test_the_frame_width_to_measure_follows_the_label_width(width: float, frame: float) -> None:
+    assert across_frame_width(width) == pytest.approx(frame)
+    assert ACROSS_INSET_MM == 5
 
 
 @pytest.mark.os_agnostic
 def test_the_across_ticks_stand_every_ten_millimetres() -> None:
     label = across_label(width=100, height=55, title="LAGER")
     ticks = sorted(e.x for e in label.elements if isinstance(e, Line) and e.x == e.x2)
-    assert ticks == [10, 20, 30, 40, 50, 60, 70, 80, 90]
+    # counted from the frame's outer left edge at 5 mm; none on the frame's right side at 95
+    assert ticks == [15, 25, 35, 45, 55, 65, 75, 85]
 
 
 @pytest.mark.os_agnostic
@@ -109,20 +124,22 @@ def test_the_labels_say_what_to_measure() -> None:
     along = along_label(width=100, length=150, title="LAGER 0.977")
     across_text = " ".join(getattr(e, "text", "") for e in across.elements)
     along_text = " ".join(getattr(e, "text", "") for e in along.elements)
-    assert "LAGER 0.977" in across_text and "100 MM" in across_text
+    assert "LAGER 0.977" in across_text and "90 MM" in across_text
     assert "LAGER 0.977" in along_text and "150 MM" in along_text
 
 
 @pytest.mark.os_agnostic
-def test_the_across_frame_renders_as_the_full_label_width_on_the_allegro_2() -> None:
+def test_the_across_frame_renders_ninety_millimetres_wide_on_the_allegro_2() -> None:
     data = build_job(across_label(width=100, height=55, title="X"), RenderOptions(model="allegro-2")).data
-    assert b"B400220001001" in data
+    assert b"B360220001001" in data
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize(("width", "height"), [(19, 55), (100, 19)])
-def test_a_label_under_twenty_millimetres_is_refused(width: float, height: float) -> None:
-    with pytest.raises(ValueError, match="20 mm"):
+@pytest.mark.parametrize(("width", "height", "minimum"), [(29.9, 55, "30 mm"), (100, 19, "20 mm")])
+def test_an_across_label_narrower_than_its_frame_and_text_need_is_refused(
+    width: float, height: float, minimum: str
+) -> None:
+    with pytest.raises(ValueError, match=minimum):
         across_label(width=width, height=height, title="X")
 
 
@@ -135,7 +152,7 @@ def test_an_along_length_over_two_hundred_millimetres_is_refused() -> None:
 @pytest.mark.os_agnostic
 def test_a_title_that_does_not_fit_is_refused() -> None:
     with pytest.raises(ValueError, match="too small for its text"):
-        across_label(width=20, height=20, title="A VERY LONG PRINTER NAME THAT TAKES MANY LINES TO WRAP")
+        across_label(width=30, height=20, title="A VERY LONG PRINTER NAME THAT TAKES MANY LINES TO WRAP")
 
 
 @pytest.mark.os_agnostic

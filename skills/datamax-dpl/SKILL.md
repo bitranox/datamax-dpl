@@ -118,11 +118,13 @@ printer unreachable, broken config).
 - Lengths print slightly off nominal, and differently per printer (an Allegro 2 printed 0.977 of
   nominal along the feed). Calibrate once per printer:
   1. `datamax-dpl calibrate print --printer NAME` prints two labels with the printer's current
-     factors: the ACROSS label (a thin frame on the label edges with a bar inside it) and the
+     factors: the ACROSS label (a thin frame 5 mm in from each side edge, so 90 mm on a 100 mm
+     label, with a bar inside it) and the
      ALONG label (a 200 mm bar running over several labels; measure it on the liner). Each title
      shows the factor it was printed with. Without `label_width`/`label_height` configured, pass
      `--width` and `--height`.
-  2. Measure the frame from outside edge to outside edge, and the bar end to end.
+  2. Measure the frame from outside edge to outside edge (not to the last tick), and the bar end
+     to end. `calibrate set` takes the frame width as nominal for `--across`.
   3. `datamax-dpl calibrate set --printer NAME --across MM --along MM` stores
      `scale_across`/`scale_along` (old factor x measured / nominal) in the user config, in the
      file that already holds that printer's section, keeping comments. It warns on stderr when a

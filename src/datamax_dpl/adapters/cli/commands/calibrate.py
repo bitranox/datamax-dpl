@@ -9,7 +9,13 @@ import rich_click as click
 from pydantic import BaseModel, ConfigDict
 
 from ....application.use_cases import send_bytes
-from ....domain.calibration import ALONG_LENGTH_MM, across_label, along_label, scale_from_measurement
+from ....domain.calibration import (
+    ALONG_LENGTH_MM,
+    across_frame_width,
+    across_label,
+    along_label,
+    scale_from_measurement,
+)
 from ....domain.errors import ConfigurationError
 from ....domain.findings import Finding
 from ....domain.render import build_job
@@ -176,7 +182,8 @@ def cli_calibrate_set(
 ) -> None:
     """Store the scale factors measured on the calibration labels in the user configuration.
 
-    Each new factor is the old one times measured over nominal length. It is written into the
+    Each new factor is the old one times measured over nominal length; the across nominal is
+    the frame's width, the label width less 5 mm on each side. It is written into the
     printer's section of the user configuration, in the file that already holds that section.
     """
 
@@ -185,7 +192,7 @@ def cli_calibrate_set(
         settings = resolve_settings(cli_ctx, printer=name or None)
         measured = {Axis.ACROSS: across, Axis.ALONG: along}
         nominal = {
-            Axis.ACROSS: lambda: _size("width", width, settings.label_width, settings),
+            Axis.ACROSS: lambda: across_frame_width(_size("width", width, settings.label_width, settings)),
             Axis.ALONG: lambda: along_length,
         }
         changes = [
