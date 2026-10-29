@@ -12,6 +12,7 @@ from .profiles import Feature
 from .raster import Bitmap
 from .raster_fallback import rasterize
 from .records import BoxRecord, circle_record, image_record, line, line_record, polygon_record
+from .units import Axis
 
 if TYPE_CHECKING:
     from .render_context import RenderContext
@@ -44,8 +45,9 @@ def encode_line(element: Line, *, index: int, ctx: RenderContext) -> list[bytes]
     if element.is_axis_aligned:
         horizontal = element.y == element.y2 and element.x != element.x2
         length = abs(element.x2 - element.x) if horizontal else abs(element.y2 - element.y)
-        thickness = ctx.distance(element.thickness, element=index, what="line thickness") or 1
-        extent = ctx.distance(length, element=index, what="line length") or thickness
+        thickness_axis, length_axis = (Axis.ALONG, Axis.ACROSS) if horizontal else (Axis.ACROSS, Axis.ALONG)
+        thickness = ctx.distance(element.thickness, axis=thickness_axis, element=index, what="line thickness") or 1
+        extent = ctx.distance(length, axis=length_axis, element=index, what="line length") or thickness
         record = line_record(
             row=row_of(min(element.y, element.y2), index=index, ctx=ctx),
             column=column_of(min(element.x, element.x2), index=index, ctx=ctx),
@@ -60,10 +62,12 @@ def encode_line(element: Line, *, index: int, ctx: RenderContext) -> list[bytes]
 
 
 def _box_outline(element: Box, *, index: int, ctx: RenderContext, solid: bool = False) -> bytes:
-    width = ctx.distance(element.width, element=index, what="box width")
-    height = ctx.distance(element.height, element=index, what="box height")
-    edge = ctx.distance(element.thickness, element=index, what="box edge") or 1
-    side = ctx.distance(element.side_thickness or element.thickness, element=index, what="box side") or 1
+    width = ctx.distance(element.width, axis=Axis.ACROSS, element=index, what="box width")
+    height = ctx.distance(element.height, axis=Axis.ALONG, element=index, what="box height")
+    edge = ctx.distance(element.thickness, axis=Axis.ALONG, element=index, what="box edge") or 1
+    side = (
+        ctx.distance(element.side_thickness or element.thickness, axis=Axis.ACROSS, element=index, what="box side") or 1
+    )
     if solid:
         edge, side = math.ceil(height / 2), math.ceil(width / 2)
     record = BoxRecord(
@@ -109,7 +113,7 @@ def encode_circle(element: Circle, *, index: int, ctx: RenderContext) -> list[by
     record = circle_record(
         row=row_of(element.y, index=index, ctx=ctx),
         column=column_of(element.x, index=index, ctx=ctx),
-        radius=ctx.distance(element.radius, element=index, what="radius") or 1,
+        radius=ctx.distance(element.radius, axis=Axis.ACROSS, element=index, what="radius") or 1,
         fill=element.fill,
     )
     return [line(record)]

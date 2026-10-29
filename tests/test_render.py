@@ -224,3 +224,105 @@ def test_a_label_dot_size_wins_over_the_default() -> None:
     lines = _format_lines(label, "allegro-2")
     assert b"D22" in lines
     assert b"D11" not in lines
+
+
+# ======================== scale factors and axes ========================
+
+
+def _records_with(label: Label, **options: object) -> list[bytes]:
+    data = build_job(label, RenderOptions.model_validate({"model": "allegro", **options})).data
+    return [line for line in data.split(b"\r") if line[:1] in (b"1", b"2", b"3", b"4")]
+
+
+def _row_column(record: bytes) -> tuple[int, int]:
+    return int(record[7:11]), int(record[11:15])
+
+
+@pytest.mark.os_agnostic
+def test_scale_along_moves_rows_and_stretches_vertical_lines_only() -> None:
+    label = Label(elements=[Line(x=10, y=10, x2=10, y2=110, thickness=0.5)])
+    (plain,) = _records_with(label)
+    (along,) = _records_with(label, scale_along=0.8)
+    assert _row_column(plain) == (39, 39)
+    assert _row_column(along) == (49, 39)
+    assert plain.endswith(b"L002394")
+    assert along.endswith(b"L002492")
+
+
+@pytest.mark.os_agnostic
+def test_scale_across_moves_columns_and_stretches_horizontal_lines_only() -> None:
+    label = Label(elements=[Line(x=10, y=10, x2=110, y2=10, thickness=0.5)])
+    (across,) = _records_with(label, scale_across=0.8)
+    assert _row_column(across) == (39, 49)
+    assert across.endswith(b"L492002")
+
+
+@pytest.mark.os_agnostic
+def test_box_edge_follows_the_feed_and_box_side_the_web() -> None:
+    label = Label(elements=[Box(x=0, y=0, width=50, height=20, thickness=1)])
+    (plain,) = _records_with(label)
+    (along,) = _records_with(label, scale_along=0.5)
+    assert plain.endswith(b"B197079004004")
+    assert along.endswith(b"B197157008004")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("rotation", "height"), [(0, b"079"), (90, b"039"), (180, b"079"), (270, b"039")])
+def test_barcode_height_follows_the_feed_unless_turned_a_quarter(rotation: int, height: bytes) -> None:
+    label = Label.model_validate(
+        {
+            "elements": [
+                {
+                    "type": "barcode",
+                    "x": 5,
+                    "y": 5,
+                    "symbology": "code128",
+                    "data": "A1",
+                    "height": 10,
+                    "rotation": rotation,
+                }
+            ]
+        }
+    )
+    (record,) = _records_with(label, scale_along=0.5)
+    assert record[4:7] == height
+
+
+@pytest.mark.os_agnostic
+def test_a_rasterised_circle_gets_more_rows_when_the_feed_prints_short() -> None:
+    label = Label.model_validate({"elements": [{"type": "circle", "x": 20, "y": 20, "radius": 5}]})
+    plain = build_job(label, RenderOptions(model="allegro")).data
+    along = build_job(label, RenderOptions(model="allegro", scale_along=0.5)).data
+    assert along.count(b"\r80") == 2 * plain.count(b"\r80") - 1
+
+
+@pytest.mark.os_agnostic
+def test_a_stop_position_follows_the_feed_scale() -> None:
+    label = Label(stop_position=25.4, elements=[Text(x=1, y=1, text="X")])
+    plain = build_job(label, RenderOptions(model="allegro")).data
+    along = build_job(label, RenderOptions(model="allegro", scale_along=0.5)).data
+    assert STX + b"f100" in plain
+    assert STX + b"f200" in along
+
+
+@pytest.mark.os_agnostic
+def test_the_allegro_2_prints_one_hundredth_of_an_inch_as_two_whole_dots() -> None:
+    """Measured: 787/100 in printed 1574 dot rows, so 100 mm is written as 400, not 394."""
+    label = Label(elements=[Line(x=0, y=0, x2=100, y2=0, thickness=0.25), Line(x=0, y=0, x2=0, y2=100, thickness=0.25)])
+    across, along = [r for r in build_job(label, RenderOptions(model="allegro-2")).data.split(b"\r") if r[:1] == b"1"]
+    assert across.endswith(b"L400001")
+    assert along.endswith(b"L001400")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("scale", [0.49, 1.51])
+def test_a_scale_outside_half_to_one_and_a_half_is_refused(scale: float) -> None:
+    with pytest.raises(ValueError, match="scale_along"):
+        RenderOptions(model="allegro", scale_along=scale)
+
+
+@pytest.mark.os_agnostic
+def test_the_print_width_warning_stays_nominal_on_a_printer_that_prints_short() -> None:
+    label = Label(width=100, elements=[Text(x=1, y=1, text="X")])
+    result = build_job(label, RenderOptions(model="allegro-2", scale_across=0.9))
+    assert FindingCode.LABEL_WIDER_THAN_PRINT_WIDTH not in {f.code for f in result.findings}

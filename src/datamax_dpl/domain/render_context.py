@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .enums import Attribute, FallbackPolicy, FindingCode, HardwareOption, Unit
 from .image_records import download_command
-from .units import DplUnit, to_dots, to_dpl, to_inches
+from .units import NOMINAL, Axis, Correction, DplUnit, exact_dots, to_dots, to_dpl
 
 if TYPE_CHECKING:
     from .findings import FindingCollector
@@ -34,6 +34,9 @@ class RenderOptions(BaseModel):
         policy: ``degrade`` applies fallbacks, ``strict`` refuses the label instead.
         cutter_installed: Whether the printer has its cutter installed and enabled; None if unknown.
         options: Installed hardware options, e.g. ``{HardwareOption.DATAMATRIX}``.
+        scale_across: Printed length divided by nominal length across the web, measured for
+            one printer (``datamax-dpl calibrate``); 1.0 prints nominal lengths.
+        scale_along: The same along the feed, where it depends on the platen roller.
 
     Example:
         >>> RenderOptions(model="dmx-600").policy
@@ -47,6 +50,10 @@ class RenderOptions(BaseModel):
     policy: FallbackPolicy = FallbackPolicy.DEGRADE
     cutter_installed: bool | None = None
     options: frozenset[HardwareOption] = Field(default_factory=frozenset[HardwareOption])
+    # A real printer is a few percent off; a factor outside this range is a typo or an
+    # inverted measurement (nominal / printed), which would double the error instead.
+    scale_across: float = Field(default=1.0, ge=0.5, le=1.5)
+    scale_along: float = Field(default=1.0, ge=0.5, le=1.5)
 
 
 @dataclass(frozen=True)
@@ -82,6 +89,8 @@ class RenderContext:
         downloads: Images to download before ``<STX>L``, in the order they were queued.
         system_suffix: System commands sent after the format (cut now).
         image_counter: Number of raster fallback images created so far, for their names.
+        across: How this printer prints lengths across the web.
+        along: How this printer prints lengths along the feed.
     """
 
     profile: PrinterProfile
@@ -96,6 +105,12 @@ class RenderContext:
     downloads: list[ImageDownload] = field(default_factory=list[ImageDownload])
     system_suffix: list[bytes] = field(default_factory=list[bytes])
     image_counter: int = 0
+    across: Correction = NOMINAL
+    along: Correction = NOMINAL
+
+    def correction(self, axis: Axis) -> Correction:
+        """Return how this printer prints lengths on ``axis``."""
+        return self.across if axis is Axis.ACROSS else self.along
 
     def supports(self, feature: Feature) -> bool:
         """Return True when the model has ``feature`` at this firmware with these options."""
@@ -117,9 +132,11 @@ class RenderContext:
         option = support.option.value if support.option is not None else ""
         return f"{self.profile.name} needs the '{option}' option installed"
 
-    def distance(self, value: float, *, element: int | None, what: str) -> int:
-        """Convert a label length to this job's DPL unit, refusing values past four digits."""
-        converted = to_dpl(value, self.unit, target=self.dpl_unit, dpi=self.profile.dpi).value
+    def distance(self, value: float, *, axis: Axis, element: int | None, what: str) -> int:
+        """Convert a label length on ``axis`` to this job's DPL unit, refusing values past four digits."""
+        converted = to_dpl(
+            value, self.unit, target=self.dpl_unit, dpi=self.profile.dpi, correction=self.correction(axis)
+        ).value
         if converted > MAX_FIELD_VALUE:
             self.findings.refuse(
                 FindingCode.DISTANCE_TOO_LARGE,
@@ -129,17 +146,19 @@ class RenderContext:
             return MAX_FIELD_VALUE
         return converted
 
-    def inch_hundredths(self, value: float) -> int:
-        """Convert a label length to hundredths of an inch (system commands use inch mode)."""
-        return to_dpl(value, self.unit, target=DplUnit.INCH_HUNDREDTHS, dpi=self.profile.dpi).value
+    def inch_hundredths(self, value: float, *, axis: Axis) -> int:
+        """Convert a label length on ``axis`` to hundredths of an inch (system commands use inch mode)."""
+        return to_dpl(
+            value, self.unit, target=DplUnit.INCH_HUNDREDTHS, dpi=self.profile.dpi, correction=self.correction(axis)
+        ).value
 
-    def dots(self, value: float) -> int:
-        """Convert a label length to whole printer dots, at least one (a size)."""
-        return to_dots(value, self.unit, dpi=self.profile.dpi)
+    def dots(self, value: float, *, axis: Axis) -> int:
+        """Convert a label length on ``axis`` to whole printer dots, at least one (a size)."""
+        return to_dots(value, self.unit, dpi=self.profile.dpi, correction=self.correction(axis))
 
-    def offset_dots(self, value: float) -> int:
-        """Convert a label length to the nearest whole number of dots, zero allowed (a position)."""
-        return round(to_inches(value, self.unit, dpi=self.profile.dpi) * self.profile.dpi)
+    def offset_dots(self, value: float, *, axis: Axis) -> int:
+        """Convert a label length on ``axis`` to the nearest whole number of dots, zero allowed (a position)."""
+        return round(exact_dots(value, self.unit, dpi=self.profile.dpi, correction=self.correction(axis)))
 
     def download_image(self, name: str, bitmap: Bitmap) -> None:
         """Queue ``bitmap`` for download under ``name`` before the format.

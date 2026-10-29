@@ -26,7 +26,7 @@ from .label import Barcode, Box, Circle, Image, Line, Polygon, ScalableText, Tex
 from .placeholders import label_placeholders
 from .profiles import Feature, get_profile, parse_firmware
 from .render_context import RenderContext, RenderOptions
-from .units import DplUnit
+from .units import Correction, DplUnit, to_inches
 
 if TYPE_CHECKING:
     from .label import Element, Label
@@ -92,6 +92,8 @@ def _context(label: Label, options: RenderOptions) -> RenderContext:
         cutter_installed=options.cutter_installed,
         symbol_set=label.symbol_set,
         default_attribute=label.attribute or Attribute.XOR,
+        across=Correction(scale=options.scale_across, unit_dots=profile.inch_unit_dots),
+        along=Correction(scale=options.scale_along, unit_dots=profile.inch_unit_dots),
     )
     if label.unit is Unit.MM and probe.supports(Feature.FORMAT_METRIC):
         probe.dpl_unit = DplUnit.MM_TENTHS
@@ -107,7 +109,9 @@ def _check_label_level(label: Label, ctx: RenderContext, *, filled: bool) -> Non
     unfilled = [] if filled else label_placeholders(label)
     if unfilled:
         ctx.findings.warn(FindingCode.PLACEHOLDERS_UNFILLED, f"placeholders without data: {', '.join(unfilled)}")
-    if label.width is not None and ctx.inch_hundredths(label.width) > round(ctx.profile.print_width_in * 100):
+    # Nominal on purpose: this compares the label with the printhead, not what one printer prints.
+    width_in = None if label.width is None else to_inches(label.width, label.unit, dpi=ctx.profile.dpi)
+    if width_in is not None and round(width_in * 100) > round(ctx.profile.print_width_in * 100):
         ctx.findings.warn(
             FindingCode.LABEL_WIDER_THAN_PRINT_WIDTH,
             f"label is wider than the {ctx.profile.print_width_in} in printable width of {ctx.profile.name}",

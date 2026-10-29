@@ -6,8 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `RenderOptions.scale_across` and `scale_along`: printed length divided by
+  nominal length for one printer, across the web and along the feed (0.5-1.5,
+  default 1.0). Positions, line and box lengths, barcode heights, stop and
+  present distances and the shapes drawn as images are corrected on the axis
+  they run along; fonts and user bitmaps, which are sized in dots, are not.
+  Measured on an Allegro 2: along the feed it prints 0.977 of nominal.
+
 ### Fixed
 
+- On the Allegro 2, lengths in 1/100 in printed 1.6 % short, so a box and an
+  image of the same size did not line up: the printer prints one 1/100 in as
+  two whole dots (0.250 mm, not 0.254 mm). Its profile now converts with that
+  unit; 100 mm is written as 400, not 394. Other models keep the exact unit
+  until measured.
 - A label that sets no `dot_size` now gets `D11` in its format on every model
   whose own default is `D22`, which is every profile except `dmx-600` and
   `dmx-800`. Measured on an Allegro 2:

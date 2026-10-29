@@ -145,6 +145,24 @@ def to_dpl(value: float, unit: Unit, *, target: DplUnit, dpi: float, correction:
     return Converted(value=rounded, error_inches=(rounded - exact) / per_inch)
 
 
+def exact_dots(value: float, unit: Unit, *, dpi: float, correction: Correction = NOMINAL) -> float:
+    """Convert a length to printer dots, unrounded.
+
+    Args:
+        value: The length.
+        unit: Unit ``value`` is written in.
+        dpi: Printer resolution.
+        correction: How the printer prints this length's axis; only its scale applies.
+
+    Example:
+        >>> exact_dots(1, Unit.INCH, dpi=300)
+        300.0
+        >>> exact_dots(1, Unit.INCH, dpi=300, correction=Correction(scale=0.5))
+        600.0
+    """
+    return _printed_inches(value, unit, dpi=dpi, scale=correction.scale) * dpi
+
+
 def to_dots(value: float, unit: Unit, *, dpi: float, correction: Correction = NOMINAL) -> int:
     """Convert a length to whole printer dots (at least one).
 
@@ -160,7 +178,7 @@ def to_dots(value: float, unit: Unit, *, dpi: float, correction: Correction = NO
         >>> to_dots(0.01, Unit.MM, dpi=203)
         1
     """
-    return max(1, round(_printed_inches(value, unit, dpi=dpi, scale=correction.scale) * dpi))
+    return max(1, round(exact_dots(value, unit, dpi=dpi, correction=correction)))
 
 
 def from_dpl(value: int, *, source: DplUnit, unit: Unit, dpi: float) -> float:
@@ -185,6 +203,7 @@ __all__ = [
     "Converted",
     "Correction",
     "DplUnit",
+    "exact_dots",
     "from_dpl",
     "to_dots",
     "to_dpl",

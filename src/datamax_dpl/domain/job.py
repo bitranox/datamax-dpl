@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from .enums import FindingCode, MediaSensor, SpeedCode
 from .profiles import Feature, SpeedRange
 from .records import STX, line
-from .units import DplUnit
+from .units import Axis, DplUnit
 
 if TYPE_CHECKING:
     from .label import Label
@@ -36,7 +36,7 @@ def _media_commands(label: Label, ctx: RenderContext) -> list[bytes]:
                 FindingCode.CONTINUOUS_LENGTH_MISSING, "continuous media needs continuous_length or height"
             )
             return []
-        return [_system(f"c{ctx.inch_hundredths(length):04d}")]
+        return [_system(f"c{ctx.inch_hundredths(length, axis=Axis.ALONG):04d}")]
     if not ctx.supports(Feature.SENSOR_SELECT):
         ctx.findings.deviate(
             FindingCode.SENSOR_SELECT_UNSUPPORTED,
@@ -49,7 +49,7 @@ def _media_commands(label: Label, ctx: RenderContext) -> list[bytes]:
 
 
 def _stop_command(value: float, ctx: RenderContext) -> list[bytes]:
-    hundredths = ctx.inch_hundredths(value)
+    hundredths = ctx.inch_hundredths(value, axis=Axis.ALONG)
     if hundredths > _MAX_STOP_POSITION:
         ctx.findings.refuse(
             FindingCode.STOP_POSITION_TOO_LARGE, f"stop position takes at most {_MAX_STOP_POSITION}/100 in"
@@ -76,7 +76,7 @@ def _present_commands(label: Label, ctx: RenderContext) -> list[bytes]:
 
 def _present_distance(value: float, ctx: RenderContext) -> list[bytes]:
     if ctx.supports(Feature.PRESENT_DISTANCE):
-        return [_system(f"Kf{ctx.inch_hundredths(value):04d}")]
+        return [_system(f"Kf{ctx.inch_hundredths(value, axis=Axis.ALONG):04d}")]
     if ctx.supports(Feature.STOP_POSITION):
         ctx.findings.deviate(
             FindingCode.PRESENT_DISTANCE_UNSUPPORTED,
@@ -160,9 +160,11 @@ def _speed_lines(label: Label, ctx: RenderContext) -> list[bytes]:
 def _offset_lines(label: Label, ctx: RenderContext) -> list[bytes]:
     lines: list[bytes] = []
     if label.column_offset is not None:
-        lines.append(line(f"C{ctx.distance(label.column_offset, element=None, what='column offset'):04d}"))
+        lines.append(
+            line(f"C{ctx.distance(label.column_offset, axis=Axis.ACROSS, element=None, what='column offset'):04d}")
+        )
     if label.row_offset is not None:
-        lines.append(line(f"R{ctx.distance(label.row_offset, element=None, what='row offset'):04d}"))
+        lines.append(line(f"R{ctx.distance(label.row_offset, axis=Axis.ALONG, element=None, what='row offset'):04d}"))
     return lines
 
 

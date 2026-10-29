@@ -8,7 +8,7 @@ from .enums import Attribute, FindingCode, Unit
 from .label import MAX_FIELD_DATA, Counter
 from .profiles import Feature
 from .records import line
-from .units import DplUnit, to_dpl
+from .units import Axis, DplUnit, to_dpl
 
 if TYPE_CHECKING:
     from .render_context import RenderContext
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 def column_of(x: float, *, index: int, ctx: RenderContext) -> int:
     """Convert ``x`` to a DPL column, refusing positions past the model's printable width."""
-    column = ctx.distance(x, element=index, what="column")
+    column = ctx.distance(x, axis=Axis.ACROSS, element=index, what="column")
     limit = to_dpl(ctx.profile.max_column / 100, Unit.INCH, target=ctx.dpl_unit, dpi=ctx.profile.dpi).value
     if column > limit:
         unit = "1/100 in" if ctx.dpl_unit is DplUnit.INCH_HUNDREDTHS else "1/10 mm"
@@ -30,7 +30,7 @@ def column_of(x: float, *, index: int, ctx: RenderContext) -> int:
 
 def row_of(y: float, *, index: int, ctx: RenderContext) -> int:
     """Convert ``y`` to a DPL row."""
-    return ctx.distance(y, element=index, what="row")
+    return ctx.distance(y, axis=Axis.ALONG, element=index, what="row")
 
 
 def check_field_length(length: int, *, limit: int = MAX_FIELD_DATA, index: int, ctx: RenderContext) -> None:

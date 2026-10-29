@@ -6,11 +6,12 @@ from typing import TYPE_CHECKING
 
 from .barcodes import check_barcode, datamatrix_data_field, pdf417_data_field
 from .encode_common import check_field_length, column_of, counter_lines, row_of
-from .enums import FindingCode
+from .enums import FindingCode, Rotation
 from .label import MAX_FIELD_DATA, MAX_MULTIPLIER, MAX_PDF417_DATA, Barcode, DataMatrixOptions, Pdf417Options
 from .profiles import Feature
 from .records import MAX_SHORT_FIELD, Header, line
 from .symbology import SYMBOLOGY_CODES, Symbology
+from .units import Axis
 
 if TYPE_CHECKING:
     from .render_context import RenderContext
@@ -109,7 +110,9 @@ def bar_widths(element: Barcode, *, index: int, ctx: RenderContext) -> tuple[int
 def _height_field(element: Barcode, *, index: int, ctx: RenderContext) -> str:
     if element.height is None:
         return "000"
-    height = ctx.distance(element.height, element=index, what="barcode height")
+    # The height runs along the feed unless the field is turned a quarter turn.
+    axis = Axis.ACROSS if element.rotation in (Rotation.DEG_90, Rotation.DEG_270) else Axis.ALONG
+    height = ctx.distance(element.height, axis=axis, element=index, what="barcode height")
     if not 1 <= height <= MAX_SHORT_FIELD:
         ctx.findings.refuse(
             FindingCode.BARCODE_HEIGHT_OUT_OF_RANGE,

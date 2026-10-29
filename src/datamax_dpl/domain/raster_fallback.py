@@ -15,6 +15,7 @@ from .enums import FillPattern, FindingCode
 from .label import Box, Circle, Line, Polygon
 from .raster import Bitmap
 from .records import image_record, line
+from .units import Axis
 
 if TYPE_CHECKING:
     from .render_context import RenderContext
@@ -62,24 +63,29 @@ def _extent(element: Graphic) -> tuple[float, float, float, float]:
 def _frame(element: Graphic, ctx: RenderContext) -> _Frame:
     left, bottom, right, top = _extent(element)
     left, bottom = max(left, 0.0), max(bottom, 0.0)
-    return _Frame(left, bottom, ctx.offset_dots(right - left) + 1, ctx.offset_dots(top - bottom) + 1)
+    return _Frame(
+        left,
+        bottom,
+        ctx.offset_dots(right - left, axis=Axis.ACROSS) + 1,
+        ctx.offset_dots(top - bottom, axis=Axis.ALONG) + 1,
+    )
 
 
 def _pixel(x: float, y: float, frame: _Frame, ctx: RenderContext) -> tuple[int, int]:
     """Map a label point to bitmap pixel coordinates (bitmap row 0 is the top)."""
-    column = ctx.offset_dots(x - frame.left)
-    from_bottom = ctx.offset_dots(y - frame.bottom)
+    column = ctx.offset_dots(x - frame.left, axis=Axis.ACROSS)
+    from_bottom = ctx.offset_dots(y - frame.bottom, axis=Axis.ALONG)
     return column, frame.height_dots - 1 - from_bottom
 
 
 def _draw(element: Graphic, bitmap: Bitmap, frame: _Frame, ctx: RenderContext) -> None:
     if isinstance(element, Circle):
         cx, cy = _pixel(element.x, element.y, frame, ctx)
-        bitmap.draw_circle(cx, cy, ctx.dots(element.radius), fill=element.fill)
+        bitmap.draw_circle(cx, cy, ctx.dots(element.radius, axis=Axis.ACROSS), fill=element.fill)
     elif isinstance(element, Line):
         x0, y0 = _pixel(element.x, element.y, frame, ctx)
         x1, y1 = _pixel(element.x2, element.y2, frame, ctx)
-        bitmap.draw_line(x0, y0, x1, y1, thickness=ctx.dots(element.thickness))
+        bitmap.draw_line(x0, y0, x1, y1, thickness=ctx.dots(element.thickness, axis=Axis.ACROSS))
     elif isinstance(element, Box):
         _draw_box(element, bitmap, ctx)
     else:
@@ -91,8 +97,8 @@ def _draw_box(element: Box, bitmap: Bitmap, ctx: RenderContext) -> None:
     width, height = bitmap.width, bitmap.height
     if element.fill is not FillPattern.NONE:
         bitmap.fill_rect(0, 0, width, height, pattern=element.fill)
-    edge = ctx.dots(element.thickness)
-    side = ctx.dots(element.side_thickness or element.thickness)
+    edge = ctx.dots(element.thickness, axis=Axis.ALONG)
+    side = ctx.dots(element.side_thickness or element.thickness, axis=Axis.ACROSS)
     bitmap.fill_rect(0, 0, width, edge)
     bitmap.fill_rect(0, height - edge, width, edge)
     bitmap.fill_rect(0, 0, side, height)
@@ -122,8 +128,8 @@ def rasterize(element: Graphic, *, index: int, ctx: RenderContext, reason: str) 
         fallback=f"drawn as downloaded image {name} ({frame.width_dots}x{frame.height_dots} dots)",
         element=index,
     )
-    row = ctx.distance(frame.bottom, element=index, what="image row")
-    column = ctx.distance(frame.left, element=index, what="image column")
+    row = ctx.distance(frame.bottom, axis=Axis.ALONG, element=index, what="image row")
+    column = ctx.distance(frame.left, axis=Axis.ACROSS, element=index, what="image column")
     return [line(image_record(row=row, column=column, name=name))]
 
 

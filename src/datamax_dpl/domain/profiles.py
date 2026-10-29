@@ -163,6 +163,8 @@ class PrinterProfile:
         synthetic: True for ``generic`` and ``permissive``, which are not real models.
         default_dot_size: The dot size (width, height multiplier) the printer uses when a format
             sends no ``D`` command: 2x2 on every model except the DMX 600/800 (manual, ``D``).
+        inch_unit_dots: Whole dots one 1/100 in prints as, on a model known to round it to whole
+            dots; None where the exact 1/100 in is assumed. Measured 2 on the Allegro 2 only.
     """
 
     id: str
@@ -181,6 +183,7 @@ class PrinterProfile:
     features: dict[Feature, Support] = field(default_factory=dict[Feature, Support])
     synthetic: bool = False
     default_dot_size: tuple[int, int] = (2, 2)
+    inch_unit_dots: int | None = None
 
     def support(self, feature: Feature) -> Support:
         """Return how this model supports ``feature`` (missing entries mean no)."""
@@ -430,6 +433,11 @@ _ROWS: tuple[_Row, ...] = (
 #: The manual's ``D`` command: "Default setting: D22 for all printers except the DMX 600/800".
 _FAMILIES_DEFAULTING_TO_D11 = frozenset({ModelFamily.DMX_600, ModelFamily.DMX_800})
 
+#: Models measured to print one 1/100 in as whole dots: a 787/100 in line printed as 1574 dot
+#: rows on an Allegro 2 (2 per unit, not 2.03). Other models keep the exact unit until measured;
+#: a per-printer scale factor absorbs what remains.
+_INCH_UNIT_DOTS: dict[str, int] = {"allegro-2": 2}
+
 
 def _build(row: _Row) -> PrinterProfile:
     print_speed, slew_speed, backup_speed = row.speeds
@@ -449,6 +457,7 @@ def _build(row: _Row) -> PrinterProfile:
         old_series_points=row.old_points,
         features=dict(_FAMILY_FEATURES[row.family]),
         default_dot_size=(1, 1) if row.family in _FAMILIES_DEFAULTING_TO_D11 else (2, 2),
+        inch_unit_dots=_INCH_UNIT_DOTS.get(row.id),
     )
 
 
