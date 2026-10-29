@@ -348,3 +348,66 @@ same for `scale_along`; `render_options()` passes both.
 2. A label with a 40 x 20 mm box and an image of the same nominal size at the same place: the
    edges coincide across (was 1.6 % off).
 3. Record both results in OPEN-WORK [56]; then detail M2-M4 here.
+
+**Result (measured 2026-10-29 on the Allegro 2, user's ruler): PASSED.**
+
+- The 200 mm DPL line along the feed, rendered with `scale_along=0.977` (818 units), printed
+  200 mm.
+- A 90 x 10 mm DPL box (360 units) and a 720 x 80 dot image outline, stacked with the same left
+  edge, both printed 90 mm with their right edges coinciding. The first attempt placed the two on
+  top of each other: the Allegro 2 has no attribute command, so the fields XOR, every coinciding
+  dot cancelled and only the 4 rows where the box is taller than the image were left. Compared
+  shapes on a calibration label go side by side.
+- As implemented, Task 1 bundles `unit_dots` and `scale` into `units.Correction` (ruff PLR0913
+  refused a sixth argument): `to_dpl(..., correction=Correction(...))`, `to_dots(..., correction=...)`,
+  plus `exact_dots` for unrounded positions. Later tasks use these names.
+
+## DETAILED: M2 tasks (named printers)
+
+### Task 5: Tell a printer URI from a printer name
+
+**Files:** Modify `src/datamax_dpl/adapters/transport/uri.py`; Test `tests/test_transport_uri.py`
+(find the existing URI test file with `grep -ln parse_uri tests`).
+
+**Interfaces:** Produces `is_printer_uri(text: str) -> bool` (True for `-` and the `tcp://`,
+`serial://`, `device://`, `file:` prefixes the parser dispatches on) and
+`is_printer_name(text: str) -> bool` (`^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$`: no `:`, never `-`).
+
+- [ ] Failing tests: every URI form the parser's docstring lists is a URI and not a name;
+  `lager`, `lager-2`, `L3` are names; `-`, `a:b`, `lager.x`, `` are neither.
+- [ ] Implement with the module's existing prefix constants (`_TCP_PREFIX` ...), not new literals.
+- [ ] Commit with Task 6.
+
+### Task 6: `[printers.<name>]` and `--printer NAME|URI`
+
+**Files:** `src/datamax_dpl/adapters/cli/settings.py`, `src/datamax_dpl/adapters/cli/commands/model_options.py`,
+`src/datamax_dpl/adapters/config/defaultconfig.d/50-printer.toml`, `tests/test_cli_overrides.py`, `CHANGELOG.md`.
+
+**Interfaces:**
+- `PrinterOverrides.printer: str | None` replaces `uri` (the `--printer` option's dest).
+- `PrinterSettings.name: str = ""` (the named printer used, empty for none),
+  `label_width: float | None = Field(default=None, gt=0)`, `label_height` the same (millimetres).
+- `printer_settings(config, overrides)`: `[printer]` merged with `[printers.<name>]` (the named
+  section wins key by key), then the command-line flags; a URI given to `--printer` sets `uri`.
+- `--printer` is added to `render` and `validate` (a named printer supplies model and factors);
+  `print`, `verify`, `status`, `detect` and the immediate commands keep theirs.
+
+**STOP conditions:** a command passes `uri=` to `resolve_settings` by keyword (grep `uri=`).
+
+- [ ] Failing tests (CLI seam, `config_cli_context` + `--json render` / `print --printer`):
+  1. `render --printer lager` with `[printers.lager] model="allegro-2", scale_along=0.8` renders
+     the allegro-2 bytes with the scaled rows;
+  2. `print --printer lager` where `[printers.lager] uri="file:<tmp>/out.dpl"` writes the job there;
+  3. a named printer inherits a key it does not set from `[printer]` (cutter);
+  4. `--model generic` still beats the named printer's model;
+  5. an unknown name exits 2 with `ConfigurationError` naming it and the configured names;
+  6. a section whose name is not a valid printer name (`[printers."a:b"]`) is refused naming it;
+  7. `--printer tcp://192.0.2.60:9100` still sets the URI.
+- [ ] Implement; `require_uri`'s message becomes "no printer given: pass --printer NAME or URI, or
+  set [printer] uri".
+- [ ] Document a commented `[printers.lager]` example in `50-printer.toml` (no live section: the
+  default config must not invent a printer).
+- [ ] Gate, CHANGELOG `### Added`, commit (`feat(config): named printers`).
+
+M3 (calibration labels and commands) and M4 (docs, skill, real calibration round) are detailed
+once M2 is in.
