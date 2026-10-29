@@ -154,6 +154,12 @@ Image placement: `1Y11000rrrrccccNAME` (rotation 1 only, name up to 8 characters
 `<STX>IAAFNAME<CR>` followed by rows `80nn<hex bytes><CR>` (nn = byte count in hex),
 `0000FFnn<CR>` (repeat the previous row nn times), and `FFFF<CR>` to end.
 
+Measured on an Allegro 2 (firmware CA02 03.04), not stated in the manual: the printer draws the
+FIRST row record at the BOTTOM of the image, and images holding `0000FFnn` repeat records print
+wrong (one row short per repeat record, or empty, or garbled) while the same images sent one row
+record per row print right. datamax-dpl therefore sends the bottom row first and never emits a
+repeat record; its decoder still reads them.
+
 ## 6. Bitmapped fonts
 
 | Font | Characters                      | Cell (h/w/gap dots) at 203 dpi | at 300 dpi | at 289.56 dpi |

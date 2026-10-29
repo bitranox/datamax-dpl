@@ -33,39 +33,35 @@ def test_encode_single_row_record_format() -> None:
 
 
 @pytest.mark.os_agnostic
-def test_encode_emits_top_row_first() -> None:
-    """The first row record is the top row of the bitmap (the reading taken in the module)."""
+def test_encode_emits_bottom_row_first() -> None:
+    """The first row record is the BOTTOM row: the printer draws the first record lowest.
+
+    Measured on an Allegro 2: an F sent top row first printed upside down.
+    """
     bitmap = Bitmap.from_rows(["#.......", "........"])
-    assert records(encode_image(bitmap)) == [b"800180", b"800100", b"FFFF"]
+    assert records(encode_image(bitmap)) == [b"800100", b"800180", b"FFFF"]
 
 
 @pytest.mark.os_agnostic
-def test_encode_folds_identical_rows_into_repeat_record() -> None:
-    """Rows equal to the one before become a 0000FFnn repeat record."""
+def test_encode_sends_every_row_and_no_repeat_records() -> None:
+    """Identical rows are each sent as their own row record; no 0000FFnn record is emitted.
+
+    Measured on an Allegro 2: images holding repeat records lost rows or printed empty, while the
+    same images sent row by row printed right.
+    """
     bitmap = Bitmap.from_rows(["#......."] * 4 + ["........"])
-    assert records(encode_image(bitmap)) == [b"800180", b"0000FF03", b"800100", b"FFFF"]
+    assert records(encode_image(bitmap)) == [b"800100"] + [b"800180"] * 4 + [b"FFFF"]
 
 
 @pytest.mark.os_agnostic
-def test_long_run_is_split_into_repeat_records_that_fit_two_hex_digits() -> None:
-    """300 identical rows split so every repeat count is 01-FF and the total is still 300 rows."""
+def test_tall_uniform_image_is_one_row_record_per_row() -> None:
+    """300 identical rows become 300 row records, so the printed height is the bitmap height."""
     bitmap = Bitmap(16, 300)
     bitmap.fill_rect(0, 0, 3, 300)
     parts = records(encode_image(bitmap))
-    repeats = [int(part[6:], 16) for part in parts if part.startswith(b"0000FF")]
-    rows = [part for part in parts if part.startswith(b"80")]
-    assert all(1 <= count <= 0xFF for count in repeats)
-    assert all(len(part) == 8 for part in parts if part.startswith(b"0000FF"))
-    assert len(rows) + sum(repeats) == 300
-    assert len(repeats) == 2
+    assert not [part for part in parts if part.startswith(b"0000FF")]
+    assert len([part for part in parts if part.startswith(b"80")]) == 300
     assert black_set(decode_image(encode_image(bitmap))) == black_set(bitmap)
-
-
-@pytest.mark.os_agnostic
-def test_run_of_exactly_256_rows_needs_one_repeat() -> None:
-    """One row record plus a repeat of FF covers 256 rows without a second record pair."""
-    parts = records(encode_image(Bitmap(8, 256)))
-    assert parts == [b"800100", b"0000FFFF", b"FFFF"]
 
 
 @pytest.mark.os_agnostic
@@ -102,6 +98,14 @@ def test_encode_decode_round_trip(rows: list[str]) -> None:
     assert decoded.height == bitmap.height
     assert decoded.width == -(-bitmap.width // 8) * 8
     assert black_set(decoded) == black_set(bitmap)
+
+
+@pytest.mark.os_agnostic
+def test_decode_reads_the_first_record_as_the_bottom_row() -> None:
+    """The decoder mirrors the printer: the first row record is the bottom of the image."""
+    decoded = decode_image(b"800100\r800180\rFFFF\r")
+    assert decoded.get(0, 0)
+    assert not decoded.get(0, 1)
 
 
 @pytest.mark.os_agnostic

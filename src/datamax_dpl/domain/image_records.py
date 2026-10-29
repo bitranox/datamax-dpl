@@ -8,19 +8,26 @@ ending with ``<CR>``:
 * ``0000FFnn`` - repeat the previous row ``nn`` more times;
 * ``FFFF`` - end of the image.
 
-The manual does not say whether the first row record is the top or the bottom of the image.
-:func:`encode_image` emits the TOP row first. That is the reading taken here and it stays
-unverified until a printer test confirms it.
+Two readings here come from a printer, not from the manual (measured on an Allegro 2, firmware
+CA02 03.04):
+
+* The manual does not say which end of the image the first row record is. The printer draws the
+  first record at the BOTTOM, so :func:`encode_image` sends the bottom row first and
+  :func:`decode_image` reads the first record as the bottom row.
+* :func:`encode_image` never emits a repeat record. On that printer every image holding repeat
+  records came out wrong - one row short per repeat record, or empty, or garbled - while the same
+  images sent one row record per row printed right. Sending every row costs bytes (about 10 KB
+  for a 100 x 15 mm image at 8 dots/mm); a wrong label costs more. :func:`decode_image` still
+  reads repeat records, since DPL written elsewhere may hold them.
 
 Example:
     >>> from datamax_dpl.domain.raster import Bitmap
     >>> encode_image(Bitmap.from_rows(["#.......", "#.......", "........"]))
-    b'800180\\r0000FF01\\r800100\\rFFFF\\r'
+    b'800100\\r800180\\r800180\\rFFFF\\r'
 """
 
 from __future__ import annotations
 
-import itertools
 import re
 
 from .raster import Bitmap
@@ -60,28 +67,10 @@ def _row_record(row: bytes) -> bytes:
     return ROW_PREFIX + _count(len(row)) + row.hex().upper().encode("ascii") + CR
 
 
-def _run_records(row: bytes, length: int) -> list[bytes]:
-    """Return the records for ``length`` identical rows.
-
-    A run longer than one row record plus 255 repeats restarts with a fresh row record rather
-    than chaining a second repeat record: whether a printer repeats "the previous row" again
-    after a repeat record is not stated in the manual, while a row record is unambiguous.
-    """
-    records: list[bytes] = []
-    remaining = length
-    while remaining > 0:
-        chunk = min(remaining, 1 + MAX_COUNT)
-        records.append(_row_record(row))
-        if chunk > 1:
-            records.append(REPEAT_PREFIX + _count(chunk - 1) + CR)
-        remaining -= chunk
-    return records
-
-
 def encode_image(bitmap: Bitmap) -> bytes:
-    """Encode a bitmap as Datamax 7-bit ASCII image records, top row first.
+    """Encode a bitmap as Datamax 7-bit ASCII image records, bottom row first.
 
-    Runs of identical rows become one row record followed by a repeat record.
+    Every row gets its own row record; no repeat record is emitted (see the module docstring).
 
     Args:
         bitmap: The image; at most 255 bytes (2040 pixels) wide.
@@ -103,10 +92,7 @@ def encode_image(bitmap: Bitmap) -> bytes:
             f"got {bitmap.width} pixels"
         )
         raise ValueError(msg)
-    records: list[bytes] = []
-    for row, run in itertools.groupby(rows):
-        records.extend(_run_records(row, sum(1 for _ in run)))
-    return b"".join(records) + END_RECORD + CR
+    return b"".join(_row_record(row) for row in reversed(rows)) + END_RECORD + CR
 
 
 def _parse_count(digits: bytes, *, what: str) -> int:
@@ -166,7 +152,7 @@ def decode_image(data: bytes) -> Bitmap:
         data: Row and repeat records ending with ``FFFF<CR>``, without the ``<STX>IAAF`` header.
 
     Returns:
-        The image, top row first.
+        The image; the first row record is its bottom row.
 
     Raises:
         ValueError: On an unknown or malformed record, a repeat before any row, rows of different
@@ -185,7 +171,7 @@ def decode_image(data: bytes) -> Bitmap:
     if len({len(row) for row in rows}) != 1:
         msg = "every image row must have the same byte count"
         raise ValueError(msg)
-    return Bitmap.from_packed_rows(rows, width=len(rows[0]) * _BITS_PER_BYTE)
+    return Bitmap.from_packed_rows(rows[::-1], width=len(rows[0]) * _BITS_PER_BYTE)
 
 
 def download_command(name: str, bitmap: Bitmap) -> bytes:

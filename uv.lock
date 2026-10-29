@@ -675,7 +675,7 @@ requires-dist = [
     { name = "jaraco-context", marker = "extra == 'dev'", specifier = ">=6.1.2" },
     { name = "lib-cli-exit-tools", specifier = ">=2.4.1" },
     { name = "lib-layered-config", specifier = ">=7.3.0" },
-    { name = "lib-log-rich", specifier = ">=8.0.3" },
+    { name = "lib-log-rich", specifier = ">=8.1.2" },
     { name = "orjson", specifier = ">=3.13.0" },
     { name = "pillow", marker = "python_full_version >= '3.11' and extra == 'dev'", specifier = ">=13.0.0" },
     { name = "pillow", marker = "python_full_version >= '3.11' and extra == 'preview'", specifier = ">=13.0.0" },
@@ -1343,7 +1343,7 @@ wheels = [
 
 [[package]]
 name = "lib-log-rich"
-version = "8.0.3"
+version = "8.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lib-cli-exit-tools" },
@@ -1353,9 +1353,9 @@ dependencies = [
     { name = "rich" },
     { name = "rich-click" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/76/f8/4f4164bd42fae21d0aa449b9cb7ab3b4b0c27e0423364d496bf07f2eeee1/lib_log_rich-8.0.3.tar.gz", hash = "sha256:bb29a87650e0d2af2898a04f7a06088bc93d18abe7691953a03885f466184430", size = 409976, upload-time = "2026-10-27T09:49:23.065Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/32/a8/c2208073b172b6493bc9707c61d3c3a1b94e5e90bcf1d872dd8fedb949b0/lib_log_rich-8.1.2.tar.gz", hash = "sha256:fc3080ce2b779daa90da0598dfc27c95014e0b5c8aa44eac61ba1391f6b0365a", size = 419619, upload-time = "2026-10-29T09:44:55.036Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a5/cf/60ea6bd3ce43ec7ec7a9f964a56951fc56932c9ae21f1ea89e288d7ef565/lib_log_rich-8.0.3-py3-none-any.whl", hash = "sha256:f2361f51fdaf052178968e3ca40afc2c56db867302250a1f6b83e1a675e3bc4f", size = 240455, upload-time = "2026-10-27T09:49:21.323Z" },
+    { url = "https://files.pythonhosted.org/packages/95/ba/0952032608a11386b0b056cee09c54678038b8e0e388892f1a978094d1d8/lib_log_rich-8.1.2-py3-none-any.whl", hash = "sha256:eb149559ae6370822d0e2aecc370d9bafa94231eed6b94b56e55eae59d3f5943", size = 244020, upload-time = "2026-10-29T09:44:53.186Z" },
 ]
 
 [[package]]

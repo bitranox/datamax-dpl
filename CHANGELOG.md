@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Downloaded images (the `image` element, and circles and polygons drawn as
+  images on models without those commands) printed upside down and could lose
+  rows or print empty. Image rows are now sent bottom row first, one row record
+  per row, with no repeat records; both behaviours were measured on an
+  Allegro 2. Image downloads grow for images with many identical rows.
 - The test suite no longer reads the app and host configuration layers of the
   machine it runs on. An autouse fixture points lib_layered_config's three
   app-root variables (`LIB_LAYERED_CONFIG_ETC`, `_MAC_APP_ROOT`, `_PROGRAMDATA`)
