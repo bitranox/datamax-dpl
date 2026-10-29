@@ -36,6 +36,17 @@ class DplUnit(str, Enum):
         return 100.0 if self is DplUnit.INCH_HUNDREDTHS else MM_PER_INCH * 10.0
 
 
+class Axis(str, Enum):
+    """Direction of a length on the label: across the web (columns) or along the feed (rows).
+
+    The two differ physically: the dot pitch across is fixed by the printhead, the row pitch
+    along the feed by the platen roller, so a printer can need a different scale on each.
+    """
+
+    ACROSS = "across"
+    ALONG = "along"
+
+
 def to_inches(value: float, unit: Unit, *, dpi: float) -> float:
     """Convert ``value`` written in ``unit`` to inches.
 
@@ -73,7 +84,39 @@ class Converted:
     error_inches: float
 
 
-def to_dpl(value: float, unit: Unit, *, target: DplUnit, dpi: float) -> Converted:
+@dataclass(frozen=True)
+class Correction:
+    """How one printer prints lengths on one axis, against nominal.
+
+    Attributes:
+        scale: Printed length divided by nominal length; 1.0 is exact.
+        unit_dots: Whole printer dots one 1/100 in prints as on models that round it to whole
+            dots (2 on the Allegro 2, measured); None for the exact 1/100 in. Metric jobs and
+            plain dot counts ignore it.
+
+    Example:
+        >>> NOMINAL.scale, NOMINAL.unit_dots
+        (1.0, None)
+    """
+
+    scale: float = 1.0
+    unit_dots: float | None = None
+
+
+#: No correction: lengths print at their nominal size.
+NOMINAL = Correction()
+
+
+def _printed_inches(value: float, unit: Unit, *, dpi: float, scale: float) -> float:
+    """Inches to ask for so that ``value`` comes out at its nominal length on paper.
+
+    A length in dots already counts printed dots, so no scale applies to it.
+    """
+    inches = to_inches(value, unit, dpi=dpi)
+    return inches if unit is Unit.DOTS else inches / scale
+
+
+def to_dpl(value: float, unit: Unit, *, target: DplUnit, dpi: float, correction: Correction = NOMINAL) -> Converted:
     """Convert a length to the nearest integer DPL distance.
 
     Args:
@@ -81,24 +124,35 @@ def to_dpl(value: float, unit: Unit, *, target: DplUnit, dpi: float) -> Converte
         unit: Unit ``value`` is written in.
         target: DPL unit of the job.
         dpi: Printer resolution, for :attr:`Unit.DOTS`.
+        correction: How the printer prints this length's axis.
 
     Returns:
-        The rounded value and its rounding error.
+        The rounded value and its rounding error, in the DPL unit's own inches.
 
     Example:
         >>> to_dpl(10, Unit.MM, target=DplUnit.MM_TENTHS, dpi=203).value
         100
         >>> to_dpl(10, Unit.MM, target=DplUnit.INCH_HUNDREDTHS, dpi=203).value
         39
+        >>> to_dpl(100, Unit.MM, target=DplUnit.INCH_HUNDREDTHS, dpi=203, correction=Correction(unit_dots=2)).value
+        400
     """
-    inches = to_inches(value, unit, dpi=dpi)
-    exact = inches * target.per_inch
+    per_inch = target.per_inch
+    if correction.unit_dots is not None and target is DplUnit.INCH_HUNDREDTHS:
+        per_inch = dpi / correction.unit_dots
+    exact = _printed_inches(value, unit, dpi=dpi, scale=correction.scale) * per_inch
     rounded = round(exact)
-    return Converted(value=rounded, error_inches=(rounded - exact) / target.per_inch)
+    return Converted(value=rounded, error_inches=(rounded - exact) / per_inch)
 
 
-def to_dots(value: float, unit: Unit, *, dpi: float) -> int:
+def to_dots(value: float, unit: Unit, *, dpi: float, correction: Correction = NOMINAL) -> int:
     """Convert a length to whole printer dots (at least one).
+
+    Args:
+        value: The length.
+        unit: Unit ``value`` is written in.
+        dpi: Printer resolution.
+        correction: How the printer prints this length's axis; only its scale applies.
 
     Example:
         >>> to_dots(1, Unit.INCH, dpi=300)
@@ -106,7 +160,7 @@ def to_dots(value: float, unit: Unit, *, dpi: float) -> int:
         >>> to_dots(0.01, Unit.MM, dpi=203)
         1
     """
-    return max(1, round(to_inches(value, unit, dpi=dpi) * dpi))
+    return max(1, round(_printed_inches(value, unit, dpi=dpi, scale=correction.scale) * dpi))
 
 
 def from_dpl(value: int, *, source: DplUnit, unit: Unit, dpi: float) -> float:
@@ -124,4 +178,15 @@ def from_dpl(value: int, *, source: DplUnit, unit: Unit, dpi: float) -> float:
     return round(inches, 6)
 
 
-__all__ = ["MM_PER_INCH", "Converted", "DplUnit", "from_dpl", "to_dots", "to_dpl", "to_inches"]
+__all__ = [
+    "MM_PER_INCH",
+    "NOMINAL",
+    "Axis",
+    "Converted",
+    "Correction",
+    "DplUnit",
+    "from_dpl",
+    "to_dots",
+    "to_dpl",
+    "to_inches",
+]
