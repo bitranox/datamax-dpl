@@ -39,6 +39,7 @@ _CELLS: dict[int, tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, i
 _DPI_300 = 300
 _DPI_289 = 289
 _POINTS_PER_INCH = 72
+_MM_PER_INCH = 25.4
 #: Average glyph width of a proportional font as a share of its point size.
 _PROPORTIONAL_WIDTH = 0.6
 #: Estimated modules per character for module barcodes (Code 128 is 11).
@@ -73,6 +74,28 @@ class Canvas:
 def _cell(font: int, dpi: float) -> tuple[int, int, int]:
     column = 1 if dpi >= _DPI_300 else 2 if dpi >= _DPI_289 else 0
     return _CELLS[font][column]
+
+
+def widest_cell_mm(font: int) -> tuple[float, float]:
+    """Return the largest character advance and height in mm of bitmapped font 0-8 at any resolution.
+
+    Text sized with these fits on every printer, since bitmapped fonts are sized in dots.
+
+    Args:
+        font: Font number 0-8.
+
+    Returns:
+        The advance (cell width plus gap) and the cell height, in mm.
+
+    Example:
+        >>> [round(mm, 2) for mm in widest_cell_mm(1)]
+        [1.14, 1.63]
+    """
+    resolutions = (203, _DPI_300, 289.56)
+    cells = [(cell, dpi) for cell, dpi in zip(_CELLS[font], resolutions, strict=True)]
+    advance = max((width + gap) / dpi for (_, width, gap), dpi in cells)
+    height = max(height / dpi for (height, _, _), dpi in cells)
+    return advance * _MM_PER_INCH, height * _MM_PER_INCH
 
 
 def _text_size(element: Text, dpi: float) -> tuple[int, int, int]:
@@ -245,4 +268,4 @@ def preview_bitmap(label: Label, profile: PrinterProfile) -> Bitmap:
     return bitmap
 
 
-__all__ = ["Canvas", "canvas_for", "draw_element", "preview_bitmap", "text_box"]
+__all__ = ["Canvas", "canvas_for", "draw_element", "preview_bitmap", "text_box", "widest_cell_mm"]

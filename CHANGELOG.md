@@ -23,11 +23,12 @@ All notable changes to this project are documented here. The format follows
   take it too, so a named printer supplies its model and scale factors. An
   unknown name is refused with the configured names listed.
 - `across_label`, `along_label` and `calibration_labels`: the two labels to
-  measure a printer's scale factors with. The across label has a frame 5 mm
-  in from each side edge (`ACROSS_INSET_MM`; `across_frame_width` gives its
+  measure a printer's scale factors with. The across label has a frame 2 mm
+  in from every edge (`ACROSS_INSET_MM`; `across_frame_width` gives its
   width, the length to measure) and a bar filling its inside; the along label has a bar up to
-  200 mm long along the feed. Both have a tick every 10 mm, and no two of
-  their fields share a dot, since printers without field attributes cancel
+  200 mm long along the feed. Both have a tick every 10 mm, print each text
+  block in the largest bitmapped font that fits (font 3, then 2, then 1;
+  font 3 on a 100 mm label), and no two of their fields share a dot, since printers without field attributes cancel
   overlapping dots.
 - `datamax-dpl calibrate print --printer NAME`: renders both calibration
   labels with that printer's model and current scale factors and sends them in
@@ -37,7 +38,7 @@ All notable changes to this project are documented here. The format follows
   and the factor it was printed with.
 - `datamax-dpl calibrate set --printer NAME --across MM --along MM`: the new
   factor is the old one times measured over nominal length (the frame width
-  across, the label width less 10 mm; 200 mm or `--along-length` along), rounded to 4 places and refused
+  across, the label width less 4 mm; 200 mm or `--along-length` along), rounded to 4 places and refused
   outside 0.5-1.5. It is written into the printer's section of the user
   configuration, in the last file of that layer that holds the section (else
   `config.toml`), keeping comments and key order; without `--printer` the

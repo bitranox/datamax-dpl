@@ -7,15 +7,17 @@ No two shapes share a dot: printers without field attributes (the Allegro 2 amon
 overlapping fields, so coinciding dots cancel and a calibration print would read as a defect.
 Shapes therefore touch at most, and text keeps clear of every line.
 
-Text is word-wrapped with the font 1 cell of a 203 dpi head (the widest any profile prints, as
-bitmap fonts are sized in dots), so it fits at every resolution.
+Each text block is word-wrapped in the largest bitmapped font that fits its space (3, then 2,
+then 1), sized with the font's widest cell at any resolution, so it fits on every printer.
 """
 
 from __future__ import annotations
 
 import textwrap
 
+from datamax_dpl.domain.charset import CAPITALS_ONLY_FONTS, encode_for_bitmapped_font
 from datamax_dpl.domain.label import Box, Element, Label, Line, Text
+from datamax_dpl.domain.preview import widest_cell_mm
 from datamax_dpl.domain.units import MAX_SCALE, MIN_SCALE
 
 __all__ = [
@@ -36,9 +38,9 @@ ALONG_LENGTH_MM = 200.0
 TICK_SPACING_MM = 10.0
 MIN_LABEL_MM = 20.0
 
-ACROSS_INSET_MM = 5.0
-"""How far the across frame stands in from each side edge: a frame on the label edges loses a side
-to any sideways shift of the media, and its end can no longer be found with a ruler."""
+ACROSS_INSET_MM = 2.0
+"""How far the across frame stands in from every label edge: a frame on the label edges loses a
+side to any shift of the media, and its end can no longer be found with a ruler."""
 
 _FRAME = 0.25
 _BAR = 1.0
@@ -48,9 +50,8 @@ _TICK_LENGTH = 3.0
 _GAP = 0.25
 _MARGIN = 1.5
 _ALONG_BAR_X = 5.0
-_CHAR_MM = 1.15
-_LINE_MM = 2.5
-_FONT = 1
+_LARGEST_FONT_FIRST = (3, 2, 1)
+_LINE_GAP_MM = 0.9
 
 
 def across_frame_width(width: float) -> float:
@@ -64,51 +65,53 @@ def across_frame_width(width: float) -> float:
 
     Example:
         >>> across_frame_width(100)
-        90.0
+        96.0
     """
     return width - 2 * ACROSS_INSET_MM
 
 
 def across_label(*, width: float, height: float, title: str) -> Label:
-    """Build the across label: a frame 5 mm in from each side edge and a bar filling its inside.
+    """Build the across label: a frame 2 mm in from every edge and a bar filling its inside.
 
-    The frame's OUTER width (:func:`across_frame_width`) is the length to measure; it runs the
-    full label height. The bar runs from the frame's inner left edge to its inner right edge,
-    with a tick every 10 mm, counted from the frame's outer left edge, above it.
+    The frame's OUTER width (:func:`across_frame_width`) is the length to measure. The bar runs
+    from the frame's inner left edge to its inner right edge, with a tick every 10 mm, counted
+    from the frame's outer left edge, above it.
 
     Args:
-        width: Label width in mm, at least 30 (20 inside the frame).
-        height: Label height in mm, at least 20.
+        width: Label width in mm, at least 24 (20 inside the frame).
+        height: Label height in mm, at least 24.
         title: First text line, typically the printer name and the factors in use.
 
     Returns:
         The label, in mm.
 
     Raises:
-        ValueError: The width is under 30 mm, the height under 20 mm, or the text does not fit.
+        ValueError: A side is under 24 mm, or the text does not fit.
 
     Example:
         >>> label = across_label(width=100, height=55, title="LAGER")
         >>> (label.width, label.height)
         (100.0, 55.0)
     """
-    _require_min("width", width, minimum=MIN_LABEL_MM + 2 * ACROSS_INSET_MM)
-    _require_min("height", height)
+    minimum = MIN_LABEL_MM + 2 * ACROSS_INSET_MM
+    _require_min("width", width, minimum=minimum)
+    _require_min("height", height, minimum=minimum)
     frame = across_frame_width(width)
     left, right = ACROSS_INSET_MM, ACROSS_INSET_MM + frame
+    bottom, top = ACROSS_INSET_MM, height - ACROSS_INSET_MM
     bar_y = height / 2 - _BAR / 2
     tick_y = bar_y + _BAR + _GAP
     text_x = left + _FRAME + _MARGIN
     text_width = frame - 2 * (_FRAME + _MARGIN)
     elements: list[Element] = [
-        Box(x=left, y=0, width=frame, height=height, thickness=_FRAME),
+        Box(x=left, y=bottom, width=frame, height=top - bottom, thickness=_FRAME),
         Line(x=left + _FRAME, y=bar_y, x2=right - _FRAME, y2=bar_y, thickness=_BAR),
     ]
     elements += _across_ticks(left=left, right=right, y=tick_y)
     elements += _text_block(
         title,
         x=text_x,
-        top=height - _FRAME - _MARGIN,
+        top=top - _FRAME - _MARGIN,
         bottom=tick_y + _TICK_LENGTH + _GAP,
         width=text_width,
     )
@@ -116,7 +119,7 @@ def across_label(*, width: float, height: float, title: str) -> Label:
         f"MEASURE THE FRAME OUTSIDE: {frame:g} MM ACROSS",
         x=text_x,
         top=bar_y - _MARGIN,
-        bottom=_FRAME + _GAP,
+        bottom=bottom + _FRAME + _GAP,
         width=text_width,
     )
     return Label(width=width, height=height, elements=elements)
@@ -167,8 +170,8 @@ def calibration_labels(
     """Build both calibration labels for one printer's media.
 
     Args:
-        width: Label width in mm, at least 30.
-        height: Label height in mm (the across label's height).
+        width: Label width in mm, at least 24.
+        height: Label height in mm (the across label's height), at least 24.
         title: First text line of both labels.
         along_length: Length of the along bar in mm.
 
@@ -243,9 +246,34 @@ def _along_ticks(length: float, *, tick_x: float, bottom: float) -> list[Line]:
 
 
 def _text_block(text: str, *, x: float, top: float, bottom: float, width: float) -> list[Text]:
-    """Wrap ``text`` to ``width`` and stack its lines downward from ``top``, refusing an overflow."""
-    columns = int(width // _CHAR_MM)
-    lines = [wrapped for part in text.split("\n") for wrapped in textwrap.wrap(part, columns)] if columns else []
-    if not lines or top - len(lines) * _LINE_MM < bottom:
-        raise ValueError(f"the label is too small for its text {text!r}")
-    return [Text(x=x, y=top - (row + 1) * _LINE_MM, text=line, font=_FONT) for row, line in enumerate(lines)]
+    """Stack ``text`` downward from ``top`` in the largest font that fits above ``bottom``, else refuse.
+
+    Words are kept whole; only font 1, the last resort, breaks a word too long for its line.
+    """
+    attempts = [(font, False) for font in _LARGEST_FONT_FIRST] + [(_LARGEST_FONT_FIRST[-1], True)]
+    for font, break_words in attempts:
+        if not _prints_as_given(text, font):
+            continue
+        advance, height = widest_cell_mm(font)
+        pitch = height + _LINE_GAP_MM
+        lines = _wrap(text, int(width // advance), break_words=break_words)
+        # No gap is needed below the last line.
+        if lines and top - height - (len(lines) - 1) * pitch >= bottom:
+            return [Text(x=x, y=top - height - row * pitch, text=line, font=font) for row, line in enumerate(lines)]
+    raise ValueError(f"the label is too small for its text {text!r}")
+
+
+def _prints_as_given(text: str, font: int) -> bool:
+    # A capitals-only font would print a lower-case title in capitals: keep the caller's text.
+    if font in CAPITALS_ONLY_FONTS and text != text.upper():
+        return False
+    return not encode_for_bitmapped_font(text.replace("\n", ""), font=font).unmappable
+
+
+def _wrap(text: str, columns: int, *, break_words: bool) -> list[str]:
+    """Wrap ``text`` to ``columns``; without ``break_words``, an empty list when a word is too long."""
+    if columns < 1:
+        return []
+    parts = text.split("\n")
+    lines = [wrapped for part in parts for wrapped in textwrap.wrap(part, columns, break_long_words=break_words)]
+    return lines if all(len(line) <= columns for line in lines) else []

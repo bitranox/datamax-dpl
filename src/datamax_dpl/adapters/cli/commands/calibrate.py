@@ -183,7 +183,7 @@ def cli_calibrate_set(
     """Store the scale factors measured on the calibration labels in the user configuration.
 
     Each new factor is the old one times measured over nominal length; the across nominal is
-    the frame's width, the label width less 5 mm on each side. It is written into the
+    the frame's width, the label width less 2 mm on each side. It is written into the
     printer's section of the user configuration, in the file that already holds that section.
     """
 

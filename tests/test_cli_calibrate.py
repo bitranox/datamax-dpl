@@ -22,8 +22,9 @@ if TYPE_CHECKING:
 
 _FORMAT_START = b"\x02L"
 #: The across frame on a 100 x 55 mm label in the Allegro 2's whole-dot unit at feed scale 0.977:
-#: 90 mm across (5 mm in from each side) is 360 units, 55 mm along is 55 / 0.977 mm, 225 units.
-_ALLEGRO_FRAME = b"B360225001001"
+#: the frame stands 2 mm in from every edge, so 96 mm across is 384 units and 51 mm along is
+#: 51 / 0.977 mm, 209 units.
+_ALLEGRO_FRAME = b"B384209001001"
 
 
 def _lager(target: Path, **extra: Any) -> dict[str, Any]:
@@ -106,8 +107,8 @@ def test_size_options_beat_the_configured_label_size(
     args = ("--printer", "lager", "--axis", "across", "--width", "50", "--height", "30")
     _calibrate(cli_runner, config_cli_context(_lager(target)), *args)
 
-    # a 40 mm frame on a 50 mm label is 160 units; 30 mm along at feed scale 0.977 is 123
-    assert b"B160123001001" in target.read_bytes()
+    # a 46 x 26 mm frame on a 50 x 30 mm label: 184 units across, 26 / 0.977 mm along is 106
+    assert b"B184106001001" in target.read_bytes()
 
 
 @pytest.mark.os_agnostic
@@ -159,8 +160,8 @@ def test_a_label_too_small_for_calibration_is_refused_with_exit_2(
     result = _calibrate(cli_runner, config_cli_context(_lager(target)), "--printer", "lager", "--width", "10")
 
     assert result.exit_code == 2
-    # the across label needs 30 mm: its 20 mm minimum inside a frame 5 mm in from each side
-    assert "under 30 mm" in json.loads(result.stdout)["message"]
+    # the across label needs 24 mm: its 20 mm minimum inside a frame 2 mm in from every edge
+    assert "under 24 mm" in json.loads(result.stdout)["message"]
     assert not target.exists()
 
 
@@ -251,7 +252,7 @@ def test_a_measured_frame_updates_the_across_scale_against_the_frame_width(
     base = tmp_path / "config.toml"
     base.write_text(_LAGER_TOML, encoding="utf-8")
 
-    result = _set(cli_runner, _user_layer(base), "--printer", "lager", "--across", "89.28")
+    result = _set(cli_runner, _user_layer(base), "--printer", "lager", "--across", "95.23")
 
     assert result.exit_code == 0, result.output
     assert _stored(base, "printers", "lager", "scale_across") == 0.992
@@ -263,7 +264,7 @@ def test_both_measurements_at_once_with_a_shorter_bar_and_a_given_width(cli_runn
     base = tmp_path / "config.toml"
     base.write_text(_LAGER_TOML, encoding="utf-8")
 
-    args = ("--printer", "lager", "--across", "39.6", "--width", "50", "--along", "149", "--along-length", "150")
+    args = ("--printer", "lager", "--across", "45.54", "--width", "50", "--along", "149", "--along-length", "150")
     result = _set(cli_runner, _user_layer(base), *args)
 
     assert result.exit_code == 0, result.output

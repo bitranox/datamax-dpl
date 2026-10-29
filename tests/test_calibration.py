@@ -14,7 +14,7 @@ from datamax_dpl.domain.calibration import (
 )
 from datamax_dpl.domain.decoder import explain
 from datamax_dpl.domain.label import Box, Element, Label, Line, Text
-from datamax_dpl.domain.preview import Canvas, canvas_for, text_box
+from datamax_dpl.domain.preview import Canvas, canvas_for, text_box, widest_cell_mm
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.render import build_job
 from datamax_dpl.domain.render_context import RenderOptions
@@ -71,7 +71,7 @@ def _intersect(a: Rect, b: Rect) -> bool:
 
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("model", ["allegro-2", "dmx-600"])
-@pytest.mark.parametrize(("width", "height"), [(100, 55), (30, 20), (57.3, 31.7)])
+@pytest.mark.parametrize(("width", "height"), [(100, 55), (24, 24), (57.3, 31.7)])
 def test_no_two_shapes_of_the_across_label_share_a_dot(model: str, width: float, height: float) -> None:
     assert _touching_pairs(across_label(width=width, height=height, title="LAGER 0.9770"), model) == []
 
@@ -84,27 +84,27 @@ def test_no_two_shapes_of_the_along_label_share_a_dot(model: str, width: float) 
 
 
 @pytest.mark.os_agnostic
-def test_the_across_frame_stands_five_millimetres_in_from_each_side_and_the_bar_fills_it() -> None:
+def test_the_across_frame_stands_two_millimetres_in_from_every_edge_and_the_bar_fills_it() -> None:
     label = across_label(width=100, height=55, title="LAGER")
     (frame,) = [e for e in label.elements if isinstance(e, Box)]
     bar = max((e for e in label.elements if isinstance(e, Line)), key=lambda e: abs(e.x2 - e.x))
-    assert (frame.x, frame.y, frame.width, frame.height) == (5, 0, 90, 55)
-    assert (bar.x, bar.x2) == (5 + frame.thickness, 95 - frame.thickness)
+    assert (frame.x, frame.y, frame.width, frame.height) == (2, 2, 96, 51)
+    assert (bar.x, bar.x2) == (2 + frame.thickness, 98 - frame.thickness)
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize(("width", "frame"), [(100, 90), (57.3, 47.3), (30, 20)])
+@pytest.mark.parametrize(("width", "frame"), [(100, 96), (57.3, 53.3), (24, 20)])
 def test_the_frame_width_to_measure_follows_the_label_width(width: float, frame: float) -> None:
     assert across_frame_width(width) == pytest.approx(frame)
-    assert ACROSS_INSET_MM == 5
+    assert ACROSS_INSET_MM == 2
 
 
 @pytest.mark.os_agnostic
 def test_the_across_ticks_stand_every_ten_millimetres() -> None:
     label = across_label(width=100, height=55, title="LAGER")
     ticks = sorted(e.x for e in label.elements if isinstance(e, Line) and e.x == e.x2)
-    # counted from the frame's outer left edge at 5 mm; none on the frame's right side at 95
-    assert ticks == [15, 25, 35, 45, 55, 65, 75, 85]
+    # counted from the frame's outer left edge at 2 mm; the frame's right side is at 98
+    assert ticks == [12, 22, 32, 42, 52, 62, 72, 82, 92]
 
 
 @pytest.mark.os_agnostic
@@ -124,18 +124,50 @@ def test_the_labels_say_what_to_measure() -> None:
     along = along_label(width=100, length=150, title="LAGER 0.977")
     across_text = " ".join(getattr(e, "text", "") for e in across.elements)
     along_text = " ".join(getattr(e, "text", "") for e in along.elements)
-    assert "LAGER 0.977" in across_text and "90 MM" in across_text
+    assert "LAGER 0.977" in across_text and "96 MM" in across_text
     assert "LAGER 0.977" in along_text and "150 MM" in along_text
 
 
+def _fonts(label: Label) -> list[int]:
+    return [e.font for e in label.elements if isinstance(e, Text)]
+
+
 @pytest.mark.os_agnostic
-def test_the_across_frame_renders_ninety_millimetres_wide_on_the_allegro_2() -> None:
+def test_a_label_with_room_prints_every_text_line_in_the_large_font_three() -> None:
+    across = across_label(width=100, height=55, title="LAGER SCALE 1.0000")
+    along = along_label(width=100, title="LAGER SCALE 0.9760")
+    assert set(_fonts(across)) == {3}
+    assert set(_fonts(along)) == {3}
+
+
+@pytest.mark.os_agnostic
+def test_a_block_too_big_for_a_larger_font_falls_back_to_font_one() -> None:
+    label = across_label(width=24, height=24, title="LAGER")
+    assert _fonts(label) == [3, 1, 1, 1]
+
+
+@pytest.mark.os_agnostic
+def test_a_lower_case_title_keeps_its_case_in_font_two_instead_of_capitals_only_font_three() -> None:
+    (title, *_) = [e for e in across_label(width=100, height=55, title="Lager").elements if isinstance(e, Text)]
+    assert (title.text, title.font) == ("Lager", 2)
+
+
+@pytest.mark.os_agnostic
+def test_the_widest_cell_of_a_font_is_its_largest_at_any_resolution() -> None:
+    advance, height = widest_cell_mm(3)
+    # font 3: the 289.56 dpi cell (39 dots) is the tallest, the 300 dpi one (21 + 3 dots) the widest
+    assert height == pytest.approx(39 / 289.56 * 25.4)
+    assert advance == pytest.approx(24 / 300 * 25.4)
+
+
+@pytest.mark.os_agnostic
+def test_the_across_frame_renders_ninety_six_by_fifty_one_millimetres_on_the_allegro_2() -> None:
     data = build_job(across_label(width=100, height=55, title="X"), RenderOptions(model="allegro-2")).data
-    assert b"B360220001001" in data
+    assert b"B384204001001" in data
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize(("width", "height", "minimum"), [(29.9, 55, "30 mm"), (100, 19, "20 mm")])
+@pytest.mark.parametrize(("width", "height", "minimum"), [(23.9, 55, "24 mm"), (100, 23.9, "24 mm")])
 def test_an_across_label_narrower_than_its_frame_and_text_need_is_refused(
     width: float, height: float, minimum: str
 ) -> None:
@@ -152,7 +184,7 @@ def test_an_along_length_over_two_hundred_millimetres_is_refused() -> None:
 @pytest.mark.os_agnostic
 def test_a_title_that_does_not_fit_is_refused() -> None:
     with pytest.raises(ValueError, match="too small for its text"):
-        across_label(width=30, height=20, title="A VERY LONG PRINTER NAME THAT TAKES MANY LINES TO WRAP")
+        across_label(width=24, height=24, title="A VERY LONG PRINTER NAME THAT TAKES MANY LINES TO WRAP")
 
 
 @pytest.mark.os_agnostic
