@@ -47,11 +47,16 @@ class RenderOptions(BaseModel):
         cutter_installed: Whether the printer has its cutter installed and enabled; None if unknown.
         options: Installed hardware options, e.g. ``{HardwareOption.DATAMATRIX}``.
         scale_across: Printed length divided by nominal length across the web, measured for
-            one printer (``datamax-dpl calibrate``); 1.0 prints nominal lengths.
+            one printer (``datamax-dpl calibrate``); 1.0 prints nominal lengths. None takes the
+            model's measured default (``PrinterProfile.calibration``), nominal for most models.
         scale_along: The same along the feed, where it depends on the platen roller.
         offset_across: Millimetres every field is moved to the right, measured for one printer
-            (``datamax-dpl calibrate``); negative moves left.
+            (``datamax-dpl calibrate``); negative moves left. None takes the model's default.
         offset_along: Millimetres every field is moved toward the label top; negative moves down.
+        stop_position_mm: Tear-off stop position in mm; None takes the model's default, which
+            for most models leaves the printer's own setting.
+        cutter_stop_position_mm: Stop position in mm when the label is cut; None leaves the
+            printer's own setting.
 
     Example:
         >>> RenderOptions(model="dmx-600").policy
@@ -67,10 +72,12 @@ class RenderOptions(BaseModel):
     options: frozenset[HardwareOption] = Field(default_factory=frozenset[HardwareOption])
     # A real printer is a few percent off; a factor outside this range is a typo or an
     # inverted measurement (nominal / printed), which would double the error instead.
-    scale_across: float = Field(default=1.0, ge=MIN_SCALE, le=MAX_SCALE)
-    scale_along: float = Field(default=1.0, ge=MIN_SCALE, le=MAX_SCALE)
-    offset_across: float = Field(default=0.0, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
-    offset_along: float = Field(default=0.0, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
+    scale_across: float | None = Field(default=None, ge=MIN_SCALE, le=MAX_SCALE)
+    scale_along: float | None = Field(default=None, ge=MIN_SCALE, le=MAX_SCALE)
+    offset_across: float | None = Field(default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
+    offset_along: float | None = Field(default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
+    stop_position_mm: float | None = Field(default=None, gt=0)
+    cutter_stop_position_mm: float | None = Field(default=None, gt=0)
 
 
 @dataclass(frozen=True)
@@ -110,6 +117,8 @@ class RenderContext:
         along: How this printer prints lengths along the feed.
         offset_across: Millimetres every field moves to the right on this printer.
         offset_along: Millimetres every field moves toward the label top on this printer.
+        stop_position_mm: Tear-off stop position in mm on this printer, or None for its own setting.
+        cutter_stop_position_mm: Stop position in mm when cutting, or None for its own setting.
     """
 
     profile: PrinterProfile
@@ -128,6 +137,8 @@ class RenderContext:
     along: Correction = NOMINAL
     offset_across: float = 0.0
     offset_along: float = 0.0
+    stop_position_mm: float | None = None
+    cutter_stop_position_mm: float | None = None
 
     def correction(self, axis: Axis) -> Correction:
         """Return how this printer prints lengths on ``axis``."""

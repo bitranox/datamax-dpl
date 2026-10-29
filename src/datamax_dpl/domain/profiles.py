@@ -142,6 +142,35 @@ OLD_SERIES_POINTS: tuple[int, ...] = (5, 6, 8, 10, 12, 14, 18, 24, 30, 36, 48)
 
 
 @dataclass(frozen=True)
+class CalibrationDefaults:
+    """How a model prints, as measured on one printer of it, used where the caller sets nothing.
+
+    The neutral defaults print nominal lengths at nominal positions and leave the stop position to
+    the printer. A model ships other values only when they were measured on paper; the printer's
+    own calibration (``datamax-dpl calibrate``) always wins over them.
+
+    Attributes:
+        scale_across: Printed length divided by nominal length across the web.
+        scale_along: The same along the feed.
+        offset_across: Millimetres every field moves to the right.
+        offset_along: Millimetres every field moves toward the label top.
+        stop_position_mm: Tear-off stop position in mm, or None to keep the printer's setting.
+        provenance: Where the values were measured; empty for the neutral defaults.
+
+    Example:
+        >>> CalibrationDefaults().scale_along
+        1.0
+    """
+
+    scale_across: float = 1.0
+    scale_along: float = 1.0
+    offset_across: float = 0.0
+    offset_along: float = 0.0
+    stop_position_mm: float | None = None
+    provenance: str = ""
+
+
+@dataclass(frozen=True)
 class PrinterProfile:
     """Everything the encoder needs to know about one printer model.
 
@@ -165,6 +194,8 @@ class PrinterProfile:
             sends no ``D`` command: 2x2 on every model except the DMX 600/800 (manual, ``D``).
         inch_unit_dots: Whole dots one 1/100 in prints as, on a model known to round it to whole
             dots; None where the exact 1/100 in is assumed. Measured 2 on the Allegro 2 only.
+        calibration: Scale, offset and stop position measured for this model, applied where the
+            render options leave them unset.
     """
 
     id: str
@@ -184,6 +215,7 @@ class PrinterProfile:
     synthetic: bool = False
     default_dot_size: tuple[int, int] = (2, 2)
     inch_unit_dots: int | None = None
+    calibration: CalibrationDefaults = CalibrationDefaults()
 
     def support(self, feature: Feature) -> Support:
         """Return how this model supports ``feature`` (missing entries mean no)."""
@@ -438,6 +470,18 @@ _FAMILIES_DEFAULTING_TO_D11 = frozenset({ModelFamily.DMX_600, ModelFamily.DMX_80
 #: a per-printer scale factor absorbs what remains.
 _INCH_UNIT_DOTS: dict[str, int] = {"allegro-2": 2}
 
+#: Calibration measured on paper per model. One printer stands for its model here: the platen
+#: roller and the sensor position differ between printers, so ``datamax-dpl calibrate`` still
+#: measures each one, and these values only replace the nominal ones where nothing was measured.
+_CALIBRATION: dict[str, CalibrationDefaults] = {
+    "allegro-2": CalibrationDefaults(
+        scale_along=0.976,
+        offset_along=-0.25,
+        stop_position_mm=67.4,
+        provenance="measured on one Allegro 2, firmware CA02 03.04, 2026-10-29",
+    ),
+}
+
 
 def _build(row: _Row) -> PrinterProfile:
     print_speed, slew_speed, backup_speed = row.speeds
@@ -458,6 +502,7 @@ def _build(row: _Row) -> PrinterProfile:
         features=dict(_FAMILY_FEATURES[row.family]),
         default_dot_size=(1, 1) if row.family in _FAMILIES_DEFAULTING_TO_D11 else (2, 2),
         inch_unit_dots=_INCH_UNIT_DOTS.get(row.id),
+        calibration=_CALIBRATION.get(row.id, CalibrationDefaults()),
     )
 
 
@@ -584,6 +629,7 @@ __all__ = [
     "MODEL_PROFILES",
     "OLD_SERIES_POINTS",
     "PROFILES",
+    "CalibrationDefaults",
     "Feature",
     "Firmware",
     "PrinterProfile",

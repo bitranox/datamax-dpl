@@ -11,7 +11,7 @@ one is needed.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -24,7 +24,7 @@ from .findings import Finding, FindingCollector
 from .job import format_footer, format_header, system_prefix
 from .label import Barcode, Box, Circle, Image, Line, Polygon, ScalableText, Text
 from .placeholders import label_placeholders
-from .profiles import Feature, get_profile, parse_firmware
+from .profiles import CalibrationDefaults, Feature, get_profile, parse_firmware
 from .render_context import RenderContext, RenderOptions
 from .units import Correction, DplUnit, to_inches
 
@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from .label import Element, Label
 
 _RECORD_PREFIXES = tuple("1234")
+_Default = TypeVar("_Default", float, "float | None")
 
 
 class RenderResult(BaseModel):
@@ -79,9 +80,50 @@ class RenderResult(BaseModel):
         return tuple(f for f in self.findings if f.severity is Severity.WARNING)
 
 
+def _pick(explicit: float | None, default: _Default) -> float | _Default:
+    return default if explicit is None else explicit
+
+
+def _calibration(options: RenderOptions, model: CalibrationDefaults) -> tuple[CalibrationDefaults, list[str]]:
+    """Fill every calibration value the options leave unset from the model's measured defaults.
+
+    Returns the values to render with and, for the report, each value taken from the model that
+    is not neutral: a neutral default prints exactly what no calibration prints, so naming it
+    would tell the reader nothing.
+    """
+    neutral = CalibrationDefaults()
+    candidates: list[tuple[str, float | None, float | None, float | None, str]] = [
+        ("scale_across", options.scale_across, model.scale_across, neutral.scale_across, ""),
+        ("scale_along", options.scale_along, model.scale_along, neutral.scale_along, ""),
+        ("offset_across", options.offset_across, model.offset_across, neutral.offset_across, " mm"),
+        ("offset_along", options.offset_along, model.offset_along, neutral.offset_along, " mm"),
+        ("stop_position", options.stop_position_mm, model.stop_position_mm, neutral.stop_position_mm, " mm"),
+    ]
+    from_model = [
+        f"{name} {value:g}{unit}"
+        for name, explicit, value, nominal, unit in candidates
+        if explicit is None and value is not None and value != nominal
+    ]
+    resolved = CalibrationDefaults(
+        scale_across=_pick(options.scale_across, model.scale_across),
+        scale_along=_pick(options.scale_along, model.scale_along),
+        offset_across=_pick(options.offset_across, model.offset_across),
+        offset_along=_pick(options.offset_along, model.offset_along),
+        stop_position_mm=_pick(options.stop_position_mm, model.stop_position_mm),
+        provenance=model.provenance,
+    )
+    return resolved, from_model
+
+
 def _context(label: Label, options: RenderOptions) -> RenderContext:
     profile = get_profile(options.model)
     findings = FindingCollector(options.policy)
+    calibration, from_model = _calibration(options, profile.calibration)
+    if from_model:
+        findings.info(
+            FindingCode.MODEL_DEFAULTS_APPLIED,
+            f"model defaults ({calibration.provenance}): {', '.join(from_model)}",
+        )
     probe = RenderContext(
         profile=profile,
         firmware=parse_firmware(options.firmware),
@@ -92,10 +134,12 @@ def _context(label: Label, options: RenderOptions) -> RenderContext:
         cutter_installed=options.cutter_installed,
         symbol_set=label.symbol_set,
         default_attribute=label.attribute or Attribute.XOR,
-        across=Correction(scale=options.scale_across, unit_dots=profile.inch_unit_dots),
-        along=Correction(scale=options.scale_along, unit_dots=profile.inch_unit_dots),
-        offset_across=options.offset_across,
-        offset_along=options.offset_along,
+        across=Correction(scale=calibration.scale_across, unit_dots=profile.inch_unit_dots),
+        along=Correction(scale=calibration.scale_along, unit_dots=profile.inch_unit_dots),
+        offset_across=calibration.offset_across,
+        offset_along=calibration.offset_along,
+        stop_position_mm=calibration.stop_position_mm,
+        cutter_stop_position_mm=options.cutter_stop_position_mm,
     )
     if label.unit is Unit.MM and probe.supports(Feature.FORMAT_METRIC):
         probe.dpl_unit = DplUnit.MM_TENTHS

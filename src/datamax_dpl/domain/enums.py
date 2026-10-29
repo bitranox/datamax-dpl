@@ -238,6 +238,7 @@ class FindingCode(str, Enum):
     INCH_UNITS = "inch_units"
     LABEL_WIDER_THAN_PRINT_WIDTH = "label_wider_than_print_width"
     MIRROR_UNSUPPORTED = "mirror_unsupported"
+    MODEL_DEFAULTS_APPLIED = "model_defaults_applied"
     NO_CUTTER = "no_cutter"
     NO_HUMAN_READABLE = "no_human_readable"
     OFFSET_PAST_LABEL_EDGE = "offset_past_label_edge"

@@ -25,6 +25,9 @@ def codes(result_label: Label, model: str, *, firmware: str = "") -> set[Finding
     return {f.code for f in result.findings}
 
 
+# The slanted line starts on the label's bottom edge, where a model's measured along offset (the
+# Allegro 2's -0.25 mm) refuses it; the kitchen-sink tests are about fallbacks, so they render
+# with offset_along=0.0.
 KITCHEN_SINK = Label.model_validate(
     {
         "quantity": 7,
@@ -51,7 +54,7 @@ KITCHEN_SINK = Label.model_validate(
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("model", sorted(PROFILES))
 def test_every_model_renders_the_kitchen_sink_under_degrade_without_errors(model: str) -> None:
-    result = build_job(KITCHEN_SINK, RenderOptions(model=model, cutter_installed=True))
+    result = build_job(KITCHEN_SINK, RenderOptions(model=model, cutter_installed=True, offset_along=0.0))
     assert [f.message for f in result.errors] == []
     assert result.data.count(STX + b"L\r") == 1
 
@@ -59,8 +62,11 @@ def test_every_model_renders_the_kitchen_sink_under_degrade_without_errors(model
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("model", sorted(PROFILES))
 def test_under_strict_every_applied_fallback_becomes_an_error(model: str) -> None:
-    degraded = build_job(KITCHEN_SINK, RenderOptions(model=model, cutter_installed=True))
-    strict = build_job(KITCHEN_SINK, RenderOptions(model=model, cutter_installed=True, policy=FallbackPolicy.STRICT))
+    degraded = build_job(KITCHEN_SINK, RenderOptions(model=model, cutter_installed=True, offset_along=0.0))
+    strict = build_job(
+        KITCHEN_SINK,
+        RenderOptions(model=model, cutter_installed=True, offset_along=0.0, policy=FallbackPolicy.STRICT),
+    )
     fallbacks = {f.code for f in degraded.findings if f.fallback is not None}
     assert {f.code for f in strict.errors} == fallbacks
 

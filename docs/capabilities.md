@@ -134,6 +134,7 @@ Every code a render can report, in alphabetical order. The severity column is th
 | `label_wider_than_print_width`   | warning                                                       | The label's `width` is wider than the model's printable width.                                      |
 | `line_rasterized`                | warning, error under strict                                   | A slanted line is drawn as a downloaded image.                                                      |
 | `mirror_unsupported`             | error                                                         | `mirror` on a model without it.                                                                     |
+| `model_defaults_applied`         | info                                                          | Calibration the options leave unset is taken from the model's measured defaults; names each value.  |
 | `no_cutter`                      | error                                                         | The label asks for cutting while `--cutter no` is set.                                              |
 | `no_human_readable`              | info                                                          | The symbology prints no human-readable text line.                                                   |
 | `offset_past_label_edge`         | error                                                         | The printer's `offset_across` / `offset_along` moves a field below the label's left or bottom edge. |
@@ -293,5 +294,11 @@ DPL letters, A = 1.0 inch per second up to S = 10.0, in steps of 0.5.
 | `ovation-300`      | yes             | yes         | yes      | yes                | yes              | no               | yes                 | yes      | option datamatrix | yes                  |
 | `ovation-2`        | yes             | yes         | yes      | yes                | yes              | no               | yes                 | yes      | option datamatrix | yes                  |
 | `titan-6200`       | yes             | yes         | yes      | yes                | yes              | yes              | yes                 | yes      | option datamatrix | yes                  |
+
+### Calibration defaults
+
+| Model       | `scale_across` | `scale_along` | `offset_across` (mm) | `offset_along` (mm) | Stop (mm) | Source                                                     |
+|-------------|----------------|---------------|----------------------|---------------------|-----------|------------------------------------------------------------|
+| `allegro-2` | 1              | 0.976         | 0                    | -0.25               | 67.4      | measured on one Allegro 2, firmware CA02 03.04, 2026-10-29 |
 
 <!-- END GENERATED: scripts/gen_capabilities.py -->

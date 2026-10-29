@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
-from datamax_dpl.domain.enums import FillPattern, FindingCode, MediaSensor, Rotation, Unit
+from datamax_dpl.domain.enums import FillPattern, FindingCode, MediaSensor, Rotation, Severity, Unit
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.label import Barcode, Box, Circle, DotSize, Element, Label, Line, Point, Polygon, Text
 from datamax_dpl.domain.render import build_job, render
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.symbology import Symbology
+
+if TYPE_CHECKING:
+    from datamax_dpl.domain.findings import Finding
 
 STX = b"\x02"
 
@@ -349,7 +354,8 @@ def test_a_stop_position_follows_the_feed_scale() -> None:
 def test_the_allegro_2_prints_one_hundredth_of_an_inch_as_two_whole_dots() -> None:
     """Measured: 787/100 in printed 1574 dot rows, so 100 mm is written as 400, not 394."""
     label = Label(elements=[Line(x=0, y=0, x2=100, y2=0, thickness=0.25), Line(x=0, y=0, x2=0, y2=100, thickness=0.25)])
-    across, along = [r for r in build_job(label, RenderOptions(model="allegro-2")).data.split(b"\r") if r[:1] == b"1"]
+    nominal = RenderOptions(model="allegro-2", scale_along=1.0, offset_along=0.0)
+    across, along = [r for r in build_job(label, nominal).data.split(b"\r") if r[:1] == b"1"]
     assert across.endswith(b"L400001")
     assert along.endswith(b"L001400")
 
@@ -366,3 +372,69 @@ def test_the_print_width_warning_stays_nominal_on_a_printer_that_prints_short() 
     label = Label(width=100, elements=[Text(x=1, y=1, text="X")])
     result = build_job(label, RenderOptions(model="allegro-2", scale_across=0.9))
     assert FindingCode.LABEL_WIDER_THAN_PRINT_WIDTH not in {f.code for f in result.findings}
+
+
+# ======================== calibration defaults of the model ========================
+
+
+def _vertical_line_record(options: RenderOptions) -> bytes:
+    """The record of a 50 mm line along the feed, rendered with ``options``."""
+    label = Label(elements=[Line(x=10, y=10, x2=10, y2=60, thickness=0.5)])
+    (record,) = [r for r in build_job(label, options).data.split(b"\r") if r[:1] == b"1"]
+    return record
+
+
+def _model_defaults_findings(options: RenderOptions) -> list[Finding]:
+    result = build_job(Label(elements=[Text(x=5, y=5, text="X")]), options)
+    return [f for f in result.findings if f.code is FindingCode.MODEL_DEFAULTS_APPLIED]
+
+
+@pytest.mark.os_agnostic
+def test_an_allegro_2_without_options_prints_along_the_feed_with_its_measured_scale() -> None:
+    defaulted = _vertical_line_record(RenderOptions(model="allegro-2"))
+    nominal = _vertical_line_record(RenderOptions(model="allegro-2", scale_along=1.0))
+    assert _row_column(defaulted)[0] != _row_column(nominal)[0]
+    assert defaulted[-6:] != nominal[-6:]
+
+
+@pytest.mark.os_agnostic
+def test_an_allegro_2_without_options_reports_the_model_defaults_it_applied() -> None:
+    (finding,) = _model_defaults_findings(RenderOptions(model="allegro-2"))
+    assert finding.severity is Severity.INFO
+    assert finding.message.startswith("model defaults (measured on one Allegro 2")
+    assert "scale_along 0.976" in finding.message
+    assert "offset_along -0.25 mm" in finding.message
+    assert "stop_position 67.4 mm" in finding.message
+    assert "scale_across" not in finding.message
+    assert "offset_across" not in finding.message
+
+
+@pytest.mark.os_agnostic
+def test_an_explicit_option_wins_over_the_model_default_and_is_not_reported() -> None:
+    explicit = RenderOptions(model="allegro-2", scale_along=1.0, stop_position_mm=40.0)
+    (finding,) = _model_defaults_findings(explicit)
+    assert "scale_along" not in finding.message
+    assert "stop_position" not in finding.message
+    assert "offset_along -0.25 mm" in finding.message
+    assert _vertical_line_record(explicit) == _vertical_line_record(
+        RenderOptions(model="allegro-2", scale_along=1.0, offset_along=-0.25)
+    )
+
+
+@pytest.mark.os_agnostic
+def test_explicit_options_for_every_model_default_leave_nothing_to_report() -> None:
+    options = RenderOptions(model="allegro-2", scale_along=0.976, offset_along=-0.25, stop_position_mm=67.4)
+    assert _model_defaults_findings(options) == []
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("model", ["dmx-600", "allegro", "generic", "permissive"])
+def test_a_model_without_measured_defaults_reports_none(model: str) -> None:
+    assert _model_defaults_findings(RenderOptions(model=model)) == []
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("field", ["stop_position_mm", "cutter_stop_position_mm"])
+def test_a_stop_position_option_of_zero_or_less_is_refused(field: str) -> None:
+    with pytest.raises(ValueError, match=rf"{field}\n\s+Input should be greater than 0"):
+        RenderOptions.model_validate({"model": "allegro-2", field: 0})

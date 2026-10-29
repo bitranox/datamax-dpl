@@ -163,7 +163,8 @@ def test_the_widest_cell_of_a_font_is_its_largest_at_any_resolution() -> None:
 
 @pytest.mark.os_agnostic
 def test_the_across_frame_renders_ninety_six_by_fifty_one_millimetres_on_the_allegro_2() -> None:
-    data = build_job(across_label(width=100, height=55, title="X"), RenderOptions(model="allegro-2")).data
+    nominal = RenderOptions(model="allegro-2", scale_along=1.0, offset_along=0.0)
+    data = build_job(across_label(width=100, height=55, title="X"), nominal).data
     assert b"B384204001001" in data
 
 

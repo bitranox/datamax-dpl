@@ -67,6 +67,15 @@ def test_the_generated_tables_name_every_profile_and_every_feature() -> None:
 
 
 @pytest.mark.os_agnostic
+def test_the_calibration_table_lists_only_models_with_measured_defaults() -> None:
+    generated = _run().stdout
+    section = generated[generated.index("### Calibration defaults") :]
+
+    assert [p.id for p in list_profiles() if f"| `{p.id}` " in section] == ["allegro-2"]
+    assert "| 0.976 " in section
+
+
+@pytest.mark.os_agnostic
 def test_check_passes_on_the_committed_document() -> None:
     assert _run("--check").returncode == 0
 

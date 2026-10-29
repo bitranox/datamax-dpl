@@ -145,6 +145,33 @@ def _feature_table(profiles: list[PrinterProfile], features: tuple[Feature, ...]
     return _table(header, rows)
 
 
+def _calibration_table(profiles: list[PrinterProfile]) -> list[str]:
+    """Only models that ship measured values: every other model prints nominal lengths."""
+    header = [
+        "Model",
+        "`scale_across`",
+        "`scale_along`",
+        "`offset_across` (mm)",
+        "`offset_along` (mm)",
+        "Stop (mm)",
+        "Source",
+    ]
+    rows = [
+        [
+            f"`{p.id}`",
+            _number(c.scale_across),
+            _number(c.scale_along),
+            _number(c.offset_across),
+            _number(c.offset_along),
+            "printer setting" if c.stop_position_mm is None else _number(c.stop_position_mm),
+            c.provenance,
+        ]
+        for p in profiles
+        if (c := p.calibration).provenance
+    ]
+    return _table(header, rows)
+
+
 def generated_section(profiles: list[PrinterProfile] | None = None) -> str:
     """Return the Markdown that belongs between the markers, built from ``profiles``.
 
@@ -161,6 +188,7 @@ def generated_section(profiles: list[PrinterProfile] | None = None) -> str:
         ["### Font 9 point sizes", "", *_font_table(chosen)],
         ["### Features: job, media and printer settings", "", *_feature_table(chosen, _JOB_FEATURES)],
         ["### Features: format, graphics and barcodes", "", *_feature_table(chosen, _FORMAT_FEATURES)],
+        ["### Calibration defaults", "", *_calibration_table(chosen)],
     ]
     return "\n\n".join("\n".join(part) for part in parts) + "\n"
 
