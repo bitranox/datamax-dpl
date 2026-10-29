@@ -192,7 +192,7 @@ then supplies its model, address, label size and scale factors ([CONFIG.md](CONF
 ## Calibrating a printer
 
 Printed lengths differ a little from nominal, per printer: an Allegro 2 printed 0.977 of nominal
-along the feed. Two calibration labels measure it:
+along the feed before calibration (its model default, after one calibration round, is 0.976). Two calibration labels measure it:
 
 ```bash
 datamax-dpl calibrate print --printer lager          # frame across, 200 mm bar along the feed

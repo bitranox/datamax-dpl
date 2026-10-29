@@ -256,7 +256,7 @@ tear-off stop position 67.4 mm, see the calibration defaults table in
 them in the info finding `model_defaults_applied`. A printer's own calibration
 (`calibrate set`, or the keys in [CONFIG.md](../CONFIG.md)) wins over them.
 
-Why 0.976 when the dot-row row below says 0.977: 0.977 is the first measurement, the ratio of printed
+Why 0.976 when the "Length along the feed" row below says 0.977: 0.977 is the first measurement, the ratio of printed
 to nominal length with no correction. A calibration label printed at `scale_along` 0.977 then measured
 199.8 mm of 200, and `calibrate set` stored 0.977 x 199.8 / 200 = 0.976; at 0.976 the next label
 measured exactly 200 mm.
