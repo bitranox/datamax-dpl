@@ -117,6 +117,8 @@ class RenderContext:
         along: How this printer prints lengths along the feed.
         offset_across: Millimetres every field moves to the right on this printer.
         offset_along: Millimetres every field moves toward the label top on this printer.
+        model_offset_axes: Axes whose offset is the model's measured default rather than one the
+            caller set; a field that offset pushes past the label edge is clamped, not refused.
         stop_position_mm: Tear-off stop position in mm on this printer, or None for its own setting.
         cutter_stop_position_mm: Stop position in mm when cutting, or None for its own setting.
     """
@@ -137,6 +139,7 @@ class RenderContext:
     along: Correction = NOMINAL
     offset_across: float = 0.0
     offset_along: float = 0.0
+    model_offset_axes: frozenset[Axis] = frozenset[Axis]()
     stop_position_mm: float | None = None
     cutter_stop_position_mm: float | None = None
 

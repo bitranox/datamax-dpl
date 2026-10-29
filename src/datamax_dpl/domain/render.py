@@ -26,7 +26,7 @@ from .label import Barcode, Box, Circle, Image, Line, Polygon, ScalableText, Tex
 from .placeholders import label_placeholders
 from .profiles import CalibrationDefaults, Feature, get_profile, parse_firmware
 from .render_context import RenderContext, RenderOptions
-from .units import Correction, DplUnit, to_inches
+from .units import Axis, Correction, DplUnit, to_inches
 
 if TYPE_CHECKING:
     from .label import Element, Label
@@ -84,12 +84,12 @@ def _pick(explicit: float | None, default: _Default) -> float | _Default:
     return default if explicit is None else explicit
 
 
-def _calibration(options: RenderOptions, model: CalibrationDefaults) -> tuple[CalibrationDefaults, list[str]]:
+def _calibration(options: RenderOptions, model: CalibrationDefaults) -> tuple[CalibrationDefaults, dict[str, str]]:
     """Fill every calibration value the options leave unset from the model's measured defaults.
 
-    Returns the values to render with and, for the report, each value taken from the model that
-    is not neutral: a neutral default prints exactly what no calibration prints, so naming it
-    would tell the reader nothing.
+    Returns the values to render with and each value taken from the model that is not neutral,
+    keyed by option name (``offset_along``) with its text for the report: a neutral default prints
+    exactly what no calibration prints, so naming it would tell the reader nothing.
     """
     neutral = CalibrationDefaults()
     candidates: list[tuple[str, float | None, float | None, float | None, str]] = [
@@ -99,11 +99,11 @@ def _calibration(options: RenderOptions, model: CalibrationDefaults) -> tuple[Ca
         ("offset_along", options.offset_along, model.offset_along, neutral.offset_along, " mm"),
         ("stop_position", options.stop_position_mm, model.stop_position_mm, neutral.stop_position_mm, " mm"),
     ]
-    from_model = [
-        f"{name} {value:g}{unit}"
+    from_model = {
+        name: f"{name} {value:g}{unit}"
         for name, explicit, value, nominal, unit in candidates
         if explicit is None and value is not None and value != nominal
-    ]
+    }
     resolved = CalibrationDefaults(
         scale_across=_pick(options.scale_across, model.scale_across),
         scale_along=_pick(options.scale_along, model.scale_along),
@@ -122,7 +122,7 @@ def _context(label: Label, options: RenderOptions) -> RenderContext:
     if from_model:
         findings.info(
             FindingCode.MODEL_DEFAULTS_APPLIED,
-            f"model defaults ({calibration.provenance}): {', '.join(from_model)}",
+            f"model defaults ({calibration.provenance}): {', '.join(from_model.values())}",
         )
     probe = RenderContext(
         profile=profile,
@@ -138,6 +138,7 @@ def _context(label: Label, options: RenderOptions) -> RenderContext:
         along=Correction(scale=calibration.scale_along, unit_dots=profile.inch_unit_dots),
         offset_across=calibration.offset_across,
         offset_along=calibration.offset_along,
+        model_offset_axes=frozenset(axis for axis in Axis if f"offset_{axis.value}" in from_model),
         stop_position_mm=calibration.stop_position_mm,
         cutter_stop_position_mm=options.cutter_stop_position_mm,
     )

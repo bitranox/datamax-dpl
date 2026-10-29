@@ -38,17 +38,36 @@ def row_of(y: float, *, index: int, ctx: RenderContext) -> int:
 
 
 def _shifted(value: float, axis: Axis, *, index: int, ctx: RenderContext) -> float:
-    """Move a position by the printer's offset, refusing one the offset pushes past the label's 0 edge."""
+    """Move a position by the printer's offset; one pushed past the label's 0 edge lands on it.
+
+    An offset the caller set and that pushes a field off the label is refused: the caller measured
+    that printer and must move the field. An offset that is only the model's default is a
+    deviation instead: without the correction the printer already put such a field on the edge
+    row, so placing it there prints exactly what the uncorrected label printed.
+    """
     shifted = ctx.shifted(value, axis=axis)
     # Below a micrometre is float noise from the subtraction, not a field off the label.
-    if shifted < -_TOLERANCE:
-        ctx.findings.refuse(
-            FindingCode.OFFSET_PAST_LABEL_EDGE,
-            f"the printer's {axis.value} offset of {ctx.offset_mm(axis):g} mm moves this field "
-            f"{-shifted:g} {ctx.unit.value} past the label edge",
+    if shifted >= -_TOLERANCE:
+        return max(shifted, 0.0)
+    offset = ctx.offset_mm(axis)
+    past = f"{-shifted:g} {ctx.unit.value} past the label edge"
+    if axis in ctx.model_offset_axes:
+        ctx.findings.deviate(
+            FindingCode.MODEL_OFFSET_CLAMPED,
+            f"the {ctx.profile.name} default {axis.value} offset of {offset:g} mm would move this field {past}",
+            fallback=(
+                f"placed on the label edge, since the model's default {axis.value} offset of {offset:g} mm "
+                f"would move it past; set offset_{axis.value} = 0 to print without that default"
+            ),
             element=index,
         )
-    return max(shifted, 0.0)
+    else:
+        ctx.findings.refuse(
+            FindingCode.OFFSET_PAST_LABEL_EDGE,
+            f"the printer's {axis.value} offset of {offset:g} mm moves this field {past}",
+            element=index,
+        )
+    return 0.0
 
 
 def check_field_length(length: int, *, limit: int = MAX_FIELD_DATA, index: int, ctx: RenderContext) -> None:

@@ -9,7 +9,7 @@ import pytest
 from datamax_dpl.domain.enums import FillPattern, FindingCode, MediaSensor, Rotation, Severity, Unit
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.label import Barcode, Box, Circle, DotSize, Element, Label, Line, Point, Polygon, Text
-from datamax_dpl.domain.render import build_job, render
+from datamax_dpl.domain.render import RenderResult, build_job, render
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.symbology import Symbology
 
@@ -438,3 +438,48 @@ def test_a_model_without_measured_defaults_reports_none(model: str) -> None:
 def test_a_stop_position_option_of_zero_or_less_is_refused(field: str) -> None:
     with pytest.raises(ValueError, match=rf"{field}\n\s+Input should be greater than 0"):
         RenderOptions.model_validate({"model": "allegro-2", field: 0})
+
+
+def _edge_line_result(**options: object) -> RenderResult:
+    """A horizontal line on the label's bottom edge, rendered on the Allegro 2."""
+    label = Label(elements=[Line(x=5, y=0, x2=45, y2=0, thickness=0.5)])
+    return build_job(label, RenderOptions.model_validate({"model": "allegro-2", **options}))
+
+
+def _clamped(result: RenderResult) -> list[Finding]:
+    return [f for f in result.findings if f.code is FindingCode.MODEL_OFFSET_CLAMPED]
+
+
+@pytest.mark.os_agnostic
+def test_a_field_the_models_default_offset_pushes_past_the_edge_is_placed_on_the_edge() -> None:
+    result = _edge_line_result()
+    (clamped,) = _clamped(result)
+    assert clamped.severity is Severity.WARNING
+    assert clamped.element == 0
+    assert clamped.fallback is not None
+    assert "-0.25 mm" in clamped.fallback
+    assert "offset_along = 0" in clamped.fallback
+    assert result.errors == ()
+    (record,) = [r for r in result.data.split(b"\r") if r[:1] == b"1"]
+    assert _row_column(record)[0] == 0
+
+
+@pytest.mark.os_agnostic
+def test_under_strict_the_models_default_offset_past_the_edge_is_refused() -> None:
+    result = _edge_line_result(policy="strict")
+    assert [f.code for f in result.errors] == [FindingCode.MODEL_OFFSET_CLAMPED]
+
+
+@pytest.mark.os_agnostic
+def test_a_user_set_offset_past_the_edge_is_still_refused() -> None:
+    result = _edge_line_result(offset_along=-0.25)
+    assert [f.code for f in result.errors] == [FindingCode.OFFSET_PAST_LABEL_EDGE]
+    assert _clamped(result) == []
+
+
+@pytest.mark.os_agnostic
+def test_a_field_clear_of_the_edge_needs_no_clamp_under_the_models_default_offset() -> None:
+    label = Label(elements=[Line(x=5, y=10, x2=45, y2=10, thickness=0.5)])
+    result = build_job(label, RenderOptions(model="allegro-2"))
+    assert _clamped(result) == []
+    assert result.errors == ()

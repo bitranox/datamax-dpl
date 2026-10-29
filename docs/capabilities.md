@@ -135,9 +135,10 @@ Every code a render can report, in alphabetical order. The severity column is th
 | `line_rasterized`                | warning, error under strict                                   | A slanted line is drawn as a downloaded image.                                                      |
 | `mirror_unsupported`             | error                                                         | `mirror` on a model without it.                                                                     |
 | `model_defaults_applied`         | info                                                          | Calibration the options leave unset is taken from the model's measured defaults; names each value.  |
+| `model_offset_clamped`           | warning, error under strict                                   | The model's default offset would move a field past the label edge; it is placed on the edge.        |
 | `no_cutter`                      | error                                                         | The label asks for cutting while `--cutter no` is set.                                              |
 | `no_human_readable`              | info                                                          | The symbology prints no human-readable text line.                                                   |
-| `offset_past_label_edge`         | error                                                         | The printer's `offset_across` / `offset_along` moves a field below the label's left or bottom edge. |
+| `offset_past_label_edge`         | error                                                         | A caller-set `offset_across` or `offset_along` moves a field below the label's left or bottom edge. |
 | `outside_print_width`            | error                                                         | A field starts past the model's printable width.                                                    |
 | `pause_each_label_unsupported`   | warning, error under strict                                   | `pause_each_label` on a model without it; the batch prints without pausing.                         |
 | `pause_persists`                 | info                                                          | Pause after each label stays on until the printer is reset.                                         |
