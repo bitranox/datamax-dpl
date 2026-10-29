@@ -85,39 +85,65 @@ cutter = "unknown"
 # Environment Variable: DATAMAX_DPL___PRINTER__OPTIONS='["datamatrix"]'
 options = []
 
+# The calibration and stop-position keys below ship unset (commented out): unset
+# means the model's default. The allegro-2 profile carries values measured on one
+# Allegro 2 (scale_along 0.976, offset_along -0.25 mm, stop_position 67.4 mm);
+# every other model prints nominal (scale 1.0, offset 0.0) and keeps the printer's
+# own stop position. A value set here, even 1.0 or 0.0, wins over the model's.
+
 # Purpose: Printed length divided by nominal length across the web, for this one
 #          printer: print a long line, measure it, divide by its nominal length.
-#          1.0 prints nominal lengths.
+#          1.0 prints nominal lengths. Set by `calibrate set --across`.
 #          Fonts and images sized in dots are not scaled.
 # Type: float, 0.5 to 1.5
-# Default: 1.0
+# Default: unset (the model's default)
 # Environment Variable: DATAMAX_DPL___PRINTER__SCALE_ACROSS=0.995
-scale_across = 1.0
+# scale_across = 1.0
 
 # Purpose: Printed length divided by nominal length along the feed. It depends on
 #          the platen roller, so two printers of one model can differ (an Allegro 2
-#          measured 0.977).
+#          measured 0.977). Set by `calibrate set --along`.
 # Type: float, 0.5 to 1.5
-# Default: 1.0
+# Default: unset (the model's default)
 # Environment Variable: DATAMAX_DPL___PRINTER__SCALE_ALONG=0.977
-scale_along = 1.0
+# scale_along = 1.0
 
 # Purpose: Millimetres every field is moved to the right on this printer, so a print
 #          that sits off centre lands where the label asks; negative moves left.
 #          Independent of the tear-off and cut positions. Set by `calibrate set`
 #          from the borders measured around the across calibration label's frame.
 # Type: float, -10 to 10
-# Default: 0.0
+# Default: unset (the model's default)
 # Environment Variable: DATAMAX_DPL___PRINTER__OFFSET_ACROSS=0.2
-offset_across = 0.0
+# offset_across = 0.0
 
 # Purpose: Millimetres every field is moved toward the label top; negative moves
 #          it down.
 # Type: float, -10 to 10
-# Default: 0.0
+# Default: unset (the model's default)
 # Environment Variable: DATAMAX_DPL___PRINTER__OFFSET_ALONG=-0.25
-offset_along = 0.0
+# offset_along = 0.0
 
+# Purpose: Tear-off stop position in mm: where the printer stops the label after
+#          printing, found by trying stop values on the printer. Sent as <STX>f
+#          before every job that does not cut, exactly as set (no scale or offset
+#          applies). A label's own stop_position or present distance wins. A model
+#          without a stop-position command does not get it: the job prints and
+#          reports the info finding configured_stop_position_unsupported.
+# Type: float, greater than 0, at most 253.746 (999/100 inch, the DPL limit)
+# Default: unset (the model's default; for most models the printer's own setting)
+# Environment Variable: DATAMAX_DPL___PRINTER__STOP_POSITION=67.4
+# stop_position = 67.4
+
+# Purpose: Stop position in mm for a job that cuts, where the cutter needs the
+#          label. A job that cuts never uses stop_position: it sends this one, or no
+#          stop position at all when this is unset. Sent exactly as set; a label's
+#          own stop_position wins. A model without a stop-position command does not
+#          get it and reports configured_stop_position_unsupported.
+# Type: float, greater than 0, at most 253.746 (999/100 inch, the DPL limit)
+# Default: unset (no stop position for a job that cuts)
+# Environment Variable: DATAMAX_DPL___PRINTER__CUTTER_STOP_POSITION=80
+# cutter_stop_position = 80
 
 # ------------------------------------------------------------------------------
 # Named printers - one section per printer, chosen with --printer NAME

@@ -279,8 +279,9 @@ def test_without_a_printer_name_the_printer_section_is_calibrated(cli_runner: Cl
 
     result = _set(cli_runner, _user_layer(base), "--along", "195")
 
+    # the label printed with the Allegro 2's measured 0.976, so the new factor is 0.976 x 195 / 200
     assert result.exit_code == 0, result.output
-    assert _stored(base, "printer", "scale_along") == 0.975
+    assert _stored(base, "printer", "scale_along") == 0.9516
 
 
 @pytest.mark.os_agnostic
@@ -355,7 +356,8 @@ def test_the_printers_offset_moves_the_calibration_print_and_is_reported(
 ) -> None:
     plain_target, moved_target = tmp_path / "plain.dpl", tmp_path / "moved.dpl"
 
-    _calibrate(cli_runner, config_cli_context(_lager(plain_target)), "--printer", "lager", "--axis", "across")
+    plain = config_cli_context(_lager(plain_target, offset_along=0.0))
+    _calibrate(cli_runner, plain, "--printer", "lager", "--axis", "across")
     result = _calibrate(
         cli_runner,
         config_cli_context(_lager(moved_target, offset_along=-0.25)),
@@ -382,12 +384,13 @@ def test_measured_borders_store_the_offsets_that_centre_the_print(cli_runner: Cl
     result = _set(cli_runner, _user_layer(base), *args)
 
     assert result.exit_code == 0, result.output
-    assert _stored(base, "printers", "lager", "offset_along") == -0.25
+    # the label printed with the Allegro 2's measured -0.25 mm along, so the borders move it from there
+    assert _stored(base, "printers", "lager", "offset_along") == -0.5
     assert _stored(base, "printers", "lager", "offset_across") == 0.2
     offsets = json.loads(result.stdout)["data"]["offsets"]
     assert [(o["key"], o["low"], o["high"], o["old"], o["new"]) for o in offsets] == [
         ("offset_across", 1.8, 2.2, 0.0, 0.2),
-        ("offset_along", 2.3, 1.8, 0.0, -0.25),
+        ("offset_along", 2.3, 1.8, -0.25, -0.5),
     ]
 
 
@@ -404,3 +407,71 @@ def test_a_border_without_its_opposite_side_is_refused(
     assert result.exit_code == 2
     assert missing in json.loads(result.stdout)["message"]
     assert "offset" not in base.read_text(encoding="utf-8")
+
+
+# ======================== the model's measured defaults ========================
+
+_UNCALIBRATED_LAGER_TOML = """\
+[printers.lager]
+model = "allegro-2"
+label_width = 100
+"""
+
+
+@pytest.mark.os_agnostic
+def test_print_reports_and_titles_the_models_defaults_when_the_printer_sets_none(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    target = tmp_path / "out.dpl"
+    printer = {"model": "allegro-2", "uri": f"file:{target}", "label_width": 100, "label_height": 55}
+
+    result = _calibrate(cli_runner, config_cli_context({"printers": {"lager": printer}}), "--printer", "lager")
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)["data"]
+    calibration = [data[key] for key in ("scale_across", "scale_along", "offset_across", "offset_along")]
+    assert calibration == [1.0, 0.976, 0.0, -0.25]
+    across, along = target.read_bytes().split(_FORMAT_START)[1:]
+    assert b"OFFSET ACROSS +0.00 ALONG -0.25" in across
+    assert b"LAGER SCALE 0.9760" in along
+
+
+@pytest.mark.os_agnostic
+def test_set_starts_from_the_models_measured_scale_when_the_printer_sets_none(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    base = tmp_path / "config.toml"
+    base.write_text(_UNCALIBRATED_LAGER_TOML, encoding="utf-8")
+
+    result = _set(cli_runner, _user_layer(base), "--printer", "lager", "--along", "199")
+
+    # the along label printed with the Allegro 2's measured 0.976: 0.976 x 199 / 200 is 0.9711
+    assert result.exit_code == 0, result.output
+    assert _stored(base, "printers", "lager", "scale_along") == 0.9711
+    data = json.loads(result.stdout)["data"]
+    assert data["changes"] == [
+        {"key": "scale_along", "measured": 199.0, "nominal": 200.0, "old": 0.976, "new": 0.9711, "effective": 0.9711}
+    ]
+    assert data["warnings"] == []
+    assert result.stderr == ""
+
+
+@pytest.mark.os_agnostic
+def test_a_written_value_no_layer_reads_back_reports_the_models_default_in_force(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    """A loaded configuration without the key means the model's default, not an unreadable one."""
+    base, elsewhere = tmp_path / "config.toml", tmp_path / "elsewhere.toml"
+    base.write_text(_UNCALIBRATED_LAGER_TOML, encoding="utf-8")
+    elsewhere.write_text(_UNCALIBRATED_LAGER_TOML, encoding="utf-8")
+
+    def reads_base_writes_elsewhere() -> AppServices:
+        return dataclasses.replace(_user_layer(base)(), set_printer_values=_user_layer(elsewhere)().set_printer_values)
+
+    result = _set(cli_runner, reads_base_writes_elsewhere, "--printer", "lager", "--along", "199")
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)["data"]
+    assert data["changes"][0]["effective"] == 0.976
+    assert "could not be read back" not in result.stderr
+    assert "scale_along is 0.976, not 0.9711" in result.stderr

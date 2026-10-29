@@ -19,7 +19,7 @@ from ....domain.calibration import (
 )
 from ....domain.errors import ConfigurationError
 from ....domain.findings import Finding
-from ....domain.render import build_job
+from ....domain.render import build_job, effective_calibration
 from ....domain.units import Axis
 from ...transport.uri import is_printer_uri
 from .. import safe_console
@@ -32,6 +32,7 @@ from .model_options import printer_options_decorator, render_options_decorator, 
 
 if TYPE_CHECKING:
     from ....domain.label import Label
+    from ....domain.profiles import CalibrationDefaults
     from ..context import CLIContext
     from ..settings import PrinterSettings
 
@@ -50,7 +51,7 @@ class AxisChoice(str, Enum):
 
 
 class CalibratePrintPayload(BaseModel):
-    """Result of ``calibrate print``."""
+    """Result of ``calibrate print``; the factors and offsets are the ones the labels printed with."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -136,8 +137,12 @@ def cli_calibrate_print(
     def body(cli_ctx: CLIContext) -> CommandResult:
         settings = resolve_settings(cli_ctx, **given)
         axes = AxisChoice(axis).axes
-        labels = [_label(settings, part, width=width, height=height, along_length=along_length) for part in axes]
         options = render_options(settings)
+        calibration = effective_calibration(options)
+        labels = [
+            _label(settings, part, calibration=calibration, width=width, height=height, along_length=along_length)
+            for part in axes
+        ]
         results = [build_job(label, options) for label in labels]
         findings = [finding for result in results for finding in result.findings]
         payload = CalibratePrintPayload(
@@ -145,10 +150,10 @@ def cli_calibrate_print(
             name=settings.name,
             model=settings.model,
             labels=list(axes),
-            scale_across=settings.scale_across,
-            scale_along=settings.scale_along,
-            offset_across=settings.offset_across,
-            offset_along=settings.offset_along,
+            scale_across=calibration.scale_across,
+            scale_along=calibration.scale_along,
+            offset_across=calibration.offset_across,
+            offset_along=calibration.offset_along,
             bytes_sent=0,
             findings=findings,
         )
@@ -169,13 +174,19 @@ def cli_calibrate_print(
 
 
 def _label(
-    settings: PrinterSettings, axis: Axis, *, width: float | None, height: float | None, along_length: float
+    settings: PrinterSettings,
+    axis: Axis,
+    *,
+    calibration: CalibrationDefaults,
+    width: float | None,
+    height: float | None,
+    along_length: float,
 ) -> Label:
     label_width = _size("width", width, settings.label_width, settings)
     if axis is Axis.ALONG:
-        return along_label(width=label_width, length=along_length, title=_title(settings, settings.scale_along))
+        return along_label(width=label_width, length=along_length, title=_title(settings, calibration.scale_along))
     label_height = _size("height", height, settings.label_height, settings)
-    return across_label(width=label_width, height=label_height, title=_across_title(settings))
+    return across_label(width=label_width, height=label_height, title=_across_title(settings, calibration))
 
 
 def _size(side: str, given: float | None, configured: float | None, settings: PrinterSettings) -> float:
@@ -214,27 +225,31 @@ def cli_calibrate_set(
 ) -> None:
     """Store the scale factors and offsets measured on the calibration labels in the user configuration.
 
-    Each new factor is the old one times measured over nominal length; the across nominal is
-    the frame's width, the label width less 2 mm on each side. The borders around the frame
-    come in pairs (--top with --bottom, --left with --right); each pair moves the print half
-    their difference toward the wider border. Everything is written into the
+    Each new factor is the one the label printed with (the model's measured default where
+    none is configured) times measured over nominal length; the across nominal is the frame's
+    width, the label width less 2 mm on each side. The borders around the frame come in pairs
+    (--top with --bottom, --left with --right); each pair moves the print half their
+    difference toward the wider border, from the offset in force. Everything is written into the
     printer's section of the user configuration, in the file that already holds that section.
     """
 
     def body(cli_ctx: CLIContext) -> CommandResult:
         name = _printer_name(printer)
         settings = resolve_settings(cli_ctx, printer=name or None)
+        # The labels printed with the effective values, the model's default where none is set,
+        # so each new value starts from those.
+        calibration = effective_calibration(render_options(settings))
         measured = {Axis.ACROSS: across, Axis.ALONG: along}
         nominal = {
             Axis.ACROSS: lambda: across_frame_width(_size("width", width, settings.label_width, settings)),
             Axis.ALONG: lambda: along_length,
         }
         changes = [
-            _change(axis, settings, measured=value, nominal=nominal[axis]())
+            _change(axis, calibration, measured=value, nominal=nominal[axis]())
             for axis, value in measured.items()
             if value is not None
         ]
-        offsets = _offsets(settings, top=top, bottom=bottom, left=left, right=right)
+        offsets = _offsets(calibration, top=top, bottom=bottom, left=left, right=right)
         if not changes and not offsets:
             msg = (
                 "nothing measured: pass --across MM, --along MM, or a pair of borders (--top/--bottom, --left/--right)"
@@ -264,18 +279,23 @@ def _printer_name(given: str | None) -> str:
     return given or ""
 
 
-def _change(axis: Axis, settings: PrinterSettings, *, measured: float, nominal: float) -> ScaleChange:
-    old = settings.scale_across if axis is Axis.ACROSS else settings.scale_along
+def _change(axis: Axis, calibration: CalibrationDefaults, *, measured: float, nominal: float) -> ScaleChange:
+    old = calibration.scale_across if axis is Axis.ACROSS else calibration.scale_along
     new = scale_from_measurement(old, measured=measured, nominal=nominal)
     return ScaleChange(key=f"scale_{axis.value}", measured=measured, nominal=nominal, old=old, new=new, effective=None)
 
 
 def _offsets(
-    settings: PrinterSettings, *, top: float | None, bottom: float | None, left: float | None, right: float | None
+    calibration: CalibrationDefaults,
+    *,
+    top: float | None,
+    bottom: float | None,
+    left: float | None,
+    right: float | None,
 ) -> list[OffsetChange]:
     pairs = [
-        ("offset_across", settings.offset_across, (left, "--left"), (right, "--right")),
-        ("offset_along", settings.offset_along, (bottom, "--bottom"), (top, "--top")),
+        ("offset_across", calibration.offset_across, (left, "--left"), (right, "--right")),
+        ("offset_along", calibration.offset_along, (bottom, "--bottom"), (top, "--top")),
     ]
     offsets: list[OffsetChange] = []
     for key, old, (low, low_flag), (high, high_flag) in pairs:
@@ -291,13 +311,18 @@ def _offsets(
 
 
 def _with_effective(cli_ctx: CLIContext, name: str, changes: list[_ChangeT]) -> list[_ChangeT]:
-    """Read the configuration again: a .env file, an environment variable or --set can still win."""
+    """Read the configuration again: a .env file, an environment variable or --set can still win.
+
+    The value read back is the effective one, so a key no layer sets reads as the model's default,
+    never as unreadable; ``effective`` stays None only when the configuration does not load.
+    """
     config, error = load_config(
         cli_ctx.services, profile=cli_ctx.profile, env_file=cli_ctx.env_file, set_overrides=cli_ctx.set_overrides
     )
     if error is not None:
         return changes
-    effective = printer_settings(config, PrinterOverrides(printer=name or None))
+    settings = printer_settings(config, PrinterOverrides(printer=name or None))
+    effective = effective_calibration(render_options(settings))
     return [c.model_copy(update={"effective": getattr(effective, c.key)}) for c in changes]
 
 
@@ -316,10 +341,10 @@ def _title(settings: PrinterSettings, scale: float) -> str:
     return f"{settings.name.upper()} SCALE {scale:.4f}".strip()
 
 
-def _across_title(settings: PrinterSettings) -> str:
-    offsets = f"OFFSET ACROSS {settings.offset_across:+.2f} ALONG {settings.offset_along:+.2f}"
+def _across_title(settings: PrinterSettings, calibration: CalibrationDefaults) -> str:
+    offsets = f"OFFSET ACROSS {calibration.offset_across:+.2f} ALONG {calibration.offset_along:+.2f}"
     # Its own line, so a wrap never strands a lone value away from its axis name.
-    return f"{_title(settings, settings.scale_across)}\n{offsets}"
+    return f"{_title(settings, calibration.scale_across)}\n{offsets}"
 
 
 __all__ = [

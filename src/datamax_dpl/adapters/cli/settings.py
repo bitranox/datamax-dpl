@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from ...domain.camera import CameraSettings
 from ...domain.enums import CutterPresence, FallbackPolicy, HardwareOption
 from ...domain.errors import ConfigurationError
+from ...domain.job import MAX_STOP_POSITION_MM
 from ...domain.render_context import RenderOptions
 from ...domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
 from ..transport.uri import is_printer_name, is_printer_uri
@@ -28,7 +29,8 @@ class PrinterSettings(BaseModel):
     """The ``[printer]`` section, merged with a ``[printers.<name>]`` section when one is chosen.
 
     ``name`` is the chosen printer's name, empty when none was; ``label_width`` and
-    ``label_height`` are the loaded labels' size in millimetres, when known.
+    ``label_height`` are the loaded labels' size in millimetres, when known. A scale, offset or
+    stop position left unset (None) takes the model's measured default when the job renders.
 
     Example:
         >>> PrinterSettings().model
@@ -44,11 +46,16 @@ class PrinterSettings(BaseModel):
     timeout: float = Field(default=10.0, gt=0)
     cutter: CutterPresence = CutterPresence.UNKNOWN
     options: frozenset[HardwareOption] = Field(default_factory=frozenset[HardwareOption])
-    # Same range as RenderOptions, so a bad value is refused here with its config key named.
-    scale_across: float = Field(default=1.0, ge=MIN_SCALE, le=MAX_SCALE)
-    scale_along: float = Field(default=1.0, ge=MIN_SCALE, le=MAX_SCALE)
-    offset_across: float = Field(default=0.0, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
-    offset_along: float = Field(default=0.0, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
+    # Same range as RenderOptions, so a bad value is refused here with its config key named. None
+    # is not 1.0 or 0.0: a neutral value set here wins over the model's measured default.
+    scale_across: float | None = Field(default=None, ge=MIN_SCALE, le=MAX_SCALE)
+    scale_along: float | None = Field(default=None, ge=MIN_SCALE, le=MAX_SCALE)
+    offset_across: float | None = Field(default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
+    offset_along: float | None = Field(default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
+    # Bounded here, unlike RenderOptions, so a config typo is refused with its key named before any
+    # job is built, rather than as a STOP_POSITION_TOO_LARGE finding on every label.
+    stop_position: float | None = Field(default=None, gt=0, le=MAX_STOP_POSITION_MM)
+    cutter_stop_position: float | None = Field(default=None, gt=0, le=MAX_STOP_POSITION_MM)
     name: str = ""
     label_width: float | None = Field(default=None, gt=0)
     label_height: float | None = Field(default=None, gt=0)
@@ -180,6 +187,8 @@ def render_options(settings: PrinterSettings) -> RenderOptions:
         scale_along=settings.scale_along,
         offset_across=settings.offset_across,
         offset_along=settings.offset_along,
+        stop_position_mm=settings.stop_position,
+        cutter_stop_position_mm=settings.cutter_stop_position,
     )
 
 

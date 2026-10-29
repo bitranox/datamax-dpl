@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from .enums import FindingCode, MediaSensor, SpeedCode
 from .profiles import Feature, SpeedRange
 from .records import STX, line
-from .units import Axis, DplUnit
+from .units import MM_PER_INCH, Axis, DplUnit
 
 if TYPE_CHECKING:
     from .label import Label
@@ -19,7 +19,11 @@ if TYPE_CHECKING:
 
 INCH_MODE = STX + b"n"
 CUT_NOW = STX + b"o"
-_MAX_STOP_POSITION = 999
+#: Largest stop position ``<STX>f`` takes: three digits of hundredths of an inch.
+MAX_STOP_POSITION = 999
+#: The same limit in millimetres (253.746), for a stop position configured in mm; rounded to the
+#: thousandth, which holds it exactly, so a refusal names 253.746 rather than its float noise.
+MAX_STOP_POSITION_MM = round(MAX_STOP_POSITION / 100 * MM_PER_INCH, 3)
 
 
 def _system(command: str) -> bytes:
@@ -69,9 +73,9 @@ def stops_at_tear_off(label: Label, ctx: RenderContext) -> bool:
 
 
 def _stop_command(hundredths: int, ctx: RenderContext) -> list[bytes]:
-    if hundredths > _MAX_STOP_POSITION:
+    if hundredths > MAX_STOP_POSITION:
         ctx.findings.refuse(
-            FindingCode.STOP_POSITION_TOO_LARGE, f"stop position takes at most {_MAX_STOP_POSITION}/100 in"
+            FindingCode.STOP_POSITION_TOO_LARGE, f"stop position takes at most {MAX_STOP_POSITION}/100 in"
         )
         return []
     return [_system(f"f{hundredths:03d}")]
@@ -338,4 +342,13 @@ def format_footer(label: Label, ctx: RenderContext) -> list[bytes]:
     return [line(f"Q{label.quantity:04d}"), line("E")]
 
 
-__all__ = ["CUT_NOW", "INCH_MODE", "format_footer", "format_header", "stops_at_tear_off", "system_prefix"]
+__all__ = [
+    "CUT_NOW",
+    "INCH_MODE",
+    "MAX_STOP_POSITION",
+    "MAX_STOP_POSITION_MM",
+    "format_footer",
+    "format_header",
+    "stops_at_tear_off",
+    "system_prefix",
+]

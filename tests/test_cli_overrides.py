@@ -334,7 +334,8 @@ def test_both_configured_scales_reach_render_options() -> None:
 
 
 def _lager(**extra: Any) -> dict[str, Any]:
-    return {"printers": {"lager": {"model": "allegro-2", "scale_along": 0.8, **extra}}}
+    # offset_along 0.0 keeps the Allegro 2's measured -0.25 mm out of the row arithmetic below
+    return {"printers": {"lager": {"model": "allegro-2", "scale_along": 0.8, "offset_along": 0.0, **extra}}}
 
 
 def _render_named(cli_runner: CliRunner, factory: Callable[[], Any], tmp_path: Path, *args: str) -> Result:

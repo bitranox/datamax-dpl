@@ -84,12 +84,38 @@ def _pick(explicit: float | None, default: _Default) -> float | _Default:
     return default if explicit is None else explicit
 
 
-def _calibration(options: RenderOptions, model: CalibrationDefaults) -> tuple[CalibrationDefaults, dict[str, str]]:
-    """Fill every calibration value the options leave unset from the model's measured defaults.
+def effective_calibration(options: RenderOptions) -> CalibrationDefaults:
+    """Return the calibration a job for ``options`` renders with.
 
-    Returns the values to render with and each value taken from the model that is not neutral,
-    keyed by option name (``offset_along``) with its text for the report: a neutral default prints
-    exactly what no calibration prints, so naming it would tell the reader nothing.
+    Each value the options set wins, a neutral one (scale 1.0, offset 0.0) included; a value they
+    leave unset (None) is the model's measured default, nominal for most models. The CLI asks this
+    too, so the factor ``calibrate`` reports and starts from is the one the label printed with.
+
+    Raises:
+        UnknownModelError: No profile has the options' model id.
+
+    Example:
+        >>> effective_calibration(RenderOptions(model="allegro-2")).scale_along
+        0.976
+        >>> effective_calibration(RenderOptions(model="allegro-2", scale_along=1.0)).scale_along
+        1.0
+    """
+    model = get_profile(options.model).calibration
+    return CalibrationDefaults(
+        scale_across=_pick(options.scale_across, model.scale_across),
+        scale_along=_pick(options.scale_along, model.scale_along),
+        offset_across=_pick(options.offset_across, model.offset_across),
+        offset_along=_pick(options.offset_along, model.offset_along),
+        stop_position_mm=_pick(options.stop_position_mm, model.stop_position_mm),
+        provenance=model.provenance,
+    )
+
+
+def _model_defaults_used(options: RenderOptions, model: CalibrationDefaults) -> dict[str, str]:
+    """Return each value taken from the model that is not neutral, keyed by option name (``offset_along``).
+
+    The value is its text for the report; a neutral default prints exactly what no calibration
+    prints, so naming it would tell the reader nothing.
     """
     neutral = CalibrationDefaults()
     candidates: list[tuple[str, float | None, float | None, float | None, str]] = [
@@ -99,20 +125,11 @@ def _calibration(options: RenderOptions, model: CalibrationDefaults) -> tuple[Ca
         ("offset_along", options.offset_along, model.offset_along, neutral.offset_along, " mm"),
         ("stop_position", options.stop_position_mm, model.stop_position_mm, neutral.stop_position_mm, " mm"),
     ]
-    from_model = {
+    return {
         name: f"{name} {value:g}{unit}"
         for name, explicit, value, nominal, unit in candidates
         if explicit is None and value is not None and value != nominal
     }
-    resolved = CalibrationDefaults(
-        scale_across=_pick(options.scale_across, model.scale_across),
-        scale_along=_pick(options.scale_along, model.scale_along),
-        offset_across=_pick(options.offset_across, model.offset_across),
-        offset_along=_pick(options.offset_along, model.offset_along),
-        stop_position_mm=_pick(options.stop_position_mm, model.stop_position_mm),
-        provenance=model.provenance,
-    )
-    return resolved, from_model
 
 
 def _report_model_defaults(label: Label, ctx: RenderContext, *, provenance: str, from_model: dict[str, str]) -> None:
@@ -129,7 +146,8 @@ def _report_model_defaults(label: Label, ctx: RenderContext, *, provenance: str,
 def _context(label: Label, options: RenderOptions) -> RenderContext:
     profile = get_profile(options.model)
     findings = FindingCollector(options.policy)
-    calibration, from_model = _calibration(options, profile.calibration)
+    calibration = effective_calibration(options)
+    from_model = _model_defaults_used(options, profile.calibration)
     probe = RenderContext(
         profile=profile,
         firmware=parse_firmware(options.firmware),
@@ -260,4 +278,4 @@ def render(label: Label, options: RenderOptions | None = None) -> RenderResult:
     return result
 
 
-__all__ = ["RenderResult", "build_job", "render"]
+__all__ = ["RenderResult", "build_job", "effective_calibration", "render"]

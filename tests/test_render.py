@@ -10,7 +10,7 @@ import pytest
 from datamax_dpl.domain.enums import FillPattern, FindingCode, MediaSensor, Rotation, Severity, Unit
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.label import Barcode, Box, Circle, DotSize, Element, Label, Line, Point, Polygon, Text
-from datamax_dpl.domain.render import RenderResult, build_job, render
+from datamax_dpl.domain.render import RenderResult, build_job, effective_calibration, render
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.symbology import Symbology
 
@@ -645,3 +645,28 @@ def test_a_model_with_a_present_distance_command_sends_it_beside_the_configured_
     result = _stop_job({"present_distance": 30}, model="pe42", stop_position_mm=40)
     assert result.data.startswith(STX + b"n" + STX + b"f157" + STX + b"Kf0118" + STX + b"L\r")
     assert result.findings == ()
+
+
+# ======================== the effective calibration, shared with the CLI ========================
+
+
+@pytest.mark.os_agnostic
+def test_the_effective_calibration_takes_the_models_measured_default_where_nothing_is_set() -> None:
+    calibration = effective_calibration(RenderOptions(model="allegro-2"))
+    assert (calibration.scale_across, calibration.scale_along) == (1.0, 0.976)
+    assert (calibration.offset_across, calibration.offset_along) == (0.0, -0.25)
+    assert calibration.stop_position_mm == 67.4
+
+
+@pytest.mark.os_agnostic
+def test_the_effective_calibration_keeps_every_value_the_options_set_even_a_neutral_one() -> None:
+    options = RenderOptions(model="allegro-2", scale_along=1.0, offset_along=0.0, stop_position_mm=60)
+    calibration = effective_calibration(options)
+    assert (calibration.scale_along, calibration.offset_along, calibration.stop_position_mm) == (1.0, 0.0, 60)
+
+
+@pytest.mark.os_agnostic
+def test_the_effective_calibration_of_a_model_without_measurements_is_neutral() -> None:
+    calibration = effective_calibration(RenderOptions(model="dmx-600"))
+    assert (calibration.scale_across, calibration.scale_along, calibration.offset_along) == (1.0, 1.0, 0.0)
+    assert calibration.stop_position_mm is None
