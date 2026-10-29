@@ -18,6 +18,8 @@ dependencies = [
     "pyserial>=3.5",
     # 'calibrate set' edits the user config.toml and must keep its comments and key order.
     "tomlkit>=0.15.2",
+    # The qr element's module matrix (domain/qr.py); pure Python, no compiled parts.
+    "segno>=1.6.6",
 ]
 license = { text = "MIT" }
 authors = [{ name = "bitranox", email = "bitranox@gmail.com" }]
