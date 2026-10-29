@@ -68,25 +68,6 @@ def stops_at_tear_off(label: Label, ctx: RenderContext) -> bool:
     return not _label_sets_stop(label, ctx) and label.cut is None
 
 
-def _wanted_stop(label: Label, ctx: RenderContext) -> int | None:
-    """Return the stop position to send in 1/100 in, or None to leave the printer's own setting.
-
-    A configured stop position (an option, the config file, or the model's default) is a distance
-    found by trying stop values on the printer, so it is sent exactly as configured, without the
-    printer's scale or offset: the Allegro 2's 67.4 mm is what ``<STX>f265`` stopped at, and a
-    scaled conversion would move that stop. The label's own stop position is a length on the
-    label, so it prints through the printer's correction like every other length.
-    """
-    if label.stop_position is not None:
-        return ctx.inch_hundredths(label.stop_position, axis=Axis.ALONG)
-    if _label_sets_stop(label, ctx):
-        # The present distance goes out as the stop position (_present_distance); a second
-        # stop command beside it would only be overwritten by it.
-        return None
-    configured = ctx.stop_position_mm if stops_at_tear_off(label, ctx) else ctx.cutter_stop_position_mm
-    return None if configured is None else ctx.nominal_inch_hundredths(configured)
-
-
 def _stop_command(hundredths: int, ctx: RenderContext) -> list[bytes]:
     if hundredths > _MAX_STOP_POSITION:
         ctx.findings.refuse(
@@ -96,17 +77,53 @@ def _stop_command(hundredths: int, ctx: RenderContext) -> list[bytes]:
     return [_system(f"f{hundredths:03d}")]
 
 
-def _present_commands(label: Label, ctx: RenderContext) -> list[bytes]:
-    commands: list[bytes] = []
-    wanted = _wanted_stop(label, ctx)
-    if wanted is not None and ctx.supports(Feature.STOP_POSITION):
-        commands += _stop_command(wanted, ctx)
-    elif wanted is not None:
-        ctx.findings.deviate(
-            FindingCode.STOP_POSITION_UNSUPPORTED,
-            f"stop position: {ctx.requirement(Feature.STOP_POSITION)}",
-            fallback="labels stop at the printer's default position",
+def _label_stop(value: float, ctx: RenderContext) -> list[bytes]:
+    """Return the command for the label's own stop position.
+
+    It is a length on the label, so it prints through the printer's correction like every other
+    length, and a model without the command deviates from what the label asks for.
+    """
+    if ctx.supports(Feature.STOP_POSITION):
+        return _stop_command(ctx.inch_hundredths(value, axis=Axis.ALONG), ctx)
+    ctx.findings.deviate(
+        FindingCode.STOP_POSITION_UNSUPPORTED,
+        f"stop position: {ctx.requirement(Feature.STOP_POSITION)}",
+        fallback="labels stop at the printer's default position",
+    )
+    return []
+
+
+def _configured_stop(label: Label, ctx: RenderContext) -> list[bytes]:
+    """Return the command for the configured stop position this job uses, if any.
+
+    A configured stop position (an option, the config file, or the model's default) is a distance
+    found by trying stop values on the printer, so it is sent exactly as configured, without the
+    printer's scale or offset: the Allegro 2's 67.4 mm is what ``<STX>f265`` stopped at, and a
+    scaled conversion would move that stop. It is set once for every job, not asked for by this
+    label, so a model without the command only reports that it was not sent.
+    """
+    if _label_sets_stop(label, ctx):
+        # The present distance goes out as the stop position (_present_distance); a second
+        # stop command beside it would only be overwritten by it.
+        return []
+    configured = ctx.stop_position_mm if stops_at_tear_off(label, ctx) else ctx.cutter_stop_position_mm
+    if configured is None:
+        return []
+    if not ctx.supports(Feature.STOP_POSITION):
+        ctx.findings.info(
+            FindingCode.CONFIGURED_STOP_POSITION_UNSUPPORTED,
+            f"configured stop position {configured:g} mm not sent: "
+            f"no stop-position command ({ctx.requirement(Feature.STOP_POSITION)})",
         )
+        return []
+    return _stop_command(ctx.nominal_inch_hundredths(configured), ctx)
+
+
+def _present_commands(label: Label, ctx: RenderContext) -> list[bytes]:
+    if label.stop_position is not None:
+        commands = _label_stop(label.stop_position, ctx)
+    else:
+        commands = _configured_stop(label, ctx)
     if label.present_distance is not None:
         commands += _present_distance(label.present_distance, ctx)
     return commands

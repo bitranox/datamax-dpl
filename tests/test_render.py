@@ -556,14 +556,53 @@ def test_a_model_without_a_measured_stop_position_sends_none() -> None:
         ({"cut": {"every": 1}}, {"cutter_installed": True, "cutter_stop_position_mm": 80}),
     ],
 )
-def test_a_configured_stop_position_on_a_model_without_one_is_a_deviation(
+def test_a_configured_stop_position_on_a_model_without_one_is_reported_and_still_prints_under_strict(
     label_fields: dict[str, object], options: dict[str, object]
 ) -> None:
-    result = _stop_job(label_fields, model="prodigy", **options)
+    """A stop position from the config applies to every job, so a model without one is no reason to refuse."""
+    result = _stop_job(label_fields, model="prodigy", policy="strict", **options)
+    assert _stop_commands(result) == []
+    assert result.errors == ()
+    assert result.warnings == ()
+    (info,) = [f for f in result.findings if f.code is FindingCode.CONFIGURED_STOP_POSITION_UNSUPPORTED]
+    assert info.severity is Severity.INFO
+    assert "not sent" in info.message
+    assert "no stop-position command" in info.message
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("policy", ["degrade", "strict"])
+def test_the_labels_own_stop_position_on_a_model_without_one_is_a_deviation(policy: str) -> None:
+    result = _stop_job({"stop_position": 60}, model="prodigy", policy=policy)
     assert _stop_commands(result) == []
     (deviation,) = [f for f in result.findings if f.code is FindingCode.STOP_POSITION_UNSUPPORTED]
-    assert deviation.severity is Severity.WARNING
     assert deviation.fallback == "labels stop at the printer's default position"
+    assert deviation.severity is (Severity.ERROR if policy == "strict" else Severity.WARNING)
+    assert FindingCode.CONFIGURED_STOP_POSITION_UNSUPPORTED not in {f.code for f in result.findings}
+
+
+@pytest.mark.os_agnostic
+def test_the_labels_own_stop_position_wins_over_the_cutter_stop_position() -> None:
+    result = _stop_job({"stop_position": 60, "cut": {"every": 1}}, cutter_installed=True, cutter_stop_position_mm=80)
+    assert _stop_commands(result) == [STX + b"f246"]
+
+
+@pytest.mark.os_agnostic
+def test_a_label_with_both_stop_position_and_present_distance_sends_both_as_stop_commands() -> None:
+    """The cell D12 leaves as it was: the label's stop, then its present distance sent as a stop."""
+    result = _stop_job({"stop_position": 60, "present_distance": 30})
+    assert _stop_commands(result) == [STX + b"f246", STX + b"f123"]
+
+
+@pytest.mark.os_agnostic
+def test_a_stop_position_that_rounds_to_zero_is_sent_as_f000() -> None:
+    """The manual (``<STX>f``, page 22) takes any three-digit distance and names no minimum.
+
+    It adds only that the distance "must be greater than the start of print position to have any
+    effect", and that position is set on the printer, so no bound here could tell an effective
+    value from an ineffective one.
+    """
+    assert _stop_commands(_stop_job(stop_position_mm=0.1)) == [STX + b"f000"]
 
 
 @pytest.mark.os_agnostic

@@ -223,6 +223,7 @@ class FindingCode(str, Enum):
     BATCH_CUT_UNVERIFIED = "batch_cut_unverified"
     CHARACTERS_UNMAPPABLE = "characters_unmappable"
     CHECK_DIGIT_ADDED = "check_digit_added"
+    CONFIGURED_STOP_POSITION_UNSUPPORTED = "configured_stop_position_unsupported"
     CONTINUOUS_LENGTH_MISSING = "continuous_length_missing"
     CUT_BY_NOT_BELOW_QUANTITY = "cut_by_not_below_quantity"
     CUT_BY_UNSUPPORTED = "cut_by_unsupported"
