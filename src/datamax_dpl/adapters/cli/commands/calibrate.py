@@ -33,6 +33,7 @@ from .model_options import printer_options_decorator, render_options_decorator, 
 if TYPE_CHECKING:
     from ....domain.label import Label
     from ....domain.profiles import CalibrationDefaults
+    from ....domain.render import RenderResult
     from ..context import CLIContext
     from ..settings import PrinterSettings
 
@@ -144,19 +145,7 @@ def cli_calibrate_print(
             for part in axes
         ]
         results = [build_job(label, options) for label in labels]
-        findings = [finding for result in results for finding in result.findings]
-        payload = CalibratePrintPayload(
-            printer=settings.uri,
-            name=settings.name,
-            model=settings.model,
-            labels=list(axes),
-            scale_across=calibration.scale_across,
-            scale_along=calibration.scale_along,
-            offset_across=calibration.offset_across,
-            offset_along=calibration.offset_along,
-            bytes_sent=0,
-            findings=findings,
-        )
+        payload = _print_payload(settings, calibration, axes=axes, results=results)
         if not all(result.ok for result in results):
             return CommandResult(ok=False, payload=payload, human="REFUSED: nothing sent")
         uri = require_uri(settings)
@@ -171,6 +160,28 @@ def cli_calibrate_print(
         return CommandResult(ok=True, payload=payload, human=f"sent {', '.join(axes)} to {uri}")
 
     run_command(ctx, command="calibrate print", body=body)
+
+
+def _print_payload(
+    settings: PrinterSettings,
+    calibration: CalibrationDefaults,
+    *,
+    axes: tuple[Axis, ...],
+    results: list[RenderResult],
+) -> CalibratePrintPayload:
+    """The payload before anything is sent: the values the labels printed with and every finding."""
+    return CalibratePrintPayload(
+        printer=settings.uri,
+        name=settings.name,
+        model=settings.model,
+        labels=list(axes),
+        scale_across=calibration.scale_across,
+        scale_along=calibration.scale_along,
+        offset_across=calibration.offset_across,
+        offset_along=calibration.offset_along,
+        bytes_sent=0,
+        findings=[finding for result in results for finding in result.findings],
+    )
 
 
 def _label(

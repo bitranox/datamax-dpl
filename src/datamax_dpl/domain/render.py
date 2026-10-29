@@ -100,7 +100,11 @@ def effective_calibration(options: RenderOptions) -> CalibrationDefaults:
         >>> effective_calibration(RenderOptions(model="allegro-2", scale_along=1.0)).scale_along
         1.0
     """
-    model = get_profile(options.model).calibration
+    return _resolve(options, get_profile(options.model).calibration)
+
+
+def _resolve(options: RenderOptions, model: CalibrationDefaults) -> CalibrationDefaults:
+    """Fill each value ``options`` leave unset from ``model``, for a caller that already has the profile."""
     return CalibrationDefaults(
         scale_across=_pick(options.scale_across, model.scale_across),
         scale_along=_pick(options.scale_along, model.scale_along),
@@ -111,24 +115,26 @@ def effective_calibration(options: RenderOptions) -> CalibrationDefaults:
     )
 
 
-def _model_defaults_used(options: RenderOptions, model: CalibrationDefaults) -> dict[str, str]:
-    """Return each value taken from the model that is not neutral, keyed by option name (``offset_along``).
+def _model_defaults_used(options: RenderOptions, calibration: CalibrationDefaults) -> dict[str, str]:
+    """Return each value of ``calibration`` the options did not set and that is not neutral.
 
-    The value is its text for the report; a neutral default prints exactly what no calibration
-    prints, so naming it would tell the reader nothing.
+    Keyed by option name (``offset_along``), with its text for the report. A value counts as the
+    model's when the job's value is not the one the options hold, so this follows whatever rule
+    resolved ``calibration``. A neutral default prints exactly what no calibration prints, so
+    naming it would tell the reader nothing.
     """
     neutral = CalibrationDefaults()
     candidates: list[tuple[str, float | None, float | None, float | None, str]] = [
-        ("scale_across", options.scale_across, model.scale_across, neutral.scale_across, ""),
-        ("scale_along", options.scale_along, model.scale_along, neutral.scale_along, ""),
-        ("offset_across", options.offset_across, model.offset_across, neutral.offset_across, " mm"),
-        ("offset_along", options.offset_along, model.offset_along, neutral.offset_along, " mm"),
-        ("stop_position", options.stop_position_mm, model.stop_position_mm, neutral.stop_position_mm, " mm"),
+        ("scale_across", options.scale_across, calibration.scale_across, neutral.scale_across, ""),
+        ("scale_along", options.scale_along, calibration.scale_along, neutral.scale_along, ""),
+        ("offset_across", options.offset_across, calibration.offset_across, neutral.offset_across, " mm"),
+        ("offset_along", options.offset_along, calibration.offset_along, neutral.offset_along, " mm"),
+        ("stop_position", options.stop_position_mm, calibration.stop_position_mm, neutral.stop_position_mm, " mm"),
     ]
     return {
         name: f"{name} {value:g}{unit}"
-        for name, explicit, value, nominal, unit in candidates
-        if explicit is None and value is not None and value != nominal
+        for name, given, value, nominal, unit in candidates
+        if value is not None and value not in (given, nominal)
     }
 
 
@@ -146,8 +152,8 @@ def _report_model_defaults(label: Label, ctx: RenderContext, *, provenance: str,
 def _context(label: Label, options: RenderOptions) -> RenderContext:
     profile = get_profile(options.model)
     findings = FindingCollector(options.policy)
-    calibration = effective_calibration(options)
-    from_model = _model_defaults_used(options, profile.calibration)
+    calibration = _resolve(options, profile.calibration)
+    from_model = _model_defaults_used(options, calibration)
     probe = RenderContext(
         profile=profile,
         firmware=parse_firmware(options.firmware),
