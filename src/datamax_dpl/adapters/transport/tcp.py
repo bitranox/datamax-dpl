@@ -164,26 +164,21 @@ class TcpTransport(ClosingTransport):
 
 
 def _connect_retrying_refusals(uri: TcpUri, *, timeout: float) -> socket.socket:
-    """Connect, retrying a refused connection until the retry window closes.
+    """Connect, retrying a refused connection while the retry window is open.
 
-    The last attempt is made without catching anything, so a host that keeps refusing raises its
-    own ``ConnectionRefusedError``.
+    No attempt starts once the window has closed: the refusal of the last attempt inside it is
+    raised as is. A host that keeps refusing is therefore reported after the window plus one
+    attempt, and an attempt is not instant everywhere - Windows retransmits the SYN and reports a
+    refusal only after about 2 s.
     """
     deadline = time.monotonic() + min(timeout, REFUSED_RETRY_SECONDS)
-    while time.monotonic() + _REFUSED_RETRY_INTERVAL < deadline:
-        sock = _connect_unless_refused(uri, timeout=timeout)
-        if sock is not None:
-            return sock
+    while True:
+        try:
+            return socket.create_connection((uri.host, uri.port), timeout=timeout)
+        except ConnectionRefusedError:
+            if time.monotonic() + _REFUSED_RETRY_INTERVAL >= deadline:
+                raise
         time.sleep(_REFUSED_RETRY_INTERVAL)
-    return socket.create_connection((uri.host, uri.port), timeout=timeout)
-
-
-def _connect_unless_refused(uri: TcpUri, *, timeout: float) -> socket.socket | None:
-    """Connect once; ``None`` when the host refused, any other error propagates."""
-    try:
-        return socket.create_connection((uri.host, uri.port), timeout=timeout)
-    except ConnectionRefusedError:
-        return None
 
 
 def _nth(data: bytearray, needle: bytes, count: int) -> int:

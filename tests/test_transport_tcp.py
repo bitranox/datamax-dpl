@@ -297,12 +297,28 @@ def test_a_connection_refused_for_a_moment_is_retried() -> None:
 
 @pytest.mark.os_agnostic
 def test_a_connection_refused_for_good_fails_within_the_retry_window() -> None:
-    """Retrying refused connections is bounded: a host that stays down is reported, not waited on."""
+    """Retrying refused connections is bounded: a host that stays down is reported, not waited on.
+
+    No attempt starts after the window closes, so the report comes within the window plus ONE
+    attempt. An attempt is not instant everywhere: Windows retransmits the SYN and reports a refusal
+    only after about 2 s, so the bound is measured here rather than assumed.
+    """
     port = _free_port()
+    one_attempt = _seconds_for_one_refused_connect(port)
     started = time.monotonic()
-    with pytest.raises(TransportError, match=r"cannot connect to tcp .*refused"):
+    with pytest.raises(TransportError, match=rf"^cannot connect to tcp 127\.0\.0\.1:{port}: ") as caught:
         TcpTransport.connect(TcpUri(host="127.0.0.1", port=port), timeout=30.0)
-    assert time.monotonic() - started < REFUSED_RETRY_SECONDS + 1.0
+    elapsed = time.monotonic() - started
+    # the OS words the refusal in its own language, so the cause's TYPE says it was refused
+    assert isinstance(caught.value.__cause__, ConnectionRefusedError)
+    assert elapsed < REFUSED_RETRY_SECONDS + one_attempt + 1.0, f"{elapsed=:.2f} {one_attempt=:.2f}"
+
+
+def _seconds_for_one_refused_connect(port: int) -> float:
+    started = time.monotonic()
+    with pytest.raises(ConnectionRefusedError):
+        socket.create_connection(("127.0.0.1", port), timeout=30.0)
+    return time.monotonic() - started
 
 
 @pytest.mark.os_agnostic

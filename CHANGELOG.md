@@ -75,7 +75,8 @@ All notable changes to this project are documented here. The format follows
   twice the size the preview showed. One dot in the label JSON is now one
   printhead dot; a label that sets `dot_size` keeps its own value.
 - A `tcp://` connection that the print server refuses is retried for up to
-  3 seconds before it is reported. Some print servers refuse a new
+  3 seconds before it is reported; no attempt starts after that (Windows
+  itself takes about 2 s to report each refusal). Some print servers refuse a new
   connection for a moment after the previous one closed (about 1-2 s measured
   on a SerComm PS301), so `datamax-dpl status` run right after `print` failed
   with "Connection refused" although nothing was wrong.
