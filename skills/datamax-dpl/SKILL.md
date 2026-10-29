@@ -109,6 +109,32 @@ printer unreachable, broken config).
 - `capture --output-dir DIR` takes one photo, to check the `[camera]` settings before `verify`.
   `config-generate-examples --destination DIR` writes example config files listing every key.
 
+## Several printers, and calibrating one
+
+- Name each printer in the config: a `[printers.<name>]` section takes the keys of `[printer]`
+  (and inherits the ones it leaves out) plus `label_width` and `label_height` in mm. Then
+  `--printer NAME` picks its model, address, size and scale factors; `--printer` also still takes
+  a URI. `render` and `validate` take it too.
+- Lengths print slightly off nominal, and differently per printer (an Allegro 2 printed 0.977 of
+  nominal along the feed). Calibrate once per printer:
+  1. `datamax-dpl calibrate print --printer NAME` prints two labels with the printer's current
+     factors: the ACROSS label (a thin frame on the label edges with a bar inside it) and the
+     ALONG label (a 200 mm bar running over several labels; measure it on the liner). Each title
+     shows the factor it was printed with. Without `label_width`/`label_height` configured, pass
+     `--width` and `--height`.
+  2. Measure the frame from outside edge to outside edge, and the bar end to end.
+  3. `datamax-dpl calibrate set --printer NAME --across MM --along MM` stores
+     `scale_across`/`scale_along` (old factor x measured / nominal) in the user config, in the
+     file that already holds that printer's section, keeping comments. It warns on stderr when a
+     `.env` file, an environment variable or `--set` still overrides the value.
+  4. Print again: both should now measure nominal.
+- Fonts and images sized in printer dots are NOT scaled: on a printer whose feed prints short they
+  stay the size the dots give. Positions, lines, boxes, barcode heights and shapes drawn as images
+  are corrected.
+- Fields must not overlap on models without field attributes (the Allegro 2 among them): the
+  printer XORs overlapping fields, so dots two fields share print WHITE. A box over an image of the
+  same size shows only what differs.
+
 ## Library
 
 ```python
@@ -136,5 +162,6 @@ reads DPL bytes back (`.commands`, `.label`, `.problems`). Every name on this pa
 
 ## What it cannot tell you
 
-Everything comes from the 1998 Datamax DPL manual; nothing has been checked on a real printer
-yet. No QR codes. If a printed label differs from the preview, believe the label.
+Everything comes from the 1998 Datamax DPL manual, and only an Allegro 2 has been checked on
+paper (text, lines, boxes, images, rotation, four barcode types, lengths). No QR codes. The
+preview shows the design at nominal size; if a printed label differs from it, believe the label.

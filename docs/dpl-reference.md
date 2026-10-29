@@ -244,3 +244,15 @@ fit it.
 | Code 93 check digit           | "No" in one table                                                                                              | printer computes it                                                                                                                                                                                                |
 | DMX 400 slew speed            | range C-I, default K (Appendix M), outside its own range                                                       | range C-I enforced: a label asking for more gets the nearest speed (`speed_out_of_range`); K is shown by `capabilities` but never sent. Unverified on hardware; the 1999 edition (88-2051-01 E) does not settle it |
 | PE43 font 9 sizes A04, A05    | not named: the point-size tables have a "PE42 and Max" column only; the 300 dpi "MAX300dpi" column has A04/A05 | treated like the PE42, no A04/A05: a 4 or 5 pt request gets the nearest size (`font_size_substituted`). The PE43 is 300 dpi, so it may have them; unverified on hardware                                           |
+
+## 10. Measured on hardware
+
+What one printer did on paper where the manual is silent or gives only nominal values. Measured on
+an Allegro 2 (firmware CA02 03.04, 203 dpi, 100 x 55 mm gap labels).
+
+| Topic                 | Measured                                                                                                                         | We use                                                                                                |
+|-----------------------|----------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
+| 1/100 in in inch mode | printed as 2 whole dots on both axes (0.250 mm, not 0.254 mm), so inch lengths came out 1.6 % short                              | the `allegro-2` profile converts with 2 dots per unit; other profiles keep the exact 0.254 mm         |
+| Length along the feed | a dot row is 0.1221 mm: 0.977 of nominal, from the platen roller, so it differs per printer                                      | `scale_along`, measured per printer with `calibrate print` / `calibrate set`; `scale_across` likewise |
+| Overlapping fields    | XOR: dots two fields share print white (a box over an image of the same size showed only their difference); no attribute command | calibration labels keep every field apart; label designers must too                                   |
+| Longest format        | a format longer than about 201.5 mm is cut off                                                                                   | the along calibration bar is at most 200 mm                                                           |

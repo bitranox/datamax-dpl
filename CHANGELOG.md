@@ -43,6 +43,10 @@ All notable changes to this project are documented here. The format follows
   `[printer]` section is calibrated. The configuration is then read again,
   and a value that a `.env` file, an environment variable or `--set` still
   overrides is reported on stderr.
+- Docs: README "Calibrating a printer", CONFIG.md named printers and the
+  `scale_*` / `label_*` keys, a "Measured on hardware" section in
+  `docs/dpl-reference.md`, and the skill section "Several printers, and
+  calibrating one" (including that overlapping fields XOR on the Allegro 2).
 
 ### Fixed
 

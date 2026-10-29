@@ -456,18 +456,47 @@ and printer command. A command-line flag (`--model`, `--firmware`, `--printer`, 
 `--timeout`, `--cutter`, `--option`) wins over the configured value. The URI ships empty, so
 nothing is contacted until one is set or passed with `--printer`.
 
-| Key        | Type                         | Default     | Environment variable              | Meaning                                                                                                                                       |
-|------------|------------------------------|-------------|-----------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| `model`    | string                       | `"generic"` | `DATAMAX_DPL___PRINTER__MODEL`    | Printer model profile; `datamax-dpl models` lists them. `generic` emits only what every model understands.                                    |
-| `firmware` | string `"<major>.<minor>"`   | `""`        | `DATAMAX_DPL___PRINTER__FIRMWARE` | Printer firmware, for features that need a newer one (`"2.01"` unlocks circles on a DMX 400). Empty: the oldest.                              |
-| `uri`      | string                       | `""`        | `DATAMAX_DPL___PRINTER__URI`      | Where jobs and printer commands go: `tcp://HOST:PORT`, `serial:///dev/ttyS0?baud=9600`, `device:///dev/usb/lp0`, `file:PATH` or `-` (stdout). |
-| `policy`   | `"degrade"` or `"strict"`    | `"degrade"` | `DATAMAX_DPL___PRINTER__POLICY`   | `degrade` applies documented fallbacks and reports them; `strict` refuses the label instead.                                                  |
-| `timeout`  | float, > 0                   | `10.0`      | `DATAMAX_DPL___PRINTER__TIMEOUT`  | Seconds for one transport operation: connect, write, wait for a status answer.                                                                |
-| `cutter`   | `"yes"`, `"no"`, `"unknown"` | `"unknown"` | `DATAMAX_DPL___PRINTER__CUTTER`   | Whether a cutter is installed and enabled. `no` refuses a label that asks for cutting; `unknown` sends it with a note.                        |
-| `options`  | list of strings              | `[]`        | `DATAMAX_DPL___PRINTER__OPTIONS`  | Installed hardware options that unlock features; currently only `"datamatrix"`. As a variable: `'["datamatrix"]'`.                            |
+| Key            | Type                         | Default     | Environment variable                  | Meaning                                                                                                                                       |
+|----------------|------------------------------|-------------|---------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| `model`        | string                       | `"generic"` | `DATAMAX_DPL___PRINTER__MODEL`        | Printer model profile; `datamax-dpl models` lists them. `generic` emits only what every model understands.                                    |
+| `firmware`     | string `"<major>.<minor>"`   | `""`        | `DATAMAX_DPL___PRINTER__FIRMWARE`     | Printer firmware, for features that need a newer one (`"2.01"` unlocks circles on a DMX 400). Empty: the oldest.                              |
+| `uri`          | string                       | `""`        | `DATAMAX_DPL___PRINTER__URI`          | Where jobs and printer commands go: `tcp://HOST:PORT`, `serial:///dev/ttyS0?baud=9600`, `device:///dev/usb/lp0`, `file:PATH` or `-` (stdout). |
+| `policy`       | `"degrade"` or `"strict"`    | `"degrade"` | `DATAMAX_DPL___PRINTER__POLICY`       | `degrade` applies documented fallbacks and reports them; `strict` refuses the label instead.                                                  |
+| `timeout`      | float, > 0                   | `10.0`      | `DATAMAX_DPL___PRINTER__TIMEOUT`      | Seconds for one transport operation: connect, write, wait for a status answer.                                                                |
+| `cutter`       | `"yes"`, `"no"`, `"unknown"` | `"unknown"` | `DATAMAX_DPL___PRINTER__CUTTER`       | Whether a cutter is installed and enabled. `no` refuses a label that asks for cutting; `unknown` sends it with a note.                        |
+| `options`      | list of strings              | `[]`        | `DATAMAX_DPL___PRINTER__OPTIONS`      | Installed hardware options that unlock features; currently only `"datamatrix"`. As a variable: `'["datamatrix"]'`.                            |
+| `scale_across` | float, 0.5-1.5               | `1.0`       | `DATAMAX_DPL___PRINTER__SCALE_ACROSS` | Printed length divided by nominal length across the web, for this printer. Set by `calibrate set`.                                            |
+| `scale_along`  | float, 0.5-1.5               | `1.0`       | `DATAMAX_DPL___PRINTER__SCALE_ALONG`  | The same along the feed; it depends on the platen roller (an Allegro 2 measured 0.977). Fonts and images sized in dots are not scaled.        |
+| `label_width`  | float, > 0 (mm)              | unset       | `DATAMAX_DPL___PRINTER__LABEL_WIDTH`  | Width of the loaded labels; `calibrate print` sizes its labels from it.                                                                       |
+| `label_height` | float, > 0 (mm)              | unset       | `DATAMAX_DPL___PRINTER__LABEL_HEIGHT` | Height of the loaded labels, for the across calibration label.                                                                                |
 
 The URI forms and what each channel can do are in the README; the models, features and fallbacks
 in [docs/capabilities.md](docs/capabilities.md).
+
+### Named printers
+
+Each `[printers.<name>]` section describes one printer with the keys of `[printer]`; a key it
+leaves out comes from `[printer]`. `--printer NAME` picks it, and a command-line flag still wins
+over both. A name takes letters, digits, `_` and `-` (not first), never `:`, so it cannot be
+mistaken for a URI. An unknown name is refused with the configured names listed.
+
+```toml
+[printers.lager]
+model = "allegro-2"
+uri = "tcp://192.0.2.60:9100"
+label_width = 100
+label_height = 55
+scale_along = 0.977
+```
+
+As environment variables: `DATAMAX_DPL___PRINTERS__LAGER__SCALE_ALONG=0.977`.
+
+`datamax-dpl calibrate set --printer lager --along 199` writes the measured factor into this
+section of the user configuration. Inside a layer, the files of `config.d/` load after
+`config.toml` in name order and a later one wins, so the value goes into the last file that
+already holds the section (else `config.toml`, created if missing); comments and key order are
+kept. A `.env` file, an environment variable or `--set` can still override it, and the command
+says so on stderr.
 
 `firmware` must reach the program as text. In a TOML file write it quoted (`firmware = "2.01"`),
 in a `.env` file quote it too (`PRINTER__FIRMWARE="2.01"`). An unquoted `2.01` in a `.env`, an

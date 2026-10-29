@@ -3,8 +3,8 @@
 datamax-dpl renders every label for one printer model profile. The profile decides how lengths
 are written, which DPL commands may appear in the job, and what happens to a label element the
 model cannot print. The facts come from the Datamax DPL Programmer's Manual 88-2051-01 Rev D2
-(1998), summarised in [dpl-reference.md](dpl-reference.md); none of them has been checked on a
-real printer yet.
+(1998), summarised in [dpl-reference.md](dpl-reference.md); only the Allegro 2 profile has been
+checked on a real printer.
 
 Pick the profile with `--model` (or `[printer] model` in the configuration). To see one profile on
 the command line:

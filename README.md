@@ -26,9 +26,9 @@ It is a Python library and a command line tool. Every command can answer with a 
 and meaningful exit codes, so scripts and LLM agents can drive it. With a camera configured,
 `verify` prints a label, photographs it and puts the photo next to the expected preview.
 
-**Status:** no real printer or camera has been attached yet. Everything is built from the manual
-and tested against simulated printers. Treat the output as unverified on hardware until this
-notice goes away.
+**Status:** built from the manual and tested against simulated printers; one real printer, an
+Allegro 2, has been checked on paper (text, lines, boxes, images, rotation, four barcode types,
+lengths). Other models and the camera are still unverified on hardware.
 
 ## Install
 
@@ -186,6 +186,24 @@ The model matrix, the limits and the full fallback table are in
 `status` and `detect` need a channel that can read the printer's answer (tcp or serial). `reset`,
 `cancel`, `pause`, `feed` and `cut` send single printer commands.
 
+`--printer` also takes the NAME of a printer configured in a `[printers.<name>]` section, which
+then supplies its model, address, label size and scale factors ([CONFIG.md](CONFIG.md)).
+
+## Calibrating a printer
+
+Printed lengths differ a little from nominal, per printer: an Allegro 2 printed 0.977 of nominal
+along the feed. Two calibration labels measure it:
+
+```bash
+datamax-dpl calibrate print --printer lager          # frame across, 200 mm bar along the feed
+datamax-dpl calibrate set --printer lager --across 99.6 --along 195.4
+```
+
+Measure the across label's frame from outside edge to outside edge and the along bar on the liner
+(it runs over several labels). `calibrate set` computes the new `scale_across` / `scale_along`
+(old factor x measured / nominal) and writes it into that printer's section of the user
+configuration. Print again to confirm. Fonts and images sized in printer dots are not scaled.
+
 ## JSON output for scripts and LLMs
 
 Put `--json` (indented) or `--json-bare` (one line) before the command. The answer on stdout is
@@ -257,16 +275,17 @@ datamax-dpl. Inside Claude Code:
 
 - Built from the Datamax DPL Programmer's Manual 88-2051-01 Rev D2 (1998) only. Models and
   commands that came later, QR codes among them, are not supported.
-- Nothing has been checked on a real printer or camera yet.
+- Only an Allegro 2 has been checked on a real printer; no camera has been attached yet.
 - The manual contradicts itself in places; [docs/dpl-reference.md](docs/dpl-reference.md) lists
   each case and the reading taken.
 - The manual is copyrighted and not included or redistributed here. Get it from the vendor.
 
 ## Configuration
 
-Defaults for the printer (model, firmware, URI, policy, timeout, cutter, options) and the camera
-live in a layered configuration: bundled defaults, system, host and user files, `.env`,
-environment variables and `--set`. [CONFIG.md](CONFIG.md) explains every key.
+Defaults for the printer (model, firmware, URI, policy, timeout, cutter, options, scale factors,
+label size), named printers and the camera live in a layered configuration: bundled defaults,
+system, host and user files, `.env`, environment variables and `--set`. [CONFIG.md](CONFIG.md)
+explains every key.
 
 ## Development
 

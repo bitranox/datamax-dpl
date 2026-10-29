@@ -110,8 +110,8 @@ scale_along = 1.0
 # Each [printers.<name>] section takes the keys of [printer] above and wins over
 # them key by key; a key it does not set comes from [printer]. Command-line flags
 # still win over both. A name takes letters, digits, '_' and '-' (not first),
-# never ':', so it cannot be mistaken for a URI. Two keys only make sense here:
-#   label_width, label_height  the loaded labels' size in mm
+# never ':', so it cannot be mistaken for a URI. Two more keys, valid here and in [printer]:
+#   label_width, label_height  the loaded labels' size in mm ('calibrate print' uses them)
 #
 # [printers.lager]
 # model = "allegro-2"
