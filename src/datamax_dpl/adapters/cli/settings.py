@@ -15,7 +15,7 @@ from ...domain.camera import CameraSettings
 from ...domain.enums import CutterPresence, FallbackPolicy, HardwareOption
 from ...domain.errors import ConfigurationError
 from ...domain.render_context import RenderOptions
-from ...domain.units import MAX_SCALE, MIN_SCALE
+from ...domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
 from ..transport.uri import is_printer_name, is_printer_uri
 
 if TYPE_CHECKING:
@@ -47,6 +47,8 @@ class PrinterSettings(BaseModel):
     # Same range as RenderOptions, so a bad value is refused here with its config key named.
     scale_across: float = Field(default=1.0, ge=MIN_SCALE, le=MAX_SCALE)
     scale_along: float = Field(default=1.0, ge=MIN_SCALE, le=MAX_SCALE)
+    offset_across: float = Field(default=0.0, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
+    offset_along: float = Field(default=0.0, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
     name: str = ""
     label_width: float | None = Field(default=None, gt=0)
     label_height: float | None = Field(default=None, gt=0)
@@ -176,6 +178,8 @@ def render_options(settings: PrinterSettings) -> RenderOptions:
         options=settings.options,
         scale_across=settings.scale_across,
         scale_along=settings.scale_along,
+        offset_across=settings.offset_across,
+        offset_along=settings.offset_along,
     )
 
 

@@ -45,6 +45,15 @@ All notable changes to this project are documented here. The format follows
   `[printer]` section is calibrated. The configuration is then read again,
   and a value that a `.env` file, an environment variable or `--set` still
   overrides is reported on stderr.
+- Position offsets: `offset_across` / `offset_along` in `[printer]` or
+  `[printers.<name>]` (and `RenderOptions`), millimetres every field is moved,
+  -10 to 10, independent of the tear-off position. A field moved past the left
+  or bottom label edge is refused with the new finding `offset_past_label_edge`.
+  Rasterised graphics move with it. The across calibration label states the
+  border to expect (`BORDERS: 2 MM`) and shows the offsets it was printed with;
+  `calibrate set --top/--bottom` and `--left/--right` turn measured borders
+  into the offset (old + half the difference) and store it. The across label
+  now needs 30 mm of height.
 - Docs: README "Calibrating a printer", CONFIG.md named printers and the
   `scale_*` / `label_*` keys, a "Measured on hardware" section in
   `docs/dpl-reference.md`, and the skill section "Several printers, and

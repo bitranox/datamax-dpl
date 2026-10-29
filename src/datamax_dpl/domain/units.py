@@ -18,6 +18,8 @@ MM_PER_INCH = 25.4
 #: The range a printer's scale factor may take: printed length divided by nominal length.
 MIN_SCALE = 0.5
 MAX_SCALE = 1.5
+#: The largest position offset in mm, either way: a printer off by more is misloaded or misread.
+MAX_OFFSET_MM = 10.0
 
 
 class DplUnit(str, Enum):
@@ -200,6 +202,7 @@ def from_dpl(value: int, *, source: DplUnit, unit: Unit, dpi: float) -> float:
 
 
 __all__ = [
+    "MAX_OFFSET_MM",
     "MAX_SCALE",
     "MIN_SCALE",
     "MM_PER_INCH",

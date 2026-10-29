@@ -13,10 +13,14 @@ from .units import Axis, DplUnit, to_dpl
 if TYPE_CHECKING:
     from .render_context import RenderContext
 
+_TOLERANCE = 1e-6
+
 
 def column_of(x: float, *, index: int, ctx: RenderContext) -> int:
-    """Convert ``x`` to a DPL column, refusing positions past the model's printable width."""
-    column = ctx.distance(x, axis=Axis.ACROSS, element=index, what="column")
+    """Convert ``x``, moved by the printer's offset, to a DPL column, refusing it past the printable width."""
+    column = ctx.distance(
+        _shifted(x, Axis.ACROSS, index=index, ctx=ctx), axis=Axis.ACROSS, element=index, what="column"
+    )
     limit = to_dpl(ctx.profile.max_column / 100, Unit.INCH, target=ctx.dpl_unit, dpi=ctx.profile.dpi).value
     if column > limit:
         unit = "1/100 in" if ctx.dpl_unit is DplUnit.INCH_HUNDREDTHS else "1/10 mm"
@@ -29,8 +33,22 @@ def column_of(x: float, *, index: int, ctx: RenderContext) -> int:
 
 
 def row_of(y: float, *, index: int, ctx: RenderContext) -> int:
-    """Convert ``y`` to a DPL row."""
-    return ctx.distance(y, axis=Axis.ALONG, element=index, what="row")
+    """Convert ``y``, moved by the printer's offset, to a DPL row."""
+    return ctx.distance(_shifted(y, Axis.ALONG, index=index, ctx=ctx), axis=Axis.ALONG, element=index, what="row")
+
+
+def _shifted(value: float, axis: Axis, *, index: int, ctx: RenderContext) -> float:
+    """Move a position by the printer's offset, refusing one the offset pushes past the label's 0 edge."""
+    shifted = ctx.shifted(value, axis=axis)
+    # Below a micrometre is float noise from the subtraction, not a field off the label.
+    if shifted < -_TOLERANCE:
+        ctx.findings.refuse(
+            FindingCode.OFFSET_PAST_LABEL_EDGE,
+            f"the printer's {axis.value} offset of {ctx.offset_mm(axis):g} mm moves this field "
+            f"{-shifted:g} {ctx.unit.value} past the label edge",
+            element=index,
+        )
+    return max(shifted, 0.0)
 
 
 def check_field_length(length: int, *, limit: int = MAX_FIELD_DATA, index: int, ctx: RenderContext) -> None:

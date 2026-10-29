@@ -347,3 +347,60 @@ def test_the_write_goes_to_the_active_profiles_user_layer(cli_runner: CliRunner,
 
     assert result.exit_code == 0, result.output
     assert profiles == ["lager-test"]
+
+
+@pytest.mark.os_agnostic
+def test_the_printers_offset_moves_the_calibration_print_and_is_reported(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    plain_target, moved_target = tmp_path / "plain.dpl", tmp_path / "moved.dpl"
+
+    _calibrate(cli_runner, config_cli_context(_lager(plain_target)), "--printer", "lager", "--axis", "across")
+    result = _calibrate(
+        cli_runner,
+        config_cli_context(_lager(moved_target, offset_along=-0.25)),
+        "--printer",
+        "lager",
+        "--axis",
+        "across",
+    )
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)["data"]
+    assert (data["offset_across"], data["offset_along"]) == (0.0, -0.25)
+    assert b"OFFSET" in moved_target.read_bytes()
+    # with the title brought level, only the moved field positions can still differ
+    assert moved_target.read_bytes() != plain_target.read_bytes().replace(b"ALONG +0.00", b"ALONG -0.25")
+
+
+@pytest.mark.os_agnostic
+def test_measured_borders_store_the_offsets_that_centre_the_print(cli_runner: CliRunner, tmp_path: Path) -> None:
+    base = tmp_path / "config.toml"
+    base.write_text(_LAGER_TOML, encoding="utf-8")
+
+    args = ("--printer", "lager", "--top", "1.8", "--bottom", "2.3", "--left", "1.8", "--right", "2.2")
+    result = _set(cli_runner, _user_layer(base), *args)
+
+    assert result.exit_code == 0, result.output
+    assert _stored(base, "printers", "lager", "offset_along") == -0.25
+    assert _stored(base, "printers", "lager", "offset_across") == 0.2
+    offsets = json.loads(result.stdout)["data"]["offsets"]
+    assert [(o["key"], o["low"], o["high"], o["old"], o["new"]) for o in offsets] == [
+        ("offset_across", 1.8, 2.2, 0.0, 0.2),
+        ("offset_along", 2.3, 1.8, 0.0, -0.25),
+    ]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("given", "missing"), [(("--top", "1.8"), "--bottom"), (("--right", "2"), "--left")])
+def test_a_border_without_its_opposite_side_is_refused(
+    cli_runner: CliRunner, tmp_path: Path, given: tuple[str, str], missing: str
+) -> None:
+    base = tmp_path / "config.toml"
+    base.write_text(_LAGER_TOML, encoding="utf-8")
+
+    result = _set(cli_runner, _user_layer(base), "--printer", "lager", *given)
+
+    assert result.exit_code == 2
+    assert missing in json.loads(result.stdout)["message"]
+    assert "offset" not in base.read_text(encoding="utf-8")

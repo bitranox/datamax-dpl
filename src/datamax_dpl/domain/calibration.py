@@ -18,7 +18,7 @@ import textwrap
 from datamax_dpl.domain.charset import CAPITALS_ONLY_FONTS, encode_for_bitmapped_font
 from datamax_dpl.domain.label import Box, Element, Label, Line, Text
 from datamax_dpl.domain.preview import widest_cell_mm
-from datamax_dpl.domain.units import MAX_SCALE, MIN_SCALE
+from datamax_dpl.domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
 
 __all__ = [
     "ACROSS_INSET_MM",
@@ -29,6 +29,7 @@ __all__ = [
     "across_label",
     "along_label",
     "calibration_labels",
+    "offset_from_borders",
     "scale_from_measurement",
 ]
 
@@ -37,6 +38,9 @@ ALONG_LENGTH_MM = 200.0
 
 TICK_SPACING_MM = 10.0
 MIN_LABEL_MM = 20.0
+
+#: The across label's text needs this height: four lines below the bar on the narrowest label.
+_ACROSS_MIN_HEIGHT_MM = 30.0
 
 ACROSS_INSET_MM = 2.0
 """How far the across frame stands in from every label edge: a frame on the label edges loses a
@@ -79,23 +83,22 @@ def across_label(*, width: float, height: float, title: str) -> Label:
 
     Args:
         width: Label width in mm, at least 24 (20 inside the frame).
-        height: Label height in mm, at least 24.
+        height: Label height in mm, at least 30.
         title: First text line, typically the printer name and the factors in use.
 
     Returns:
         The label, in mm.
 
     Raises:
-        ValueError: A side is under 24 mm, or the text does not fit.
+        ValueError: The width is under 24 mm, the height under 30 mm, or the text does not fit.
 
     Example:
         >>> label = across_label(width=100, height=55, title="LAGER")
         >>> (label.width, label.height)
         (100.0, 55.0)
     """
-    minimum = MIN_LABEL_MM + 2 * ACROSS_INSET_MM
-    _require_min("width", width, minimum=minimum)
-    _require_min("height", height, minimum=minimum)
+    _require_min("width", width, minimum=MIN_LABEL_MM + 2 * ACROSS_INSET_MM)
+    _require_min("height", height, minimum=_ACROSS_MIN_HEIGHT_MM)
     frame = across_frame_width(width)
     left, right = ACROSS_INSET_MM, ACROSS_INSET_MM + frame
     bottom, top = ACROSS_INSET_MM, height - ACROSS_INSET_MM
@@ -116,7 +119,7 @@ def across_label(*, width: float, height: float, title: str) -> Label:
         width=text_width,
     )
     elements += _text_block(
-        f"MEASURE THE FRAME OUTSIDE: {frame:g} MM ACROSS",
+        f"MEASURE THE FRAME OUTSIDE: {frame:g} MM ACROSS\nBORDERS: {ACROSS_INSET_MM:g} MM",
         x=text_x,
         top=bar_y - _MARGIN,
         bottom=bottom + _FRAME + _GAP,
@@ -171,7 +174,7 @@ def calibration_labels(
 
     Args:
         width: Label width in mm, at least 24.
-        height: Label height in mm (the across label's height), at least 24.
+        height: Label height in mm (the across label's height), at least 30.
         title: First text line of both labels.
         along_length: Length of the along bar in mm.
 
@@ -223,6 +226,38 @@ def scale_from_measurement(current: float, *, measured: float, nominal: float) -
             f"{MIN_SCALE:g}-{MAX_SCALE:g}: check the measurement"
         )
     return scale
+
+
+def offset_from_borders(current: float, *, low: float, high: float) -> float:
+    """Return the position offset that centres the across label's frame between two borders.
+
+    The frame stands the same distance from both opposite edges when the print sits where it
+    should, so the print has to move half the difference toward the wider border.
+
+    Args:
+        current: The offset the label was printed with, in mm.
+        low: Border measured on the left (across) or at the bottom (along), in mm.
+        high: Border measured on the right (across) or at the top (along), in mm.
+
+    Returns:
+        The new offset in mm, rounded to 0.01; positive moves right or up.
+
+    Raises:
+        ValueError: A border is negative, or the offset would pass 10 mm either way.
+
+    Example:
+        >>> offset_from_borders(0.0, low=2.3, high=1.8)
+        -0.25
+    """
+    if low < 0 or high < 0:
+        raise ValueError(f"borders of {low:g} mm and {high:g} mm must both be 0 mm or more")
+    offset = round(current + (high - low) / 2, 2)
+    if abs(offset) > MAX_OFFSET_MM:
+        raise ValueError(
+            f"borders of {low:g} mm and {high:g} mm give an offset of {offset:g} mm, past "
+            f"{MAX_OFFSET_MM:g} mm: check the measurement"
+        )
+    return offset
 
 
 def _require_min(name: str, value: float, *, minimum: float = MIN_LABEL_MM) -> None:

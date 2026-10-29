@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, get_args
 
+from .encode_common import column_of, row_of
 from .enums import FillPattern, FindingCode
 from .label import Box, Circle, Line, Polygon
 from .raster import Bitmap
@@ -128,8 +129,9 @@ def rasterize(element: Graphic, *, index: int, ctx: RenderContext, reason: str) 
         fallback=f"drawn as downloaded image {name} ({frame.width_dots}x{frame.height_dots} dots)",
         element=index,
     )
-    row = ctx.distance(frame.bottom, axis=Axis.ALONG, element=index, what="image row")
-    column = ctx.distance(frame.left, axis=Axis.ACROSS, element=index, what="image column")
+    # Through row_of/column_of like every other field, so the printer's offset moves it too.
+    row = row_of(frame.bottom, index=index, ctx=ctx)
+    column = column_of(frame.left, index=index, ctx=ctx)
     return [line(image_record(row=row, column=column, name=name))]
 
 

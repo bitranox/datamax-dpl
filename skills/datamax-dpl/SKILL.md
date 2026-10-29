@@ -124,11 +124,17 @@ printer unreachable, broken config).
      shows the factor it was printed with. Without `label_width`/`label_height` configured, pass
      `--width` and `--height`.
   2. Measure the frame from outside edge to outside edge (not to the last tick), and the bar end
-     to end. `calibrate set` takes the frame width as nominal for `--across`.
+     to end. `calibrate set` takes the frame width as nominal for `--across`. If the print sits
+     off centre, also measure the borders between the frame and the label edges (the label says
+     `BORDERS: 2 MM`).
   3. `datamax-dpl calibrate set --printer NAME --across MM --along MM` stores
      `scale_across`/`scale_along` (old factor x measured / nominal) in the user config, in the
      file that already holds that printer's section, keeping comments. It warns on stderr when a
-     `.env` file, an environment variable or `--set` still overrides the value.
+     `.env` file, an environment variable or `--set` still overrides the value. Borders go in
+     pairs: `--top T --bottom B` stores `offset_along` (old + (T - B) / 2 mm, positive moves the
+     print up) and `--left L --right R` stores `offset_across` (old + (R - L) / 2, positive moves
+     right). The offset moves every field, independent of the tear-off position; a field it
+     pushes past the left or bottom label edge is refused (`offset_past_label_edge`).
   4. Print again: both should now measure nominal.
 - Fonts and images sized in printer dots are NOT scaled: on a printer whose feed prints short they
   stay the size the dots give. Positions, lines, boxes, barcode heights and shapes drawn as images

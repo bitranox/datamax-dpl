@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import rich_click as click
 from pydantic import BaseModel, ConfigDict
@@ -14,6 +14,7 @@ from ....domain.calibration import (
     across_frame_width,
     across_label,
     along_label,
+    offset_from_borders,
     scale_from_measurement,
 )
 from ....domain.errors import ConfigurationError
@@ -59,21 +60,41 @@ class CalibratePrintPayload(BaseModel):
     labels: list[Axis]
     scale_across: float
     scale_along: float
+    offset_across: float
+    offset_along: float
     bytes_sent: int
     findings: list[Finding]
 
 
-class ScaleChange(BaseModel):
-    """One scale factor ``calibrate set`` changed; ``effective`` is what the configuration now resolves to."""
+class _Change(BaseModel):
+    """One setting ``calibrate set`` changed; ``effective`` is what the configuration now resolves to."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     key: str
-    measured: float
-    nominal: float
     old: float
     new: float
     effective: float | None
+
+
+class ScaleChange(_Change):
+    """A scale factor from a length measured against its nominal length, in mm."""
+
+    measured: float
+    nominal: float
+
+
+class OffsetChange(_Change):
+    """A position offset from the two borders measured on opposite sides of the frame, in mm.
+
+    ``low`` is the left (across) or bottom (along) border, ``high`` the right or top one.
+    """
+
+    low: float
+    high: float
+
+
+_ChangeT = TypeVar("_ChangeT", bound=_Change)
 
 
 class CalibrateSetPayload(BaseModel):
@@ -84,6 +105,7 @@ class CalibrateSetPayload(BaseModel):
     printer: str
     file: str
     changes: list[ScaleChange]
+    offsets: list[OffsetChange]
     warnings: list[str]
 
 
@@ -125,6 +147,8 @@ def cli_calibrate_print(
             labels=list(axes),
             scale_across=settings.scale_across,
             scale_along=settings.scale_along,
+            offset_across=settings.offset_across,
+            offset_along=settings.offset_along,
             bytes_sent=0,
             findings=findings,
         )
@@ -151,7 +175,7 @@ def _label(
     if axis is Axis.ALONG:
         return along_label(width=label_width, length=along_length, title=_title(settings, settings.scale_along))
     label_height = _size("height", height, settings.label_height, settings)
-    return across_label(width=label_width, height=label_height, title=_title(settings, settings.scale_across))
+    return across_label(width=label_width, height=label_height, title=_across_title(settings))
 
 
 def _size(side: str, given: float | None, configured: float | None, settings: PrinterSettings) -> float:
@@ -169,6 +193,10 @@ def _size(side: str, given: float | None, configured: float | None, settings: Pr
 @option("--along", type=float, default=None, help="Measured length of the along label's bar, in mm.")
 @option("--width", type=float, default=None, help="Width the across label was printed at; default label_width.")
 @option("--along-length", type=float, default=ALONG_LENGTH_MM, help="Length the along bar was printed at, in mm.")
+@option("--top", type=float, default=None, help="Measured border above the across label's frame, in mm.")
+@option("--bottom", type=float, default=None, help="Measured border below the across label's frame, in mm.")
+@option("--left", type=float, default=None, help="Measured border left of the across label's frame, in mm.")
+@option("--right", type=float, default=None, help="Measured border right of the across label's frame, in mm.")
 @option("--printer", default=None, help="Configured printer name ([printers.NAME]); default the [printer] section.")
 @click.pass_context
 def cli_calibrate_set(
@@ -178,12 +206,18 @@ def cli_calibrate_set(
     along: float | None,
     width: float | None,
     along_length: float,
+    top: float | None,
+    bottom: float | None,
+    left: float | None,
+    right: float | None,
     printer: str | None,
 ) -> None:
-    """Store the scale factors measured on the calibration labels in the user configuration.
+    """Store the scale factors and offsets measured on the calibration labels in the user configuration.
 
     Each new factor is the old one times measured over nominal length; the across nominal is
-    the frame's width, the label width less 2 mm on each side. It is written into the
+    the frame's width, the label width less 2 mm on each side. The borders around the frame
+    come in pairs (--top with --bottom, --left with --right); each pair moves the print half
+    their difference toward the wider border. Everything is written into the
     printer's section of the user configuration, in the file that already holds that section.
     """
 
@@ -200,17 +234,24 @@ def cli_calibrate_set(
             for axis, value in measured.items()
             if value is not None
         ]
-        if not changes:
-            raise ConfigurationError("nothing measured: pass --across MM, --along MM or both")
-        written = cli_ctx.services.set_printer_values(
-            printer=name, values={c.key: c.new for c in changes}, profile=cli_ctx.profile
-        )
+        offsets = _offsets(settings, top=top, bottom=bottom, left=left, right=right)
+        if not changes and not offsets:
+            msg = (
+                "nothing measured: pass --across MM, --along MM, or a pair of borders (--top/--bottom, --left/--right)"
+            )
+            raise ConfigurationError(msg)
+        values = {c.key: c.new for c in [*changes, *offsets]}
+        written = cli_ctx.services.set_printer_values(printer=name, values=values, profile=cli_ctx.profile)
         changes = _with_effective(cli_ctx, name, changes)
-        warnings = [_warning(change, written=str(written)) for change in changes if change.effective != change.new]
+        offsets = _with_effective(cli_ctx, name, offsets)
+        warnings = [_warning(c, written=str(written)) for c in [*changes, *offsets] if c.effective != c.new]
         for warning in warnings:
             safe_console.echo(warning, err=True)
-        payload = CalibrateSetPayload(printer=name, file=str(written), changes=changes, warnings=warnings)
+        payload = CalibrateSetPayload(
+            printer=name, file=str(written), changes=changes, offsets=offsets, warnings=warnings
+        )
         human = [f"{c.key} {c.old:g} -> {c.new:g} (measured {c.measured:g} of {c.nominal:g} mm)" for c in changes]
+        human += [f"{o.key} {o.old:g} -> {o.new:g} mm (borders {o.low:g} and {o.high:g} mm)" for o in offsets]
         return CommandResult(ok=True, payload=payload, human="\n".join([*human, f"written to {written}"]))
 
     run_command(ctx, command="calibrate set", body=body)
@@ -229,7 +270,27 @@ def _change(axis: Axis, settings: PrinterSettings, *, measured: float, nominal: 
     return ScaleChange(key=f"scale_{axis.value}", measured=measured, nominal=nominal, old=old, new=new, effective=None)
 
 
-def _with_effective(cli_ctx: CLIContext, name: str, changes: list[ScaleChange]) -> list[ScaleChange]:
+def _offsets(
+    settings: PrinterSettings, *, top: float | None, bottom: float | None, left: float | None, right: float | None
+) -> list[OffsetChange]:
+    pairs = [
+        ("offset_across", settings.offset_across, (left, "--left"), (right, "--right")),
+        ("offset_along", settings.offset_along, (bottom, "--bottom"), (top, "--top")),
+    ]
+    offsets: list[OffsetChange] = []
+    for key, old, (low, low_flag), (high, high_flag) in pairs:
+        if low is None and high is None:
+            continue
+        if low is None or high is None:
+            given, missing = (high_flag, low_flag) if low is None else (low_flag, high_flag)
+            msg = f"{given} needs {missing}: the offset comes from the borders on both sides of the frame"
+            raise ConfigurationError(msg)
+        new = offset_from_borders(old, low=low, high=high)
+        offsets.append(OffsetChange(key=key, low=low, high=high, old=old, new=new, effective=None))
+    return offsets
+
+
+def _with_effective(cli_ctx: CLIContext, name: str, changes: list[_ChangeT]) -> list[_ChangeT]:
     """Read the configuration again: a .env file, an environment variable or --set can still win."""
     config, error = load_config(
         cli_ctx.services, profile=cli_ctx.profile, env_file=cli_ctx.env_file, set_overrides=cli_ctx.set_overrides
@@ -240,7 +301,7 @@ def _with_effective(cli_ctx: CLIContext, name: str, changes: list[ScaleChange]) 
     return [c.model_copy(update={"effective": getattr(effective, c.key)}) for c in changes]
 
 
-def _warning(change: ScaleChange, *, written: str) -> str:
+def _warning(change: _Change, *, written: str) -> str:
     if change.effective is None:
         return (
             f"warning: wrote {change.key} = {change.new:g} to {written}, but the configuration could not be read back"
@@ -255,10 +316,17 @@ def _title(settings: PrinterSettings, scale: float) -> str:
     return f"{settings.name.upper()} SCALE {scale:.4f}".strip()
 
 
+def _across_title(settings: PrinterSettings) -> str:
+    offsets = f"OFFSET ACROSS {settings.offset_across:+.2f} ALONG {settings.offset_along:+.2f}"
+    # Its own line, so a wrap never strands a lone value away from its axis name.
+    return f"{_title(settings, settings.scale_across)}\n{offsets}"
+
+
 __all__ = [
     "AxisChoice",
     "CalibratePrintPayload",
     "CalibrateSetPayload",
+    "OffsetChange",
     "ScaleChange",
     "cli_calibrate",
     "cli_calibrate_print",

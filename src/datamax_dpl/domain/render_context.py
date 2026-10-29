@@ -14,7 +14,19 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .enums import Attribute, FallbackPolicy, FindingCode, HardwareOption, Unit
 from .image_records import download_command
-from .units import MAX_SCALE, MIN_SCALE, NOMINAL, Axis, Correction, DplUnit, exact_dots, to_dots, to_dpl
+from .units import (
+    MAX_OFFSET_MM,
+    MAX_SCALE,
+    MIN_SCALE,
+    MM_PER_INCH,
+    NOMINAL,
+    Axis,
+    Correction,
+    DplUnit,
+    exact_dots,
+    to_dots,
+    to_dpl,
+)
 
 if TYPE_CHECKING:
     from .findings import FindingCollector
@@ -37,6 +49,9 @@ class RenderOptions(BaseModel):
         scale_across: Printed length divided by nominal length across the web, measured for
             one printer (``datamax-dpl calibrate``); 1.0 prints nominal lengths.
         scale_along: The same along the feed, where it depends on the platen roller.
+        offset_across: Millimetres every field is moved to the right, measured for one printer
+            (``datamax-dpl calibrate``); negative moves left.
+        offset_along: Millimetres every field is moved toward the label top; negative moves down.
 
     Example:
         >>> RenderOptions(model="dmx-600").policy
@@ -54,6 +69,8 @@ class RenderOptions(BaseModel):
     # inverted measurement (nominal / printed), which would double the error instead.
     scale_across: float = Field(default=1.0, ge=MIN_SCALE, le=MAX_SCALE)
     scale_along: float = Field(default=1.0, ge=MIN_SCALE, le=MAX_SCALE)
+    offset_across: float = Field(default=0.0, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
+    offset_along: float = Field(default=0.0, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
 
 
 @dataclass(frozen=True)
@@ -91,6 +108,8 @@ class RenderContext:
         image_counter: Number of raster fallback images created so far, for their names.
         across: How this printer prints lengths across the web.
         along: How this printer prints lengths along the feed.
+        offset_across: Millimetres every field moves to the right on this printer.
+        offset_along: Millimetres every field moves toward the label top on this printer.
     """
 
     profile: PrinterProfile
@@ -107,10 +126,21 @@ class RenderContext:
     image_counter: int = 0
     across: Correction = NOMINAL
     along: Correction = NOMINAL
+    offset_across: float = 0.0
+    offset_along: float = 0.0
 
     def correction(self, axis: Axis) -> Correction:
         """Return how this printer prints lengths on ``axis``."""
         return self.across if axis is Axis.ACROSS else self.along
+
+    def offset_mm(self, axis: Axis) -> float:
+        """Return how far this printer's fields move on ``axis``, in mm."""
+        return self.offset_across if axis is Axis.ACROSS else self.offset_along
+
+    def shifted(self, value: float, *, axis: Axis) -> float:
+        """Return the label position ``value`` moved by this printer's offset, in the label's unit."""
+        offset = self.offset_mm(axis)
+        return value + (offset / MM_PER_INCH if self.unit is Unit.INCH else offset)
 
     def supports(self, feature: Feature) -> bool:
         """Return True when the model has ``feature`` at this firmware with these options."""

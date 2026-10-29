@@ -197,13 +197,18 @@ along the feed. Two calibration labels measure it:
 ```bash
 datamax-dpl calibrate print --printer lager          # frame across, 200 mm bar along the feed
 datamax-dpl calibrate set --printer lager --across 95.6 --along 195.4
+datamax-dpl calibrate set --printer lager --top 1.8 --bottom 2.3   # borders around the frame
 ```
 
 Measure the across label's frame from outside edge to outside edge (it stands 2 mm in from every
 edge, so it is 96 mm on a 100 mm label) and the along bar on the liner (it runs over several
 labels). `calibrate set` computes the new `scale_across` / `scale_along`
 (old factor x measured / nominal) and writes it into that printer's section of the user
-configuration. Print again to confirm. Fonts and images sized in printer dots are not scaled.
+configuration. The across label also states the border to expect on every side (2 mm); measure
+the borders on opposite sides and pass them in pairs (`--top`/`--bottom`, `--left`/`--right`):
+`calibrate set` stores `offset_along` / `offset_across`, millimetres every field is moved so the
+print sits centred, independent of the tear-off position. Print again to confirm. Fonts and images
+sized in printer dots are not scaled.
 
 ## JSON output for scripts and LLMs
 

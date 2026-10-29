@@ -70,20 +70,21 @@ Every finding carries a stable `code`, shown in the `findings` list of the JSON 
 
 Other fallbacks do not depend on a feature column:
 
-| Label asks for                                  | What happens (finding code)                                                        |
-|-------------------------------------------------|------------------------------------------------------------------------------------|
-| A font 9 point size the model does not have     | The nearest size it has (`font_size_substituted`).                                 |
-| A character the font or symbol set cannot print | Replaced by `?` (`characters_unmappable`).                                         |
-| A speed outside the model's range               | The nearest speed in the range (`speed_out_of_range`).                             |
-| `heat` above the model's maximum                | The maximum (`heat_out_of_range`).                                                 |
-| Lower-case text in fonts 3 to 6                 | Printed in capitals (info `text_uppercased`).                                      |
-| A field past the printable width                | Refused (`outside_print_width`).                                                   |
-| More fields than the model takes                | Refused (`too_many_fields`).                                                       |
-| Field data longer than the model takes          | Refused (`field_too_long`).                                                        |
-| A distance above 9999 DPL units                 | Refused (`distance_too_large`).                                                    |
-| Barcode data the symbology does not accept      | Refused; one code per problem, e.g. `barcode_bad_check_digit` (see Finding codes). |
-| `cut` while `--cutter no` is set                | Refused (`no_cutter`).                                                             |
-| `media` `continuous` without a length           | Refused (`continuous_length_missing`).                                             |
+| Label asks for                                         | What happens (finding code)                                                        |
+|--------------------------------------------------------|------------------------------------------------------------------------------------|
+| A font 9 point size the model does not have            | The nearest size it has (`font_size_substituted`).                                 |
+| A character the font or symbol set cannot print        | Replaced by `?` (`characters_unmappable`).                                         |
+| A speed outside the model's range                      | The nearest speed in the range (`speed_out_of_range`).                             |
+| `heat` above the model's maximum                       | The maximum (`heat_out_of_range`).                                                 |
+| Lower-case text in fonts 3 to 6                        | Printed in capitals (info `text_uppercased`).                                      |
+| A field past the printable width                       | Refused (`outside_print_width`).                                                   |
+| A field the printer's offset moves past the label edge | Refused (`offset_past_label_edge`).                                                |
+| More fields than the model takes                       | Refused (`too_many_fields`).                                                       |
+| Field data longer than the model takes                 | Refused (`field_too_long`).                                                        |
+| A distance above 9999 DPL units                        | Refused (`distance_too_large`).                                                    |
+| Barcode data the symbology does not accept             | Refused; one code per problem, e.g. `barcode_bad_check_digit` (see Finding codes). |
+| `cut` while `--cutter no` is set                       | Refused (`no_cutter`).                                                             |
+| `media` `continuous` without a length                  | Refused (`continuous_length_missing`).                                             |
 
 The features `cutter_pulse`, `field_terminator`, `stored_formats` and `time_date` are listed for
 reference. The label format has no field that uses them, so they never cause a finding.
@@ -97,61 +98,62 @@ Every code a render can report, in alphabetical order. The severity column is th
 `--policy strict` a "warning, error under strict" finding becomes an error. The codes are stable;
 `tests/test_capabilities_doc.py` keeps this table in step with `FindingCode`.
 
-| Code                             | Severity                                                      | Reported when                                                                                     |
-|----------------------------------|---------------------------------------------------------------|---------------------------------------------------------------------------------------------------|
-| `attribute_unsupported`          | warning, error under strict; always an error for inverse text | The model has no `attribute` command; printed with the default attribute.                         |
-| `barcode_bad_character`          | error                                                         | Barcode data holds a character the symbology does not allow.                                      |
-| `barcode_bad_check_digit`        | error                                                         | The UPC/EAN check digit in the data is wrong.                                                     |
-| `barcode_bad_escape`             | error                                                         | A `&` in the data is not one of the escapes `&A` to `&G`.                                         |
-| `barcode_bad_length`             | error                                                         | Barcode data has a length the symbology does not take (Codabar: start or stop character missing). |
-| `barcode_bad_price_marker`       | error                                                         | The price marker `V` is missing or in the wrong position.                                         |
-| `barcode_bad_start_stop`         | error                                                         | Codabar data does not start and end with one of `A` `B` `C` `D`.                                  |
-| `barcode_empty`                  | error                                                         | The barcode data is empty.                                                                        |
-| `barcode_height_out_of_range`    | error                                                         | The barcode height is outside what a DPL record can hold.                                         |
-| `barcode_missing_prefix`         | error                                                         | HIBC data does not start with `+`.                                                                |
-| `barcode_record_terminator`      | error                                                         | Barcode data contains `<CR>`, which would end the DPL record early.                               |
-| `barcode_too_long`               | error                                                         | The record data is longer than the printer takes.                                                 |
-| `batch_cut_unsupported`          | warning, error under strict                                   | Cutting every N labels of a batch needs the cut-now command, which the model lacks.               |
-| `batch_cut_unverified`           | warning                                                       | A batch sends a cut command after every Nth label; the printer must not also cut each label.      |
-| `box_rasterized`                 | warning, error under strict                                   | A patterned box fill is drawn as a downloaded image.                                              |
-| `characters_unmappable`          | warning, error under strict                                   | The font cannot print a character; it is replaced by `?`.                                         |
-| `check_digit_added`              | info                                                          | The printer adds the UPC/EAN check digit the data left out.                                       |
-| `circle_rasterized`              | warning, error under strict                                   | A circle is drawn as a downloaded image.                                                          |
-| `continuous_length_missing`      | error                                                         | `media` `continuous` without `continuous_length` or `height`.                                     |
-| `cut_by_not_below_quantity`      | info                                                          | `cut.every` is not below the quantity, so the printer's own cut setting decides.                  |
-| `cut_by_unsupported`             | warning, error under strict                                   | `cut.every` above 1 on a model without cut-by; it cuts after every label.                         |
-| `cut_now_unsupported`            | warning, error under strict                                   | The last group of `cut.at_end` cannot be cut now; it is cut when the next job starts.             |
-| `cutter_assumed`                 | info                                                          | Cut commands assume the printer's cutter is installed and enabled (`--cutter unknown`).           |
-| `datamatrix_option_unconfirmed`  | warning, error under strict                                   | DataMatrix is sent to a model that needs the option, and the option is not declared.              |
-| `default_bar_widths_unsupported` | warning, error under strict                                   | `narrow_dots` and `wide_dots` are both 0 on a model without default bar widths.                   |
-| `distance_too_large`             | error                                                         | A distance is above 9999 DPL units.                                                               |
-| `field_too_long`                 | error                                                         | Field data is longer than the model takes.                                                        |
-| `font_size_substituted`          | warning, error under strict                                   | A font 9 point size the model does not have; the nearest size is used.                            |
-| `heat_out_of_range`              | warning, error under strict                                   | `heat` is above the model's maximum; the maximum is used.                                         |
-| `image_must_be_stored`           | info                                                          | An image without a bitmap must already be stored on the printer.                                  |
-| `inch_units`                     | info                                                          | The model takes inches only; millimetres are rounded to 1/100 in.                                 |
-| `label_wider_than_print_width`   | warning                                                       | The label's `width` is wider than the model's printable width.                                    |
-| `line_rasterized`                | warning, error under strict                                   | A slanted line is drawn as a downloaded image.                                                    |
-| `mirror_unsupported`             | error                                                         | `mirror` on a model without it.                                                                   |
-| `no_cutter`                      | error                                                         | The label asks for cutting while `--cutter no` is set.                                            |
-| `no_human_readable`              | info                                                          | The symbology prints no human-readable text line.                                                 |
-| `outside_print_width`            | error                                                         | A field starts past the model's printable width.                                                  |
-| `pause_each_label_unsupported`   | warning, error under strict                                   | `pause_each_label` on a model without it; the batch prints without pausing.                       |
-| `pause_persists`                 | info                                                          | Pause after each label stays on until the printer is reset.                                       |
-| `placeholders_unfilled`          | warning                                                       | The label has `{name}` placeholders and no data records were given.                               |
-| `polygon_rasterized`             | warning, error under strict                                   | A polygon is drawn as a downloaded image.                                                         |
-| `present_distance_unsupported`   | warning, error under strict                                   | `present_distance` on a model without it; sent as a stop position or ignored.                     |
-| `scalable_font_unsupported`      | warning, error under strict                                   | `scalable_text` on a model without scalable fonts; printed in font 9.                             |
-| `sensor_select_unsupported`      | warning, error under strict                                   | `media` `gap` or `reflective` on a model that cannot choose its sensor.                           |
-| `solid_fill_as_edges`            | info                                                          | A solid box fill is drawn as a box whose edges meet in the middle.                                |
-| `speed_out_of_range`             | warning, error under strict                                   | A speed outside the model's range; the nearest speed in the range is used.                        |
-| `speed_unsupported`              | warning, error under strict                                   | A speed the model has no command for (in practice `backup_speed`); the printer's default is kept. |
-| `stop_position_too_large`        | error                                                         | `stop_position` is above the most the printer takes.                                              |
-| `stop_position_unsupported`      | warning, error under strict                                   | `stop_position` on a model without it; labels stop at the default position.                       |
-| `symbol_set_unsupported`         | warning, error under strict                                   | `symbol_set` on a model without scalable fonts; ignored.                                          |
-| `symbology_unsupported`          | error                                                         | A barcode symbology the model does not have.                                                      |
-| `text_uppercased`                | info                                                          | Lower-case text in fonts 3 to 6, which print capitals only.                                       |
-| `too_many_fields`                | error                                                         | More fields than the model takes.                                                                 |
+| Code                             | Severity                                                      | Reported when                                                                                       |
+|----------------------------------|---------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
+| `attribute_unsupported`          | warning, error under strict; always an error for inverse text | The model has no `attribute` command; printed with the default attribute.                           |
+| `barcode_bad_character`          | error                                                         | Barcode data holds a character the symbology does not allow.                                        |
+| `barcode_bad_check_digit`        | error                                                         | The UPC/EAN check digit in the data is wrong.                                                       |
+| `barcode_bad_escape`             | error                                                         | A `&` in the data is not one of the escapes `&A` to `&G`.                                           |
+| `barcode_bad_length`             | error                                                         | Barcode data has a length the symbology does not take (Codabar: start or stop character missing).   |
+| `barcode_bad_price_marker`       | error                                                         | The price marker `V` is missing or in the wrong position.                                           |
+| `barcode_bad_start_stop`         | error                                                         | Codabar data does not start and end with one of `A` `B` `C` `D`.                                    |
+| `barcode_empty`                  | error                                                         | The barcode data is empty.                                                                          |
+| `barcode_height_out_of_range`    | error                                                         | The barcode height is outside what a DPL record can hold.                                           |
+| `barcode_missing_prefix`         | error                                                         | HIBC data does not start with `+`.                                                                  |
+| `barcode_record_terminator`      | error                                                         | Barcode data contains `<CR>`, which would end the DPL record early.                                 |
+| `barcode_too_long`               | error                                                         | The record data is longer than the printer takes.                                                   |
+| `batch_cut_unsupported`          | warning, error under strict                                   | Cutting every N labels of a batch needs the cut-now command, which the model lacks.                 |
+| `batch_cut_unverified`           | warning                                                       | A batch sends a cut command after every Nth label; the printer must not also cut each label.        |
+| `box_rasterized`                 | warning, error under strict                                   | A patterned box fill is drawn as a downloaded image.                                                |
+| `characters_unmappable`          | warning, error under strict                                   | The font cannot print a character; it is replaced by `?`.                                           |
+| `check_digit_added`              | info                                                          | The printer adds the UPC/EAN check digit the data left out.                                         |
+| `circle_rasterized`              | warning, error under strict                                   | A circle is drawn as a downloaded image.                                                            |
+| `continuous_length_missing`      | error                                                         | `media` `continuous` without `continuous_length` or `height`.                                       |
+| `cut_by_not_below_quantity`      | info                                                          | `cut.every` is not below the quantity, so the printer's own cut setting decides.                    |
+| `cut_by_unsupported`             | warning, error under strict                                   | `cut.every` above 1 on a model without cut-by; it cuts after every label.                           |
+| `cut_now_unsupported`            | warning, error under strict                                   | The last group of `cut.at_end` cannot be cut now; it is cut when the next job starts.               |
+| `cutter_assumed`                 | info                                                          | Cut commands assume the printer's cutter is installed and enabled (`--cutter unknown`).             |
+| `datamatrix_option_unconfirmed`  | warning, error under strict                                   | DataMatrix is sent to a model that needs the option, and the option is not declared.                |
+| `default_bar_widths_unsupported` | warning, error under strict                                   | `narrow_dots` and `wide_dots` are both 0 on a model without default bar widths.                     |
+| `distance_too_large`             | error                                                         | A distance is above 9999 DPL units.                                                                 |
+| `field_too_long`                 | error                                                         | Field data is longer than the model takes.                                                          |
+| `font_size_substituted`          | warning, error under strict                                   | A font 9 point size the model does not have; the nearest size is used.                              |
+| `heat_out_of_range`              | warning, error under strict                                   | `heat` is above the model's maximum; the maximum is used.                                           |
+| `image_must_be_stored`           | info                                                          | An image without a bitmap must already be stored on the printer.                                    |
+| `inch_units`                     | info                                                          | The model takes inches only; millimetres are rounded to 1/100 in.                                   |
+| `label_wider_than_print_width`   | warning                                                       | The label's `width` is wider than the model's printable width.                                      |
+| `line_rasterized`                | warning, error under strict                                   | A slanted line is drawn as a downloaded image.                                                      |
+| `mirror_unsupported`             | error                                                         | `mirror` on a model without it.                                                                     |
+| `no_cutter`                      | error                                                         | The label asks for cutting while `--cutter no` is set.                                              |
+| `no_human_readable`              | info                                                          | The symbology prints no human-readable text line.                                                   |
+| `offset_past_label_edge`         | error                                                         | The printer's `offset_across` / `offset_along` moves a field below the label's left or bottom edge. |
+| `outside_print_width`            | error                                                         | A field starts past the model's printable width.                                                    |
+| `pause_each_label_unsupported`   | warning, error under strict                                   | `pause_each_label` on a model without it; the batch prints without pausing.                         |
+| `pause_persists`                 | info                                                          | Pause after each label stays on until the printer is reset.                                         |
+| `placeholders_unfilled`          | warning                                                       | The label has `{name}` placeholders and no data records were given.                                 |
+| `polygon_rasterized`             | warning, error under strict                                   | A polygon is drawn as a downloaded image.                                                           |
+| `present_distance_unsupported`   | warning, error under strict                                   | `present_distance` on a model without it; sent as a stop position or ignored.                       |
+| `scalable_font_unsupported`      | warning, error under strict                                   | `scalable_text` on a model without scalable fonts; printed in font 9.                               |
+| `sensor_select_unsupported`      | warning, error under strict                                   | `media` `gap` or `reflective` on a model that cannot choose its sensor.                             |
+| `solid_fill_as_edges`            | info                                                          | A solid box fill is drawn as a box whose edges meet in the middle.                                  |
+| `speed_out_of_range`             | warning, error under strict                                   | A speed outside the model's range; the nearest speed in the range is used.                          |
+| `speed_unsupported`              | warning, error under strict                                   | A speed the model has no command for (in practice `backup_speed`); the printer's default is kept.   |
+| `stop_position_too_large`        | error                                                         | `stop_position` is above the most the printer takes.                                                |
+| `stop_position_unsupported`      | warning, error under strict                                   | `stop_position` on a model without it; labels stop at the default position.                         |
+| `symbol_set_unsupported`         | warning, error under strict                                   | `symbol_set` on a model without scalable fonts; ignored.                                            |
+| `symbology_unsupported`          | error                                                         | A barcode symbology the model does not have.                                                        |
+| `text_uppercased`                | info                                                          | Lower-case text in fonts 3 to 6, which print capitals only.                                         |
+| `too_many_fields`                | error                                                         | More fields than the model takes.                                                                   |
 
 ## Model tables
 

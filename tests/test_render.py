@@ -258,6 +258,46 @@ def test_scale_across_moves_columns_and_stretches_horizontal_lines_only() -> Non
 
 
 @pytest.mark.os_agnostic
+def test_offsets_move_every_field_without_changing_its_size() -> None:
+    label = Label(elements=[Line(x=10, y=10, x2=110, y2=10, thickness=0.5)])
+    (moved,) = _records_with(label, offset_across=2.54, offset_along=-2.54)
+    # 12.54 mm across is 49 units, 7.46 mm along is 29; the 100 mm line stays 394 units long
+    assert _row_column(moved) == (29, 49)
+    assert moved.endswith(b"L394002")
+
+
+@pytest.mark.os_agnostic
+def test_an_offset_is_in_millimetres_whatever_unit_the_label_uses() -> None:
+    label = Label(unit=Unit.INCH, elements=[Line(x=1, y=1, x2=2, y2=1, thickness=0.02)])
+    (moved,) = _records_with(label, offset_across=2.54)
+    assert _row_column(moved) == (100, 110)
+
+
+@pytest.mark.os_agnostic
+def test_a_rasterised_circle_moves_with_the_offset() -> None:
+    label = Label.model_validate({"elements": [{"type": "circle", "x": 20, "y": 20, "radius": 5}]})
+    (plain,) = _records_with(label)
+    (moved,) = _records_with(label, offset_across=2.54, offset_along=2.54)
+    assert _row_column(moved) == (_row_column(plain)[0] + 10, _row_column(plain)[1] + 10)
+
+
+@pytest.mark.os_agnostic
+def test_a_field_the_offset_pushes_past_the_label_edge_is_refused() -> None:
+    label = Label(elements=[Text(x=5, y=0.5, text="EDGE")])
+    result = build_job(label, RenderOptions(model="allegro", offset_along=-1))
+    (error,) = result.errors
+    assert error.code is FindingCode.OFFSET_PAST_LABEL_EDGE
+    assert "0.5 mm past the label edge" in error.message
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("offset", [-10.01, 10.01])
+def test_an_offset_over_ten_millimetres_is_refused(offset: float) -> None:
+    with pytest.raises(ValueError, match=r"(less|greater) than or equal to -?10"):
+        RenderOptions(offset_along=offset)
+
+
+@pytest.mark.os_agnostic
 def test_box_edge_follows_the_feed_and_box_side_the_web() -> None:
     label = Label(elements=[Box(x=0, y=0, width=50, height=20, thickness=1)])
     (plain,) = _records_with(label)

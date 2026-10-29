@@ -240,6 +240,7 @@ class FindingCode(str, Enum):
     MIRROR_UNSUPPORTED = "mirror_unsupported"
     NO_CUTTER = "no_cutter"
     NO_HUMAN_READABLE = "no_human_readable"
+    OFFSET_PAST_LABEL_EDGE = "offset_past_label_edge"
     OUTSIDE_PRINT_WIDTH = "outside_print_width"
     PAUSE_EACH_LABEL_UNSUPPORTED = "pause_each_label_unsupported"
     PAUSE_PERSISTS = "pause_persists"

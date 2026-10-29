@@ -10,6 +10,7 @@ from datamax_dpl.domain.calibration import (
     across_frame_width,
     across_label,
     along_label,
+    offset_from_borders,
     scale_from_measurement,
 )
 from datamax_dpl.domain.decoder import explain
@@ -71,7 +72,7 @@ def _intersect(a: Rect, b: Rect) -> bool:
 
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("model", ["allegro-2", "dmx-600"])
-@pytest.mark.parametrize(("width", "height"), [(100, 55), (24, 24), (57.3, 31.7)])
+@pytest.mark.parametrize(("width", "height"), [(100, 55), (24, 30), (57.3, 31.7)])
 def test_no_two_shapes_of_the_across_label_share_a_dot(model: str, width: float, height: float) -> None:
     assert _touching_pairs(across_label(width=width, height=height, title="LAGER 0.9770"), model) == []
 
@@ -142,8 +143,8 @@ def test_a_label_with_room_prints_every_text_line_in_the_large_font_three() -> N
 
 @pytest.mark.os_agnostic
 def test_a_block_too_big_for_a_larger_font_falls_back_to_font_one() -> None:
-    label = across_label(width=24, height=24, title="LAGER")
-    assert _fonts(label) == [3, 1, 1, 1]
+    label = across_label(width=24, height=30, title="LAGER")
+    assert _fonts(label) == [3, 1, 1, 1, 1]
 
 
 @pytest.mark.os_agnostic
@@ -167,7 +168,7 @@ def test_the_across_frame_renders_ninety_six_by_fifty_one_millimetres_on_the_all
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize(("width", "height", "minimum"), [(23.9, 55, "24 mm"), (100, 23.9, "24 mm")])
+@pytest.mark.parametrize(("width", "height", "minimum"), [(23.9, 55, "24 mm"), (100, 29.9, "30 mm")])
 def test_an_across_label_narrower_than_its_frame_and_text_need_is_refused(
     width: float, height: float, minimum: str
 ) -> None:
@@ -184,7 +185,7 @@ def test_an_along_length_over_two_hundred_millimetres_is_refused() -> None:
 @pytest.mark.os_agnostic
 def test_a_title_that_does_not_fit_is_refused() -> None:
     with pytest.raises(ValueError, match="too small for its text"):
-        across_label(width=24, height=24, title="A VERY LONG PRINTER NAME THAT TAKES MANY LINES TO WRAP")
+        across_label(width=24, height=30, title="A VERY LONG PRINTER NAME THAT TAKES MANY LINES TO WRAP")
 
 
 @pytest.mark.os_agnostic
@@ -209,3 +210,35 @@ def test_the_new_scale_is_the_old_one_times_measured_over_nominal(
 def test_a_scale_outside_the_range_or_a_length_not_over_zero_is_refused(measured: float, nominal: float) -> None:
     with pytest.raises(ValueError, match=f"{measured:g} mm"):
         scale_from_measurement(1.0, measured=measured, nominal=nominal)
+
+
+@pytest.mark.os_agnostic
+def test_the_across_label_states_the_border_to_measure_on_every_side() -> None:
+    label = across_label(width=100, height=55, title="LAGER")
+    text = " ".join(e.text for e in label.elements if isinstance(e, Text))
+    assert "BORDERS: 2 MM" in text
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("current", "low", "high", "expected"),
+    [
+        (0.0, 2.3, 1.8, -0.25),  # bottom border 2.3, top 1.8: the print sits high, move it down
+        (0.0, 1.8, 2.2, 0.2),  # left border 1.8, right 2.2: the print sits left, move it right
+        (-0.25, 2.0, 2.0, -0.25),  # even borders keep the offset in use
+        (0.5, 2.25, 1.75, 0.25),
+    ],
+)
+def test_the_new_offset_moves_the_print_half_the_border_difference(
+    current: float, low: float, high: float, expected: float
+) -> None:
+    assert offset_from_borders(current, low=low, high=high) == pytest.approx(expected)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("current", "low", "high", "match"), [(0.0, -0.1, 2.0, "0 mm"), (9.0, 0.0, 4.0, "10")])
+def test_a_negative_border_or_an_offset_past_ten_millimetres_is_refused(
+    current: float, low: float, high: float, match: str
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        offset_from_borders(current, low=low, high=high)

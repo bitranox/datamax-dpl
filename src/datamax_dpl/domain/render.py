@@ -94,6 +94,8 @@ def _context(label: Label, options: RenderOptions) -> RenderContext:
         default_attribute=label.attribute or Attribute.XOR,
         across=Correction(scale=options.scale_across, unit_dots=profile.inch_unit_dots),
         along=Correction(scale=options.scale_along, unit_dots=profile.inch_unit_dots),
+        offset_across=options.offset_across,
+        offset_along=options.offset_along,
     )
     if label.unit is Unit.MM and probe.supports(Feature.FORMAT_METRIC):
         probe.dpl_unit = DplUnit.MM_TENTHS

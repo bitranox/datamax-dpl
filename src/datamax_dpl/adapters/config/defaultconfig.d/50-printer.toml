@@ -102,6 +102,22 @@ scale_across = 1.0
 # Environment Variable: DATAMAX_DPL___PRINTER__SCALE_ALONG=0.977
 scale_along = 1.0
 
+# Purpose: Millimetres every field is moved to the right on this printer, so a print
+#          that sits off centre lands where the label asks; negative moves left.
+#          Independent of the tear-off and cut positions. Set by `calibrate set`
+#          from the borders measured around the across calibration label's frame.
+# Type: float, -10 to 10
+# Default: 0.0
+# Environment Variable: DATAMAX_DPL___PRINTER__OFFSET_ACROSS=0.2
+offset_across = 0.0
+
+# Purpose: Millimetres every field is moved toward the label top; negative moves
+#          it down.
+# Type: float, -10 to 10
+# Default: 0.0
+# Environment Variable: DATAMAX_DPL___PRINTER__OFFSET_ALONG=-0.25
+offset_along = 0.0
+
 
 # ------------------------------------------------------------------------------
 # Named printers - one section per printer, chosen with --printer NAME
