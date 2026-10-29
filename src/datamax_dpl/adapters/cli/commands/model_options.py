@@ -37,8 +37,17 @@ _RENDER_OPTIONS: tuple[_Decorator, ...] = (
     ),
 )
 
+#: A configured printer by name ([printers.<name>]) or a printer address; render and validate take
+#: it too, because a named printer decides the model and the scale factors.
+_PRINTER_CHOICE = option(
+    "--printer",
+    "printer",
+    default=None,
+    help="Configured printer name ([printers.NAME]) or URI, e.g. tcp://192.0.2.60:9100; default [printer] uri.",
+)
+
 _PRINTER_OPTIONS: tuple[_Decorator, ...] = (
-    option("--printer", "uri", default=None, help="Printer URI, e.g. tcp://192.0.2.60:9100; default [printer] uri."),
+    _PRINTER_CHOICE,
     option("--timeout", type=float, default=None, help="Seconds to wait for the printer; default [printer] timeout."),
 )
 
@@ -53,6 +62,8 @@ def _stack(decorators: tuple[_Decorator, ...]) -> _Decorator:
 
 
 render_options_decorator = _stack(_RENDER_OPTIONS)
+#: For commands that render but never talk to the printer (render, validate).
+printer_choice_decorator = _PRINTER_CHOICE
 printer_options_decorator = _stack(_PRINTER_OPTIONS)
 
 
@@ -117,6 +128,7 @@ def _alternatives(values: list[str]) -> str:
 __all__ = [
     "hardware_options",
     "loaded_config",
+    "printer_choice_decorator",
     "printer_options_decorator",
     "render_options_decorator",
     "resolve_settings",

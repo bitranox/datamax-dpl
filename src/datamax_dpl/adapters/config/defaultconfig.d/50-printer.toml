@@ -101,3 +101,23 @@ scale_across = 1.0
 # Default: 1.0
 # Environment Variable: DATAMAX_DPL___PRINTER__SCALE_ALONG=0.977
 scale_along = 1.0
+
+
+# ------------------------------------------------------------------------------
+# Named printers - one section per printer, chosen with --printer NAME
+# ------------------------------------------------------------------------------
+#
+# Each [printers.<name>] section takes the keys of [printer] above and wins over
+# them key by key; a key it does not set comes from [printer]. Command-line flags
+# still win over both. A name takes letters, digits, '_' and '-' (not first),
+# never ':', so it cannot be mistaken for a URI. Two keys only make sense here:
+#   label_width, label_height  the loaded labels' size in mm
+#
+# [printers.lager]
+# model = "allegro-2"
+# uri = "tcp://192.0.2.60:9100"
+# label_width = 100
+# label_height = 55
+# scale_along = 0.977
+#
+# Environment Variable: DATAMAX_DPL___PRINTERS__LAGER__SCALE_ALONG=0.977

@@ -15,6 +15,7 @@ from ...domain.camera import CameraSettings
 from ...domain.enums import CutterPresence, FallbackPolicy, HardwareOption
 from ...domain.errors import ConfigurationError
 from ...domain.render_context import RenderOptions
+from ..transport.uri import is_printer_name, is_printer_uri
 
 if TYPE_CHECKING:
     from lib_layered_config import Config
@@ -23,7 +24,10 @@ _T = TypeVar("_T")
 
 
 class PrinterSettings(BaseModel):
-    """The ``[printer]`` section.
+    """The ``[printer]`` section, merged with a ``[printers.<name>]`` section when one is chosen.
+
+    ``name`` is the chosen printer's name, empty when none was; ``label_width`` and
+    ``label_height`` are the loaded labels' size in millimetres, when known.
 
     Example:
         >>> PrinterSettings().model
@@ -42,6 +46,9 @@ class PrinterSettings(BaseModel):
     # Same range as RenderOptions, so a bad value is refused here with its config key named.
     scale_across: float = Field(default=1.0, ge=0.5, le=1.5)
     scale_along: float = Field(default=1.0, ge=0.5, le=1.5)
+    name: str = ""
+    label_width: float | None = Field(default=None, gt=0)
+    label_height: float | None = Field(default=None, gt=0)
 
     @field_validator("firmware", mode="before")
     @classmethod
@@ -63,7 +70,7 @@ class PrinterOverrides(BaseModel):
 
     model: str | None = None
     firmware: str | None = None
-    uri: str | None = None
+    printer: str | None = None
     policy: FallbackPolicy | None = None
     timeout: float | None = None
     cutter: CutterPresence | None = None
@@ -85,17 +92,20 @@ def printer_settings(config: Config, overrides: PrinterOverrides) -> PrinterSett
     Raises:
         ConfigurationError: A configured value is invalid; the message names the key.
     """
+    name = overrides.printer if overrides.printer and not is_printer_uri(overrides.printer) else ""
+    section = "printer" if not name else f"printers.{name}"
     try:
-        base = PrinterSettings.model_validate(dict(_section(config, "printer")))
+        base = PrinterSettings.model_validate({**_section(config, "printer"), **_named(config, name), "name": name})
     except ValidationError as exc:
-        raise ConfigurationError(_describe(exc, section="printer")) from None
+        raise ConfigurationError(_describe(exc, section=section)) from None
+    uri = overrides.printer if overrides.printer and is_printer_uri(overrides.printer) else None
     # model_copy, not a new PrinterSettings: the overrides are already typed, and re-validating
     # would move the refusal of a bad --timeout away from the transport, which names its range.
     return base.model_copy(
         update={
             "model": _given(overrides.model, base.model),
             "firmware": _given(overrides.firmware, base.firmware),
-            "uri": _given(overrides.uri, base.uri),
+            "uri": _given(uri, base.uri),
             "policy": _given(overrides.policy, base.policy),
             "timeout": _given(overrides.timeout, base.timeout),
             "cutter": _given(overrides.cutter, base.cutter),
@@ -103,6 +113,27 @@ def printer_settings(config: Config, overrides: PrinterOverrides) -> PrinterSett
             "options": base.options | overrides.options,
         }
     )
+
+
+def _named(config: Config, name: str) -> Mapping[str, Any]:
+    """Return the ``[printers.<name>]`` section, or nothing when no name was chosen.
+
+    Raises:
+        ConfigurationError: A configured section has an invalid name, or none is called ``name``.
+    """
+    printers = _section(config, "printers")
+    invalid = sorted(key for key in printers if not is_printer_name(key))
+    if invalid:
+        msg = f"printers.{invalid[0]}: a printer name takes letters, digits, '_' and '-' (not first), no ':'"
+        raise ConfigurationError(msg)
+    if not name:
+        return {}
+    section: object = printers.get(name)
+    if not isinstance(section, Mapping):
+        configured = ", ".join(sorted(printers)) or "none"
+        msg = f"no printer named '{name}' in [printers]; configured: {configured}"
+        raise ConfigurationError(msg)
+    return cast("Mapping[str, Any]", section)
 
 
 def _given(override: _T | None, configured: _T) -> _T:
@@ -154,7 +185,7 @@ def require_uri(settings: PrinterSettings) -> str:
         ConfigurationError: Neither ``--printer`` nor ``[printer] uri`` names a printer.
     """
     if not settings.uri:
-        msg = "no printer given: pass --printer URI or set [printer] uri"
+        msg = "no printer given: pass --printer NAME or URI, or set [printer] uri"
         raise ConfigurationError(msg)
     return settings.uri
 

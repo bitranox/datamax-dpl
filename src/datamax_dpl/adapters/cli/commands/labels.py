@@ -23,7 +23,7 @@ from ..payloads import RenderPayload, findings_text, render_payload
 from ..runner import CommandResult, run_command
 from ..settings import render_options
 from ..typed_click import argument, option
-from .model_options import render_options_decorator, resolve_settings
+from .model_options import printer_choice_decorator, render_options_decorator, resolve_settings
 
 if TYPE_CHECKING:
     from ....domain.render import RenderResult
@@ -78,6 +78,7 @@ def _human(payload: RenderPayload, *, show_dpl: bool) -> str:
 @option("--data", default=None, help=_DATA_HELP)
 @option("-o", "--output", default=None, help="Write the DPL bytes to this file ('-' for raw bytes on stdout).")
 @render_options_decorator
+@printer_choice_decorator
 @click.pass_context
 def cli_render(ctx: click.Context, label_source: str, data: str | None, output: str | None, **given: Any) -> None:
     """Render a label to DPL and report every finding.
@@ -113,6 +114,7 @@ def _write_output(output: str, data: bytes, *, raw_stdout_allowed: bool) -> None
 @argument("label_source", metavar="LABEL")
 @option("--data", default=None, help=_DATA_HELP)
 @render_options_decorator
+@printer_choice_decorator
 @click.pass_context
 def cli_validate(ctx: click.Context, label_source: str, data: str | None, **given: Any) -> None:
     """Check a label against a printer model without printing; exit 1 on an error finding."""

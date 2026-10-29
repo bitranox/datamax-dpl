@@ -18,6 +18,8 @@ from datamax_dpl.adapters.transport.uri import (
     StdoutUri,
     TcpUri,
     check_timeout,
+    is_printer_name,
+    is_printer_uri,
     parse_printer_uri,
     transport_error,
     unsupported_query,
@@ -236,3 +238,37 @@ def test_a_one_way_refusal_names_the_channel() -> None:
     error = unsupported_query(FileUri(path="job.dpl"))
     assert isinstance(error, UnsupportedOperationError)
     assert "file job.dpl" in str(error)
+
+
+# ======================== printer URI or printer name ========================
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "text",
+    [
+        "-",
+        "tcp://192.0.2.60:9100",
+        "serial:///dev/ttyS0?baud=9600",
+        "serial://COM3",
+        "device:///dev/usb/lp0",
+        "file:out.dpl",
+        "file:///tmp/x",
+    ],
+)
+def test_every_uri_form_is_a_uri_and_not_a_name(text: str) -> None:
+    assert is_printer_uri(text)
+    assert not is_printer_name(text)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("text", ["lager", "lager-2", "L3", "_spare"])
+def test_a_plain_word_is_a_name_and_not_a_uri(text: str) -> None:
+    assert is_printer_name(text)
+    assert not is_printer_uri(text)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("text", ["a:b", "lager.x", "", "-x", "x" * 65, "lager "])
+def test_other_text_is_not_a_name(text: str) -> None:
+    assert not is_printer_name(text)

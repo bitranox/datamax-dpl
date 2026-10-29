@@ -328,3 +328,126 @@ def test_both_configured_scales_reach_render_options() -> None:
     options = render_options(PrinterSettings(scale_across=0.99, scale_along=0.977))
 
     assert (options.scale_across, options.scale_along) == (0.99, 0.977)
+
+
+# ======================== named printers ========================
+
+
+def _lager(**extra: Any) -> dict[str, Any]:
+    return {"printers": {"lager": {"model": "allegro-2", "scale_along": 0.8, **extra}}}
+
+
+def _render_named(cli_runner: CliRunner, factory: Callable[[], Any], tmp_path: Path, *args: str) -> Result:
+    label = tmp_path / "line.json"
+    label.write_text(json.dumps(_VERTICAL_LINE), encoding="utf-8")
+    return cli_runner.invoke(cli_mod.cli, ["--json", "render", str(label), *args], obj=factory)
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printer_supplies_its_model_and_scale_to_render(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    tmp_path: Path,
+) -> None:
+    result = _render_named(cli_runner, config_cli_context(_lager()), tmp_path, "--printer", "lager")
+
+    data = json.loads(result.stdout)["data"]
+    assert result.exit_code == 0, result.output
+    assert data["model"] == "allegro-2"
+    # whole-dot unit (10 mm = 40 units) divided by the 0.8 feed scale: row 50, length 500
+    assert "1X1100000500040L002500" in data["dpl"]
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printer_sends_to_its_own_uri(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "out.dpl"
+    factory = config_cli_context(_lager(uri=f"file:{target}"))
+    label = tmp_path / "line.json"
+    label.write_text(json.dumps(_VERTICAL_LINE), encoding="utf-8")
+
+    result = cli_runner.invoke(cli_mod.cli, ["--json", "print", str(label), "--printer", "lager"], obj=factory)
+
+    assert result.exit_code == 0, result.output
+    assert b"1X1100000500040L002500" in target.read_bytes()
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printer_inherits_what_it_does_not_set_from_the_printer_section(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    tmp_path: Path,
+) -> None:
+    factory = config_cli_context({"printer": {"policy": "strict"}, **_lager()})
+    label = tmp_path / "cut.json"
+    label.write_text(json.dumps({"elements": [{"type": "circle", "x": 20, "y": 20, "radius": 5}]}), encoding="utf-8")
+
+    result = cli_runner.invoke(cli_mod.cli, ["--json", "validate", str(label), "--printer", "lager"], obj=factory)
+
+    # strict comes from [printer]; the allegro-2 has no circle command, so strict refuses it
+    assert result.exit_code == 1, result.output
+
+
+@pytest.mark.os_agnostic
+def test_a_command_line_model_beats_the_named_printer(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    tmp_path: Path,
+) -> None:
+    result = _render_named(
+        cli_runner, config_cli_context(_lager()), tmp_path, "--printer", "lager", "--model", "allegro"
+    )
+
+    assert json.loads(result.stdout)["data"]["model"] == "allegro"
+
+
+@pytest.mark.os_agnostic
+def test_an_unknown_printer_name_lists_the_configured_ones(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    tmp_path: Path,
+) -> None:
+    result = _render_named(cli_runner, config_cli_context(_lager()), tmp_path, "--printer", "keller")
+
+    envelope = json.loads(result.stdout)
+    assert result.exit_code == 2
+    assert envelope["error"] == "ConfigurationError"
+    assert envelope["message"] == "no printer named 'keller' in [printers]; configured: lager"
+
+
+@pytest.mark.os_agnostic
+def test_a_printer_section_with_an_invalid_name_is_refused(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    tmp_path: Path,
+) -> None:
+    factory = config_cli_context({"printers": {"a:b": {"model": "allegro"}}})
+
+    result = _render_named(cli_runner, factory, tmp_path, "--printer", "lager")
+
+    envelope = json.loads(result.stdout)
+    assert result.exit_code == 2
+    assert "printers.a:b" in envelope["message"]
+
+
+@pytest.mark.os_agnostic
+def test_a_printer_uri_still_sets_the_address(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "direct.dpl"
+    label = tmp_path / "line.json"
+    label.write_text(json.dumps(_VERTICAL_LINE), encoding="utf-8")
+
+    result = cli_runner.invoke(
+        cli_mod.cli,
+        ["--json", "print", str(label), "--model", "allegro", "--printer", f"file:{target}"],
+        obj=config_cli_context(_lager()),
+    )
+
+    assert result.exit_code == 0, result.output
+    assert b"1X1100000390039L002394" in target.read_bytes()

@@ -17,6 +17,11 @@ All notable changes to this project are documented here. The format follows
 - `[printer] scale_across` and `scale_along` in the configuration (and
   `--set printer.scale_along=0.977`) pass those factors to every command that
   renders; a value outside 0.5-1.5 is refused with its key named.
+- Named printers: `[printers.<name>]` sections in the configuration, each
+  with the keys of `[printer]` (which it inherits from) plus `label_width` and
+  `label_height`. `--printer` takes a name or a URI; `render` and `validate`
+  take it too, so a named printer supplies its model and scale factors. An
+  unknown name is refused with the configured names listed.
 
 ### Fixed
 

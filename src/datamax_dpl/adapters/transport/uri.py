@@ -142,6 +142,33 @@ class StdoutUri(BaseModel, frozen=True, extra="forbid"):
 PrinterUri = Annotated[TcpUri | SerialUri | DeviceUri | FileUri | StdoutUri, Field(discriminator="kind")]
 
 
+#: A configured printer's name: a word that can never be read as a URI (no ``:``, never ``-``).
+_PRINTER_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]{0,63}")
+
+
+def is_printer_uri(text: str) -> bool:
+    """Return True when ``text`` names a printer by address, as :func:`parse_printer_uri` reads it.
+
+    It checks the form only (``-`` or a known scheme prefix); whether the rest parses is
+    :func:`parse_printer_uri`'s job.
+
+    Example:
+        >>> is_printer_uri("tcp://192.0.2.60:9100"), is_printer_uri("-"), is_printer_uri("lager")
+        (True, True, False)
+    """
+    return text == _STDOUT or text.startswith((_TCP_PREFIX, _SERIAL_PREFIX, _DEVICE_PREFIX, _FILE_PREFIX))
+
+
+def is_printer_name(text: str) -> bool:
+    """Return True when ``text`` is a valid name for a configured printer (``[printers.<name>]``).
+
+    Example:
+        >>> is_printer_name("lager"), is_printer_name("a:b"), is_printer_name("-")
+        (True, False, False)
+    """
+    return _PRINTER_NAME.fullmatch(text) is not None
+
+
 def parse_printer_uri(uri: str) -> PrinterUri:
     """Parse a printer URI into its typed form.
 
@@ -366,6 +393,8 @@ __all__ = [
     "TcpUri",
     "channel_name",
     "check_timeout",
+    "is_printer_name",
+    "is_printer_uri",
     "parse_printer_uri",
     "transport_error",
     "unsupported_query",
