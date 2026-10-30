@@ -46,7 +46,7 @@ def image_edge(column: int, *, what: str, ctx: RenderContext) -> ImageEdge:
 
     Args:
         column: The record's column, as :func:`column_of` returned it.
-        what: Names the image in a refusal, e.g. ``image LOGO``.
+        what: What the element is, naming the image in a refusal after its position, e.g. ``image LOGO``.
         ctx: The render context.
     """
     return ImageEdge(column=column if column <= last_column(ctx) else None, what=what)

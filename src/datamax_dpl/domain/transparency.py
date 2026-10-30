@@ -179,7 +179,7 @@ def _emulate_group(label: Label, group: tuple[int, ...], ctx: RenderContext) -> 
     halvable = not any(isinstance(label.elements[index], Qr) for index in group)
     edge = ImageEdge(
         column=None if refused & _PRINT_WIDTH_REFUSALS else merged.column,
-        what=f"the merged image of elements {', '.join(map(str, group))}",
+        what=f"merged image of elements {', '.join(map(str, group))}",
     )
     placed = ctx.download_drawn_image(merged.bitmap, element=first, edge=edge, halvable=halvable)
     _keep_named_downloads(label, group, ctx)

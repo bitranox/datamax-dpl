@@ -135,7 +135,7 @@ def rasterize(element: Graphic, *, index: int, ctx: RenderContext, reason: str) 
     column = column_of(frame.left, index=index, ctx=ctx)
     bitmap = Bitmap(frame.width_dots, frame.height_dots)
     draw_graphic(element, bitmap, frame, ctx)
-    edge = image_edge(column, what=f"the {element.type} drawn as an image", ctx=ctx)
+    edge = image_edge(column, what=element.type, ctx=ctx)
     placed = ctx.download_drawn_image(bitmap, element=index, edge=edge)
     if placed is None:
         return []

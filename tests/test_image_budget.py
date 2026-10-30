@@ -149,6 +149,25 @@ def test_a_stored_image_the_job_only_places_costs_nothing() -> None:
     assert result.ok, result.findings
 
 
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("stored_first", [True, False])
+def test_a_stored_only_reference_to_a_name_the_job_downloads_need_not_be_on_the_printer(stored_first: bool) -> None:
+    """The job itself downloads LOGO, whichever element comes first, so nothing must be stored beforehand."""
+    stored = {"type": "image", "x": 5, "y": 5, "name": "LOGO"}
+    elements = (stored, USER_IMAGE) if stored_first else (USER_IMAGE, stored)
+    result = build_job(label(*elements), RenderOptions(model="dmx-600"))
+    assert FindingCode.IMAGE_MUST_BE_STORED not in codes(result)
+    assert result.downloads == ("LOGO",)
+
+
+@pytest.mark.os_agnostic
+def test_a_stored_only_image_no_element_downloads_must_be_on_the_printer() -> None:
+    stored = {"type": "image", "x": 5, "y": 5, "name": "LOGO"}
+    other = {**USER_IMAGE, "name": "OTHER"}
+    finding = only(build_job(label(stored, other), RenderOptions(model="dmx-600")), FindingCode.IMAGE_MUST_BE_STORED)
+    assert (finding.element, finding.message) == (0, "image LOGO must already be on the printer")
+
+
 # ======================== the budget and where it comes from ========================
 
 

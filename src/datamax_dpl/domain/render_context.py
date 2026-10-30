@@ -206,7 +206,8 @@ class ImageEdge:
         column: DPL column the record writes, where the image's first dot prints; None when the
             field is already refused for starting past the last column (``outside_print_width``),
             so its right edge gets no second finding.
-        what: Names the image in the refusal, e.g. ``image LOGO``.
+        what: What the element is, naming the image in a refusal after the element's position:
+            ``image LOGO`` reads ``element 3 (image LOGO)``.
         code: The finding an image ending past the print width gets; a QR Code keeps its own.
         margin_dots: Dots right of the image that must fit too: a QR Code's quiet zone.
 
@@ -381,13 +382,26 @@ class RenderContext:
         """Convert a label length on ``axis`` to the nearest whole number of dots, zero allowed (a position)."""
         return round(exact_dots(value, self.unit, dpi=self.profile.dpi, correction=self.correction(axis)))
 
-    def _fits_an_image_row(self, name: str, bitmap: Bitmap, *, element: int) -> bool:
-        """Refuse an image wider than one row record holds, on the element that made it."""
+    @staticmethod
+    def _described(edge: ImageEdge, *, element: int) -> str:
+        """Name an image in a refusal by its element and what it is: ``element 3 (image LOGO)``."""
+        return f"element {element} ({edge.what})"
+
+    def _fits_an_image_row(self, described: str, bitmap: Bitmap, *, element: int) -> bool:
+        """Refuse an image wider than one row record holds, on the element that made it.
+
+        Args:
+            described: Names the image in the message, ``element 3 (image LOGO)``; a drawn image
+                adds the name the job would queue it under, ``element 3 (polygon) drawn as image
+                D1A2B3C4``.
+            bitmap: The image as it would be sent.
+            element: Position of the element in the label.
+        """
         if bitmap.width <= MAX_WIDTH:
             return True
         self.findings.refuse(
             FindingCode.IMAGE_TOO_WIDE,
-            f"image {name} is {bitmap.width} dots wide; one image row holds at most {MAX_WIDTH} dots",
+            f"{described} is {bitmap.width} dots wide; one image row holds at most {MAX_WIDTH} dots",
             element=element,
         )
         return False
@@ -445,7 +459,8 @@ class RenderContext:
         if end > limit:
             self.findings.refuse(
                 edge.code,
-                f"{edge.what} ends at dot {end}; it passes the {limit}-dot print width of {self.profile.name}",
+                f"{self._described(edge, element=element)} ends at dot {end}; "
+                f"it passes the {limit}-dot print width of {self.profile.name}",
                 element=element,
             )
 
@@ -482,7 +497,7 @@ class RenderContext:
             ValueError: When the name is not 1-8 letters, digits or underscores.
         """
         sent, placed_at = self._sent_form(bitmap, what=f"image {name}", element=element, magnification=magnification)
-        if not self._fits_an_image_row(name, sent, element=element):
+        if not self._fits_an_image_row(self._described(edge, element=element), sent, element=element):
             return None
         module = self._module(element=element)
         if module is None:
@@ -490,8 +505,10 @@ class RenderContext:
         size = (sent.width, sent.height)
         # Halving always doubles the magnification, so a changed one means the bits were halved.
         if placed_at != magnification:
-            placed = PlacedImage(name=self._queue_drawn(sent, module=module), magnification=placed_at, size=size)
-            return self._checked(placed, edge=edge, element=element)
+            drawn = self._queue_drawn(self._drawn_name(sent), sent, module=module)
+            return self._checked(
+                PlacedImage(name=drawn, magnification=placed_at, size=size), edge=edge, element=element
+            )
         self.downloads.append(ImageDownload(name=name, command=download_command(name, sent, module=module)))
         return self._checked(PlacedImage(name=name, magnification=placed_at, size=size), edge=edge, element=element)
 
@@ -516,13 +533,15 @@ class RenderContext:
         sent, placed_at = self._sent_form(bitmap, what=f"image {name}", element=element, magnification=magnification)
         if placed_at == magnification:
             return PlacedImage(name=name, magnification=magnification)
-        if not self._fits_an_image_row(name, sent, element=element):
+        if not self._fits_an_image_row(self._described(edge, element=element), sent, element=element):
             return None
         module = self._module(element=element)
         if module is None:
             return None
         placed = PlacedImage(
-            name=self._queue_drawn(sent, module=module), magnification=placed_at, size=(sent.width, sent.height)
+            name=self._queue_drawn(self._drawn_name(sent), sent, module=module),
+            magnification=placed_at,
+            size=(sent.width, sent.height),
         )
         return self._checked(placed, edge=edge, element=element)
 
@@ -555,32 +574,49 @@ class RenderContext:
         sent, placed_at = bitmap, magnification
         if halvable:
             sent, placed_at = self._sent_form(bitmap, what="drawn image", element=element, magnification=magnification)
-        if not self._fits_an_image_row(drawn_image_name(sent), sent, element=element):
+        # Named before the check, so a refusal gives the name the job would queue it under.
+        name = self._drawn_name(sent)
+        described = f"{self._described(edge, element=element)} drawn as image {name}"
+        if not self._fits_an_image_row(described, sent, element=element):
             return None
         module = self._module(element=element)
         if module is None:
             return None
         placed = PlacedImage(
-            name=self._queue_drawn(sent, module=module), magnification=placed_at, size=(sent.width, sent.height)
+            name=self._queue_drawn(name, sent, module=module), magnification=placed_at, size=(sent.width, sent.height)
         )
         return self._checked(placed, edge=edge, element=element)
 
-    def _queue_drawn(self, bitmap: Bitmap, *, module: str) -> str:
-        """Queue ``bitmap`` into ``module`` under the first free salted content name and return the name."""
+    def _drawn_name(self, bitmap: Bitmap) -> str:
+        """Return the name this job queues ``bitmap`` under: its first salted content name that is free.
+
+        A name is free when no label ``image`` reserves it and no download of the job holds it, or
+        the download holding it is this very bitmap. Picked without queuing, so a refusal can name
+        what the job would have sent.
+        """
         salt = 0
-        while True:
-            name = drawn_image_name(bitmap, salt=salt)
-            if name in self.reserved_image_names:
-                salt += 1
-                continue
-            command = download_command(name, bitmap, module=module)
-            held = next((download.command for download in self.downloads if download.name == name), None)
-            if held is None:
-                self.downloads.append(ImageDownload(name=name, command=command))
-                return name
-            if held == command:
-                return name
+        while not self._name_is_free(drawn_image_name(bitmap, salt=salt), bitmap):
             salt += 1
+        return drawn_image_name(bitmap, salt=salt)
+
+    def _name_is_free(self, name: str, bitmap: Bitmap) -> bool:
+        """Return True when ``bitmap`` may be queued under ``name`` in this job."""
+        if name in self.reserved_image_names:
+            return False
+        held = next((download.command for download in self.downloads if download.name == name), None)
+        if held is None:
+            return True
+        # Every download of the job fits one row record and goes to its image module, so an image
+        # too wide for a row, or a job without a module, never holds a name already.
+        if bitmap.width > MAX_WIDTH or self.image_module is None:
+            return False
+        return held == download_command(name, bitmap, module=self.image_module)
+
+    def _queue_drawn(self, name: str, bitmap: Bitmap, *, module: str) -> str:
+        """Queue ``bitmap`` into ``module`` under ``name`` (from :meth:`_drawn_name`), once, and return the name."""
+        if all(download.name != name for download in self.downloads):
+            self.downloads.append(ImageDownload(name=name, command=download_command(name, bitmap, module=module)))
+        return name
 
 
 __all__ = [

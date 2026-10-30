@@ -351,7 +351,8 @@ described in the Datamax manual and is passed through as written.
 | `magnification` | integer 1-9, default 1    | Printer dots per image dot, across and along.                                                 |
 
 With `bitmap` the image is downloaded to the printer under `name` before the label. Without it the
-image must already be stored on the printer, and the info finding `image_must_be_stored` says so.
+image must already be stored on the printer, and the info finding `image_must_be_stored` says so,
+unless another `image` element of the label downloads that name.
 An image with `bitmap` that ends past the model's printable width, its width times its
 magnification counted from the column it starts at, is refused with `image_past_print_width`
 under both policies; so is a raster fallback or a merged transparency image that does. A stored

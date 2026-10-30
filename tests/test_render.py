@@ -15,6 +15,8 @@ from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.symbology import Symbology
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from datamax_dpl.domain.findings import Finding
 
 STX = b"\x02"
@@ -839,6 +841,43 @@ def test_a_raster_fallback_of_exactly_2040_dots_fits_and_2041_is_refused(box_dot
     assert (FindingCode.IMAGE_PAST_PRINT_WIDTH in codes) is fits
     assert len(result.downloads) == (1 if fits else 0)
     assert len(image_placements(result.data)) == (1 if fits else 0)
+
+
+_DRAWN_NAME = re.compile(r"D[0-9A-F]{7}")
+
+
+def _too_wide_message(elements: Sequence[Mapping[str, object]]) -> str:
+    """The ``image_too_wide`` message an Allegro 2 gives the one over-wide image, element 3."""
+    result = build_job(Label.model_validate({"unit": "dots", "elements": elements}), RenderOptions(model="allegro-2"))
+    [finding] = [f for f in result.findings if f.code is FindingCode.IMAGE_TOO_WIDE]
+    assert finding.element == 3
+    return finding.message
+
+
+@pytest.mark.os_agnostic
+def test_an_over_wide_drawn_image_names_its_element_and_the_name_it_would_be_queued_under() -> None:
+    """A polygon 2100 dots wide on an Allegro 2 (no polygon record) is drawn 2100 dots wide.
+
+    With its content name taken by a label image, the job would queue it under the next salted
+    name, so that is the name the message gives, not the unsalted content hash.
+    """
+    polygon = {"type": "polygon", "points": [{"x": 0, "y": 5}, {"x": 2099, "y": 5}, {"x": 0, "y": 40}]}
+    text = {"type": "text", "x": 1, "y": 1, "text": "x"}
+    free = _too_wide_message([text, text, text, polygon])
+    [content_name] = _DRAWN_NAME.findall(free)
+    assert free == f"element 3 (polygon) drawn as image {content_name} is 2100 dots wide; {_ROW_LIMIT_PHRASE}"
+    taken = _too_wide_message([{"type": "image", "x": 0, "y": 0, "name": content_name}, text, text, polygon])
+    [salted_name] = _DRAWN_NAME.findall(taken)
+    assert salted_name != content_name
+    assert taken == f"element 3 (polygon) drawn as image {salted_name} is 2100 dots wide; {_ROW_LIMIT_PHRASE}"
+
+
+@pytest.mark.os_agnostic
+def test_an_over_wide_user_image_names_the_image_and_its_element() -> None:
+    wide = {"type": "image", "x": 0, "y": 0, "name": "WIDE", "bitmap": ["#" * 2041]}
+    result = build_job(Label.model_validate({"elements": [wide]}), RenderOptions(model="permissive"))
+    [finding] = [f for f in result.findings if f.code is FindingCode.IMAGE_TOO_WIDE]
+    assert finding.message == f"element 0 (image WIDE) is 2041 dots wide; {_ROW_LIMIT_PHRASE}"
 
 
 # ======================== images past the print width ========================

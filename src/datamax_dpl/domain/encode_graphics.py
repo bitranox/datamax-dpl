@@ -166,7 +166,8 @@ def encode_image(element: Image, *, index: int, ctx: RenderContext) -> list[byte
     the element's name at its magnification, or, when the job halves its images, the halved image's
     content name at double the magnification (also for a stored-only reference to a name the job
     downloads). An image of known size that ends past the print width is refused
-    (``image_past_print_width``).
+    (``image_past_print_width``). A stored-only reference must already be on the printer
+    (``image_must_be_stored``) unless another element of the job downloads its name.
     """
     row = row_of(element.y, index=index, ctx=ctx)
     column = column_of(element.x, index=index, ctx=ctx)
@@ -175,9 +176,10 @@ def encode_image(element: Image, *, index: int, ctx: RenderContext) -> list[byte
         bitmap = Bitmap.from_rows(element.bitmap)
         placed = ctx.download_image(element.name, bitmap, element=index, edge=edge, magnification=element.magnification)
     else:
-        ctx.findings.info(
-            FindingCode.IMAGE_MUST_BE_STORED, f"image {element.name} must already be on the printer", element=index
-        )
+        if element.name not in ctx.bitmap_rows:
+            ctx.findings.info(
+                FindingCode.IMAGE_MUST_BE_STORED, f"image {element.name} must already be on the printer", element=index
+            )
         placed = ctx.place_stored_image(element.name, element=index, edge=edge, magnification=element.magnification)
     if placed is None:
         return []
@@ -223,7 +225,7 @@ def encode_qr(element: Qr, *, index: int, ctx: RenderContext) -> list[bytes]:
     # whose field is inside past the last column, and that symbol must still be refused.
     edge = ImageEdge(
         column=column if field_column <= last_column(ctx) else None,
-        what=f"the {element.type} element with its quiet zone",
+        what=f"{element.type} with its quiet zone",
         code=FindingCode.QR_PAST_PRINT_WIDTH,
         margin_dots=element.quiet_zone * element.module_dots,
     )
