@@ -341,8 +341,8 @@ def _check_format_length(label: Label, ctx: RenderContext, *, max_rows: int | No
     escape = "a label dot_size of height 2 doubles it, and " if height == 1 else ""
     ctx.findings.refuse(
         FindingCode.FORMAT_PAST_MAX_LENGTH,
-        f"the field reaches dot row {row} along the feed, past row {limit} (about {mm:.1f} mm), beyond which a "
-        f"{ctx.profile.name} format may be cut at dot_size height {height}; {escape}max_format_rows sets another limit",
+        f"the field reaches dot row {row} along the feed, past row {limit} (about {mm:.1f} mm), beyond which the "
+        f"{ctx.profile.name} may cut a format at dot_size height {height}; {escape}max_format_rows sets another limit",
         element=index,
     )
 

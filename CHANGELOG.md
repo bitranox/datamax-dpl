@@ -45,7 +45,7 @@ All notable changes to this project are documented here. The format follows
   format with nothing tall printed to 1675), so the limit is conservative
   and `max_format_rows` raises it. The tear-off `stop_position` is 66.8 mm,
   sent as `<STX>f263`.
-- `format_past_max_length` says a format past the row may be cut, not
+- `format_past_max_length` says the model may cut a format past the row, not
   that it cannot hold it.
 - `calibrate print` and `calibrate set` default `--along-length` to the
   longest bar in whole 10 mm, at most 200 mm, that one format holds at the

@@ -1360,7 +1360,9 @@ def test_an_allegro_2_format_reaches_row_1648_and_not_row_1649() -> None:
     (refused,) = _format_length_findings(build_job(_image_reaching(1649, options), options))
     assert "dot row 1649" in refused.message
     assert "past row 1648" in refused.message
-    assert "may be cut" in refused.message
+    assert "beyond which the Allegro 2 may cut a format at dot_size height 1;" in refused.message
+    assert "a label dot_size of height 2 doubles it" in refused.message
+    assert "max_format_rows sets another limit" in refused.message
 
 
 def _stored_logo(y: float) -> Label:
