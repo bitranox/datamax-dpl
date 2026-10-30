@@ -280,11 +280,16 @@ def _reach(element: Element, ctx: RenderContext) -> int | None:
 
     The row is the one the encoder commands (``overlap`` places every field at its record's
     position, scale and offset included); text and barcodes count by the rectangle the preview
-    draws for them.
+    draws for them. An image only the printer holds counts by its reference row alone: its size
+    is unknown here, and the preview's stand-in size would refuse labels that print.
     """
     dots = printed_dots(element, ctx)
-    area = dots.area if dots is not None else inexact_rectangle(element, ctx)
-    return None if area is None else area.top
+    if dots is not None:
+        return dots.area.top
+    area = inexact_rectangle(element, ctx)
+    if area is None:
+        return None
+    return area.bottom if isinstance(element, Image) else area.top
 
 
 def _check_format_length(label: Label, ctx: RenderContext, *, max_rows: int | None) -> None:

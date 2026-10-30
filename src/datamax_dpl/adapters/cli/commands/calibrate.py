@@ -147,22 +147,22 @@ def cli_calibrate_print(
         axes = AxisChoice(axis).axes
         options = render_options(settings)
         calibration = effective_calibration(options)
-        labels = [
-            _label(settings, part, calibration=calibration, width=width, height=height, along_length=along_length)
+        labels = {
+            part: _label(settings, part, calibration=calibration, width=width, height=height, along_length=along_length)
             for part in axes
-        ]
-        results = [build_job(label, options) for label in labels]
-        payload = _print_payload(settings, calibration, axes=axes, results=results)
-        if not all(result.ok for result in results):
-            along = dict(zip(axes, zip(labels, results, strict=True), strict=True)).get(Axis.ALONG)
-            if along is not None and _too_long(along[1]):
-                payload = _with_length_hint(payload, along[0], settings=settings, options=options, below=along_length)
+        }
+        results = {part: build_job(label, options) for part, label in labels.items()}
+        payload = _print_payload(settings, calibration, axes=axes, results=list(results.values()))
+        if not all(result.ok for result in results.values()):
+            if _only_the_along_bar_too_long(results):
+                along = labels[Axis.ALONG]
+                payload = _with_length_hint(payload, along, settings=settings, options=options, below=along_length)
             human = "REFUSED: nothing sent" if payload.hint is None else f"REFUSED: nothing sent\n{payload.hint}"
             return CommandResult(ok=False, payload=payload, human=human)
         uri = require_uri(settings)
         # One send for both formats: a print server can refuse a reconnect for a second or two.
         report = send_bytes(
-            b"".join(r.data for r in results),
+            b"".join(r.data for r in results.values()),
             uri=uri,
             timeout=settings.timeout,
             open_printer=cli_ctx.services.open_printer,
@@ -173,8 +173,12 @@ def cli_calibrate_print(
     run_command(ctx, command="calibrate print", body=body)
 
 
-def _too_long(result: RenderResult) -> bool:
-    return any(finding.code is FindingCode.FORMAT_PAST_MAX_LENGTH for finding in result.findings)
+def _only_the_along_bar_too_long(results: dict[Axis, RenderResult]) -> bool:
+    """Whether the along bar's length is the job's only error, so a shorter bar alone would print."""
+    errors = [(axis, finding.code) for axis, result in results.items() for finding in result.errors]
+    return bool(errors) and all(
+        (axis, code) == (Axis.ALONG, FindingCode.FORMAT_PAST_MAX_LENGTH) for axis, code in errors
+    )
 
 
 def _with_length_hint(

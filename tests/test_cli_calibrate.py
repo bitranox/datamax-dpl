@@ -126,6 +126,35 @@ def test_the_refusal_says_plainly_when_not_even_the_shortest_along_bar_fits(
 
 
 @pytest.mark.os_agnostic
+def test_both_labels_with_only_the_along_bar_too_long_name_the_along_length(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    factory = config_cli_context(_lager(tmp_path / "out.dpl", scale_along=0.9))
+
+    refused = _calibrate(cli_runner, factory, "--printer", "lager", "--axis", "both")
+
+    data = json.loads(refused.stdout)["data"]
+    assert refused.exit_code == 1, refused.output
+    assert data["along_length_that_fits"] is not None
+    assert "--along-length" in data["hint"]
+
+
+@pytest.mark.os_agnostic
+def test_both_labels_name_no_along_length_when_the_across_label_is_refused_too(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    """A retry with a shorter along bar would still be refused for the across label."""
+    factory = config_cli_context(_lager(tmp_path / "out.dpl", scale_along=0.9))
+
+    refused = _calibrate(cli_runner, factory, "--printer", "lager", "--axis", "both", "--height", "300")
+
+    data = json.loads(refused.stdout)["data"]
+    assert refused.exit_code == 1, refused.output
+    assert len([f for f in data["findings"] if f["severity"] == "error"]) == 2
+    assert (data["hint"], data["along_length_that_fits"]) == (None, None)
+
+
+@pytest.mark.os_agnostic
 def test_a_refusal_for_another_reason_names_no_along_length(
     cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
 ) -> None:

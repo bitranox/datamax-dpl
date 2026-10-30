@@ -1327,3 +1327,25 @@ def test_the_along_calibration_label_still_renders_on_an_allegro_2(width: float)
     result = build_job(label, RenderOptions(model="allegro-2"))
     assert _format_length_findings(result) == []
     assert result.ok, [f.message for f in result.errors]
+
+
+@pytest.mark.os_agnostic
+def test_the_v18_bar_from_2_to_202_mm_renders_at_the_allegro_2_defaults() -> None:
+    assert _format_length_findings(build_job(_vertical_line(202), RenderOptions(model="allegro-2"))) == []
+
+
+def _stored_logo(y: float) -> Label:
+    """A label placing an image only the printer holds: its size is unknown to the library."""
+    return Label.model_validate({"elements": [{"type": "image", "x": 5, "y": y, "name": "LOGO"}]})
+
+
+@pytest.mark.os_agnostic
+def test_a_stored_only_image_counts_by_its_reference_row_not_a_guessed_size() -> None:
+    result = build_job(_stored_logo(198), RenderOptions(model="allegro-2"))
+    assert _format_length_findings(result) == []
+
+
+@pytest.mark.os_agnostic
+def test_a_stored_only_image_whose_reference_row_passes_the_limit_is_refused() -> None:
+    result = build_job(_stored_logo(205), RenderOptions(model="allegro-2"))
+    assert [f.element for f in _format_length_findings(result)] == [0]

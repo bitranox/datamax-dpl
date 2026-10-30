@@ -116,7 +116,8 @@ A format holds only so many dot rows along the feed: the Allegro 2 cut a longer 
 job commands the rows at dot height 1 (the printer's scale_along and offset_along included, so
 1654 rows are about 202 mm on an Allegro 2 at its default scale). A label whose highest field
 passes it is refused under both policies (`format_past_max_length`); text and barcodes count by
-the rectangle the preview draws for them. A label `dot_size` of height 2 doubles the limit, and
+the rectangle the preview draws for them, and an image only the printer holds by its reference row
+alone, since its size is unknown. A label `dot_size` of height 2 doubles the limit, and
 `max_format_rows` (`[printer] max_format_rows` in the configuration) sets another one. The
 Allegro 2 value is provisional: it is the longest bar seen to print whole, until a ladder of
 lengths on the printer measures the real limit. No other model has one.
