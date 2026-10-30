@@ -306,11 +306,11 @@ def _parse_record(text: str, state: _State) -> tuple[Element | None, str]:
 def _image(text: str, state: _State) -> tuple[Element, str]:
     """An image placement, its square magnification in the rebuilt Image.
 
-    A dot width and height that differ, or one past the 9 an Image holds, is named in the meaning
+    A dot width and height that differ, or one outside the 1-9 an Image holds, is named in the meaning
     instead (``image, magnified 2x3``) and the rebuilt Image keeps magnification 1.
     """
     head = _head(text)
-    square = head.width == head.height and head.width <= MAX_IMAGE_MAGNIFICATION
+    square = head.width == head.height and 1 <= head.width <= MAX_IMAGE_MAGNIFICATION
     image = Image(
         name=text[_HEADER_LENGTH:],
         x=_scale(head.column, state),

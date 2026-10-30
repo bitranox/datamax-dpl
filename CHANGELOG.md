@@ -23,8 +23,9 @@ All notable changes to this project are documented here. The format follows
   that job is placed as the halved one, at double its own magnification. A QR Code is never halved. A job
   still past the budget after one halving, any job past it under `strict`,
   and an image whose doubled magnification would pass 9 are refused with
-  `image_memory_exceeded`. `preview` and `verify` draw halved images the way
-  they print. `RenderResult` gains `image_bytes` and `halved_elements`.
+  `image_memory_exceeded`. `preview` and `verify` draw halved images at their
+  printed size (a halved raster fallback can sit one dot off: the preview
+  halves its own nominal drawing, the printer the calibrated one). `RenderResult` gains `image_bytes` and `halved_elements`.
   `scripts/image_ladder.py` writes labels of growing image size around a
   budget, for the test on paper. Unverified on paper.
 - `image` element: `magnification` 1-9 (default 1), printer dots per image

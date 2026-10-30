@@ -250,3 +250,11 @@ def test_explain_names_a_non_square_image_magnification_the_image_cannot_hold() 
     [element] = explanation.label.elements
     assert isinstance(element, Image)
     assert element.magnification == 1
+
+
+@pytest.mark.os_agnostic
+def test_explain_names_a_zero_image_magnification_instead_of_failing_on_it() -> None:
+    data = render(Label(elements=[Image(x=5, y=5, name="LOGO")]), RenderOptions(model="dmx-600")).data
+    explanation = explain(data.replace(b"1Y11000", b"1Y00000"))
+    assert "image, magnified 0x0" in [command.meaning for command in explanation.commands]
+    assert explanation.problems == ()
