@@ -228,9 +228,14 @@ def test_status_connects_again_after_a_connect_timed_out(cli_runner: CliRunner, 
 
 @pytest.mark.os_agnostic
 def test_a_give_up_reports_the_seconds_waited_not_the_wait_asked_for(cli_runner: CliRunner, serve: Serve) -> None:
-    """With 1 s asked for and a 0.8 s pause, the second hang-up leaves no time for a third attempt: 0.8 s waited."""
+    """With 3 s asked for and a 2 s pause, the second hang-up leaves no time for a third attempt: about 2 s waited.
+
+    Sized for a loaded runner: the first hang-up has about 1 s to come back before the pause no
+    longer fits, and the server waits 3 s for the second connection, which comes after about 2 s.
+    """
+    wait, interval = 3.0, 2.0
     hang_up = hanging_up(STATUS_REQUEST)
-    server = serve(hang_up, hang_up, next_connection_within=NOT_AGAIN_SECONDS)
+    server = serve(hang_up, hang_up, next_connection_within=wait)
 
     started = time.monotonic()
     result = run(
@@ -238,9 +243,9 @@ def test_a_give_up_reports_the_seconds_waited_not_the_wait_asked_for(cli_runner:
         [
             "--json",
             "--set",
-            "printer.status_wait=1",
+            f"printer.status_wait={wait:g}",
             "--set",
-            "printer.status_retry_interval=0.8",
+            f"printer.status_retry_interval={interval:g}",
             "status",
             "--printer",
             server.address,
@@ -253,7 +258,9 @@ def test_a_give_up_reports_the_seconds_waited_not_the_wait_asked_for(cli_runner:
     message = envelope(result)["message"]
     seconds, attempts = gave_up(message)
     assert attempts == 2
-    assert 0.75 <= seconds <= min(elapsed, 0.95) + 0.05, f"{seconds=} {elapsed=:.2f}"
+    # At least the pause (less a coarse Windows clock tick), at most what passed, and short of the wait.
+    assert interval - 0.1 <= seconds <= elapsed + 0.05, f"{seconds=} {elapsed=:.2f}"
+    assert seconds < wait, f"{seconds=}"
     assert message.endswith(
         f"Last failure: tcp 127.0.0.1:{server.port}: the printer closed the connection (0 bytes read)"
     )

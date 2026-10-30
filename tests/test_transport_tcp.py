@@ -305,31 +305,43 @@ def test_a_reset_that_arrived_before_the_request_went_out_is_unanswered(serve: C
     assert (type(caught.value), caught.value.unanswered) == (TransportError, True)
 
 
-class _ResetOnSendSocket(socket.socket):
-    """A real socket whose peer resets it the moment anything is written."""
+class _FailingSendSocket(socket.socket):
+    """A real socket whose every write fails with ``error``, as a peer hanging up makes it fail."""
 
-    def __init__(self, *, fileno: int) -> None:
+    def __init__(self, *, fileno: int, error: OSError) -> None:
         super().__init__(fileno=fileno)
+        self.error = error
 
     def sendall(self, data: ReadableBuffer, flags: int = 0, /) -> None:
         del data, flags
-        raise ConnectionResetError(errno.ECONNRESET, "Connection reset by peer")
+        raise self.error
 
 
 @pytest.mark.os_agnostic
-def test_a_hang_up_while_writing_a_request_is_unanswered_and_one_while_sending_a_job_is_not() -> None:
+@pytest.mark.parametrize(
+    ("error", "request_unanswered"),
+    [
+        (ConnectionResetError(errno.ECONNRESET, "Connection reset by peer"), True),
+        # macOS reports a write to a socket the peer is tearing down this way, not as a ConnectionError.
+        (OSError(errno.EPROTOTYPE, "Protocol wrong type for socket"), True),
+        # Not a hang-up: the request may not be asked again on its account.
+        (OSError(errno.EBADF, "Bad file descriptor"), False),
+    ],
+    ids=["reset", "eprototype", "ebadf"],
+)
+def test_a_hang_up_while_writing_a_request_is_unanswered_and_one_while_sending_a_job_is_not(
+    error: OSError, request_unanswered: bool
+) -> None:
     """A request that did not go out owes no answer; a job cut off part way is not asked again by anyone."""
     ours, theirs = socket.socketpair()
-    with (
-        theirs,
-        TcpTransport(_ResetOnSendSocket(fileno=ours.detach()), uri=TcpUri(host="127.0.0.1"), timeout=2.0) as printer,
-    ):
+    failing = _FailingSendSocket(fileno=ours.detach(), error=error)
+    with theirs, TcpTransport(failing, uri=TcpUri(host="127.0.0.1"), timeout=2.0) as printer:
         with pytest.raises(TransportError, match="cannot write to") as request:
             printer.query(b"\x01A", timeout=1.0)
         with pytest.raises(TransportError, match="cannot write to") as job:
             printer.send(b"job")
 
-    assert (request.value.unanswered, job.value.unanswered) == (True, False)
+    assert (request.value.unanswered, job.value.unanswered) == (request_unanswered, False)
 
 
 @pytest.mark.os_agnostic

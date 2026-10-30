@@ -70,8 +70,12 @@ class PrinterServer:
     ) -> None:
         self.listener = socket.create_server(("127.0.0.1", 0), backlog=0 if queue_full_for else None)
         self.port: int = self.listener.getsockname()[1]
-        # Made before any client can connect, so the client finds the queue already full.
-        self._filler = socket.create_connection(("127.0.0.1", self.port)) if queue_full_for else None
+        # Made before any client can connect, so the client finds the queue already full. Bounded,
+        # so an OS that admits nothing at backlog 0 fails here at once instead of blocking for the
+        # system's own connect timeout (21-75 s).
+        self._filler = (
+            socket.create_connection(("127.0.0.1", self.port), timeout=JOIN_SECONDS) if queue_full_for else None
+        )
         if refuse_for:
             # Nothing bound, not bound without listening: macOS ignores a SYN to a bound port that
             # does not listen, so the client would wait out its timeout instead of being refused.

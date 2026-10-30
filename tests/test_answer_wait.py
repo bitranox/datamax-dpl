@@ -88,6 +88,49 @@ def refusing_then(*then: Callable[[], PrinterTransport]) -> Callable[..., Printe
     return open_printer
 
 
+class AnsweringChannel(SilentChannel):
+    """A channel that answers the status request at once: an idle printer."""
+
+    def query(
+        self,
+        request: bytes,
+        *,
+        timeout: float,
+        terminator: bytes = b"\r",
+        lines: int = 1,
+        accept: Callable[[bytes], bool] | None = None,
+    ) -> bytes:
+        del request, timeout, terminator, lines, accept
+        return b"NNNNNNNN\r"
+
+
+@pytest.mark.os_agnostic
+def test_a_connect_that_timed_out_is_tried_again_and_the_next_one_is_asked() -> None:
+    """The socket test of a full accept queue proves this only where the OS drops the SYN; this proves it anywhere."""
+    clock = Clock()
+    channel = AnsweringChannel(clock)
+    opened: list[float] = []
+
+    def open_printer(uri: str, *, timeout: float) -> PrinterTransport:
+        del uri
+        opened.append(timeout)
+        if len(opened) == 1:
+            clock.now += timeout
+            raise PrinterTimeoutError("cannot connect to tcp 192.0.2.60:9100: timed out", unanswered=True)
+        return channel
+
+    def sleep(seconds: float, /) -> None:
+        clock.now += seconds
+
+    wait = AnswerWait(seconds=5.0, retry_interval=0.25, clock=clock, sleep=sleep)
+
+    status = query_status(uri=PRINTER, timeout=1.0, open_printer=open_printer, wait=wait)
+
+    assert status.idle
+    assert len(opened) == 2
+    assert channel.closed
+
+
 @pytest.mark.os_agnostic
 def test_a_pause_that_overruns_the_wait_starts_no_attempt_and_keeps_the_last_failure() -> None:
     clock = Clock()

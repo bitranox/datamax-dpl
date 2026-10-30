@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import socket
 import time
 from typing import TYPE_CHECKING
@@ -190,7 +191,8 @@ class TcpTransport(ClosingTransport):
         """Drop what is already waiting, then write ``request``.
 
         A hang-up (reset, broken pipe) before the request is fully written is ``unanswered``: a
-        print server that resets a connection on accept took no request.
+        print server that resets a connection on accept took no request. A request is a few bytes
+        that go out in one piece, so a write that failed sent none of it.
         """
         self._discard_waiting()
         self._write(request, request=True)
@@ -204,7 +206,7 @@ class TcpTransport(ClosingTransport):
             for offset in range(0, len(view), SEND_CHUNK_BYTES):
                 self._sock.sendall(view[offset : offset + SEND_CHUNK_BYTES])
         except OSError as exc:
-            hung_up = request and isinstance(exc, ConnectionError)
+            hung_up = request and _is_hang_up(exc)
             raise transport_error(self._uri, action="write to", error=exc, unanswered=hung_up) from exc
 
     def _discard_waiting(self) -> None:
@@ -220,7 +222,7 @@ class TcpTransport(ClosingTransport):
         except BlockingIOError:
             pass
         except OSError as exc:
-            hung_up = isinstance(exc, ConnectionError)
+            hung_up = _is_hang_up(exc)
             raise transport_error(self._uri, action="read from", error=exc, unanswered=hung_up) from exc
         finally:
             self._sock.settimeout(self._timeout)
@@ -360,6 +362,21 @@ class _Lines:
 
     def _overflow(self) -> PrinterProtocolError:
         return answer_overflow(self._channel, limit=MAX_ANSWER_BYTES, skipped=self.skipped)
+
+
+def _is_hang_up(error: OSError) -> bool:
+    """Whether ``error`` means the peer closed the connection under us.
+
+    macOS can report a write to a socket the peer is tearing down as EPROTOTYPE ("Protocol wrong
+    type for socket"), a plain ``OSError`` rather than a ``ConnectionError``.
+
+    Example:
+        >>> _is_hang_up(BrokenPipeError(errno.EPIPE, "Broken pipe")), _is_hang_up(OSError(errno.EPROTOTYPE, "x"))
+        (True, True)
+        >>> _is_hang_up(OSError(errno.EBADF, "Bad file descriptor"))
+        False
+    """
+    return isinstance(error, ConnectionError) or error.errno == errno.EPROTOTYPE
 
 
 def _connect_retrying_refusals(uri: TcpUri, *, timeout: float) -> socket.socket:
