@@ -230,11 +230,36 @@ Where nothing is configured, a model's measured defaults apply: the `allegro-2` 
 The result names each default it used (`model_defaults_applied`); `calibrate print` prints with
 them and `calibrate set` starts from them. Any key you set, even `scale_along = 1.0`, wins.
 
-The printer stops a label at one of two positions: `stop_position` (tear-off) for a job that does
-not cut, `cutter_stop_position` for one that cuts; a job that cuts never uses the tear-off value.
-Both are sent exactly as configured, without scale or offset, and a label's own `stop_position`
-wins over either. Keys, bounds and the note for configurations deployed by 0.3.0 are in
-[CONFIG.md](CONFIG.md).
+The stop positions are configured beside the calibration; which one a job sends is in
+[Where the label stops](#where-the-label-stops).
+
+## Where the label stops
+
+After printing, the printer feeds the label to a stop position: the tear-off edge, the cutter, or
+where it is presented for removal. The first of these that applies decides it:
+
+1. The label's `stop_position`, in the label's unit, sent as `<STX>f` and corrected by the
+   printer's `scale_along` like every length on the label. It wins over every configured stop,
+   in a job that cuts too.
+2. The label's `present_distance`. PE42, PE43 and the Ovation models send it as `<STX>Kf`, beside
+   the stop the job sends anyway (steps 1 and 3). Every other model with `<STX>f` sends it as the
+   label's stop position instead, measured from the sensor rather than from the next label, and
+   reports `present_distance_unsupported`; with `stop_position` also set, both go out and the
+   present distance, sent second, is the one in force.
+3. A configured stop: `[printer] cutter_stop_position` for a job that cuts (the label has `cut`),
+   `[printer] stop_position` for every other job. Both are sent exactly as configured, without
+   scale or offset. An unset `stop_position` takes the model's default, which only `allegro-2`
+   has (67.4 mm, sent as `<STX>f265`); an unset `cutter_stop_position` has none, so a cutting job
+   then sends no stop.
+4. Nothing: the printer keeps its own setting.
+
+`generic`, `prodigy` and `prodigy-152` have no `<STX>f`. There a label's `stop_position` is not
+sent (`stop_position_unsupported`), a `present_distance` is ignored (`present_distance_unsupported`),
+and a configured stop is not sent either (the info `configured_stop_position_unsupported`; the
+job still prints, under `strict` too). A stop past 999/100 inch is refused
+(`stop_position_too_large`). `render` and `print` name the model's stop position in
+`model_defaults_applied` only when the job sends it. Keys, bounds and the note for configurations
+deployed by 0.3.0 are in [CONFIG.md](CONFIG.md).
 
 ## JSON output for scripts and LLMs
 

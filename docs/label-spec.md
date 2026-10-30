@@ -66,6 +66,10 @@ formats reports the info finding `inch_units`. Check placement without paper wit
 | `count_by`          | integer 1-99                           | none    | Count-by amount (`^nn`) for counters.                                                                 |
 | `plain_zero`        | boolean                                | false   | Print 0 without the slash in fonts 0-8 and barcodes (`z`).                                            |
 
+How `stop_position` and `present_distance` rank against the configured stop positions and the
+model's default, and what a model without `<STX>f` or `<STX>Kf` does with them, is in the README
+under [Where the label stops](../README.md#where-the-label-stops).
+
 Where fields overlap, the attribute decides what prints, and `preview` draws the same: 1 XOR
 prints only the dots an odd number of fields share, 2 transparent prints both, 3 opaque lets the
 later field whiten the rectangle it covers. Inverse (5) prints white on black, which the preview

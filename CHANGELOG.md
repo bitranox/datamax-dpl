@@ -162,6 +162,14 @@ All notable changes to this project are documented here. The format follows
   wiring against a file and a printer server on 127.0.0.1, so the hand-over
   of `--printer`, the model's defaults and `--timeout` to the transport is
   tested, not only the commands against an in-memory printer.
+- README: a new section, "Where the label stops", gives the order in which
+  a job's stop is decided (the label's `stop_position`, its
+  `present_distance`, the configured `cutter_stop_position` or
+  `stop_position`, the model's default, the printer's own setting) and what
+  PE42/PE43/Ovation and the models without `<STX>f` do differently;
+  docs/label-spec.md and CONFIG.md link to it. CONFIG.md no longer says a
+  present distance always replaces the configured stop: PE42, PE43 and the
+  Ovation models send it as `<STX>Kf` beside that stop.
 
 ### Fixed
 

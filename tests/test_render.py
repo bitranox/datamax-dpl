@@ -654,6 +654,16 @@ def test_a_model_with_a_present_distance_command_sends_it_beside_the_configured_
     assert result.findings == ()
 
 
+@pytest.mark.os_agnostic
+def test_a_present_distance_on_a_model_with_neither_command_is_ignored() -> None:
+    """The Prodigy has no ``<STX>Kf`` and no ``<STX>f``, so there is nothing to send it as."""
+    result = _stop_job({"present_distance": 30}, model="prodigy")
+    assert _stop_commands(result) == []
+    assert STX + b"Kf" not in result.data
+    (deviation,) = [f for f in result.findings if f.code is FindingCode.PRESENT_DISTANCE_UNSUPPORTED]
+    assert (deviation.fallback, deviation.severity) == ("ignored", Severity.WARNING)
+
+
 # ======================== the effective calibration, shared with the CLI ========================
 
 
