@@ -8,17 +8,21 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- `[printer] status_wait` (default 30 s) and `status_retry_interval` (0.25 s),
-  also per named printer: `status` and `memory` keep trying for the printer's
-  first answer while a print server is still busy with an earlier job. A
-  refused connection, or one closed before a byte of answer, is tried again
-  on a new one; an open but silent connection is read until the wait ends
-  and never asked a second time, so no second request is left outstanding.
-  A malformed answer is reported, not asked again. When the wait runs out
-  the error counts the attempts, quotes the last failure and names
+- `[printer] status_wait` (default 30 s, at most 2147483 s) and
+  `status_retry_interval` (0.25 s), also per named printer: `status` and
+  `memory` keep trying for the printer's first answer while a print server is
+  still busy with an earlier job. A connection that took no request - refused,
+  timed out while connecting, or closed or reset before the request was sent
+  or before a byte of answer - is tried again on a new one; an open but
+  silent connection is read until the wait ends and never asked a second
+  time, so no second request is left outstanding. A malformed answer is
+  reported, not asked again. When the wait runs out the error gives the
+  seconds actually waited (for `memory` at most 120 s, the cap on one
+  answer), counts the attempts, quotes the last failure and names
   `status_wait` and `--timeout`. `TransportError.unanswered` marks the
-  failures that may be retried; `application.use_cases.AnswerWait` carries
-  the wait for library callers.
+  failures that may be retried, and `TransportError.reason` is the message
+  without the transport's advice; `application.use_cases.AnswerWait`
+  carries the wait for library callers.
 
 ### Changed
 
@@ -26,6 +30,12 @@ All notable changes to this project are documented here. The format follows
   answer, retries included, in place of `status_wait`; before, it bounded
   one connect and one answer wait. Without `wait`, `query_status` and
   `read_memory_directory` keep trying for `timeout` seconds in all.
+- A printer that refuses every connection, or that cannot be connected to in
+  time, now makes `status` and `memory` fail only when their wait runs out:
+  a mistyped port, or a printer switched off behind a print server that
+  refuses, takes `status_wait` (30 s) to report, where it took about 3 s
+  before, and is reported as a `PrinterTimeoutError` instead of a
+  `TransportError`. An unknown or unreachable host still fails at once.
 - `read_memory_directory` with no kinds returns at once without opening the
   printer.
 - `allegro-2` model values measured on the printer: `max_format_rows` is

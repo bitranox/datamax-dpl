@@ -204,14 +204,18 @@ def transport_error(uri: PrinterUri, *, action: str, error: OSError, unanswered:
     """Turn an ``OSError`` into the :class:`~datamax_dpl.domain.errors.TransportError` callers see.
 
     A timeout becomes :class:`~datamax_dpl.domain.errors.PrinterTimeoutError`, so a caller can
-    tell a silent printer from a missing one. A refused connection is always ``unanswered``: no
-    request went out on it.
+    tell a printer that did not answer in time from one that refused or is unknown. A refused
+    connection is always ``unanswered``: no request went out on it. ``status`` and ``memory``
+    (``query_status``, ``read_memory_directory``) try an ``unanswered`` failure again until their
+    wait runs out and then report a timeout, so for them a printer that is missing altogether
+    also ends as :class:`~datamax_dpl.domain.errors.PrinterTimeoutError`.
 
     Args:
         uri: The channel the error happened on.
         action: What was attempted, e.g. ``open`` or ``write to``.
         error: The operating system's error.
-        unanswered: The channel ended before a byte of answer came (see ``TransportError``).
+        unanswered: The channel took no request (see ``TransportError``), such as a connect
+            that timed out.
 
     Returns:
         The error to raise (chain it with ``from error``); its message names the URI kind, the
@@ -229,7 +233,7 @@ def transport_error(uri: PrinterUri, *, action: str, error: OSError, unanswered:
     reason = error.strerror or str(error) or type(error).__name__
     message = f"cannot {action} {channel_name(uri)}: {reason}"
     if isinstance(error, TimeoutError):
-        return PrinterTimeoutError(message)
+        return PrinterTimeoutError(message, unanswered=unanswered)
     return TransportError(message, unanswered=unanswered or isinstance(error, ConnectionRefusedError))
 
 
@@ -337,9 +341,8 @@ def no_answer(
     if skipped.lines:
         detail += f"; {skipped.describe()}"
     message = f"{channel}: no complete answer within {wait.seconds:g} s ({detail})"
-    if not skipped.lines and not answer_started(received):
-        message += f"; {NO_ANSWER_HINT}"
-    return PrinterTimeoutError(message)
+    advice = NO_ANSWER_HINT if not skipped.lines and not answer_started(received) else ""
+    return PrinterTimeoutError(message, advice=advice)
 
 
 def answer_overflow(channel: str, *, limit: int, skipped: Skipped) -> PrinterProtocolError:

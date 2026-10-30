@@ -9,6 +9,7 @@ URI parsing, the transport and the timeout plumbing are the ones a user gets.
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -167,9 +168,13 @@ def test_a_silent_printer_fails_status_within_the_given_timeout(
     elapsed = time.monotonic() - started
 
     assert result.exit_code == 2, result.output
-    # --timeout is the whole wait, so the message names it rather than the last attempt's remainder.
-    assert f"no answer within {timeout:g} s (1 attempt)" in result.stderr
-    assert "the printer may still be printing an earlier job; try again or raise the timeout" in result.stderr
+    # --timeout is the whole wait, so the message gives the seconds waited for it, not the last
+    # attempt's remainder, and points at the wait rather than the transport's "raise the timeout".
+    waited = re.search(r"no answer in ([0-9.]+) s \(1 attempt\)", result.stderr)
+    assert waited is not None, result.stderr
+    assert timeout - 0.1 <= float(waited[1]) <= elapsed + 0.05
+    assert "the printer or print server may still be busy with an earlier job" in result.stderr
+    assert "raise the timeout" not in result.stderr
     # The lower margin: on Windows (Python 3.10-3.12) the monotonic clock ticks every 15.6 ms and a
     # socket wait can return a tick early, as the transport tests also allow.
     assert timeout - 0.1 <= elapsed < timeout + STARTUP_SLACK_SECONDS, f"{elapsed=:.2f}"

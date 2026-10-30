@@ -22,7 +22,7 @@ import pytest
 import rich_click.rich_click
 from click.testing import CliRunner
 from lib_layered_config import Config
-from printer_server import PrinterServer
+from printer_server import JOIN_SECONDS, PrinterServer
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping
@@ -642,8 +642,8 @@ def serve() -> Iterator[Serve]:
     teardown fails the test that left it.
 
     Yields:
-        A function taking the printer's side of each connection, in order (and ``refuse_for``,
-        seconds every connect is refused first), and returning the started server.
+        A function taking the printer's side of each connection, in order, plus the keyword
+        options of :class:`PrinterServer`, and returning the started server.
 
     Example:
         def test_status(serve: Callable[[Play], PrinterServer]) -> None:
@@ -651,8 +651,15 @@ def serve() -> Iterator[Serve]:
     """
     servers: list[PrinterServer] = []
 
-    def start(*plays: Play, refuse_for: float = 0.0) -> PrinterServer:
-        server = PrinterServer(*plays, refuse_for=refuse_for)
+    def start(
+        *plays: Play, refuse_for: float = 0.0, queue_full_for: float = 0.0, next_connection_within: float = JOIN_SECONDS
+    ) -> PrinterServer:
+        server = PrinterServer(
+            *plays,
+            refuse_for=refuse_for,
+            queue_full_for=queue_full_for,
+            next_connection_within=next_connection_within,
+        )
         servers.append(server)
         return server
 

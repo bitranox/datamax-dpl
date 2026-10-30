@@ -74,7 +74,8 @@ class TcpTransport(ClosingTransport):
             The connected transport.
 
         A refused connection is retried for up to :data:`REFUSED_RETRY_SECONDS` (never longer than
-        ``timeout``) before it is reported.
+        ``timeout``) before it is reported. A refusal and a connect timeout are ``unanswered``: no
+        request went out.
 
         Raises:
             PrinterTimeoutError: The connection was not made in time.
@@ -84,7 +85,11 @@ class TcpTransport(ClosingTransport):
         try:
             sock = _connect_retrying_refusals(uri, timeout=timeout)
         except OSError as exc:
-            raise transport_error(uri, action="connect to", error=exc) from exc
+            # Windows reports a refusal only after about 2 s of SYN retries, so under a short
+            # timeout a refusing print server times out instead; neither took a request. An
+            # unknown or unreachable host is not worth asking again.
+            timed_out = isinstance(exc, TimeoutError)
+            raise transport_error(uri, action="connect to", error=exc, unanswered=timed_out) from exc
         return cls(sock, uri=uri, timeout=timeout)
 
     @property
@@ -100,14 +105,7 @@ class TcpTransport(ClosingTransport):
             TransportError: The connection failed or is closed.
         """
         self._ensure_open()
-        view = memoryview(data)
-        try:
-            # The socket timeout bounds each piece, so it measures how long the printer stopped
-            # taking data, not how long the whole job takes.
-            for offset in range(0, len(view), SEND_CHUNK_BYTES):
-                self._sock.sendall(view[offset : offset + SEND_CHUNK_BYTES])
-        except OSError as exc:
-            raise transport_error(self._uri, action="write to", error=exc) from exc
+        self._write(data, request=False)
 
     def query(
         self,
@@ -136,8 +134,7 @@ class TcpTransport(ClosingTransport):
         if not terminator or lines < 1:
             raise ValueError("terminator must not be empty and lines at least 1")
         self._ensure_open()
-        self._discard_waiting()
-        self.send(request)
+        self._send_request(request)
         try:
             answer = _Lines(f"tcp {self._uri.target}", terminator, lines=lines, accept=accept)
             return self._read_until(answer, wait=wait)
@@ -173,8 +170,7 @@ class TcpTransport(ClosingTransport):
         check_timeout(idle, name="idle")
         check_timeout(total, name="total")
         self._ensure_open()
-        self._discard_waiting()
-        self.send(request)
+        self._send_request(request)
         try:
             answer = self._receive_start(Wait.since(started, min(timeout, total)))
             return self._receive_rest(answer, idle=idle, end=started + total, total=total)
@@ -190,8 +186,32 @@ class TcpTransport(ClosingTransport):
         if self._sock.fileno() == -1:
             raise TransportError(f"tcp {self._uri.target}: the transport is closed")
 
+    def _send_request(self, request: bytes) -> None:
+        """Drop what is already waiting, then write ``request``.
+
+        A hang-up (reset, broken pipe) before the request is fully written is ``unanswered``: a
+        print server that resets a connection on accept took no request.
+        """
+        self._discard_waiting()
+        self._write(request, request=True)
+
+    def _write(self, data: bytes, *, request: bool) -> None:
+        """Write ``data`` completely; a hang-up while writing a ``request`` is ``unanswered``."""
+        view = memoryview(data)
+        try:
+            # The socket timeout bounds each piece, so it measures how long the printer stopped
+            # taking data, not how long the whole job takes.
+            for offset in range(0, len(view), SEND_CHUNK_BYTES):
+                self._sock.sendall(view[offset : offset + SEND_CHUNK_BYTES])
+        except OSError as exc:
+            hung_up = request and isinstance(exc, ConnectionError)
+            raise transport_error(self._uri, action="write to", error=exc, unanswered=hung_up) from exc
+
     def _discard_waiting(self) -> None:
-        """Read and drop whatever already sits in the receive buffer, without waiting."""
+        """Read and drop whatever already sits in the receive buffer, without waiting.
+
+        It runs before a request is written, so a hang-up here is ``unanswered``.
+        """
         try:
             # A zero timeout makes recv raise at once when nothing is waiting.
             self._sock.settimeout(0.0)
@@ -200,7 +220,8 @@ class TcpTransport(ClosingTransport):
         except BlockingIOError:
             pass
         except OSError as exc:
-            raise transport_error(self._uri, action="read from", error=exc) from exc
+            hung_up = isinstance(exc, ConnectionError)
+            raise transport_error(self._uri, action="read from", error=exc, unanswered=hung_up) from exc
         finally:
             self._sock.settimeout(self._timeout)
 

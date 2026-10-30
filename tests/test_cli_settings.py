@@ -15,6 +15,7 @@ from datamax_dpl.adapters import cli as cli_mod
 from datamax_dpl.adapters.cli.settings import PrinterOverrides, PrinterSettings, printer_settings, render_options
 from datamax_dpl.domain.enums import ImageModule
 from datamax_dpl.domain.errors import ConfigurationError
+from datamax_dpl.domain.timing import MAX_TIMEOUT_SECONDS
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -149,6 +150,17 @@ def test_a_status_wait_or_retry_interval_not_above_zero_is_refused_with_the_key_
 
     with pytest.raises(ConfigurationError, match=rf"^{re.escape(section)}\.{key}: Input should be greater than 0$"):
         _settings(config, printer=printer)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("key", ["status_wait", "status_retry_interval"])
+@pytest.mark.parametrize("value", [float("inf"), MAX_TIMEOUT_SECONDS + 1])
+def test_a_status_wait_or_retry_interval_past_the_socket_limit_is_refused_with_the_key_named(
+    key: str, value: float
+) -> None:
+    """Infinite, or longer than a socket timeout may be on Windows, is refused naming the key, not a "wait"."""
+    with pytest.raises(ConfigurationError, match=rf"^printer\.{key}: Input should be less than or equal to 2147483"):
+        _settings({"printer": {key: value}})
 
 
 @pytest.mark.os_agnostic

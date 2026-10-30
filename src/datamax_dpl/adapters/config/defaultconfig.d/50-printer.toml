@@ -72,18 +72,20 @@ timeout = 10.0
 
 # Purpose: Seconds 'status' and 'memory' keep trying for the printer's first
 #          answer while a print server is still busy with an earlier job. A
-#          refused connection, or one closed before a byte of answer, is tried
-#          again on a new one; an open but silent connection is read until the
-#          wait ends and never asked twice. --timeout on those commands sets the
-#          whole wait instead.
-# Type: float, greater than 0
+#          connection that took no request (refused, timed out while
+#          connecting, closed or reset before the request or a byte of answer)
+#          is tried again on a new one; an open but silent connection is read
+#          until the wait ends and never asked twice. 'memory' waits at most
+#          120 s on one connection. --timeout on those commands sets the whole
+#          wait instead.
+# Type: float, greater than 0, at most 2147483
 # Default: 30.0
 # Environment Variable: DATAMAX_DPL___PRINTER__STATUS_WAIT=45
 # status_wait = 30.0
 
 # Purpose: Seconds 'status' and 'memory' pause between two connections within
 #          status_wait.
-# Type: float, greater than 0
+# Type: float, greater than 0, at most 2147483
 # Default: 0.25
 # Environment Variable: DATAMAX_DPL___PRINTER__STATUS_RETRY_INTERVAL=0.5
 # status_retry_interval = 0.25

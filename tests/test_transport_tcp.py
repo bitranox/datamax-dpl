@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import select
 import socket
 import threading
@@ -11,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from printer_server import JOIN_SECONDS, answering, silent
+from printer_server import JOIN_SECONDS, answering, resetting, silent
 
 from datamax_dpl.adapters.transport import open_printer
 from datamax_dpl.adapters.transport.tcp import (
@@ -288,6 +289,56 @@ def test_a_job_is_written_in_pieces_no_larger_than_the_send_chunk() -> None:
 
     assert max(recording.sizes) <= SEND_CHUNK_BYTES
     assert bytes(received) == job
+
+
+@pytest.mark.os_agnostic
+def test_a_reset_that_arrived_before_the_request_went_out_is_unanswered(serve: Callable[..., PrinterServer]) -> None:
+    """The reset is already waiting when the query drops stale bytes, so that read reports it."""
+    server = serve(resetting)
+    sock = socket.create_connection(("127.0.0.1", server.port), timeout=2.0)
+    readable, _, _ = select.select([sock], [], [], 2.0)
+    assert readable, "the reset never arrived"
+
+    with TcpTransport(sock, uri=server.uri, timeout=2.0) as printer, pytest.raises(TransportError) as caught:
+        printer.query(b"\x01A", timeout=1.0)
+
+    assert (type(caught.value), caught.value.unanswered) == (TransportError, True)
+
+
+class _ResetOnSendSocket(socket.socket):
+    """A real socket whose peer resets it the moment anything is written."""
+
+    def __init__(self, *, fileno: int) -> None:
+        super().__init__(fileno=fileno)
+
+    def sendall(self, data: ReadableBuffer, flags: int = 0, /) -> None:
+        del data, flags
+        raise ConnectionResetError(errno.ECONNRESET, "Connection reset by peer")
+
+
+@pytest.mark.os_agnostic
+def test_a_hang_up_while_writing_a_request_is_unanswered_and_one_while_sending_a_job_is_not() -> None:
+    """A request that did not go out owes no answer; a job cut off part way is not asked again by anyone."""
+    ours, theirs = socket.socketpair()
+    with (
+        theirs,
+        TcpTransport(_ResetOnSendSocket(fileno=ours.detach()), uri=TcpUri(host="127.0.0.1"), timeout=2.0) as printer,
+    ):
+        with pytest.raises(TransportError, match="cannot write to") as request:
+            printer.query(b"\x01A", timeout=1.0)
+        with pytest.raises(TransportError, match="cannot write to") as job:
+            printer.send(b"job")
+
+    assert (request.value.unanswered, job.value.unanswered) == (True, False)
+
+
+@pytest.mark.os_agnostic
+def test_an_unknown_host_is_not_unanswered_so_nothing_asks_it_again() -> None:
+    # .invalid never resolves (RFC 2606), so the connect fails at name lookup, not by refusal.
+    with pytest.raises(TransportError) as caught:
+        open_printer("tcp://printer.invalid:9100", timeout=1.0)
+
+    assert caught.value.unanswered is False
 
 
 @pytest.mark.os_agnostic

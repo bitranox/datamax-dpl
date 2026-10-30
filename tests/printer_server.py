@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import contextlib
 import socket
+import struct
+import sys
 import threading
 import time
 from typing import TYPE_CHECKING, Protocol, TypeAlias
@@ -24,10 +26,23 @@ from datamax_dpl.domain.status import STATUS_REQUEST
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-__all__ = ["JOIN_SECONDS", "ConnectionsServer", "Play", "PrinterServer", "Serve", "answering", "hanging_up", "silent"]
+__all__ = [
+    "JOIN_SECONDS",
+    "ConnectionsServer",
+    "Play",
+    "PrinterServer",
+    "Serve",
+    "answering",
+    "hanging_up",
+    "resetting",
+    "silent",
+]
 
 #: Longest wait for a server thread to end, and for a client to connect to it.
 JOIN_SECONDS = 5.0
+
+#: ``struct linger`` switched on with zero seconds: two ints on POSIX, two unsigned shorts on Windows.
+LINGER_ZERO = struct.pack("HH" if sys.platform == "win32" else "ii", 1, 0)
 
 #: What a test hands :class:`PrinterServer`: the printer's side of one connection.
 Play: TypeAlias = "Callable[[PrinterServer, socket.socket], None]"
@@ -38,12 +53,25 @@ class PrinterServer:
 
     It binds 127.0.0.1, never ``localhost``: GitHub's runners resolve ``localhost`` to ``::1`` first,
     where nothing listens. With ``refuse_for`` nothing is bound to the port for that many seconds,
-    so every connect is refused, and only then does it listen.
+    so every connect is refused, and only then does it listen. With ``queue_full_for`` it listens
+    with a backlog of one and fills it with a connection of its own for that many seconds: Linux
+    and macOS then drop a client's SYN, so its connect times out (Windows refuses it instead).
+    ``next_connection_within`` bounds the wait for every connection after the first, so a play
+    kept for a client that should NOT come back ends the thread soon instead of after
+    :data:`JOIN_SECONDS`.
     """
 
-    def __init__(self, *plays: Play, refuse_for: float = 0.0) -> None:
-        self.listener = socket.create_server(("127.0.0.1", 0))
+    def __init__(
+        self,
+        *plays: Play,
+        refuse_for: float = 0.0,
+        queue_full_for: float = 0.0,
+        next_connection_within: float = JOIN_SECONDS,
+    ) -> None:
+        self.listener = socket.create_server(("127.0.0.1", 0), backlog=0 if queue_full_for else None)
         self.port: int = self.listener.getsockname()[1]
+        # Made before any client can connect, so the client finds the queue already full.
+        self._filler = socket.create_connection(("127.0.0.1", self.port)) if queue_full_for else None
         if refuse_for:
             # Nothing bound, not bound without listening: macOS ignores a SYN to a bound port that
             # does not listen, so the client would wait out its timeout instead of being refused.
@@ -56,6 +84,8 @@ class PrinterServer:
         self.connections: list[bytearray] = []
         self._plays = plays
         self._refuse_for = refuse_for
+        self._queue_full_for = queue_full_for
+        self._next_connection_within = next_connection_within
         self._thread = threading.Thread(target=self._serve, daemon=True)
         self._thread.start()
 
@@ -79,7 +109,12 @@ class PrinterServer:
             time.sleep(self._refuse_for)
             self.listener = socket.create_server(("127.0.0.1", self.port))
             self.listener.settimeout(JOIN_SECONDS)
-        for play in self._plays:
+        if self._filler is not None:
+            time.sleep(self._queue_full_for)
+            self._empty_the_queue(self._filler)
+        for index, play in enumerate(self._plays):
+            if index:
+                self.listener.settimeout(self._next_connection_within)
             try:
                 connection, _ = self.listener.accept()
             except OSError:
@@ -90,6 +125,12 @@ class PrinterServer:
             connection.settimeout(JOIN_SECONDS)
             with connection:
                 play(self, connection)
+
+    def _empty_the_queue(self, filler: socket.socket) -> None:
+        """Accept and close the server's own queued connection, so the next client gets in."""
+        queued, _ = self.listener.accept()
+        queued.close()
+        filler.close()
 
     def read_exactly(self, connection: socket.socket, count: int) -> bytes:
         """Receive ``count`` bytes, fewer when the client hangs up or falls silent first, and record them."""
@@ -119,14 +160,16 @@ class PrinterServer:
 
     def join(self) -> None:
         """Wait up to :data:`JOIN_SECONDS` past any refusing time for the thread to end, then close the listener."""
-        self._thread.join(self._refuse_for + JOIN_SECONDS)
+        self._thread.join(self._refuse_for + self._queue_full_for + JOIN_SECONDS)
         self.listener.close()
 
 
 class Serve(Protocol):
     """The ``serve`` fixture: start a :class:`PrinterServer` that the fixture joins at teardown."""
 
-    def __call__(self, *plays: Play, refuse_for: float = ...) -> PrinterServer: ...
+    def __call__(
+        self, *plays: Play, refuse_for: float = ..., queue_full_for: float = ..., next_connection_within: float = ...
+    ) -> PrinterServer: ...
 
 
 def answering(request: bytes, reply: bytes) -> Play:
@@ -147,6 +190,12 @@ def hanging_up(request: bytes) -> Play:
         server.read_exactly(connection, len(request))
 
     return play
+
+
+def resetting(server: PrinterServer, connection: socket.socket) -> None:
+    """A print server that resets the connection on accept, before reading a byte of it."""
+    # Linger on, zero seconds: the close that follows sends RST instead of FIN.
+    connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, LINGER_ZERO)
 
 
 def silent(server: PrinterServer, connection: socket.socket) -> None:

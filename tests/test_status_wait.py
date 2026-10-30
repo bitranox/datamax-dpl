@@ -10,15 +10,14 @@ answer, never while one is still outstanding.
 from __future__ import annotations
 
 import json
+import re
 import socket
-import struct
-import sys
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from printer_server import answering, hanging_up, silent
+from printer_server import LINGER_ZERO, answering, hanging_up, resetting, silent
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.composition import build_production
@@ -34,11 +33,11 @@ IDLE_STATUS = b"NNNNNNNN\r"
 GRAPHIC_DIRECTORY = (Path(__file__).parent / "fixtures" / "memory_allegro2_graphic.txt").read_bytes()
 #: Slack over the waited seconds for starting the CLI, loading the configuration and one connect.
 STARTUP_SLACK_SECONDS = 2.0
-#: Longer than the transport's own refused-connect window (``REFUSED_RETRY_SECONDS``, 3 s), so only
-#: the overall wait can carry ``status`` past it.
-REFUSING_SECONDS = 4.0
-#: ``struct linger`` switched on with zero seconds: two ints on POSIX, two unsigned shorts on Windows.
-LINGER_ZERO = struct.pack("HH" if sys.platform == "win32" else "ii", 1, 0)
+#: Seconds a fake server waits for a connection that must NOT come: a client that asks again does
+#: so within its retry interval (0.25 s), so this ends the server thread soon either way.
+NOT_AGAIN_SECONDS = 1.0
+#: The seconds and attempts a give-up message reports.
+GAVE_UP = re.compile(r": no answer in (?P<seconds>[0-9.]+) s \((?P<attempts>[0-9]+) attempts?\);")
 
 pytestmark = pytest.mark.usefixtures("no_ambient_configuration")
 
@@ -49,6 +48,13 @@ def run(runner: CliRunner, args: list[str]) -> Result:
 
 def envelope(result: Result) -> dict[str, Any]:
     return json.loads(result.stdout)
+
+
+def gave_up(message: str) -> tuple[float, int]:
+    """The seconds waited and the attempts a give-up message reports."""
+    found = GAVE_UP.search(message)
+    assert found is not None, message
+    return float(found["seconds"]), int(found["attempts"])
 
 
 def late(reply: bytes, *, after: float) -> Play:
@@ -137,7 +143,11 @@ def test_status_does_not_ask_again_after_a_hang_up_that_followed_a_skipped_line(
     cli_runner: CliRunner, serve: Serve
 ) -> None:
     """A line came first, so the print server is passing on answers: this request may still be owed one."""
-    server = serve(then_hanging_up(b"MODULE: A\r"), answering(STATUS_REQUEST, IDLE_STATUS))
+    server = serve(
+        then_hanging_up(b"MODULE: A\r"),
+        answering(STATUS_REQUEST, IDLE_STATUS),
+        next_connection_within=NOT_AGAIN_SECONDS,
+    )
 
     result = run(cli_runner, ["--json", "status", "--printer", server.address])
     server.join()
@@ -152,15 +162,101 @@ def test_status_does_not_ask_again_after_a_hang_up_that_followed_a_skipped_line(
 
 
 @pytest.mark.os_agnostic
-def test_status_keeps_connecting_while_a_print_server_refuses(cli_runner: CliRunner, serve: Serve) -> None:
-    server = serve(answering(STATUS_REQUEST, IDLE_STATUS), refuse_for=REFUSING_SECONDS)
+def test_status_asks_again_after_a_print_server_reset_the_connection_on_accept(
+    cli_runner: CliRunner, serve: Serve
+) -> None:
+    """The reset reaches the client while it drops stale bytes, writes the request or reads: all three retry."""
+    server = serve(resetting, answering(STATUS_REQUEST, IDLE_STATUS))
 
-    result = run(cli_runner, ["--json", "--set", "printer.status_wait=15", "status", "--printer", server.address])
+    result = run(cli_runner, ["--json", "status", "--printer", server.address])
+    server.join()
+
+    assert result.exit_code == 0, result.output
+    assert envelope(result)["data"]["idle"] is True
+    assert server.connections == [bytearray(), bytearray(STATUS_REQUEST)]
+
+
+@pytest.mark.os_agnostic
+def test_status_keeps_connecting_while_a_print_server_refuses(cli_runner: CliRunner, serve: Serve) -> None:
+    """Refused for longer than one connect's own refusal retries, which ``printer.timeout=1`` caps at 1 s."""
+    server = serve(answering(STATUS_REQUEST, IDLE_STATUS), refuse_for=1.5)
+
+    result = run(
+        cli_runner,
+        [
+            "--json",
+            "--set",
+            "printer.timeout=1",
+            "--set",
+            "printer.status_wait=15",
+            "status",
+            "--printer",
+            server.address,
+        ],
+    )
     server.join()
 
     assert result.exit_code == 0, result.output
     assert envelope(result)["data"]["idle"] is True
     assert server.connections == [bytearray(STATUS_REQUEST)]
+
+
+@pytest.mark.os_agnostic
+def test_status_connects_again_after_a_connect_timed_out(cli_runner: CliRunner, serve: Serve) -> None:
+    """A full accept queue drops the SYN on Linux and macOS, so the connect times out (Windows refuses)."""
+    server = serve(answering(STATUS_REQUEST, IDLE_STATUS), queue_full_for=1.5)
+
+    result = run(
+        cli_runner,
+        [
+            "--json",
+            "--set",
+            "printer.timeout=0.5",
+            "--set",
+            "printer.status_wait=15",
+            "status",
+            "--printer",
+            server.address,
+        ],
+    )
+    server.join()
+
+    assert result.exit_code == 0, result.output
+    assert envelope(result)["data"]["idle"] is True
+    assert server.connections == [bytearray(STATUS_REQUEST)]
+
+
+@pytest.mark.os_agnostic
+def test_a_give_up_reports_the_seconds_waited_not_the_wait_asked_for(cli_runner: CliRunner, serve: Serve) -> None:
+    """With 1 s asked for and a 0.8 s pause, the second hang-up leaves no time for a third attempt: 0.8 s waited."""
+    hang_up = hanging_up(STATUS_REQUEST)
+    server = serve(hang_up, hang_up, next_connection_within=NOT_AGAIN_SECONDS)
+
+    started = time.monotonic()
+    result = run(
+        cli_runner,
+        [
+            "--json",
+            "--set",
+            "printer.status_wait=1",
+            "--set",
+            "printer.status_retry_interval=0.8",
+            "status",
+            "--printer",
+            server.address,
+        ],
+    )
+    elapsed = time.monotonic() - started
+    server.join()
+
+    assert result.exit_code == 2, result.output
+    message = envelope(result)["message"]
+    seconds, attempts = gave_up(message)
+    assert attempts == 2
+    assert 0.75 <= seconds <= min(elapsed, 0.95) + 0.05, f"{seconds=} {elapsed=:.2f}"
+    assert message.endswith(
+        f"Last failure: tcp 127.0.0.1:{server.port}: the printer closed the connection (0 bytes read)"
+    )
 
 
 @pytest.mark.os_agnostic
@@ -201,10 +297,15 @@ def test_a_silent_printer_fails_status_after_the_configured_wait_naming_how_to_w
     document = envelope(result)
     assert document["error"] == "PrinterTimeoutError"
     message = document["message"]
-    assert message.startswith(f"{server.address}: no answer within {wait:g} s (1 attempt);")
+    assert message.startswith(server.address)
+    seconds, attempts = gave_up(message)
+    assert attempts == 1
+    assert wait - 0.1 <= seconds <= elapsed + 0.05, f"{seconds=} {elapsed=:.2f}"
     assert "the printer or print server may still be busy with an earlier job" in message
-    assert "[printer] status_wait" in message
-    assert "--timeout" in message
+    assert "wait longer with [printer] status_wait or --timeout" in message
+    # The transport's own advice ("raise the timeout") would point at a key that no longer
+    # lengthens this wait, so the last failure is quoted without it.
+    assert "raise the timeout" not in message
     assert server.connections == [bytearray(STATUS_REQUEST)]
     assert wait - 0.1 <= elapsed < wait + STARTUP_SLACK_SECONDS, f"{elapsed=:.2f}"
 
@@ -223,14 +324,19 @@ def test_the_timeout_option_is_the_whole_wait_instead_of_status_wait(cli_runner:
     server.join()
 
     assert result.exit_code == 2, result.output
-    assert envelope(result)["message"].startswith(f"{server.address}: no answer within {timeout:g} s (1 attempt);")
+    seconds, _ = gave_up(envelope(result)["message"])
+    assert timeout - 0.1 <= seconds <= elapsed + 0.05, f"{seconds=} {elapsed=:.2f}"
     assert timeout - 0.1 <= elapsed < timeout + STARTUP_SLACK_SECONDS, f"{elapsed=:.2f}"
 
 
 @pytest.mark.os_agnostic
 def test_a_malformed_status_answer_is_reported_and_not_asked_again(cli_runner: CliRunner, serve: Serve) -> None:
     # Eight flags whose reserved eighth is Y: a status line, but not one the manual describes.
-    server = serve(answering(STATUS_REQUEST, b"NNNNNNNY\r"), answering(STATUS_REQUEST, IDLE_STATUS))
+    server = serve(
+        answering(STATUS_REQUEST, b"NNNNNNNY\r"),
+        answering(STATUS_REQUEST, IDLE_STATUS),
+        next_connection_within=NOT_AGAIN_SECONDS,
+    )
 
     result = run(cli_runner, ["--json", "status", "--printer", server.address])
     server.join()

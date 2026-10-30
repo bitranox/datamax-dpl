@@ -38,20 +38,29 @@ class LabelRejectedError(Exception):
 class TransportError(Exception):
     """A printer channel could not be opened, written or read.
 
-    ``unanswered`` marks a channel that refused the connection, or hung up before a byte of
-    answer came: no answer is owed on it, so asking again on a new connection leaves no second
-    request outstanding. Every other failure leaves it False.
+    ``unanswered`` marks a channel that took no request: the connection was refused or timed
+    out, or the channel hung up before the request was sent or before a byte of answer came. No
+    answer is owed on it, so asking again on a new connection leaves no second request
+    outstanding. Every other failure leaves it False.
+
+    ``advice`` is what the reader might do about it; the message ends with it, and ``reason`` is
+    the message without it, for a caller that gives advice of its own.
 
     Example:
         >>> str(TransportError("connection refused"))
         'connection refused'
         >>> TransportError("connection refused", unanswered=True).unanswered
         True
+        >>> error = TransportError("no answer", advice="try again")
+        >>> str(error), error.reason
+        ('no answer; try again', 'no answer')
     """
 
-    def __init__(self, message: str, *, unanswered: bool = False) -> None:
-        """Keep the message and whether the channel ended with nothing answered."""
-        super().__init__(message)
+    def __init__(self, message: str, *, unanswered: bool = False, advice: str = "") -> None:
+        """Keep the message, the advice that ends it and whether the channel took no request."""
+        super().__init__(f"{message}; {advice}" if advice else message)
+        self.reason = message
+        self.advice = advice
         self.unanswered = unanswered
 
 

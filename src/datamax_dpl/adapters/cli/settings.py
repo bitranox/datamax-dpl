@@ -18,6 +18,7 @@ from ...domain.errors import ConfigurationError
 from ...domain.job import MAX_STOP_POSITION_MM
 from ...domain.label import PrinterStop, stop_position_or_printer
 from ...domain.render_context import RenderOptions
+from ...domain.timing import MAX_TIMEOUT_SECONDS
 from ...domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
 from ..transport.uri import is_printer_name, is_printer_uri
 
@@ -52,8 +53,10 @@ class PrinterSettings(BaseModel):
     timeout: float = Field(default=10.0, gt=0)
     # How long status and memory keep trying for the first answer while a print server is still
     # busy with an earlier job, and the pause between two of their connections.
-    status_wait: float = Field(default=STATUS_WAIT_SECONDS, gt=0)
-    status_retry_interval: float = Field(default=RETRY_INTERVAL_SECONDS, gt=0)
+    # Bounded above too, so an infinite or oversized value is refused naming its key here rather
+    # than as a nameless "wait" when status runs.
+    status_wait: float = Field(default=STATUS_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
+    status_retry_interval: float = Field(default=RETRY_INTERVAL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
     cutter: CutterPresence = CutterPresence.UNKNOWN
     options: frozenset[HardwareOption] = Field(default_factory=frozenset[HardwareOption])
     # Same range as RenderOptions, so a bad value is refused here with its config key named. None

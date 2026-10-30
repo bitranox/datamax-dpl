@@ -164,8 +164,8 @@ def send_command(command: PrinterCommand, *, uri: str, timeout: float, open_prin
 #: answer. Measured once on a SerComm print server feeding an Allegro 2 at 9600 baud: after a
 #: 13.6 KB image job it refused connections for at least 7 s and kept the next one silent past 10 s.
 STATUS_WAIT_SECONDS = 30.0
-#: Default of ``[printer] status_retry_interval``: seconds between two connections after one was
-#: refused or hung up unanswered, so a print server that takes and drops connections at once is
+#: Default of ``[printer] status_retry_interval``: seconds between two connections after one took
+#: no request, so a print server that takes and drops connections at once is
 #: not dialled in a tight loop.
 RETRY_INTERVAL_SECONDS = 0.25
 #: Why a wait for the first answer ran out, when it did.
@@ -175,7 +175,8 @@ BUSY_HINT = "the printer or print server may still be busy with an earlier job"
 class AnswerWait(NamedTuple):
     """How ``status`` and ``memory`` keep trying for the printer's first answer.
 
-    Within ``seconds`` a refused connection, or one that hung up before a byte of answer came, is
+    Within ``seconds`` a connection that took no request (``TransportError.unanswered``: refused,
+    timed out while connecting, or closed or reset before the request or a byte of answer) is
     tried again on a new connection after ``retry_interval``; a connection that stays open but
     silent is read until the wait ends, never asked a second time, so at most one request is ever
     outstanding.
@@ -237,75 +238,110 @@ def _first_answer(
     """Open the printer and ``ask`` it, again on a new connection while nothing answered, within ``wait``.
 
     ``ask`` gets the open channel and the seconds left. Returns the channel, still open for the
-    caller to go on with and close, and what ``ask`` returned.
+    caller to go on with and close, and what ``ask`` returned. An attempt is one opening of the
+    channel; the TCP transport itself retries a refused connect within one opening for up to 3 s.
 
     Raises:
-        PrinterTimeoutError: The wait ran out; the message counts the attempts and quotes the last.
+        PrinterTimeoutError: The wait ran out; the message gives the seconds waited, counts the
+            attempts and quotes the last failure.
         TransportError: Any failure that is not ``unanswered``, raised as is.
         ValueError: ``timeout`` or a wait value is not a usable number of seconds; nothing was opened.
     """
     check_timeout(timeout)
     check_timeout(wait.seconds, name="wait")
     check_timeout(wait.retry_interval, name="retry interval")
-    deadline = wait.clock() + wait.seconds
-    attempts = 0
+    tries = _Tries(uri, wait)
     while True:
-        attempts += 1
+        # No attempt starts once the wait is over: the pause before it can overrun the end.
+        if tries.attempts and tries.left() <= 0:
+            raise tries.ran_out() from tries.last
+        # The first connect gets the plain timeout (the wait has barely begun); a later one
+        # never runs past the wait.
+        connect = min(timeout, tries.left() if tries.attempts else wait.seconds)
+        tries.attempts += 1
         try:
-            # The first connect gets the plain timeout (the wait has barely begun); a later one
-            # never runs past the wait.
-            connect = min(timeout, wait.seconds if attempts == 1 else _left(deadline, wait.clock))
             printer = open_printer(uri, timeout=connect)
-            return printer, _ask_or_close(ask, printer, deadline=deadline, clock=wait.clock)
-        except PrinterTimeoutError as exc:
-            raise _ran_out(uri, wait=wait, attempts=attempts, last=exc) from exc
+            return printer, _ask_or_close(ask, printer, tries=tries)
+        except _WaitEndedError:
+            raise tries.ran_out() from tries.last
         except TransportError as exc:
-            if not exc.unanswered:
-                raise
-            if wait.clock() + wait.retry_interval >= deadline:
-                raise _ran_out(uri, wait=wait, attempts=attempts, last=exc) from exc
+            tries.settle(exc)
         wait.sleep(wait.retry_interval)
 
 
-def _ask_or_close(
-    ask: Callable[[PrinterTransport, float], _T], printer: PrinterTransport, *, deadline: float, clock: Clock
-) -> _T:
-    """Return ``ask`` of ``printer`` and the seconds left until ``deadline``, closing ``printer`` when it fails."""
+class _WaitEndedError(Exception):
+    """A connect used up the rest of the wait, so nothing was asked on it."""
+
+
+class _Tries:
+    """The attempts of one :class:`AnswerWait`: when it started and ends, how many ran, the last failure."""
+
+    def __init__(self, uri: str, wait: AnswerWait) -> None:
+        self.uri = uri
+        self.wait = wait
+        self.started = wait.clock()
+        self.deadline = self.started + wait.seconds
+        self.attempts = 0
+        self.last: TransportError | None = None
+
+    def left(self) -> float:
+        """Seconds until the wait ends; zero or less once it has."""
+        return self.deadline - self.wait.clock()
+
+    def settle(self, error: TransportError) -> None:
+        """Return when ``error`` may be asked again before the wait ends; raise otherwise.
+
+        Raises:
+            PrinterTimeoutError: ``error`` was a timeout, or ``unanswered`` with no time left for
+                the pause and another attempt.
+            TransportError: ``error`` itself, any other failure.
+        """
+        self.last = error
+        if error.unanswered and self.left() > self.wait.retry_interval:
+            return
+        if error.unanswered or isinstance(error, PrinterTimeoutError):
+            raise self.ran_out() from error
+        raise error
+
+    def ran_out(self) -> PrinterTimeoutError:
+        """The error for a wait that ended without an answer.
+
+        It gives the seconds actually waited (a capped answer wait or an overrunning pause makes
+        them differ from the wait asked for), the attempts that ran, and the last failure without
+        the transport's own advice, since the wait is what a reader can lengthen here.
+
+        Example:
+            >>> ticks = iter([0.0, 2.3])
+            >>> tries = _Tries("tcp://192.0.2.60:9100", AnswerWait(seconds=2.0, clock=lambda: next(ticks)))
+            >>> tries.attempts = 3
+            >>> tries.last = TransportError("cannot connect to tcp 192.0.2.60:9100: Connection refused")
+            >>> message = str(tries.ran_out())
+            >>> message.split("; ")[0]
+            'tcp://192.0.2.60:9100: no answer in 2.3 s (3 attempts)'
+            >>> message.split(". ")[-1]
+            'Last failure: cannot connect to tcp 192.0.2.60:9100: Connection refused'
+        """
+        waited = self.wait.clock() - self.started
+        tried = "1 attempt" if self.attempts == 1 else f"{self.attempts} attempts"
+        advice = f"; {self.wait.wait_longer}" if self.wait.wait_longer else ""
+        last = f". Last failure: {self.last.reason}" if self.last is not None else ""
+        return PrinterTimeoutError(f"{self.uri}: no answer in {waited:.1f} s ({tried}); {BUSY_HINT}{advice}{last}")
+
+
+def _ask_or_close(ask: Callable[[PrinterTransport, float], _T], printer: PrinterTransport, *, tries: _Tries) -> _T:
+    """Return ``ask`` of ``printer`` and the seconds left, closing ``printer`` when it fails.
+
+    Raises:
+        _WaitEndedError: No time is left to ask.
+    """
     try:
-        return ask(printer, _left(deadline, clock))
+        left = tries.left()
+        if left <= 0:
+            raise _WaitEndedError
+        return ask(printer, left)
     except BaseException:
         printer.close()
         raise
-
-
-def _left(deadline: float, clock: Clock) -> float:
-    """Seconds until ``deadline``.
-
-    Raises:
-        PrinterTimeoutError: It has passed (a connect can use up the last of the wait).
-    """
-    left = deadline - clock()
-    if left <= 0:
-        raise PrinterTimeoutError("the wait ended before this attempt could ask")
-    return left
-
-
-def _ran_out(uri: str, *, wait: AnswerWait, attempts: int, last: TransportError) -> PrinterTimeoutError:
-    """The error for a wait that ended without an answer, naming the wait, the attempts and the last failure.
-
-    Example:
-        >>> last = TransportError("cannot connect to tcp 192.0.2.60:9100: Connection refused")
-        >>> message = str(_ran_out("tcp://192.0.2.60:9100", wait=AnswerWait(seconds=2.0), attempts=3, last=last))
-        >>> message.split("; ")[0]
-        'tcp://192.0.2.60:9100: no answer within 2 s (3 attempts)'
-        >>> message.split(". ")[-1]
-        'Last attempt: cannot connect to tcp 192.0.2.60:9100: Connection refused'
-    """
-    tried = "1 attempt" if attempts == 1 else f"{attempts} attempts"
-    advice = f"; {wait.wait_longer}" if wait.wait_longer else ""
-    return PrinterTimeoutError(
-        f"{uri}: no answer within {wait.seconds:g} s ({tried}); {BUSY_HINT}{advice}. Last attempt: {last}"
-    )
 
 
 #: Seconds of silence that end a ``<STX>W`` directory answer, which has no terminator. A printer
