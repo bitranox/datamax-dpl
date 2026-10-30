@@ -25,17 +25,29 @@ MemoryKind: TypeAlias = Literal["font", "graphic", "format"]
 _LINE_BREAK = re.compile(r"\r\n|\r|\n")
 #: Line ends, then nothing but flow control and blanks: the answer's last line was finished.
 _ENDED = re.compile(r"[\r\n][\x11\x13 \t]*\Z")
-# Blanks around the colon are allowed here as in the free-bytes header below.
-_MODULE = re.compile(r"MODULE\s*:\s*(\S+)", re.IGNORECASE)
+# A blank in a header is a space or a tab, the two _lines strips, never what Unicode also counts
+# as one (NO-BREAK SPACE, NEXT LINE, vertical tab, form feed): the answer is decoded as latin-1,
+# so a garbled byte would otherwise read as a blank and a damaged header as a sound one. re.ASCII
+# keeps letter case and word boundaries ASCII too. Blanks around the colon are allowed here as in
+# the free-bytes header below; the letter is printable ASCII, so a header holding any other byte
+# is a garbled one, caught by _MODULE_START.
+_MODULE = re.compile(r"MODULE[ \t]*:[ \t]*([\x21-\x7e]+)", re.IGNORECASE | re.ASCII)
+# A line that starts like a module header: MODULE, then nothing alphanumeric up to a colon. One
+# that is no readable header would otherwise end up as a name, or be dropped after a module's
+# free bytes, and the listing would silently miss that module. "MODULES" stays a name.
+_MODULE_START = re.compile(r"MODULE[^A-Za-z0-9:]*:", re.IGNORECASE | re.ASCII)
+# What an answer cut inside a module header ends in: the start of the word, or the header up to
+# its colon and blanks with the letter not sent yet.
+_CUT_MODULE = re.compile(r"M(?:O(?:D(?:U(?:L(?:E(?:[ \t]*:)?)?)?)?)?)?", re.IGNORECASE | re.ASCII)
 # The manual prints the number on the line after the header but marks no <CR> there, so the
 # number may follow on the same line or on the next one. An Allegro 2 puts a space before the
 # colon ("MODULE : 00048631"), which the manual's sample does not show, so blanks are allowed
 # around every word and the colon.
-_AVAILABLE = re.compile(r"AVAILABLE\s+BYTES\s+IN\s+MODULE\s*:\s*(.*)", re.IGNORECASE)
+_AVAILABLE = re.compile(r"AVAILABLE[ \t]+BYTES[ \t]+IN[ \t]+MODULE[ \t]*:[ \t]*(.*)", re.IGNORECASE | re.ASCII)
 # A line that starts like the free-bytes header is never a stored name, even when the rest of it
 # cannot be read: taking it as a name would report a module with a made-up item and no free bytes.
-_AVAILABLE_START = re.compile(r"AVAILABLE\s+BYTES\b", re.IGNORECASE)
-_NO_MODULES = re.compile(r"NO MODULES AVAILABLE", re.IGNORECASE)
+_AVAILABLE_START = re.compile(r"AVAILABLE[ \t]+BYTES\b", re.IGNORECASE | re.ASCII)
+_NO_MODULES = re.compile(r"NO MODULES AVAILABLE", re.IGNORECASE | re.ASCII)
 #: The free-bytes figure: eight digits in the manual's sample and in what an Allegro 2 sends, so a
 #: shorter one is an answer cut short, not a smaller number.
 _FIGURE = re.compile(r"[0-9]{8}")
@@ -71,8 +83,9 @@ class MemoryDirectory(BaseModel, frozen=True, extra="forbid"):
         parsed: True when the answer is a module list within the manual's limits, or "No Modules
             Available". False otherwise: no module found, a module letter outside A-E, a module
             listed twice, a name longer than 16 characters or holding a byte that is not
-            printable ASCII, or a module whose free bytes are missing, cut short or not the
-            manual's eight digits ending their line.
+            printable ASCII, a module whose free bytes are missing, cut short or not the
+            manual's eight digits ending their line, a line that starts like a module header
+            but cannot be read as one, or an answer that stops inside a module header.
         no_modules_available: The printer answered "No Modules Available", which the manual
             (``<STX>q`` Clear Module, page 35) gives as the sign of a corrupt or worn-out module.
         modules: The modules found, also when they make the answer unparsed.
@@ -91,11 +104,14 @@ def parse_module_directory(raw: bytes, *, kind: MemoryKind) -> MemoryDirectory:
 
     Lines end in CR, LF or CRLF. Each module starts with ``MODULE: x``; the lines after it are the
     names, up to ``AVAILABLE BYTES IN MODULE:`` and its eight-digit number (on the same line or
-    the next; blanks around both colons and any letter case are accepted). Lines before the first
-    module and after a module's number are ignored.
+    the next; blanks, meaning spaces and tabs, around both colons and any letter case are
+    accepted). Lines before the first module and after a module's number are ignored, except one
+    that starts like a module header.
 
     A line that starts like the free-bytes header ends the names even when it cannot be read; the
-    module then has no free-bytes figure. Whatever breaks the manual's limits (see
+    module then has no free-bytes figure. A line that starts like a module header but cannot be
+    read as one, or an unfinished last line that is the start of one (``MOD``, ``MODULE:``), is a
+    module the answer garbled or cut short. Whatever breaks the manual's limits (see
     :attr:`MemoryDirectory.parsed`) makes the directory unparsed; the modules and the raw text are
     kept either way.
 
@@ -115,6 +131,8 @@ def parse_module_directory(raw: bytes, *, kind: MemoryKind) -> MemoryDirectory:
         True
         >>> parse_module_directory(b"MODULE: A\\rLOGO\\r", kind="graphic").parsed
         False
+        >>> parse_module_directory(b"MODULE: A\\rAVAILABLE BYTES IN MODULE : 00048631\\rMODU", kind="font").parsed
+        False
         >>> parse_module_directory(b"No Modules Available\\r", kind="font").no_modules_available
         True
     """
@@ -128,7 +146,8 @@ def parse_module_directory(raw: bytes, *, kind: MemoryKind) -> MemoryDirectory:
     no_modules = any(_NO_MODULES.fullmatch(line) for line in lines)
     letters = [module.module for module in modules]
     parsed = (
-        (bool(modules) != no_modules)
+        not _garbled_header(lines, ended=ended)
+        and (bool(modules) != no_modules)
         and len(set(letters)) == len(letters)
         and all(_within_limits(module) for module in modules)
     )
@@ -148,6 +167,16 @@ def _within_limits(module: MemoryModule) -> bool:
         and module.available_bytes is not None
         and all(_NAME.fullmatch(name) for name in module.names)
     )
+
+
+def _garbled_header(lines: list[str], *, ended: bool) -> bool:
+    """Whether a line starts like a module header but is none, or the answer stops inside one.
+
+    ``ended`` is False when the last line has no line end after it: possibly cut short.
+    """
+    if any(_MODULE_START.match(line) and not _MODULE.fullmatch(line) for line in lines):
+        return True
+    return not ended and bool(lines) and _CUT_MODULE.fullmatch(lines[-1]) is not None
 
 
 def _lines(text: str) -> list[str]:

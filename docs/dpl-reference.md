@@ -301,14 +301,17 @@ XON and XOFF alone do not start that clock. The whole answer may take 120 s, siz
 listing on a 9600 baud serial line; an answer still running then is a timeout, and one past 1 MiB
 is refused. The manual does not bound how many names a module lists.
 
-Both colons (`MODULE :` and `AVAILABLE BYTES IN MODULE :`) may have blanks around them, in any
-letter case, and the number may follow the header on the same line or the next; CR, LF and CRLF
-all end a line, and XON/XOFF bytes are dropped. A line that starts like the free-bytes header but
-cannot be read as one is never taken as a name. Everything else is held to the manual: a listing
-is reported unparsed, with its raw text and the modules found, when it has a module letter
-outside `A`-`E`, a module listed twice, a name longer than 16 characters or holding a byte that is
-not printable ASCII, or a module whose free bytes are missing or not eight digits ending their
-line (an answer cut short). An answer that is neither a listing nor `No Modules Available` is
+Both colons (`MODULE :` and `AVAILABLE BYTES IN MODULE :`) may have blanks (spaces and tabs, not
+other bytes Unicode counts as blank such as 0xA0 or a vertical tab) around them, in any letter
+case, and the number may follow the header on the same line or the next; CR, LF and CRLF all end
+a line, and XON/XOFF bytes are dropped. A line that starts like the free-bytes header but cannot
+be read as one is never taken as a name. Everything else is held to the manual: a listing is
+reported unparsed, with its raw text and the modules found, when it has a module letter outside
+`A`-`E`, a module listed twice, a name longer than 16 characters or holding a byte that is not
+printable ASCII, a module whose free bytes are missing or not eight digits ending their line (an
+answer cut short), a line that starts like a module header (`MODULE`, then a colon) but cannot be
+read as one, or an unfinished last line that is the start of a module header (`MOD`, `MODULE:`:
+an answer cut inside it). An answer that is neither a listing nor `No Modules Available` is
 unparsed too.
 
 The manual has no command that returns the model name. `detect` therefore reports evidence

@@ -258,6 +258,71 @@ def test_a_module_listed_twice_is_unparsed() -> None:
     _unparsed(b"MODULE: A\rAVAILABLE BYTES IN MODULE : 00048631\r" * 2)
 
 
+#: Where the manual sample's second module header starts: cutting the answer inside it.
+_MODULE_B_AT = MANUAL_SAMPLE.index(b"MODULE: B")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("length", [1, 3, 6, 7, 8, 9], ids=["M", "MOD", "MODULE", "MODULE:", "MODULE: ", "MODULE: B"])
+def test_an_answer_cut_inside_a_module_header_is_unparsed(length: int) -> None:
+    _unparsed(MANUAL_SAMPLE[: _MODULE_B_AT + length])
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("cut", [b"module", b"module :", b"MODULE:\t", b"MODULE\x11"])
+def test_a_cut_module_header_is_recognised_in_any_case_with_blanks_and_flow_control(cut: bytes) -> None:
+    _unparsed(MANUAL_SAMPLE + cut)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("line", [b"MODULE:", b"MODULE :", b"MODULE: \xa0"])
+def test_a_module_header_without_a_readable_letter_is_unparsed_also_when_its_line_ended(line: bytes) -> None:
+    _unparsed(MANUAL_SAMPLE + line + b"\r")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("tail", [b"X", b"\x02junk", b"MODULES"])
+def test_an_unfinished_last_line_that_is_no_module_header_is_ignored(tail: bytes) -> None:
+    directory = parse_module_directory(MANUAL_SAMPLE + tail, kind="graphic")
+    assert directory.parsed
+    assert directory.modules == MANUAL_MODULES
+
+
+@pytest.mark.os_agnostic
+def test_a_name_that_only_starts_like_a_module_header_is_kept() -> None:
+    directory = parse_module_directory(b"MODULE: A\rMODULES\rAVAILABLE BYTES IN MODULE : 00048631\r", kind="graphic")
+    assert directory.parsed
+    assert directory.modules == (MemoryModule(module="A", names=("MODULES",), available_bytes=48631),)
+
+
+#: Characters Unicode counts as blanks that the printer's blanks (space and tab) are not:
+#: NO-BREAK SPACE, NEXT LINE, vertical tab and form feed.
+_NOT_BLANKS = [b"\xa0", b"\x85", b"\x0b", b"\x0c"]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("blank", _NOT_BLANKS, ids=["nbsp", "nel", "vt", "ff"])
+@pytest.mark.parametrize(
+    "header", [b"MODULE:{}A", b"MODULE{}: A", b"MODULE: {}A"], ids=["after-colon", "before-colon", "before-letter"]
+)
+def test_a_module_header_with_a_non_blank_where_a_blank_goes_is_unparsed(blank: bytes, header: bytes) -> None:
+    line = header.replace(b"{}", blank)
+    _unparsed(line + b"\rAVAILABLE BYTES IN MODULE : 00048631\r")
+    # After a complete module the garbled header must not vanish into it, leaving a listing short of one module.
+    _unparsed(MANUAL_SAMPLE.replace(b"MODULE: B", line.replace(b"A", b"B")))
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("blank", _NOT_BLANKS, ids=["nbsp", "nel", "vt", "ff"])
+@pytest.mark.parametrize(
+    "header",
+    [b"AVAILABLE{}BYTES IN MODULE : ", b"AVAILABLE BYTES IN MODULE{}: ", b"AVAILABLE BYTES IN MODULE :{}"],
+    ids=["after-available", "before-colon", "after-colon"],
+)
+def test_a_free_bytes_header_with_a_non_blank_where_a_blank_goes_is_unparsed(blank: bytes, header: bytes) -> None:
+    _unparsed(b"MODULE: A\r" + header.replace(b"{}", blank) + b"00048631\r")
+
+
 @pytest.mark.os_agnostic
 def test_a_bad_idle_is_refused_before_the_printer_is_opened() -> None:
     printer = RecordingPrinter(answers={b"\x02WG": MANUAL_SAMPLE})
