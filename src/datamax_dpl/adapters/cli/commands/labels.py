@@ -240,6 +240,9 @@ class CapabilitiesPayload(BaseModel):
     # The built-in module image downloads go to unless [printer] image_module names another;
     # None on a model with no built-in module, which refuses downloads until one is configured.
     image_module: str | None
+    # Dot rows one format reaches at dot height 1 unless [printer] max_format_rows sets another;
+    # None where the model has no known limit.
+    max_format_rows: int | None
     features: dict[Feature, str]
 
 
@@ -263,6 +266,7 @@ def capabilities_payload(profile: PrinterProfile) -> CapabilitiesPayload:
         backup_speed=_speed(profile.backup_speed) if profile.backup_speed else None,
         font9_points=sorted(set(profile.a_series_points) | set(profile.old_series_points)),
         image_module=profile.image_module,
+        max_format_rows=profile.max_format_rows,
         features={feature: profile.support(feature).describe() for feature in Feature},
     )
 
@@ -283,6 +287,7 @@ def _capabilities_text(payload: CapabilitiesPayload) -> str:
         ("backup_speed", payload.backup_speed),
         ("font9_points", payload.font9_points),
         ("image_module", payload.image_module),
+        ("max_format_rows", payload.max_format_rows),
     ]
     lines = [f"{key:18} {value}" for key, value in rows]
     lines += [f"  {feature.value:20} {state}" for feature, state in payload.features.items()]

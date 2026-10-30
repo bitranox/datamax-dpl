@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
+from datamax_dpl.domain.calibration import ALONG_LENGTH_MM, along_label
 from datamax_dpl.domain.enums import FillPattern, FindingCode, ImageModule, MediaSensor, Rotation, Severity, Unit
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.label import Barcode, Box, Circle, DotSize, Element, Image, Label, Line, Point, Polygon, Text
@@ -1242,3 +1243,87 @@ def test_a_job_with_several_downloads_is_refused_once_on_the_first_downloading_e
     result = build_job(label, RenderOptions(model="prodigy"))
     assert [f.element for f in module_findings(result)] == [1]
     assert "Prodigy" in module_findings(result)[0].message
+
+
+# --- Maximum format length --------------------------------------------------------------------
+
+
+def _vertical_line(top: float, *, dot_size: DotSize | None = None) -> Label:
+    """A label of one vertical line from 2 mm up to ``top`` mm along the feed."""
+    return Label(elements=[Line(x=5, y=2, x2=5, y2=top, thickness=0.5)], dot_size=dot_size)
+
+
+def _format_length_findings(result: RenderResult) -> list[Finding]:
+    return [f for f in result.findings if f.code is FindingCode.FORMAT_PAST_MAX_LENGTH]
+
+
+@pytest.mark.os_agnostic
+def test_a_line_up_to_200_mm_renders_on_an_allegro_2() -> None:
+    result = build_job(_vertical_line(200), RenderOptions(model="allegro-2"))
+    assert _format_length_findings(result) == []
+    assert result.ok
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("policy", ["strict", "degrade"])
+def test_a_line_up_to_215_mm_is_refused_on_an_allegro_2_under_either_policy(policy: str) -> None:
+    options = RenderOptions.model_validate({"model": "allegro-2", "policy": policy})
+    result = build_job(_vertical_line(215), options)
+    [finding] = _format_length_findings(result)
+    assert finding.severity is Severity.ERROR
+    assert finding.element == 0
+    assert "mm" in finding.message
+    assert "dot_size" in finding.message
+    assert not result.ok
+
+
+@pytest.mark.os_agnostic
+def test_a_dot_height_of_two_lets_the_215_mm_line_render() -> None:
+    result = build_job(_vertical_line(215, dot_size=DotSize(width=1, height=2)), RenderOptions(model="allegro-2"))
+    assert _format_length_findings(result) == []
+
+
+@pytest.mark.os_agnostic
+def test_a_model_without_a_format_length_renders_a_300_mm_line() -> None:
+    result = build_job(_vertical_line(300), RenderOptions(model="dmx-600"))
+    assert _format_length_findings(result) == []
+    assert result.ok
+
+
+@pytest.mark.os_agnostic
+def test_a_text_whose_top_passes_the_limit_is_refused_though_its_reference_point_is_below_it() -> None:
+    # Font 3 at 200 mm starts at dot row 1636 on an Allegro 2 and is 27 rows tall: its top is 1662.
+    label = Label(elements=[Line(x=5, y=2, x2=5, y2=100, thickness=0.5), Text(x=5, y=200, text="TOP", font=3)])
+    result = build_job(label, RenderOptions(model="allegro-2"))
+    assert [f.element for f in _format_length_findings(result)] == [1]
+
+
+@pytest.mark.os_agnostic
+def test_a_configured_max_format_rows_lets_the_215_mm_line_render() -> None:
+    result = build_job(_vertical_line(215), RenderOptions(model="allegro-2", max_format_rows=10_000))
+    assert _format_length_findings(result) == []
+    assert result.ok
+
+
+@pytest.mark.os_agnostic
+def test_the_limit_includes_the_last_row() -> None:
+    # The line from 2 mm to 202 mm reaches commanded dot row 1651 on an Allegro 2 at its defaults.
+    reaching = build_job(_vertical_line(202), RenderOptions(model="allegro-2", max_format_rows=1651))
+    passing = build_job(_vertical_line(202), RenderOptions(model="allegro-2", max_format_rows=1650))
+    assert _format_length_findings(reaching) == []
+    assert "1651" in _format_length_findings(passing)[0].message
+
+
+@pytest.mark.os_agnostic
+def test_max_format_rows_must_be_positive() -> None:
+    with pytest.raises(ValidationError, match="greater than 0"):
+        RenderOptions(model="allegro-2", max_format_rows=0)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("width", [50.0, 104.0])
+def test_the_along_calibration_label_still_renders_on_an_allegro_2(width: float) -> None:
+    label = along_label(width=width, length=ALONG_LENGTH_MM, title="ALLEGRO 2 SCALE 0.9760")
+    result = build_job(label, RenderOptions(model="allegro-2"))
+    assert _format_length_findings(result) == []
+    assert result.ok, [f.message for f in result.errors]

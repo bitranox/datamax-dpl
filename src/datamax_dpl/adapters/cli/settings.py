@@ -34,8 +34,8 @@ class PrinterSettings(BaseModel):
 
     ``name`` is the chosen printer's name, empty when none was; ``label_width`` and
     ``label_height`` are the loaded labels' size in millimetres, when known. A scale, offset,
-    stop position, image memory budget or image module left unset (None) takes the model's
-    default when the job renders.
+    stop position, image memory budget, image module or format length left unset (None) takes
+    the model's default when the job renders.
 
     Example:
         >>> PrinterSettings().model
@@ -68,6 +68,8 @@ class PrinterSettings(BaseModel):
     # None is not module A: it takes the model's built-in module, E on a DMX 600/800 and none on a
     # Prodigy or Prodigy Plus, which refuses a job that downloads an image until this is set.
     image_module: ImageModule | None = None
+    # None is not "no limit": it takes the model's, which only the Allegro 2 has so far.
+    max_format_rows: int | None = Field(default=None, gt=0)
     name: str = ""
     label_width: float | None = Field(default=None, gt=0)
     label_height: float | None = Field(default=None, gt=0)
@@ -203,6 +205,7 @@ def render_options(settings: PrinterSettings) -> RenderOptions:
         cutter_stop_position_mm=settings.cutter_stop_position,
         image_memory_bytes=settings.image_memory_bytes,
         image_module=settings.image_module,
+        max_format_rows=settings.max_format_rows,
     )
 
 

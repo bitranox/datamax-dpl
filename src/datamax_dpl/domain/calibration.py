@@ -13,12 +13,19 @@ then 1), sized with the font's widest cell at any resolution, so it fits on ever
 
 from __future__ import annotations
 
+import math
 import textwrap
+from typing import TYPE_CHECKING
 
 from datamax_dpl.domain.charset import CAPITALS_ONLY_FONTS, encode_for_bitmapped_font
+from datamax_dpl.domain.enums import FindingCode
 from datamax_dpl.domain.label import Box, Element, Label, Line, Text
 from datamax_dpl.domain.preview import widest_cell_mm
+from datamax_dpl.domain.render import build_job
 from datamax_dpl.domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
+
+if TYPE_CHECKING:
+    from datamax_dpl.domain.render_context import RenderOptions
 
 __all__ = [
     "ACROSS_INSET_MM",
@@ -29,6 +36,7 @@ __all__ = [
     "across_label",
     "along_label",
     "calibration_labels",
+    "longest_along_length",
     "offset_from_borders",
     "scale_from_measurement",
 ]
@@ -165,6 +173,42 @@ def along_label(*, width: float, length: float = ALONG_LENGTH_MM, title: str) ->
     text = f"{title}\nMEASURE THE LINE: {length:g} MM ALONG THE FEED"
     elements += _text_block(text, x=text_x, top=top, bottom=bottom, width=width - text_x - _MARGIN)
     return Label(width=width, height=length + 5, elements=elements)
+
+
+#: Step of the along lengths :func:`longest_along_length` tries: a length a ruler reads at once.
+_ALONG_STEP_MM = 10.0
+
+
+def longest_along_length(*, width: float, title: str, options: RenderOptions, below: float) -> float | None:
+    """Return the longest along bar under ``below`` mm, in whole 10 mm, that one format holds.
+
+    Each length is rendered as the along label for ``options``, so the answer counts the rows as
+    the encoder commands them at this printer's scale and offset; a length fits when its job has
+    no ``format_past_max_length`` finding (other findings do not decide it).
+
+    Args:
+        width: Label width in mm, as the refused label was built.
+        title: First text line, as the refused label was built.
+        options: Render options of the refused job.
+        below: The refused bar length in mm; only shorter lengths are tried.
+
+    Returns:
+        The length in mm, at least 20, or None when not even 20 mm fits.
+
+    Example:
+        >>> from datamax_dpl.domain.render_context import RenderOptions
+        >>> options = RenderOptions(model="allegro-2", scale_along=0.9)
+        >>> longest_along_length(width=100, title="X", options=options, below=200)
+        180.0
+    """
+    step = _ALONG_STEP_MM
+    length = min(ALONG_LENGTH_MM, (math.ceil(below / step) - 1) * step)
+    while length >= MIN_LABEL_MM:
+        result = build_job(along_label(width=width, length=length, title=title), options)
+        if all(finding.code is not FindingCode.FORMAT_PAST_MAX_LENGTH for finding in result.findings):
+            return length
+        length -= step
+    return None
 
 
 def calibration_labels(

@@ -271,6 +271,19 @@ def test_capabilities_human_output_names_the_image_module(cli_runner: CliRunner)
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize(("model", "rows"), [("allegro-2", 1654), ("dmx-600", None)])
+def test_capabilities_name_the_models_max_format_rows(cli_runner: CliRunner, model: str, rows: int | None) -> None:
+    data = envelope(run(cli_runner, ["--json", "capabilities", model]))["data"]
+    assert data["max_format_rows"] == rows
+
+
+@pytest.mark.os_agnostic
+def test_capabilities_human_output_names_the_max_format_rows(cli_runner: CliRunner) -> None:
+    lines = run(cli_runner, ["capabilities", "allegro-2"]).output.splitlines()
+    assert [line.split() for line in lines if line.startswith("max_format_rows ")] == [["max_format_rows", "1654"]]
+
+
+@pytest.mark.os_agnostic
 def test_capabilities_human_output_has_a_row_for_every_json_field(cli_runner: CliRunner) -> None:
     # The human rows are listed by hand; this keeps a field added to the payload from showing up
     # in --json only.

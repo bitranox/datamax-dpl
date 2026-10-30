@@ -82,6 +82,7 @@ Other fallbacks do not depend on a feature column:
 | An image that ends past the printable width              | Refused (`image_past_print_width`; a QR Code: `qr_past_print_width`).                                                                                         |
 | A field the printer's offset moves past the label edge   | Refused (`offset_past_label_edge`).                                                                                                                           |
 | More fields than the model takes                         | Refused (`too_many_fields`).                                                                                                                                  |
+| A field past the model's format length (see below)       | Refused (`format_past_max_length`).                                                                                                                           |
 | Image downloads past the image memory budget (see below) | Every image but a QR Code sent at half resolution and printed at double magnification (`image_halved`); refused when still past it (`image_memory_exceeded`). |
 | An image download with no memory module (see below)      | Refused unless `image_module` names the module fitted (`image_module_unknown`).                                                                               |
 | Field data longer than the model takes                   | Refused (`field_too_long`).                                                                                                                                   |
@@ -109,6 +110,16 @@ Allegro 2), and none on the Prodigy and Prodigy Plus, whose modules A and B are 
 model's own as `image_module`. On a model without a built-in module a job that downloads an image
 is refused (`image_module_unknown`) until `image_module` names the module fitted; a job that only
 places stored images is not. Only module A has been seen on a printer (an Allegro 2).
+
+A format holds only so many dot rows along the feed: the Allegro 2 cut a longer one off. The
+"Max format rows" column of the Limits table gives that limit where one is known, counted as the
+job commands the rows at dot height 1 (the printer's scale_along and offset_along included, so
+1654 rows are about 202 mm on an Allegro 2 at its default scale). A label whose highest field
+passes it is refused under both policies (`format_past_max_length`); text and barcodes count by
+the rectangle the preview draws for them. A label `dot_size` of height 2 doubles the limit, and
+`max_format_rows` (`[printer] max_format_rows` in the configuration) sets another one. The
+Allegro 2 value is provisional: it is the longest bar seen to print whole, until a ladder of
+lengths on the printer measures the real limit. No other model has one.
 
 The features `cutter_pulse`, `field_terminator`, `stored_formats` and `time_date` are listed for
 reference. The label format has no field that uses them, so they never cause a finding.
@@ -153,6 +164,7 @@ are stable; `tests/test_capabilities_doc.py` keeps this table in step with `Find
 | `distance_too_large`                   | error                                                         | A distance is above 9999 DPL units.                                                                                                                                                                       |
 | `field_too_long`                       | error                                                         | Field data is longer than the model takes.                                                                                                                                                                |
 | `font_size_substituted`                | warning, error under strict                                   | A font 9 point size the model does not have; the nearest size is used.                                                                                                                                    |
+| `format_past_max_length`               | error                                                         | A field reaches past the dot rows one format holds on the model (the "Max format rows" column of the Limits table, or `max_format_rows`), times the label's dot_size height.                              |
 | `heat_out_of_range`                    | warning, error under strict                                   | `heat` is above the model's maximum; the maximum is used.                                                                                                                                                 |
 | `image_halved`                         | warning, error under strict                                   | The job's image downloads hold more than its image memory budget; every image but a QR Code is sent at half resolution and printed at double magnification. Unverified on paper.                          |
 | `image_memory_exceeded`                | error                                                         | The image downloads hold more than the budget under strict, or still after one halving; or an image whose doubled magnification would pass 9.                                                             |
@@ -211,28 +223,28 @@ DPL letters, A = 1.0 inch per second up to S = 10.0, in steps of 0.5.
 
 ### Limits
 
-| Model              | Name                      | dpi    | Print width (in) | Max column (in/100) | Max fields | Chars/field | Heat | Image module |
-|--------------------|---------------------------|--------|------------------|---------------------|------------|-------------|------|--------------|
-| `generic`          | Any model (common subset) | 203    | 3.98             | 398                 | 100        | 3000        | 0-20 | A            |
-| `permissive`       | No model checks           | 203    | 99.99            | 9999                | 9999       | 10000       | 0-30 | A            |
-| `allegro`          | Allegro                   | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | A            |
-| `allegro-2`        | Allegro 2                 | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | A            |
-| `prodigy`          | Prodigy                   | 203    | 4.1              | 410                 | 100        | 3000        | 0-20 | none         |
-| `prodigy-152`      | Prodigy 152               | 152    | 4.15             | 410                 | 100        | 3000        | 0-20 | none         |
-| `prodigy-plus`     | Prodigy Plus              | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | none         |
-| `prodigy-plus-152` | Prodigy Plus 152          | 152    | 4.21             | 410                 | 200        | 5000        | 0-20 | none         |
-| `dmx-400`          | DMX 400                   | 203    | 4.1              | 410                 | 199        | 5000        | 0-20 | A            |
-| `dmx-430`          | DMX 430                   | 289.56 | 3.98             | 398                 | 399        | 10000       | 0-20 | A            |
-| `dmx-600`          | DMX 600                   | 300    | 6.4              | 640                 | 399        | 10000       | 0-20 | E            |
-| `dmx-800`          | DMX 800                   | 300    | 8.53             | 860                 | 399        | 10000       | 0-20 | E            |
-| `prodigy-max-203`  | Prodigy Max 203           | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 | A            |
-| `prodigy-max-300`  | Prodigy Max 300           | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 | A            |
-| `pe42`             | PE42                      | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 | A            |
-| `pe43`             | PE43                      | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 | A            |
-| `ovation`          | Ovation!                  | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 | A            |
-| `ovation-300`      | Ovation! 300              | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 | A            |
-| `ovation-2`        | Ovation 2                 | 203    | 4.256            | 425                 | 319        | 7000        | 0-30 | A            |
-| `titan-6200`       | Titan 6200                | 203    | 6.62             | 661                 | 399        | 10000       | 0-30 | A            |
+| Model              | Name                      | dpi    | Print width (in) | Max column (in/100) | Max fields | Chars/field | Heat | Image module | Max format rows |
+|--------------------|---------------------------|--------|------------------|---------------------|------------|-------------|------|--------------|-----------------|
+| `generic`          | Any model (common subset) | 203    | 3.98             | 398                 | 100        | 3000        | 0-20 | A            | none            |
+| `permissive`       | No model checks           | 203    | 99.99            | 9999                | 9999       | 10000       | 0-30 | A            | none            |
+| `allegro`          | Allegro                   | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | A            | none            |
+| `allegro-2`        | Allegro 2                 | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | A            | 1654            |
+| `prodigy`          | Prodigy                   | 203    | 4.1              | 410                 | 100        | 3000        | 0-20 | none         | none            |
+| `prodigy-152`      | Prodigy 152               | 152    | 4.15             | 410                 | 100        | 3000        | 0-20 | none         | none            |
+| `prodigy-plus`     | Prodigy Plus              | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | none         | none            |
+| `prodigy-plus-152` | Prodigy Plus 152          | 152    | 4.21             | 410                 | 200        | 5000        | 0-20 | none         | none            |
+| `dmx-400`          | DMX 400                   | 203    | 4.1              | 410                 | 199        | 5000        | 0-20 | A            | none            |
+| `dmx-430`          | DMX 430                   | 289.56 | 3.98             | 398                 | 399        | 10000       | 0-20 | A            | none            |
+| `dmx-600`          | DMX 600                   | 300    | 6.4              | 640                 | 399        | 10000       | 0-20 | E            | none            |
+| `dmx-800`          | DMX 800                   | 300    | 8.53             | 860                 | 399        | 10000       | 0-20 | E            | none            |
+| `prodigy-max-203`  | Prodigy Max 203           | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 | A            | none            |
+| `prodigy-max-300`  | Prodigy Max 300           | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 | A            | none            |
+| `pe42`             | PE42                      | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 | A            | none            |
+| `pe43`             | PE43                      | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 | A            | none            |
+| `ovation`          | Ovation!                  | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 | A            | none            |
+| `ovation-300`      | Ovation! 300              | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 | A            | none            |
+| `ovation-2`        | Ovation 2                 | 203    | 4.256            | 425                 | 319        | 7000        | 0-30 | A            | none            |
+| `titan-6200`       | Titan 6200                | 203    | 6.62             | 661                 | 399        | 10000       | 0-30 | A            | none            |
 
 ### Speeds
 

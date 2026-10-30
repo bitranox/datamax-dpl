@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -72,12 +73,85 @@ def test_the_printers_scale_shapes_the_along_bar(
     cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
 ) -> None:
     plain, scaled = tmp_path / "plain.dpl", tmp_path / "scaled.dpl"
-    _calibrate(cli_runner, config_cli_context(_lager(plain, scale_along=1.0)), "--printer", "lager", "--axis", "along")
-    _calibrate(cli_runner, config_cli_context(_lager(scaled, scale_along=0.9)), "--printer", "lager", "--axis", "along")
+    lengths = ("--printer", "lager", "--axis", "along", "--along-length", "180")
+    _calibrate(cli_runner, config_cli_context(_lager(plain, scale_along=1.0)), *lengths)
+    _calibrate(cli_runner, config_cli_context(_lager(scaled, scale_along=0.9)), *lengths)
 
-    # 0.5 mm thick, 200 mm long: 2 x 799 whole-dot units; divided by the 0.9 feed scale, 888 long
-    assert b"L002799" in plain.read_bytes()
-    assert b"L002888" in scaled.read_bytes()
+    # 0.5 mm thick, 180 mm long: 2 x 719 whole-dot units; divided by the 0.9 feed scale, 799 long
+    assert b"L002719" in plain.read_bytes()
+    assert b"L002799" in scaled.read_bytes()
+
+
+@pytest.mark.os_agnostic
+def test_an_along_bar_past_the_format_length_is_refused_naming_the_along_length_that_fits(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    """At feed scale 0.9 the default 200 mm bar needs more rows than one Allegro 2 format holds."""
+    target = tmp_path / "out.dpl"
+    factory = config_cli_context(_lager(target, scale_along=0.9))
+
+    refused = _calibrate(cli_runner, factory, "--printer", "lager", "--axis", "along")
+
+    assert refused.exit_code == 1, refused.output
+    data = json.loads(refused.stdout)["data"]
+    assert [f["code"] for f in data["findings"] if f["severity"] == "error"] == ["format_past_max_length"]
+    named = re.search(r"--along-length (\d+)", data["hint"])
+    assert named is not None, data["hint"]
+    fits = int(named.group(1))
+    assert fits % 10 == 0
+    assert data["along_length_that_fits"] == fits
+    assert not target.exists()
+    longer = _calibrate(cli_runner, factory, "--printer", "lager", "--axis", "along", "--along-length", str(fits + 10))
+    assert longer.exit_code == 1, longer.output
+    assert (
+        _calibrate(cli_runner, factory, "--printer", "lager", "--axis", "along", "--along-length", str(fits)).exit_code
+        == 0
+    )
+    assert target.read_bytes().count(_FORMAT_START) == 1
+
+
+@pytest.mark.os_agnostic
+def test_the_refusal_says_plainly_when_not_even_the_shortest_along_bar_fits(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    factory = config_cli_context(_lager(tmp_path / "out.dpl", max_format_rows=50))
+
+    refused = _calibrate(cli_runner, factory, "--printer", "lager", "--axis", "along")
+
+    data = json.loads(refused.stdout)["data"]
+    assert refused.exit_code == 1, refused.output
+    assert data["along_length_that_fits"] is None
+    assert "20 mm" in data["hint"]
+    assert "--along-length" not in data["hint"]
+
+
+@pytest.mark.os_agnostic
+def test_a_refusal_for_another_reason_names_no_along_length(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    result = _calibrate(
+        cli_runner, config_cli_context(_lager(tmp_path / "out.dpl")), "--printer", "lager", "--width", "200"
+    )
+
+    data = json.loads(result.stdout)["data"]
+    assert result.exit_code == 1
+    assert (data["hint"], data["along_length_that_fits"]) == (None, None)
+
+
+@pytest.mark.os_agnostic
+def test_the_human_refusal_names_the_along_length_that_fits(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    factory = config_cli_context(_lager(tmp_path / "out.dpl", scale_along=0.9))
+
+    result = cli_runner.invoke(
+        cli_mod.cli, ["calibrate", "print", "--printer", "lager", "--axis", "along"], obj=factory
+    )
+
+    assert result.exit_code == 1
+    assert "REFUSED: nothing sent" in result.stdout
+    assert "--along-length" in result.stdout
+    assert "calibrate set" in result.stdout
 
 
 @pytest.mark.os_agnostic

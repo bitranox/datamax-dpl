@@ -170,6 +170,18 @@ options = []
 # Environment Variable: DATAMAX_DPL___PRINTER__IMAGE_MODULE=B
 # image_module = "A"
 
+# Purpose: Highest dot row along the feed one label format may reach, at dot
+#          height 1, counted as the job commands it (scale_along and offset_along
+#          included). A label whose field passes it is refused under either policy
+#          (format_past_max_length); a label dot_size of height 2 doubles it.
+#          Unset takes the model's limit: 1654 on the Allegro 2 (about 202 mm at
+#          its default scale_along, provisional until measured on the printer),
+#          none on every other model.
+# Type: integer, > 0 (dot rows)
+# Default: unset (the model's limit)
+# Environment Variable: DATAMAX_DPL___PRINTER__MAX_FORMAT_ROWS=1700
+# max_format_rows = 1654
+
 # ------------------------------------------------------------------------------
 # Named printers - one section per printer, chosen with --printer NAME
 # ------------------------------------------------------------------------------

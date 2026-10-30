@@ -25,12 +25,13 @@ from .findings import Finding, FindingCollector
 from .image_budget import ImageBudget
 from .job import PRINTER_STOP, format_footer, format_header, stops_at_tear_off, system_prefix
 from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText, Text
+from .overlap import inexact_rectangle, printed_dots
 from .placeholders import label_placeholders
 from .preview import SentAs
 from .profiles import CalibrationDefaults, Feature, get_profile, parse_firmware
 from .render_context import RenderContext, RenderOptions, resolved_image_module
 from .transparency import Emulation, emulate_transparency
-from .units import Axis, Correction, DplUnit, to_inches
+from .units import MM_PER_INCH, Axis, Correction, DplUnit, to_inches
 
 if TYPE_CHECKING:
     from .label import Element, Label, PrinterStop
@@ -274,6 +275,45 @@ def _check_qr_dot_size(label: Label, ctx: RenderContext) -> None:
             )
 
 
+def _reach(element: Element, ctx: RenderContext) -> int | None:
+    """Return the highest dot row a field reaches along the feed, or None when it prints nothing.
+
+    The row is the one the encoder commands (``overlap`` places every field at its record's
+    position, scale and offset included); text and barcodes count by the rectangle the preview
+    draws for them.
+    """
+    dots = printed_dots(element, ctx)
+    area = dots.area if dots is not None else inexact_rectangle(element, ctx)
+    return None if area is None else area.top
+
+
+def _check_format_length(label: Label, ctx: RenderContext, *, max_rows: int | None) -> None:
+    """Refuse a label whose highest field passes the rows one format reaches, under either policy.
+
+    ``max_rows`` counts commanded rows at dot height 1, so a label dot_size of height h allows h
+    times as many; the limit itself is a row the label may still reach. None means no limit.
+    """
+    if max_rows is None:
+        return
+    height = label.dot_size.height if label.dot_size else 1
+    limit = max_rows * height
+    reaches = [
+        (row, index) for index, element in enumerate(label.elements) if (row := _reach(element, ctx)) is not None
+    ]
+    row, index = max(reaches, key=lambda reach: (reach[0], -reach[1]), default=(0, 0))
+    if row <= limit:
+        return
+    # Commanded rows are nominal dots, which this printer prints scale_along times as long.
+    mm = limit / ctx.profile.dpi * MM_PER_INCH * ctx.along.scale
+    escape = "a label dot_size of height 2 doubles it, and " if height == 1 else ""
+    ctx.findings.refuse(
+        FindingCode.FORMAT_PAST_MAX_LENGTH,
+        f"the field reaches dot row {row} along the feed, past the {limit} rows (about {mm:.1f} mm) one "
+        f"{ctx.profile.name} format holds at dot_size height {height}; {escape}max_format_rows sets another limit",
+        element=index,
+    )
+
+
 def _encode_element(element: Element, *, index: int, ctx: RenderContext) -> list[bytes]:
     """Dispatch ``element`` to its encoder.
 
@@ -346,6 +386,8 @@ def _encode(label: Label, options: RenderOptions, *, filled: bool, halve: bool) 
             FindingCode.TOO_MANY_FIELDS,
             f"{record_count} fields; {ctx.profile.name} takes at most {ctx.profile.max_fields}",
         )
+    max_rows = ctx.profile.max_format_rows if options.max_format_rows is None else options.max_format_rows
+    _check_format_length(label, ctx, max_rows=max_rows)
     return _Job(ctx=ctx, prefix=prefix, body=body, record_count=record_count)
 
 

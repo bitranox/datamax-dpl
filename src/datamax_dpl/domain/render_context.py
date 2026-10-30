@@ -102,6 +102,10 @@ class RenderOptions(BaseModel):
         image_module: Memory module image downloads are stored in; None takes the model's
             built-in module (``PrinterProfile.image_module``). A model without one refuses a job
             that downloads an image (``image_module_unknown``) until this names the module fitted.
+        max_format_rows: Dot rows along the feed one format may reach at dot height 1, counted as
+            the encoder commands them; None takes the model's limit
+            (``PrinterProfile.max_format_rows``), which most models do not have. A field past it
+            is refused (``format_past_max_length``) under either policy.
 
     Example:
         >>> RenderOptions(model="dmx-600").policy
@@ -125,6 +129,7 @@ class RenderOptions(BaseModel):
     cutter_stop_position_mm: float | None = Field(default=None, gt=0)
     image_memory_bytes: int | None = Field(default=None, gt=0)
     image_module: ImageModule | None = None
+    max_format_rows: int | None = Field(default=None, gt=0)
 
 
 def resolved_image_module(options: RenderOptions, profile: PrinterProfile) -> str | None:

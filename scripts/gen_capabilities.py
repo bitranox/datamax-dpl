@@ -120,6 +120,7 @@ def _limits_table(profiles: list[PrinterProfile]) -> list[str]:
         "Chars/field",
         "Heat",
         "Image module",
+        "Max format rows",
     ]
     rows = [
         [
@@ -132,6 +133,7 @@ def _limits_table(profiles: list[PrinterProfile]) -> list[str]:
             str(p.max_field_chars),
             f"0-{p.heat_max}",
             p.image_module or "none",
+            "none" if p.max_format_rows is None else str(p.max_format_rows),
         ]
         for p in profiles
     ]

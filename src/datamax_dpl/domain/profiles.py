@@ -207,6 +207,9 @@ class PrinterProfile:
         image_module: Letter of the memory module image downloads go to, the model's built-in
             RAM (manual, Appendix L); None for a model with no built-in module, where the render
             options must name the plug-in module fitted.
+        max_format_rows: Dot rows along the feed one format can reach at dot height 1, counted as
+            the encoder commands them (calibration scale and offset included); a label dot_size
+            of height h multiplies it by h. None where no limit is known.
     """
 
     id: str
@@ -228,6 +231,7 @@ class PrinterProfile:
     inch_unit_dots: int | None = None
     calibration: CalibrationDefaults = CalibrationDefaults()
     image_module: str | None = "A"
+    max_format_rows: int | None = None
 
     def support(self, feature: Feature) -> Support:
         """Return how this model supports ``feature`` (missing entries mean no)."""
@@ -529,6 +533,14 @@ _IMAGE_MODULE: dict[str, str | None] = {
 }
 
 
+#: The highest dot row along the feed one format reaches, at dot height 1, counted as the encoder
+#: commands it. Provisional for the Allegro 2: a test bar up to 202 mm at its default scale_along
+#: 0.976 (about 1654 commanded rows) printed whole and the printer cut a longer one off at about
+#: 201.5 mm printed, so 1654 is the measured-good floor until a ladder of lengths on the printer
+#: finds the real limit. No other model has one: their manuals give none and none was measured.
+_MAX_FORMAT_ROWS: dict[str, int] = {"allegro-2": 1654}
+
+
 def _build(row: _Row) -> PrinterProfile:
     print_speed, slew_speed, backup_speed = row.speeds
     return PrinterProfile(
@@ -550,6 +562,7 @@ def _build(row: _Row) -> PrinterProfile:
         inch_unit_dots=_INCH_UNIT_DOTS.get(row.id),
         calibration=_CALIBRATION.get(row.id, CalibrationDefaults()),
         image_module=_IMAGE_MODULE[row.id],
+        max_format_rows=_MAX_FORMAT_ROWS.get(row.id),
     )
 
 

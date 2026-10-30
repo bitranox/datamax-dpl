@@ -233,6 +233,11 @@ the borders on opposite sides and pass them in pairs (`--top`/`--bottom`, `--lef
 print sits centred, independent of the tear-off position. Print again to confirm. Fonts and images
 sized in printer dots are not scaled.
 
+On an Allegro 2 whose `scale_along` is below its 0.976 default, the 200 mm bar needs more dot rows
+than one format holds, so `calibrate print` refuses it (`format_past_max_length`) and names the
+longest `--along-length` that fits, in whole 10 mm. Print with that length and pass the same
+`--along-length` to `calibrate set`, so the new factor is computed against the length printed.
+
 Where nothing is configured, a model's measured defaults apply: the `allegro-2` profile prints with
 `scale_along` 0.976, `offset_along` -0.25 mm and a 67.4 mm tear-off stop, every other model nominal.
 The result names each default it used (`model_defaults_applied`); `calibrate print` prints with
@@ -366,6 +371,9 @@ datamax-dpl. Inside Claude Code:
   commands that came later are not supported. QR codes are printed as downloaded images
   (unverified on paper).
 - Only an Allegro 2 has been checked on a real printer; no camera has been attached yet.
+- An Allegro 2 format prints about 202 mm along the feed; a label reaching further is refused
+  (`format_past_max_length`). That limit (1654 dot rows, `[printer] max_format_rows`) is
+  provisional until it is measured on the printer.
 - The manual contradicts itself in places; [docs/dpl-reference.md](docs/dpl-reference.md) lists
   each case and the reading taken.
 - The manual is copyrighted and not included or redistributed here. Get it from the vendor.

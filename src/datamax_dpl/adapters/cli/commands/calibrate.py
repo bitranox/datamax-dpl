@@ -14,9 +14,11 @@ from ....domain.calibration import (
     across_frame_width,
     across_label,
     along_label,
+    longest_along_length,
     offset_from_borders,
     scale_from_measurement,
 )
+from ....domain.enums import FindingCode
 from ....domain.errors import ConfigurationError
 from ....domain.findings import Finding
 from ....domain.render import build_job, effective_calibration
@@ -34,6 +36,7 @@ if TYPE_CHECKING:
     from ....domain.label import Label
     from ....domain.profiles import CalibrationDefaults
     from ....domain.render import RenderResult
+    from ....domain.render_context import RenderOptions
     from ..context import CLIContext
     from ..settings import PrinterSettings
 
@@ -66,6 +69,10 @@ class CalibratePrintPayload(BaseModel):
     offset_along: float
     bytes_sent: int
     findings: list[Finding]
+    # Set only when the along bar is refused for passing the format length: the longest
+    # --along-length (whole 10 mm) that fits at this calibration, None when not even 20 mm does.
+    along_length_that_fits: float | None = None
+    hint: str | None = None
 
 
 class _Change(BaseModel):
@@ -147,7 +154,11 @@ def cli_calibrate_print(
         results = [build_job(label, options) for label in labels]
         payload = _print_payload(settings, calibration, axes=axes, results=results)
         if not all(result.ok for result in results):
-            return CommandResult(ok=False, payload=payload, human="REFUSED: nothing sent")
+            along = dict(zip(axes, zip(labels, results, strict=True), strict=True)).get(Axis.ALONG)
+            if along is not None and _too_long(along[1]):
+                payload = _with_length_hint(payload, along[0], settings=settings, options=options, below=along_length)
+            human = "REFUSED: nothing sent" if payload.hint is None else f"REFUSED: nothing sent\n{payload.hint}"
+            return CommandResult(ok=False, payload=payload, human=human)
         uri = require_uri(settings)
         # One send for both formats: a print server can refuse a reconnect for a second or two.
         report = send_bytes(
@@ -160,6 +171,33 @@ def cli_calibrate_print(
         return CommandResult(ok=True, payload=payload, human=f"sent {', '.join(axes)} to {uri}")
 
     run_command(ctx, command="calibrate print", body=body)
+
+
+def _too_long(result: RenderResult) -> bool:
+    return any(finding.code is FindingCode.FORMAT_PAST_MAX_LENGTH for finding in result.findings)
+
+
+def _with_length_hint(
+    payload: CalibratePrintPayload, label: Label, *, settings: PrinterSettings, options: RenderOptions, below: float
+) -> CalibratePrintPayload:
+    """Add the longest along length that fits to the payload of a refused along label."""
+    title = _title(settings, effective_calibration(options).scale_along)
+    # along_label always sets the width, so the 0 never reaches longest_along_length.
+    fits = longest_along_length(width=label.width or 0.0, title=title, options=options, below=below)
+    return payload.model_copy(update={"along_length_that_fits": fits, "hint": _length_hint(fits)})
+
+
+def _length_hint(fits: float | None) -> str:
+    """Name the along length to print instead; the same length goes to 'calibrate set'."""
+    if fits is None:
+        return (
+            "not even a 20 mm along bar fits in one format at this calibration: check scale_along, "
+            "offset_along and max_format_rows"
+        )
+    return (
+        f"the along bar is longer than one format holds at this calibration: print it with "
+        f"--along-length {fits:g}, and pass the same --along-length {fits:g} to 'calibrate set'"
+    )
 
 
 def _print_payload(

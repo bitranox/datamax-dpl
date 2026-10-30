@@ -72,6 +72,32 @@ def test_the_shipped_printer_defaults_set_no_calibration_or_stop_value() -> None
     # A shipped module would send every model's images to that one module, and on a DMX 600/800
     # (built-in RAM is E) a shipped A would name a plug-in module the printer may not have.
     assert options.image_module is None
+    # A shipped limit would refuse long labels on every model, not only the one it was measured on.
+    assert options.max_format_rows is None
+
+
+@pytest.mark.os_agnostic
+def test_a_configured_max_format_rows_reaches_the_render_options() -> None:
+    assert _options({"printer": {"max_format_rows": 2000}}).max_format_rows == 2000
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printers_max_format_rows_wins_over_the_printer_section() -> None:
+    config = {"printer": {"max_format_rows": 1700}, "printers": {"x": {"max_format_rows": 1800}}}
+
+    assert _options(config, printer="x").max_format_rows == 1800
+    assert _options(config).max_format_rows == 1700
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("section", "printer"), [("printer", None), ("printers.x", "x")])
+def test_a_max_format_rows_of_zero_is_refused_with_the_key_named(section: str, printer: str | None) -> None:
+    config = {"printer": {"max_format_rows": 0}} if printer is None else {"printers": {"x": {"max_format_rows": 0}}}
+
+    with pytest.raises(
+        ConfigurationError, match=rf"^{re.escape(section)}\.max_format_rows: Input should be greater than 0$"
+    ):
+        _options(config, printer=printer)
 
 
 @pytest.mark.os_agnostic
@@ -293,3 +319,33 @@ def test_a_set_override_of_the_image_module_wins_over_the_models(
 
     assert "<STX>IEAFLOGO" in plain
     assert "<STX>ICAFLOGO" in moved
+
+
+_LONG_LINE = {"elements": [{"type": "line", "x": 5, "y": 2, "x2": 5, "y2": 215, "thickness": 0.5}]}
+
+
+@pytest.mark.os_agnostic
+def test_an_allegro_2_refuses_a_line_past_its_format_length_naming_the_setting(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    path = tmp_path / "label.json"
+    path.write_text(json.dumps(_LONG_LINE), encoding="utf-8")
+
+    result = cli_runner.invoke(
+        cli_mod.cli, ["--json", "render", str(path), "--model", "allegro-2"], obj=config_cli_context({})
+    )
+
+    assert result.exit_code == 1, result.output
+    [finding] = [f for f in json.loads(result.stdout)["data"]["findings"] if f["code"] == "format_past_max_length"]
+    assert "max_format_rows" in finding["message"]
+
+
+@pytest.mark.os_agnostic
+def test_a_configured_max_format_rows_lets_an_allegro_2_render_the_long_line(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    factory = config_cli_context({"printer": {"max_format_rows": 10000}})
+
+    dpl = _render(cli_runner, factory, tmp_path, label=_LONG_LINE, model="allegro-2")
+
+    assert "<STX>L" in dpl
