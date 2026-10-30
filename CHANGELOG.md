@@ -23,11 +23,16 @@ All notable changes to this project are documented here. The format follows
   of these reports `attribute_unsupported`. `RenderResult` gains
   `emulated_groups` and `sent_as`, which `preview` and `verify` draw from
   (merged groups OR); `preview_bitmap` and `render_preview_png` take
-  `sent_as=` in place of `halved=`. Merging adds image bytes, about a
-  second per kilobyte at 9600 baud. Unverified on paper.
+  `sent_as=` in place of `halved=`; `SentAs` is exported. Each member
+  prints where its own record would put it, the printer's offset included.
+  Merging adds image bytes, about a second per kilobyte at 9600 baud.
+  Unverified on paper.
 - `find_overlaps` (`domain/overlap.py`): which fields of a label share
-  printed dots, at the job's calibration, as groups of exact fields and the
-  text, barcodes and stored images whose rectangle meets another field.
+  printed dots, at the job's calibration and at the DPL positions the
+  encoder writes (printer offset included), as groups of exact fields and
+  the text, barcodes and stored images whose rectangle meets another field.
+  It takes graphics as a model without circle and polygon records sends
+  them (raster fallbacks), the only models whose transparency is emulated.
 - Image memory budget: the bytes of dot data one job's image downloads may
   hold (rows times bytes per row; an image the label only places costs
   nothing). The `allegro-2` profile ships 44535 (48631 free bytes of module A

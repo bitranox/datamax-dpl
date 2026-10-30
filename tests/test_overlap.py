@@ -5,12 +5,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from hypothesis import assume, given, settings
+from hypothesis import strategies as st
 
 from datamax_dpl.application.use_cases import render_batch
 from datamax_dpl.domain.decoder import explain
 from datamax_dpl.domain.enums import CombineMode, FallbackPolicy, FillPattern, FindingCode, Severity, Unit
 from datamax_dpl.domain.errors import LabelRejectedError
-from datamax_dpl.domain.image_budget import halve
+from datamax_dpl.domain.image_budget import halve, magnify
 from datamax_dpl.domain.image_records import decode_image
 from datamax_dpl.domain.label import Box, Element, Image, Label, Line, Text
 from datamax_dpl.domain.overlap import DotArea, OverlapReport, find_overlaps, printed_dots
@@ -91,6 +93,17 @@ def test_a_text_inside_the_hollow_of_a_box_meets_no_dot_of_it() -> None:
 def test_two_texts_whose_rectangles_meet_are_both_inexact() -> None:
     report = overlaps(Text(x=20, y=20, text="HELLO", font=2), Text(x=30, y=25, text="WORLD", font=2))
     assert report == OverlapReport(inexact=(0, 1))
+
+
+@pytest.mark.os_agnostic
+def test_two_texts_whose_rectangles_only_touch_do_not_overlap() -> None:
+    """Font 2 at 203 dpi is 18 dots high and advances 12 a character: "AB" at (20, 20) covers
+    columns 20-43 and rows 20-37, so a field starting at column 44 or row 38 only touches it."""
+    first = Text(x=20, y=20, text="AB", font=2)
+    assert overlaps(first, Text(x=44, y=20, text="CD", font=2)) == OverlapReport()
+    assert overlaps(first, Text(x=20, y=38, text="CD", font=2)) == OverlapReport()
+    assert overlaps(first, Text(x=42, y=20, text="CD", font=2)) == OverlapReport(inexact=(0, 1))
+    assert overlaps(first, Text(x=20, y=36, text="CD", font=2)) == OverlapReport(inexact=(0, 1))
 
 
 @pytest.mark.os_agnostic
@@ -247,6 +260,16 @@ def test_a_text_over_a_merged_group_is_reported_as_printing_xor() -> None:
 
 
 @pytest.mark.os_agnostic
+def test_a_text_over_a_box_alone_merges_nothing_and_is_reported_as_printing_xor() -> None:
+    """Only an inexact overlap: no group to merge, yet the label does not print the same."""
+    result = build_job(transparent(FRAME, NOTE), ALLEGRO_2)
+    assert result.emulated_groups == ()
+    assert only(result, FindingCode.TRANSPARENCY_NOT_EMULATED).element == 1
+    assert FindingCode.TRANSPARENCY_NOT_NEEDED not in codes(result)
+    assert [record[:2] for record in format_records(result.data)] == [b"1X", b"11"]
+
+
+@pytest.mark.os_agnostic
 def test_strict_refuses_an_emulated_transparency() -> None:
     strict = ALLEGRO_2.model_copy(update={"policy": FallbackPolicy.STRICT})
     result = build_job(transparent(LOGO, FRAME, NOTE), strict)
@@ -365,3 +388,128 @@ def test_a_merged_image_at_magnification_9_is_halved_with_its_group_not_refused(
     result = build_job(transparent(big, box), options)
     assert [f.message for f in result.errors] == []
     assert result.halved_elements == (0, 1)
+
+
+# ======================== a merged image prints each member where it prints alone ========================
+
+#: The Allegro 2 with every model default, its -0.25 mm along offset included.
+ALLEGRO_2_DEFAULTS = RenderOptions(model="allegro-2")
+#: Dots the Allegro 2 prints for one 1/100 in, the unit of every record of its jobs.
+_UNIT_DOTS = 2
+
+
+def _dots_of(length: float) -> int:
+    """Dots an Allegro 2 record length (decoded in inches) prints as."""
+    return round(length * 100) * _UNIT_DOTS
+
+
+def _record_dots(record: Element, data: bytes) -> set[tuple[int, int]]:
+    """The absolute dots (column, row up from the bottom) one decoded Allegro 2 record prints."""
+    if isinstance(record, Image):
+        picture = magnify(downloaded(data, record.name), record.magnification)
+        column, row = _dots_of(record.x), _dots_of(record.y)
+        return {(column + x, row + picture.height - 1 - y) for x, y in black_set(picture)}
+    if isinstance(record, Line):
+        width = _dots_of(record.x2 - record.x) or _dots_of(record.thickness)
+        height = _dots_of(record.y2 - record.y) or _dots_of(record.thickness)
+        return _rectangle(_dots_of(record.x), _dots_of(record.y), width, height)
+    assert isinstance(record, Box)
+    column, row = _dots_of(record.x), _dots_of(record.y)
+    width, height = _dots_of(record.width), _dots_of(record.height)
+    edge, side = _dots_of(record.thickness), _dots_of(record.side_thickness or record.thickness)
+    whole = _rectangle(column, row, width, height)
+    return whole - _rectangle(column + side, row + edge, width - 2 * side, height - 2 * edge)
+
+
+def _rectangle(left: int, bottom: int, width: int, height: int) -> set[tuple[int, int]]:
+    return {(x, y) for x in range(left, left + width) for y in range(bottom, bottom + height)}
+
+
+def printed_by(result: RenderResult) -> set[tuple[int, int]]:
+    """Every dot the job's records print, OR-ed, with each image decoded from its own download."""
+    decoded = explain(result.data).label
+    assert decoded is not None
+    dots: set[tuple[int, int]] = set()
+    for record in decoded.elements:
+        dots |= _record_dots(record, result.data)
+    return dots
+
+
+def assert_merged_where_apart(*elements: dict[str, Any]) -> None:
+    """The merged job prints exactly the dots the fields print when each is sent on its own."""
+    apart = build_job(transparent(*elements, attribute=None), ALLEGRO_2_DEFAULTS)
+    merged = build_job(transparent(*elements), ALLEGRO_2_DEFAULTS)
+    assert merged.emulated_groups == (tuple(range(len(elements))),)
+    assert printed_by(merged) == printed_by(apart)
+
+
+def mm_label(*elements: dict[str, Any], attribute: int | None) -> Label:
+    return Label.model_validate({"unit": "mm", "attribute": attribute, "elements": list(elements)})
+
+
+@pytest.mark.os_agnostic
+def test_a_merged_line_prints_where_it_prints_alone_under_the_default_along_offset() -> None:
+    """The review's pair: merged, the line once sat 2 dots lower than its own record puts it."""
+    box = {"type": "box", "x": 38.456, "y": 0.370, "width": 24.59, "height": 16.95, "thickness": 1.352}
+    line = {"type": "line", "x": 36.23, "y": 2.893, "x2": 61.61, "y2": 2.893, "thickness": 0.541}
+    apart = build_job(mm_label(box, line, attribute=None), ALLEGRO_2_DEFAULTS)
+    merged = build_job(mm_label(box, line, attribute=2), ALLEGRO_2_DEFAULTS)
+    assert merged.emulated_groups == ((0, 1),)
+    assert printed_by(merged) == printed_by(apart)
+
+
+@pytest.mark.os_agnostic
+def test_a_merged_qr_code_prints_where_it_prints_alone() -> None:
+    """The encoder adds the quiet zone in DPL units to the QR Code's offset row; so must the merge."""
+    qr = {"type": "qr", "x": 11.3, "y": 0.6, "data": "HELLO", "module_dots": 2, "quiet_zone": 2}
+    box = {"type": "box", "x": 9, "y": 1.6, "width": 15, "height": 8, "thickness": 0.5}
+    apart = build_job(mm_label(qr, box, attribute=None), ALLEGRO_2_DEFAULTS)
+    merged = build_job(mm_label(qr, box, attribute=2), ALLEGRO_2_DEFAULTS)
+    assert merged.emulated_groups == ((0, 1),)
+    assert printed_by(merged) == printed_by(apart)
+
+
+@pytest.mark.os_agnostic
+def test_a_member_the_default_offset_clamps_is_placed_where_it_prints_alone() -> None:
+    """A box on the bottom edge is clamped there by the -0.25 mm offset; the line above it is not."""
+    box = {"type": "box", "x": 10, "y": 0, "width": 60, "height": 30, "thickness": 4}
+    line = {"type": "line", "x": 5, "y": 15, "x2": 90, "y2": 15, "thickness": 3}
+    assert_merged_where_apart(box, line)
+    merged = build_job(transparent(box, line), ALLEGRO_2_DEFAULTS)
+    assert FindingCode.MODEL_OFFSET_CLAMPED in codes(merged)
+
+
+_HUNDREDTHS_MM = st.integers(min_value=0, max_value=4000).map(lambda value: value / 100)
+
+
+@pytest.mark.os_agnostic
+@settings(max_examples=150, deadline=None)
+@given(
+    x=_HUNDREDTHS_MM,
+    y=_HUNDREDTHS_MM,
+    size=st.tuples(st.integers(500, 3000), st.integers(500, 2000), st.integers(30, 200)).map(
+        lambda values: tuple(value / 100 for value in values)
+    ),
+    line=st.tuples(st.integers(0, 1000), st.integers(0, 2000), st.integers(30, 150)).map(
+        lambda values: tuple(value / 100 for value in values)
+    ),
+)
+def test_merged_boxes_and_lines_print_where_they_print_alone(
+    x: float, y: float, size: tuple[float, float, float], line: tuple[float, float, float]
+) -> None:
+    """Random box and horizontal line pairs in mm whose line crosses the box, default options."""
+    width, height, thickness = size
+    start, rise, line_thickness = line
+    box = {"type": "box", "x": x, "y": y, "width": width, "height": height, "thickness": thickness}
+    crossing = {
+        "type": "line",
+        "x": max(x - start, 0.0),
+        "y": y + min(rise, height),
+        "x2": x + width + 5,
+        "y2": y + min(rise, height),
+        "thickness": line_thickness,
+    }
+    merged = build_job(mm_label(box, crossing, attribute=2), ALLEGRO_2_DEFAULTS)
+    assume(merged.ok and merged.emulated_groups == ((0, 1),))
+    apart = build_job(mm_label(box, crossing, attribute=None), ALLEGRO_2_DEFAULTS)
+    assert printed_by(merged) == printed_by(apart)

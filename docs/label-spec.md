@@ -76,8 +76,9 @@ an Allegro 2 printed a box over an image of the same size as only their differen
 share dots are drawn together into one downloaded image (`transparency_emulated`), and `preview`
 draws them OR. Text, barcodes and stored images cannot be merged; one that overlaps another field
 still prints XOR (`transparency_not_emulated`). Unverified on paper; see
-[dpl-reference.md](dpl-reference.md) for the cost in image bytes. Without an `attribute` the preview shows XOR, each format's default; a DMX 600 or 800
-takes its default from the operator panel instead.
+[dpl-reference.md](dpl-reference.md) for the cost in image bytes. Without an `attribute` the
+preview shows XOR, each format's default; a DMX 600 or 800 takes its default from the operator
+panel instead.
 
 `cut`:
 

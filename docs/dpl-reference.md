@@ -359,4 +359,7 @@ do not overlap prints exactly as without the attribute (`transparency_not_needed
 
 The cost is image bytes: a merged group sends its whole frame as dot rows, which at 9600 baud
 (about 1 KB/s) adds roughly a second per kilobyte, and counts against the image memory budget like
-any other image (halved past it, except a group holding a QR Code). Unverified on paper.
+any other image (halved past it, except a group holding a QR Code). Overlaps are found at full
+resolution: halving ORs each 2x2 block of the merged image, which can join dots of two members at
+an odd edge, so a halved group may print a shared dot that detection did not see. Unverified on
+paper.

@@ -23,7 +23,6 @@ import dataclasses
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from .encode_common import column_of, row_of
 from .encode_graphics import encode_box, encode_circle, encode_image, encode_line, encode_polygon, encode_qr
 from .enums import Attribute, FallbackPolicy, FindingCode, Severity
 from .findings import FindingCollector
@@ -60,11 +59,17 @@ class Emulation:
     merged: frozenset[int] = frozenset()
 
 
-def _member_refusals(elements: Sequence[Element], group: tuple[int, ...], ctx: RenderContext) -> None:
-    """Record what each member's own encoder refuses (past the print width, a QR Code that fits no version).
+#: Deviations a member's own encoder records that hold for it inside the merged image too: it is
+#: placed where its own record would be, so a position clamped on the label edge stays clamped.
+_KEPT_DEVIATIONS = frozenset({FindingCode.MODEL_OFFSET_CLAMPED})
+
+
+def _member_findings(elements: Sequence[Element], group: tuple[int, ...], ctx: RenderContext) -> None:
+    """Record what each member's own encoder refuses, and where it clamps the member's position.
 
     The member is encoded on a scratch copy of the context and its lines and downloads are thrown
-    away; only refusals carry over, since the merge replaces every fallback the encoder would apply.
+    away; refusals (past the print width, a QR Code that fits no version) and a clamped position
+    carry over, while every other fallback the encoder would apply is replaced by the merge.
     The copy never halves: the merged image is halved as a whole, so a member's own magnification
     never has to double.
     """
@@ -82,6 +87,8 @@ def _member_refusals(elements: Sequence[Element], group: tuple[int, ...], ctx: R
     for finding in scratch.findings.findings():
         if finding.severity is Severity.ERROR:
             ctx.findings.refuse(finding.code, finding.message, element=finding.element)
+        elif finding.code in _KEPT_DEVIATIONS and finding.fallback is not None:
+            ctx.findings.deviate(finding.code, finding.message, fallback=finding.fallback, element=finding.element)
 
 
 def _encode_member(element: Element, *, index: int, ctx: RenderContext) -> None:
@@ -101,11 +108,16 @@ def _encode_member(element: Element, *, index: int, ctx: RenderContext) -> None:
 
 @dataclass(frozen=True)
 class _Merged:
-    """A group's dots drawn into one picture, and the label position it is placed from."""
+    """A group's dots drawn into one picture, and the DPL column and row its record is written at.
+
+    The members' own record positions are kept as they are: the picture starts at the smallest
+    column and row any member is written at, so each member's dots land where its own record
+    would print them.
+    """
 
     bitmap: Bitmap
-    x: float
-    y: float
+    column: int
+    row: int
 
 
 def _merge(members: list[PrintedDots]) -> _Merged:
@@ -117,9 +129,9 @@ def _merge(members: list[PrintedDots]) -> _Merged:
     bitmap = Bitmap(right - left + 1, top - bottom + 1)
     for member in members:
         bitmap.blit(member.bitmap, x=member.area.left - left, y=top - member.area.top)
-    leftmost = min(members, key=lambda member: member.area.left)
-    lowest = min(members, key=lambda member: member.area.bottom)
-    return _Merged(bitmap=bitmap, x=leftmost.x, y=lowest.y)
+    column = min(member.column for member in members)
+    row = min(member.row for member in members)
+    return _Merged(bitmap=bitmap, column=column, row=row)
 
 
 def _keep_named_downloads(label: Label, group: tuple[int, ...], ctx: RenderContext) -> None:
@@ -142,7 +154,7 @@ def _bytes_sent(placed: PlacedImage, ctx: RenderContext) -> int:
 
 def _emulate_group(label: Label, group: tuple[int, ...], ctx: RenderContext) -> list[bytes]:
     """Draw ``group`` into one downloaded image and return its placing line; nothing when it is refused."""
-    _member_refusals(label.elements, group, ctx)
+    _member_findings(label.elements, group, ctx)
     members = [printed_dots(label.elements[index], ctx) for index in group]
     merged = _merge([member for member in members if member is not None])
     first = group[0]
@@ -166,9 +178,7 @@ def _emulate_group(label: Label, group: tuple[int, ...], ctx: RenderContext) -> 
         ),
         element=first,
     )
-    row = row_of(merged.y, index=first, ctx=ctx)
-    column = column_of(merged.x, index=first, ctx=ctx)
-    return [line(image_record(row=row, column=column, name=placed.name, magnification=placed.dots))]
+    return [line(image_record(row=merged.row, column=merged.column, name=placed.name, magnification=placed.dots))]
 
 
 def _report_inexact(label: Label, inexact: tuple[int, ...], ctx: RenderContext) -> None:

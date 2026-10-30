@@ -5,8 +5,12 @@ To emulate a transparent label there, the fields that share dots are drawn into 
 :mod:`~datamax_dpl.domain.transparency`); this module finds them.
 
 Detection runs on the PRINTED geometry, in printhead dots at this job's calibration: column from
-the label's left edge, row up from its bottom. The printer's position offsets move every field
-alike and are left out. Two kinds of field take part:
+the label's left edge, row up from its bottom. Each field sits where its own record puts it: at
+the DPL row and column the encoder writes (moved by the printer's offset, kept on the label's 0
+edge, :func:`~datamax_dpl.domain.encode_common.position_units`), turned into dots. Rounding the
+offset into each position can move two fields a unit apart or together, so detection and the
+merged image both start from those units, never from the label lengths. Two kinds of field take
+part:
 
 * EXACT fields, whose dots the library knows: lines, boxes, circles, polygons, QR Codes and images
   with a bitmap. A horizontal or vertical line and a box without a patterned fill are the
@@ -23,6 +27,12 @@ alike and are left out. Two kinds of field take part:
 Candidates are found by sorting the rectangles by their left edge and sweeping, so a label of many
 small fields apart costs about its field count, and only the dots of two candidates' common
 rectangle are compared.
+
+The geometry is that of a model WITHOUT circle and polygon records, the only models whose
+transparency is emulated: there circles, polygons, slanted lines and patterned boxes are sent as
+the raster fallback draws them. Halving is not part of it: a job past its image memory budget
+sends the merged image halved, and halving can join a dot of one member with a dot of another
+at an odd edge, which detection does not see.
 """
 
 from __future__ import annotations
@@ -31,6 +41,7 @@ import dataclasses
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from .encode_common import position_units
 from .enums import FillPattern
 from .image_budget import magnify
 from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText, Text
@@ -89,14 +100,14 @@ class PrintedDots:
     Attributes:
         area: The rectangle ``bitmap`` covers.
         bitmap: The dots, row 0 being the area's top row.
-        x: Label position (the label's unit) the field's lower-left corner is placed from, across.
-        y: The same along the feed; an image of these dots is placed from ``(x, y)``.
+        column: DPL column the field's record is written at; ``area.left`` is its dot.
+        row: DPL row the field's record is written at; ``area.bottom`` is its dot.
     """
 
     area: DotArea
     bitmap: Bitmap
-    x: float
-    y: float
+    column: int
+    row: int
 
     def shares_dots(self, other: PrintedDots) -> bool:
         """Return whether both fields print at least one dot on the same spot."""
@@ -123,8 +134,8 @@ class OverlapReport:
 
 
 def _dots_at(value: float, *, axis: Axis, ctx: RenderContext) -> int:
-    """The dot a label position prints at: converted to DPL units first, as its record writes it."""
-    return ctx.printed_dots(ctx.dpl_units(value, axis=axis))
+    """The dot a label position prints at: the DPL unit its record is written at, in dots."""
+    return ctx.printed_dots(position_units(value, axis=axis, ctx=ctx))
 
 
 def _length_dots(units: int, ctx: RenderContext) -> int:
@@ -132,9 +143,15 @@ def _length_dots(units: int, ctx: RenderContext) -> int:
     return max(1, ctx.printed_dots(units))
 
 
+def _at_units(bitmap: Bitmap, *, column: int, row: int, ctx: RenderContext) -> PrintedDots:
+    left, bottom = ctx.printed_dots(column), ctx.printed_dots(row)
+    return PrintedDots(DotArea(left, bottom, bitmap.width, bitmap.height), bitmap, column, row)
+
+
 def _placed(bitmap: Bitmap, *, x: float, y: float, ctx: RenderContext) -> PrintedDots:
-    left, bottom = _dots_at(x, axis=Axis.ACROSS, ctx=ctx), _dots_at(y, axis=Axis.ALONG, ctx=ctx)
-    return PrintedDots(DotArea(left, bottom, bitmap.width, bitmap.height), bitmap, x, y)
+    """Place ``bitmap`` where a record for the label position ``(x, y)`` is written."""
+    column = position_units(x, axis=Axis.ACROSS, ctx=ctx)
+    return _at_units(bitmap, column=column, row=position_units(y, axis=Axis.ALONG, ctx=ctx), ctx=ctx)
 
 
 def _line_dots(element: Line, ctx: RenderContext) -> PrintedDots:
@@ -174,13 +191,18 @@ def _fallback_dots(element: Line | Box | Circle | Polygon, ctx: RenderContext) -
 
 
 def _qr_dots(element: Qr, ctx: RenderContext) -> PrintedDots | None:
-    """The QR Code's modules, magnified, the quiet zone in from ``(x, y)``; None when no version holds it."""
+    """The QR Code's modules, magnified, the quiet zone in from ``(x, y)``; None when no version holds it.
+
+    As ``encode_qr`` writes it: the quiet zone is added in DPL units to the field's own position.
+    """
     try:
         symbol = qr_bitmap(element.data, error=element.error)
     except QrDataTooLongError:
         return None
     quiet = ctx.length_of_dots(element.quiet_zone * element.module_dots)
-    return _placed(magnify(symbol, element.module_dots), x=element.x + quiet, y=element.y + quiet, ctx=ctx)
+    column = position_units(element.x, axis=Axis.ACROSS, ctx=ctx) + ctx.dpl_units(quiet, axis=Axis.ACROSS)
+    row = position_units(element.y, axis=Axis.ALONG, ctx=ctx) + ctx.dpl_units(quiet, axis=Axis.ALONG)
+    return _at_units(magnify(symbol, element.module_dots), column=column, row=row, ctx=ctx)
 
 
 def printed_dots(element: Element, ctx: RenderContext) -> PrintedDots | None:
@@ -296,6 +318,8 @@ def _fields(elements: Sequence[Element], ctx: RenderContext) -> _Fields:
 
 def find_overlaps(elements: Sequence[Element], ctx: RenderContext) -> OverlapReport:
     """Return which fields share printed dots: groups of exact fields and the inexact fields that meet any.
+
+    Graphics are taken as a model without circle and polygon records sends them (module docstring).
 
     Args:
         elements: The label's elements, placeholders already filled.

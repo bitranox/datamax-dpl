@@ -70,6 +70,7 @@ from .domain.label import (
     Text,
 )
 from .domain.placeholders import fill_label
+from .domain.preview import SentAs
 from .domain.profiles import PrinterProfile, get_profile, list_profiles
 from .domain.render import RenderResult, build_job, render
 from .domain.render_context import RenderOptions
@@ -110,6 +111,7 @@ __all__ = [
     "RenderResult",
     "Rotation",
     "ScalableText",
+    "SentAs",
     "Severity",
     "SpeedCode",
     "StatusProblem",

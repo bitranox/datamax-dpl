@@ -52,8 +52,32 @@ def _shifted(value: float, axis: Axis, *, index: int, ctx: RenderContext) -> flo
     """
     shifted = ctx.shifted(value, axis=axis)
     # Below a micrometre is float noise from the subtraction, not a field off the label.
-    if shifted >= -_TOLERANCE:
-        return max(shifted, 0.0)
+    if shifted < -_TOLERANCE:
+        _report_past_edge(shifted, axis, index=index, ctx=ctx)
+    return max(shifted, 0.0)
+
+
+def position_units(value: float, *, axis: Axis, ctx: RenderContext) -> int:
+    """Return the DPL row or column a field at ``value`` is written at, recording nothing.
+
+    The same arithmetic as :func:`row_of` and :func:`column_of`: moved by the printer's offset,
+    kept on the label's 0 edge, converted to this job's unit. Their checks and findings are left
+    to them; this is for a step that must know where a field prints without encoding it.
+
+    Example:
+        >>> from datamax_dpl.domain.label import Label, Text
+        >>> from datamax_dpl.domain.render import job_context
+        >>> from datamax_dpl.domain.render_context import RenderOptions
+        >>> ctx = job_context(Label(elements=[Text(x=0, y=0, text="x")]), RenderOptions(model="allegro-2"))
+        >>> # 0 mm moved down by the Allegro 2's -0.25 mm along offset stays on the edge.
+        >>> position_units(0.0, axis=Axis.ALONG, ctx=ctx), position_units(10.0, axis=Axis.ACROSS, ctx=ctx)
+        (0, 40)
+    """
+    return ctx.dpl_units(max(ctx.shifted(value, axis=axis), 0.0), axis=axis)
+
+
+def _report_past_edge(shifted: float, axis: Axis, *, index: int, ctx: RenderContext) -> None:
+    """Record a field the offset moves past the label's 0 edge: refused, or clamped for a model default."""
     offset = ctx.offset_mm(axis)
     past = f"{-shifted:g} {ctx.unit.value} past the label edge"
     if axis in ctx.model_offset_axes:
@@ -72,7 +96,6 @@ def _shifted(value: float, axis: Axis, *, index: int, ctx: RenderContext) -> flo
             f"the printer's {axis.value} offset of {offset:g} mm moves this field {past}",
             element=index,
         )
-    return 0.0
 
 
 def check_field_length(length: int, *, limit: int = MAX_FIELD_DATA, index: int, ctx: RenderContext) -> None:
@@ -132,5 +155,6 @@ __all__ = [
     "column_of",
     "counter_lines",
     "last_column",
+    "position_units",
     "row_of",
 ]
