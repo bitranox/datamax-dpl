@@ -23,7 +23,7 @@ import itertools
 import math
 from typing import TYPE_CHECKING
 
-from .enums import FillPattern
+from .enums import CombineMode, FillPattern
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -185,6 +185,15 @@ def _crossings(points: Sequence[tuple[int, int]], y: int) -> list[int]:
         if ya <= y < yb:
             result.append(xa + _ceil_div((y - ya) * (xb - xa), yb - ya))
     return sorted(result)
+
+
+def _merged(base: int, moved: int, *, under: int, mode: CombineMode) -> int:
+    """Return one row of ``base`` with a layer's row ``moved`` put on it; ``under`` is the layer's span."""
+    if mode is CombineMode.XOR:
+        return base ^ moved
+    if mode is CombineMode.OPAQUE:
+        return (base & ~under) | moved
+    return base | moved
 
 
 def _check_non_negative(name: str, value: int) -> None:
@@ -382,15 +391,57 @@ class Bitmap:
             >>> canvas.black_pixels()
             1
         """
+        self.combine(other, x, y, mode=CombineMode.OR)
+
+    def combine(self, other: Bitmap, x: int, y: int, *, mode: CombineMode) -> None:
+        """Put ``other`` onto this bitmap with its top-left corner at (x, y), clipped, as ``mode`` says.
+
+        Only the rows and columns ``other`` covers change, so combining a small layer into a large
+        bitmap costs as much as the layer.
+
+        Args:
+            other: The layer.
+            x: Column of the layer's left edge; may lie outside this bitmap.
+            y: Row of the layer's top edge; may lie outside this bitmap.
+            mode: OR keeps every black dot of both; XOR whitens dots black in both; OPAQUE
+                whitens this bitmap under the layer's whole rectangle, then ORs the layer.
+
+        Example:
+            >>> canvas = Bitmap.from_rows(["###"])
+            >>> canvas.combine(Bitmap.from_rows(["#."]), 1, 0, mode=CombineMode.OPAQUE)
+            >>> canvas.rows()
+            [b'\\xc0']
+        """
         # Without this early exit a far-away x would shift a row by billions of bits.
         if x >= self.width or x + other.width <= 0:
             return
         shift = self.width - x - other.width
         full = (1 << self.width) - 1
+        under = self._span_mask(x, x + other.width - 1)
         for target in range(max(y, 0), min(y + other.height, self.height)):
             row = other._rows[target - y]
-            moved = row << shift if shift >= 0 else row >> -shift
-            self._rows[target] |= moved & full
+            moved = (row << shift if shift >= 0 else row >> -shift) & full
+            self._rows[target] = _merged(self._rows[target], moved, under=under, mode=mode)
+
+    def bounds(self) -> tuple[int, int, int, int] | None:
+        """Return (left, top, width, height) of the smallest rectangle holding every black pixel.
+
+        Returns:
+            The rectangle, or None for a blank bitmap.
+
+        Example:
+            >>> Bitmap.from_rows(["....", ".#..", "..#."]).bounds()
+            (1, 1, 2, 2)
+        """
+        filled = [y for y, row in enumerate(self._rows) if row]
+        if not filled:
+            return None
+        union = 0
+        for row in self._rows[filled[0] : filled[-1] + 1]:
+            union |= row
+        left = self.width - union.bit_length()
+        right = self.width - (union & -union).bit_length()
+        return left, filled[0], right - left + 1, filled[-1] - filled[0] + 1
 
     def rows(self) -> list[bytes]:
         """Return each row, top row first, packed MSB-first and padded with white to whole bytes.

@@ -7,12 +7,13 @@ announces), never worked out by hand, so a test here fails when preview and enco
 from __future__ import annotations
 
 import re
+import time
 
 import pytest
 
 from datamax_dpl.domain.decoder import explain
-from datamax_dpl.domain.enums import Rotation, Unit
-from datamax_dpl.domain.label import Barcode, Element, Label, Line, ScalableText, Text
+from datamax_dpl.domain.enums import Attribute, Rotation, Unit
+from datamax_dpl.domain.label import Barcode, Box, Element, Image, Label, Line, ScalableText, Text
 from datamax_dpl.domain.preview import canvas_for, preview_bitmap, text_box
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.raster import Bitmap
@@ -207,3 +208,98 @@ def test_a_label_without_height_is_tall_enough_for_text_turned_upward() -> None:
     label = Label(unit=Unit.DOTS, width=200, elements=[element])
     _, top, _, _ = text_box(element, canvas_for(label, get_profile(MODEL)))
     assert top >= 1
+
+
+# ======================== overlapping fields: the attribute decides ========================
+
+#: A box outline and a solid image covering exactly the same 20 x 20 dots.
+BOX = Box(x=40, y=40, width=20, height=20, thickness=2)
+SQUARE = Image(x=40, y=40, name="SQUARE", bitmap=["#" * 20] * 20)
+ATTRIBUTE_LINE = re.compile(rb"\rA[0-9]\r")
+
+
+def dots_label(*elements: Element, attribute: Attribute | None = None) -> Label:
+    return Label(unit=Unit.DOTS, width=120, height=120, attribute=attribute, elements=list(elements))
+
+
+def alone(element: Element, model: str) -> set[tuple[int, int]]:
+    """What the preview draws for ``element`` on its own."""
+    return drawn(dots_label(element), model)
+
+
+def covered(pixels: set[tuple[int, int]]) -> set[tuple[int, int]]:
+    """Every pixel of the smallest rectangle holding ``pixels``."""
+    left, top, width, height = bounds(pixels)
+    return {(x, y) for x in range(left, left + width) for y in range(top, top + height)}
+
+
+@pytest.mark.os_agnostic
+def test_allegro_2_a_box_over_an_image_of_the_same_size_leaves_only_the_difference() -> None:
+    """The 2026-10-29 observation on paper: the Allegro 2 has no A command, so fields XOR."""
+    image, box = alone(SQUARE, "allegro-2"), alone(BOX, "allegro-2")
+    assert box < image
+    assert drawn(dots_label(SQUARE, BOX), "allegro-2") == image - box
+
+
+@pytest.mark.os_agnostic
+def test_allegro_2_ignores_a_transparent_attribute_it_cannot_send() -> None:
+    label = dots_label(SQUARE, BOX, attribute=Attribute.TRANSPARENT)
+    assert not ATTRIBUTE_LINE.search(build_job(label, RenderOptions(model="allegro-2")).data)
+    assert drawn(label, "allegro-2") == alone(SQUARE, "allegro-2") ^ alone(BOX, "allegro-2")
+
+
+@pytest.mark.os_agnostic
+def test_dmx_600_transparent_attribute_keeps_both_fields_black() -> None:
+    label = dots_label(SQUARE, BOX, attribute=Attribute.TRANSPARENT)
+    assert b"\rA2\r" in build_job(label, RenderOptions(model="dmx-600")).data
+    assert drawn(label, "dmx-600") == alone(SQUARE, "dmx-600") | alone(BOX, "dmx-600")
+
+
+@pytest.mark.os_agnostic
+def test_dmx_600_without_an_attribute_shows_the_format_default_xor() -> None:
+    """No A command is sent; the manual makes XOR each format's default (the panel may differ)."""
+    label = dots_label(SQUARE, BOX)
+    assert not ATTRIBUTE_LINE.search(build_job(label, RenderOptions(model="dmx-600")).data)
+    assert drawn(label, "dmx-600") == alone(SQUARE, "dmx-600") ^ alone(BOX, "dmx-600")
+
+
+@pytest.mark.os_agnostic
+def test_dmx_600_opaque_attribute_lets_the_later_field_whiten_what_it_covers() -> None:
+    label = dots_label(SQUARE, BOX, attribute=Attribute.OPAQUE)
+    image, box = alone(SQUARE, "dmx-600"), alone(BOX, "dmx-600")
+    assert drawn(label, "dmx-600") == (image - covered(box)) | box
+
+
+@pytest.mark.os_agnostic
+def test_a_text_fields_own_attribute_overrides_the_labels() -> None:
+    text = Text(x=42, y=45, text="AB", font=2, attribute=Attribute.OPAQUE)
+    image, letters = alone(SQUARE, "dmx-600"), alone(text, "dmx-600")
+    assert letters & image
+    assert drawn(dots_label(SQUARE, text), "dmx-600") == (image - covered(letters)) | letters
+
+
+@pytest.mark.os_agnostic
+def test_inverse_has_no_combine_mode_and_shows_as_xor() -> None:
+    label = dots_label(SQUARE, BOX, attribute=Attribute.INVERSE)
+    assert drawn(label, "dmx-600") == alone(SQUARE, "dmx-600") ^ alone(BOX, "dmx-600")
+
+
+@pytest.mark.os_agnostic
+def test_a_field_on_the_frame_keeps_the_frame() -> None:
+    """The frame marks the label edge; it is not printed, so no field XORs it away."""
+    label = dots_label(Line(x=0, y=0, x2=119, y2=0, thickness=1))
+    assert black_set(framed(label, "dmx-600")) <= black_set(preview_bitmap(label, get_profile("dmx-600")))
+
+
+#: Seconds 200 small fields may take; a normal run needs a small fraction of it.
+LOOSE_CEILING_S = 5
+
+
+@pytest.mark.os_agnostic
+def test_two_hundred_small_fields_preview_quickly() -> None:
+    """A layer per field must not make a busy label slow: a loose ceiling, not a benchmark."""
+    elements: list[Element] = [Text(x=2 + 10 * (i % 10), y=2 + 5 * (i // 10), text="A1", font=1) for i in range(200)]
+    label = Label(unit=Unit.MM, width=104, height=150, elements=elements)
+    started = time.perf_counter()
+    preview_bitmap(label, get_profile("dmx-600"))
+    assert time.perf_counter() - started < LOOSE_CEILING_S

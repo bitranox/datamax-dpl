@@ -96,6 +96,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `preview` (and the expected picture of `verify`) combines overlapping
+  fields the way they print instead of always showing both black: each
+  element is drawn on its own layer and combined in the mode its attribute
+  sets (1 XOR, 2 transparent, 3 opaque; a text field's own `attribute`
+  first, then the label's). Models without the `An` command always XOR, as
+  an Allegro 2 printed a box over an image of the same size as only their
+  difference; a label without `attribute` shows XOR, the format default (a
+  DMX 600/800 takes its default from the operator panel, which the preview
+  cannot know). Inverse (5) has no such mode and shows as XOR. The one-dot
+  frame is drawn last, so a field on the label edge does not erase it.
 - Images the library draws (raster fallbacks, QR Codes) are named `D` plus
   7 hex digits of a sha256 of the image instead of `DPLR0001`, `DPLR0002`
   per job: the printer keeps images across jobs and answers BELL to a name

@@ -21,6 +21,14 @@ about its reference point, the lower-left corner of the upright field, which sta
 puts it. Rotation 1 (0) runs right and grows up; 2 (90) runs down and grows right; 3 (180) runs left
 and grows down; 4 (270) runs up and grows left. Characters advance from the reference point along
 the running direction. Images are placed in rotation 1 only. Unverified until a test print.
+
+Overlapping fields combine the way the printer's attribute says (manual, ``A`` command, pages 64-65):
+1 XOR prints only dots an odd number of fields share, 2 transparent prints both, 3 opaque lets the
+later field whiten the rectangle its dots span (for text, the run of its character cells) first.
+Inverse (5) prints white on black, which the preview does not draw; it shows as XOR. A model without
+the ``A`` command (``docs/capabilities.md``) always XORs, as an Allegro 2 did on paper. A label
+that sets no attribute shows XOR, each format's default; a DMX 600/800 takes its default from the
+operator panel instead, which the preview cannot know.
 """
 
 from __future__ import annotations
@@ -28,9 +36,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from .enums import FillPattern, Rotation, Unit
+from .enums import Attribute, CombineMode, FillPattern, Rotation, Unit
 from .image_budget import HALVING_FACTOR, halve, magnify
 from .label import FONT_9, Barcode, Box, Circle, Element, Image, Label, Line, Polygon, Qr, ScalableText, Text
+from .profiles import Feature
 from .qr import QrDataTooLongError, qr_bitmap
 from .raster import Bitmap
 from .units import to_inches
@@ -288,21 +297,6 @@ def _draw_image(element: Image, bitmap: Bitmap, canvas: Canvas, *, halved: bool 
     bitmap.blit(picture, x=x, y=y - picture.height + 1)
 
 
-def _lowest_row(layer: Bitmap) -> int | None:
-    """Return the lowest row of ``layer`` holding a black dot, or None when it is blank."""
-    rows = layer.rows()
-    return next((y for y in range(len(rows) - 1, -1, -1) if any(rows[y])), None)
-
-
-def _leftmost_column(layer: Bitmap) -> int:
-    """Return the leftmost column of a non-blank ``layer`` holding a black dot."""
-    pad = -layer.width % 8
-    union = 0
-    for row in layer.rows():
-        union |= int.from_bytes(row, "big") >> pad
-    return layer.width - union.bit_length()
-
-
 def _draw_halved_graphic(element: Element, bitmap: Bitmap, canvas: Canvas) -> None:
     """Draw a graphic the printer gets as a halved image: its dots in 2x2 blocks.
 
@@ -312,10 +306,11 @@ def _draw_halved_graphic(element: Element, bitmap: Bitmap, canvas: Canvas) -> No
     """
     layer = Bitmap(canvas.width, canvas.height)
     draw_element(element, layer, canvas)
-    bottom = _lowest_row(layer)
-    if bottom is None:
+    area = layer.bounds()
+    if area is None:
         return
-    left = _leftmost_column(layer)
+    left, top, _, height = area
+    bottom = top + height - 1
     cut = Bitmap(canvas.width - left, bottom + 1)
     cut.blit(layer, x=-left, y=0)
     picture = magnify(halve(cut), HALVING_FACTOR)
@@ -422,6 +417,53 @@ def _content_height_in(label: Label, dpi: float) -> float:
     return highest + _MARGIN_DOTS / dpi
 
 
+#: The combine mode of each attribute that has one. Inverse (5) prints a field white on black,
+#: which the preview does not draw, so it has no mode and shows as XOR.
+_ATTRIBUTE_MODES: dict[Attribute, CombineMode] = {
+    Attribute.XOR: CombineMode.XOR,
+    Attribute.TRANSPARENT: CombineMode.OR,
+    Attribute.OPAQUE: CombineMode.OPAQUE,
+}
+
+
+def _has_attributes(profile: PrinterProfile) -> bool:
+    """Whether the model takes the ``A`` command whatever its firmware and options."""
+    support = profile.support(Feature.ATTRIBUTE)
+    return support.available and support.min_firmware is None and support.option is None
+
+
+def _combine_mode(element: Element, label: Label) -> CombineMode:
+    """The mode a field prints in on a model with attributes: its own, the label's, else XOR."""
+    own = element.attribute if isinstance(element, (Text, ScalableText)) else None
+    attribute = own or label.attribute or Attribute.XOR
+    return _ATTRIBUTE_MODES.get(attribute, CombineMode.XOR)
+
+
+def _draw_layer(element: Element, layer: Bitmap, canvas: Canvas, *, halved: bool) -> None:
+    """Draw one element on its own layer, in 2x2 blocks when the job halves it."""
+    if not halved:
+        draw_element(element, layer, canvas)
+    elif isinstance(element, Image):
+        _draw_image(element, layer, canvas, halved=True)
+    else:
+        _draw_halved_graphic(element, layer, canvas)
+
+
+def _combine_layer(bitmap: Bitmap, layer: Bitmap, *, mode: CombineMode) -> None:
+    """Combine the part of ``layer`` holding dots into ``bitmap``; a blank layer changes nothing.
+
+    Cutting the layer to its black dots keeps the combine as small as the field, and gives OPAQUE
+    the field's rectangle (for text, its character cells) to whiten.
+    """
+    area = layer.bounds()
+    if area is None:
+        return
+    left, top, width, height = area
+    cut = Bitmap(width, height)
+    cut.blit(layer, x=-left, y=-top)
+    bitmap.combine(cut, left, top, mode=mode)
+
+
 def preview_bitmap(label: Label, profile: PrinterProfile, *, halved: frozenset[int] = frozenset()) -> Bitmap:
     """Draw ``label`` for ``profile`` with a one-dot frame marking the label (or print) edge.
 
@@ -430,17 +472,22 @@ def preview_bitmap(label: Label, profile: PrinterProfile, *, halved: frozenset[i
         profile: The model; decides the resolution and the print width.
         halved: Elements the job sends at half resolution (``RenderResult.halved_elements``):
             they are drawn the way they print, in 2x2 blocks.
+
+    Returns:
+        The picture, one pixel per printer dot. Each element is drawn on its own layer and
+        combined in the mode it prints in (module docstring): XOR on a model without the ``A``
+        command, else the field's or the label's attribute.
     """
     canvas = canvas_for(label, profile)
     bitmap = Bitmap(canvas.width, canvas.height)
-    bitmap.draw_polygon([(0, 0), (canvas.width - 1, 0), (canvas.width - 1, canvas.height - 1), (0, canvas.height - 1)])
+    attributes = _has_attributes(profile)
     for index, element in enumerate(label.elements):
-        if index not in halved:
-            draw_element(element, bitmap, canvas)
-        elif isinstance(element, Image):
-            _draw_image(element, bitmap, canvas, halved=True)
-        else:
-            _draw_halved_graphic(element, bitmap, canvas)
+        layer = Bitmap(canvas.width, canvas.height)
+        _draw_layer(element, layer, canvas, halved=index in halved)
+        mode = _combine_mode(element, label) if attributes else CombineMode.XOR
+        _combine_layer(bitmap, layer, mode=mode)
+    # The frame is not printed, so it goes on last and no field's XOR can erase it.
+    bitmap.draw_polygon([(0, 0), (canvas.width - 1, 0), (canvas.width - 1, canvas.height - 1), (0, canvas.height - 1)])
     return bitmap
 
 

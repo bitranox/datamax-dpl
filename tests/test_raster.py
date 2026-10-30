@@ -1,4 +1,4 @@
-"""Raster tests: pixels, clipping, lines, polygons, circles, fill patterns, packing and blits."""
+"""Raster tests: pixels, clipping, lines, polygons, circles, fill patterns, packing, blits and combining."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from datamax_dpl.domain.enums import FillPattern
+from datamax_dpl.domain.enums import CombineMode, FillPattern
 from datamax_dpl.domain.raster import TILE_SIZE, Bitmap, pattern_pixel
 
 HUGE = 10**12
@@ -537,3 +537,78 @@ def test_blit_of_wider_source_clips_right_edge() -> None:
     canvas = Bitmap(4, 1)
     canvas.blit(Bitmap.from_rows(["#.#.#.#."]), x=-1, y=0)
     assert black_set(canvas) == {(1, 0), (3, 0)}
+
+
+# ======================== combine and bounds ========================
+
+
+def square(size: int) -> Bitmap:
+    """A solid black ``size`` x ``size`` bitmap."""
+    return Bitmap.from_rows(["#" * size] * size)
+
+
+def overlapping(mode: CombineMode) -> Bitmap:
+    """Two 4x4 squares, the second put 2 dots right and down of the first with ``mode``."""
+    canvas = Bitmap(8, 8)
+    canvas.combine(square(4), 0, 0, mode=CombineMode.OR)
+    canvas.combine(square(4), 2, 2, mode=mode)
+    return canvas
+
+
+FIRST = {(x, y) for x in range(4) for y in range(4)}
+SECOND = {(x, y) for x in range(2, 6) for y in range(2, 6)}
+
+
+@pytest.mark.os_agnostic
+def test_combine_xor_leaves_the_overlap_white() -> None:
+    assert black_set(overlapping(CombineMode.XOR)) == FIRST ^ SECOND
+
+
+@pytest.mark.os_agnostic
+def test_combine_or_keeps_the_overlap_black() -> None:
+    assert black_set(overlapping(CombineMode.OR)) == FIRST | SECOND
+
+
+@pytest.mark.os_agnostic
+def test_combine_opaque_whitens_the_target_under_the_layer_rectangle_first() -> None:
+    """A ring layer put opaque on black: its white middle whitens what it covers too."""
+    canvas = square(8)
+    ring = Bitmap.from_rows(["####", "#..#", "#..#", "####"])
+    canvas.combine(ring, 2, 2, mode=CombineMode.OPAQUE)
+    middle = {(3, 3), (4, 3), (3, 4), (4, 4)}
+    assert black_set(canvas) == {(x, y) for x in range(8) for y in range(8)} - middle
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("mode", list(CombineMode))
+@pytest.mark.parametrize(("x", "y"), [(-3, -3), (6, 6), (-HUGE, 0), (HUGE, 0), (0, HUGE), (0, -HUGE)])
+def test_combine_clips_at_every_edge(mode: CombineMode, x: int, y: int) -> None:
+    """Only the overlapping part of the layer acts, in every mode; nothing wraps round."""
+    canvas = square(8)
+    canvas.combine(square(4), x, y, mode=mode)
+    covered = {(x + u, y + v) for u in range(4) for v in range(4)} & {(a, b) for a in range(8) for b in range(8)}
+    whole = {(a, b) for a in range(8) for b in range(8)}
+    assert black_set(canvas) == (whole - covered if mode is CombineMode.XOR else whole)
+
+
+@pytest.mark.os_agnostic
+def test_blit_is_combine_or() -> None:
+    blitted, combined = Bitmap(8, 8), Bitmap(8, 8)
+    for canvas in (blitted, combined):
+        canvas.set(3, 3)
+    blitted.blit(square(4), x=2, y=2)
+    combined.combine(square(4), 2, 2, mode=CombineMode.OR)
+    assert black_set(blitted) == black_set(combined)
+
+
+@pytest.mark.os_agnostic
+def test_bounds_of_a_blank_bitmap_are_none() -> None:
+    assert Bitmap(5, 5).bounds() is None
+
+
+@pytest.mark.os_agnostic
+def test_bounds_hold_every_black_pixel_tightly() -> None:
+    bitmap = Bitmap(20, 10)
+    for x, y in ((3, 7), (11, 2), (6, 5)):
+        bitmap.set(x, y)
+    assert bitmap.bounds() == (3, 2, 9, 6)

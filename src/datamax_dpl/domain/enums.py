@@ -129,6 +129,23 @@ class Attribute(IntEnum):
     INVERSE = 5
 
 
+class CombineMode(Enum):
+    """How the preview puts one field's dots onto what the fields before it drew.
+
+    The printer's attribute (:class:`Attribute`) decides it: XOR prints only dots an odd number of
+    fields share, OR (transparent) prints every dot of both, and OPAQUE whitens the area the
+    new field covers before printing it.
+
+    Example:
+        >>> CombineMode.XOR.name
+        'XOR'
+    """
+
+    OR = "or"
+    XOR = "xor"
+    OPAQUE = "opaque"
+
+
 class SpeedCode(str, Enum):
     """DPL speed letter; the member name gives the speed in inches per second.
 
@@ -438,6 +455,7 @@ __all__ = [
     "SPEED_IPS",
     "Attribute",
     "BarcodeProblemCode",
+    "CombineMode",
     "CommandKind",
     "CutterPresence",
     "DeployTarget",
