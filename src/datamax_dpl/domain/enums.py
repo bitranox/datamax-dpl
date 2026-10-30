@@ -252,6 +252,8 @@ class FindingCode(str, Enum):
     FIELD_TOO_LONG = "field_too_long"
     FONT_SIZE_SUBSTITUTED = "font_size_substituted"
     HEAT_OUT_OF_RANGE = "heat_out_of_range"
+    IMAGE_HALVED = "image_halved"
+    IMAGE_MEMORY_EXCEEDED = "image_memory_exceeded"
     IMAGE_MUST_BE_STORED = "image_must_be_stored"
     IMAGE_TOO_WIDE = "image_too_wide"
     INCH_UNITS = "inch_units"

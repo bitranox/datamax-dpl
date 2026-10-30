@@ -156,10 +156,16 @@ class CalibrationDefaults:
         offset_along: Millimetres every field moves toward the label top.
         stop_position_mm: Tear-off stop position in mm, or None to keep the printer's setting.
         provenance: Where the values were measured; empty for the neutral defaults.
+        image_memory_bytes: Bytes of image data one job may download, or None for no budget
+            (see :mod:`~datamax_dpl.domain.image_budget`).
+        image_memory_provenance: Where the image memory budget comes from; it was read on another
+            day than the calibration, so it carries its own.
 
     Example:
         >>> CalibrationDefaults().scale_along
         1.0
+        >>> CalibrationDefaults().image_memory_bytes is None
+        True
     """
 
     scale_across: float = 1.0
@@ -168,6 +174,8 @@ class CalibrationDefaults:
     offset_along: float = 0.0
     stop_position_mm: float | None = None
     provenance: str = ""
+    image_memory_bytes: int | None = None
+    image_memory_provenance: str = ""
 
 
 @dataclass(frozen=True)
@@ -479,6 +487,13 @@ _CALIBRATION: dict[str, CalibrationDefaults] = {
         offset_along=-0.25,
         stop_position_mm=67.4,
         provenance="measured on one Allegro 2, firmware CA02 03.04, 2026-10-29",
+        # The free bytes <STX>W reported for module A, less a margin for what the printer adds per
+        # stored image and for graphics stored later: the module was not empty when it was read.
+        image_memory_bytes=48631 - 4096,
+        image_memory_provenance=(
+            "48631 free bytes of module A read on one Allegro 2 holding 11 stored graphics, "
+            "2026-10-30, less a 4096-byte margin"
+        ),
     ),
 }
 

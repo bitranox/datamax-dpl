@@ -29,8 +29,9 @@ class PrinterSettings(BaseModel):
     """The ``[printer]`` section, merged with a ``[printers.<name>]`` section when one is chosen.
 
     ``name`` is the chosen printer's name, empty when none was; ``label_width`` and
-    ``label_height`` are the loaded labels' size in millimetres, when known. A scale, offset or
-    stop position left unset (None) takes the model's measured default when the job renders.
+    ``label_height`` are the loaded labels' size in millimetres, when known. A scale, offset,
+    stop position or image memory budget left unset (None) takes the model's measured default
+    when the job renders.
 
     Example:
         >>> PrinterSettings().model
@@ -56,6 +57,8 @@ class PrinterSettings(BaseModel):
     # job is built, rather than as a STOP_POSITION_TOO_LARGE finding on every label.
     stop_position: float | None = Field(default=None, gt=0, le=MAX_STOP_POSITION_MM)
     cutter_stop_position: float | None = Field(default=None, gt=0, le=MAX_STOP_POSITION_MM)
+    # None is not "no budget": it takes the model's, which most models do not have.
+    image_memory_bytes: int | None = Field(default=None, gt=0)
     name: str = ""
     label_width: float | None = Field(default=None, gt=0)
     label_height: float | None = Field(default=None, gt=0)
@@ -189,6 +192,7 @@ def render_options(settings: PrinterSettings) -> RenderOptions:
         offset_along=settings.offset_along,
         stop_position_mm=settings.stop_position,
         cutter_stop_position_mm=settings.cutter_stop_position,
+        image_memory_bytes=settings.image_memory_bytes,
     )
 
 

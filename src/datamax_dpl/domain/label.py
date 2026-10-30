@@ -259,7 +259,9 @@ class Image(_Frozen):
 
     With ``bitmap`` the image is downloaded to the printer under ``name`` before the label;
     without it ``name`` must already be stored on the printer. Each bitmap row is a string of
-    ``1``/``#`` (black) and ``0``/``.`` (white), top row first.
+    ``1``/``#`` (black) and ``0``/``.`` (white), top row first. ``magnification`` prints each
+    image dot that many printer dots square. A job past its model's image memory budget sends the
+    bitmap at half resolution and places it at double magnification.
 
     Example:
         >>> Image(x=0, y=0, name="LOGO", bitmap=["#.", ".#"]).name
@@ -271,6 +273,7 @@ class Image(_Frozen):
     y: NonNegative
     name: str = Field(pattern=r"^[A-Za-z0-9_]{1,8}$")
     bitmap: list[str] | None = Field(default=None, min_length=1)
+    magnification: int = Field(default=1, ge=1, le=MAX_IMAGE_MAGNIFICATION)
 
     @model_validator(mode="after")
     def _rows_are_bits(self) -> Image:

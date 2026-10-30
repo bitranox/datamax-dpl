@@ -11,6 +11,7 @@ one is needed.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import BaseModel, ConfigDict
@@ -21,6 +22,7 @@ from .encode_text import encode_scalable_text, encode_text
 from .enums import Attribute, FindingCode, Severity, Unit
 from .errors import LabelRejectedError
 from .findings import Finding, FindingCollector
+from .image_budget import ImageBudget
 from .job import format_footer, format_header, stops_at_tear_off, system_prefix
 from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText, Text
 from .placeholders import label_placeholders
@@ -32,7 +34,8 @@ if TYPE_CHECKING:
     from .label import Element, Label
 
 _RECORD_PREFIXES = tuple("1234")
-_Default = TypeVar("_Default", float, "float | None")
+_Given = TypeVar("_Given")
+_Default = TypeVar("_Default")
 
 
 class RenderResult(BaseModel):
@@ -45,6 +48,10 @@ class RenderResult(BaseModel):
         dpl_unit: Distance unit the format uses.
         record_count: Number of field records in the format.
         downloads: Names of the images downloaded before the format.
+        image_bytes: Bytes of dot data the downloads hold, what the image memory budget counts
+            (see :mod:`~datamax_dpl.domain.image_budget`).
+        halved_elements: Elements whose image is sent at half resolution and placed at double
+            magnification because the job was past its image memory budget.
 
     Example:
         >>> from datamax_dpl.domain.label import Label, Text
@@ -63,6 +70,8 @@ class RenderResult(BaseModel):
     dpl_unit: DplUnit
     record_count: int
     downloads: tuple[str, ...]
+    image_bytes: int
+    halved_elements: tuple[int, ...]
 
     @property
     def ok(self) -> bool:
@@ -80,7 +89,7 @@ class RenderResult(BaseModel):
         return tuple(f for f in self.findings if f.severity is Severity.WARNING)
 
 
-def _pick(explicit: float | None, default: _Default) -> float | _Default:
+def _pick(explicit: _Given | None, default: _Default) -> _Given | _Default:
     return default if explicit is None else explicit
 
 
@@ -99,6 +108,8 @@ def effective_calibration(options: RenderOptions) -> CalibrationDefaults:
         0.976
         >>> effective_calibration(RenderOptions(model="allegro-2", scale_along=1.0)).scale_along
         1.0
+        >>> effective_calibration(RenderOptions(model="allegro-2", image_memory_bytes=9000)).image_memory_bytes
+        9000
     """
     return _resolve(options, get_profile(options.model).calibration)
 
@@ -112,6 +123,8 @@ def _resolve(options: RenderOptions, model: CalibrationDefaults) -> CalibrationD
         offset_along=_pick(options.offset_along, model.offset_along),
         stop_position_mm=_pick(options.stop_position_mm, model.stop_position_mm),
         provenance=model.provenance,
+        image_memory_bytes=_pick(options.image_memory_bytes, model.image_memory_bytes),
+        image_memory_provenance=model.image_memory_provenance,
     )
 
 
@@ -149,7 +162,7 @@ def _report_model_defaults(label: Label, ctx: RenderContext, *, provenance: str,
         )
 
 
-def _context(label: Label, options: RenderOptions) -> RenderContext:
+def _context(label: Label, options: RenderOptions, *, halve: bool) -> RenderContext:
     profile = get_profile(options.model)
     findings = FindingCollector(options.policy)
     calibration = _resolve(options, profile.calibration)
@@ -172,6 +185,7 @@ def _context(label: Label, options: RenderOptions) -> RenderContext:
         stop_position_mm=calibration.stop_position_mm,
         cutter_stop_position_mm=options.cutter_stop_position_mm,
         reserved_image_names=frozenset(e.name for e in label.elements if isinstance(e, Image)),
+        halve_images=halve,
     )
     _report_model_defaults(label, probe, provenance=calibration.provenance, from_model=from_model)
     if label.unit is Unit.MM and probe.supports(Feature.FORMAT_METRIC):
@@ -252,15 +266,24 @@ def _count_records(lines: list[bytes]) -> int:
     return sum(1 for item in lines if item[:1].decode("ascii", "replace") in _RECORD_PREFIXES)
 
 
-def build_job(label: Label, options: RenderOptions | None = None, *, filled: bool = False) -> RenderResult:
-    """Render ``label`` for ``options.model`` and report every finding; never raises for a finding.
+@dataclass
+class _Job:
+    """One encoding of a label: its context and the lines built before the format header."""
 
-    Raises:
-        UnknownModelError: ``options.model`` names no profile.
-        ValueError: ``options.firmware`` is malformed.
-    """
-    options = options or RenderOptions()
-    ctx = _context(label, options)
+    ctx: RenderContext
+    prefix: list[bytes]
+    body: list[bytes]
+    record_count: int
+
+    @property
+    def image_bytes(self) -> int:
+        """Bytes of dot data the job's downloads hold."""
+        return sum(download.data_bytes for download in self.ctx.downloads)
+
+
+def _encode(label: Label, options: RenderOptions, *, filled: bool, halve: bool) -> _Job:
+    """Encode everything up to the format header, halving the job's images when ``halve``."""
+    ctx = _context(label, options, halve=halve)
     _check_label_level(label, ctx, filled=filled)
     _check_qr_dot_size(label, ctx)
     prefix = system_prefix(label, ctx)
@@ -271,17 +294,81 @@ def build_job(label: Label, options: RenderOptions | None = None, *, filled: boo
             FindingCode.TOO_MANY_FIELDS,
             f"{record_count} fields; {ctx.profile.name} takes at most {ctx.profile.max_fields}",
         )
+    return _Job(ctx=ctx, prefix=prefix, body=body, record_count=record_count)
+
+
+def _image_budget(options: RenderOptions) -> ImageBudget | None:
+    """Return the image memory budget a job for ``options`` keeps to, or None when it has none."""
+    calibration = effective_calibration(options)
+    if calibration.image_memory_bytes is None:
+        return None
+    if options.image_memory_bytes is not None:
+        return ImageBudget(limit=calibration.image_memory_bytes, source="configured")
+    return ImageBudget(
+        limit=calibration.image_memory_bytes,
+        source=f"{options.model} default",
+        provenance=calibration.image_memory_provenance,
+    )
+
+
+def _fit_budget(label: Label, options: RenderOptions, *, filled: bool, job: _Job, budget: ImageBudget) -> _Job:
+    """Fit a job past its image memory budget: refuse it under strict, else halve its images once.
+
+    Halving happens once: a job still past the budget afterwards is refused, not halved again.
+    """
+    held = f"the job's image downloads hold {job.image_bytes} bytes; {budget.describe()}"
+    if not job.ctx.findings.degrading:
+        job.ctx.findings.refuse(FindingCode.IMAGE_MEMORY_EXCEEDED, held)
+        return job
+    halved = _encode(label, options, filled=filled, halve=True)
+    elements = sorted(set(halved.ctx.halved_elements))
+    if elements:
+        halved.ctx.findings.deviate(
+            FindingCode.IMAGE_HALVED,
+            held,
+            fallback=(
+                f"elements {', '.join(map(str, elements))} sent at half resolution and placed at double "
+                f"magnification ({halved.image_bytes} bytes); unverified on paper"
+            ),
+        )
+    if halved.image_bytes > budget.limit:
+        halved.ctx.findings.refuse(
+            FindingCode.IMAGE_MEMORY_EXCEEDED,
+            f"the job's image downloads hold {halved.image_bytes} bytes after halving every image that can "
+            f"be halved (QR Codes never are); {budget.describe()}",
+        )
+    return halved
+
+
+def build_job(label: Label, options: RenderOptions | None = None, *, filled: bool = False) -> RenderResult:
+    """Render ``label`` for ``options.model`` and report every finding; never raises for a finding.
+
+    A job whose image downloads hold more than its image memory budget is encoded a second time
+    with its images halved (degrade) or refused (strict); see :mod:`~datamax_dpl.domain.image_budget`.
+
+    Raises:
+        UnknownModelError: ``options.model`` names no profile.
+        ValueError: ``options.firmware`` is malformed.
+    """
+    options = options or RenderOptions()
+    job = _encode(label, options, filled=filled, halve=False)
+    budget = _image_budget(options)
+    if budget is not None and job.image_bytes > budget.limit:
+        job = _fit_budget(label, options, filled=filled, job=job, budget=budget)
+    ctx = job.ctx
     head = format_header(label, ctx)
     foot = format_footer(label, ctx)
     downloads = [download.command for download in ctx.downloads]
-    data = b"".join([*prefix, *downloads, *head, *body, *foot, *ctx.system_suffix])
+    data = b"".join([*job.prefix, *downloads, *head, *job.body, *foot, *ctx.system_suffix])
     return RenderResult(
         data=data,
         findings=ctx.findings.findings(),
         model=ctx.profile.id,
         dpl_unit=ctx.dpl_unit,
-        record_count=record_count,
+        record_count=job.record_count,
         downloads=tuple(download.name for download in ctx.downloads),
+        image_bytes=job.image_bytes,
+        halved_elements=tuple(sorted(set(ctx.halved_elements))),
     )
 
 

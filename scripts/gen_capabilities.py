@@ -172,6 +172,17 @@ def _calibration_table(profiles: list[PrinterProfile]) -> list[str]:
     return _table(header, rows)
 
 
+def _image_memory_table(profiles: list[PrinterProfile]) -> list[str]:
+    """Only models that ship an image memory budget: every other model has none."""
+    header = ["Model", "Image memory budget (bytes)", "Source"]
+    rows = [
+        [f"`{p.id}`", str(c.image_memory_bytes), c.image_memory_provenance]
+        for p in profiles
+        if (c := p.calibration).image_memory_bytes is not None
+    ]
+    return _table(header, rows)
+
+
 def generated_section(profiles: list[PrinterProfile] | None = None) -> str:
     """Return the Markdown that belongs between the markers, built from ``profiles``.
 
@@ -189,6 +200,7 @@ def generated_section(profiles: list[PrinterProfile] | None = None) -> str:
         ["### Features: job, media and printer settings", "", *_feature_table(chosen, _JOB_FEATURES)],
         ["### Features: format, graphics and barcodes", "", *_feature_table(chosen, _FORMAT_FEATURES)],
         ["### Calibration defaults", "", *_calibration_table(chosen)],
+        ["### Image memory budget", "", *_image_memory_table(chosen)],
     ]
     return "\n\n".join("\n".join(part) for part in parts) + "\n"
 

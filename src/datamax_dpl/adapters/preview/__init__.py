@@ -89,9 +89,12 @@ def _letter(pillow: _Pillow, image: _Image, box: tuple[int, int, int, int], text
     draw.text((left, top), text, fill=_BLACK, font=font)
 
 
-def render_preview_png(label: Label, profile: PrinterProfile) -> bytes:
-    """Return the preview PNG: lettered with Pillow when available, cell blocks otherwise."""
-    bitmap = preview_bitmap(label, profile)
+def render_preview_png(label: Label, profile: PrinterProfile, *, halved: frozenset[int] = frozenset()) -> bytes:
+    """Return the preview PNG: lettered with Pillow when available, cell blocks otherwise.
+
+    ``halved`` names the elements the job sends at half resolution, drawn the way they print.
+    """
+    bitmap = preview_bitmap(label, profile, halved=halved)
     pillow = _pillow()
     if pillow is None:
         return encode_png(bitmap)

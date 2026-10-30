@@ -80,6 +80,7 @@ turn the outcome into output and an exit code.
 - `raster_fallback.py` - graphics a model cannot draw, as downloaded images.
 - `qr.py` - the QR Code module matrix via segno (`qr_bitmap`, `QrDataTooLongError`).
 - `image_records.py` - the Datamax image download format.
+- `image_budget.py` - the image memory budget: bytes a download holds, halving (`halve`, `magnify`).
 - `records.py` - byte-level formatting of DPL records.
 - `placeholders.py` - `{name}` placeholders and filling them from records.
 - `preview.py` - preview bitmap at printer resolution.

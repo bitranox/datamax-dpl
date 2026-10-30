@@ -110,7 +110,7 @@ def verify_print(
     status = _print_and_wait(result.data, uri=uri, timeout=timeout, open_printer=open_printer, sleep=sleep, clock=clock)
     sleep(camera.settle_seconds)
     photo = capture(camera, output_dir=output_dir)
-    expected = encode_png(preview_bitmap(label, profile))
+    expected = encode_png(preview_bitmap(label, profile, halved=frozenset(result.halved_elements)))
     return VerifyReport(bytes_sent=len(result.data), status=status, photo=photo, expected_png=expected)
 
 

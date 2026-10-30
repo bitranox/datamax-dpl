@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .enums import FillPattern, Rotation, Unit
+from .image_budget import HALVING_FACTOR, halve, magnify
 from .label import FONT_9, Barcode, Box, Circle, Element, Image, Label, Line, Polygon, Qr, ScalableText, Text
 from .qr import QrDataTooLongError, qr_bitmap
 from .raster import Bitmap
@@ -176,14 +177,53 @@ def _draw_graphic(element: Line | Circle | Polygon, bitmap: Bitmap, canvas: Canv
         bitmap.draw_polygon([canvas.point(p.x, p.y) for p in element.points], fill=element.fill)
 
 
-def _draw_image(element: Image, bitmap: Bitmap, canvas: Canvas) -> None:
+def _draw_image(element: Image, bitmap: Bitmap, canvas: Canvas, *, halved: bool = False) -> None:
+    """Draw the image as the printer prints it: magnified, and at half resolution when halved."""
     x, y = canvas.point(element.x, element.y)
     if element.bitmap is None:
-        size = _PLACEHOLDER_IMAGE_DOTS
+        size = _PLACEHOLDER_IMAGE_DOTS * element.magnification
         bitmap.fill_rect(x, y - size + 1, size, size, pattern=FillPattern.GRID)
         return
     picture = Bitmap.from_rows(element.bitmap)
+    factor = element.magnification
+    if halved:
+        picture, factor = halve(picture), factor * HALVING_FACTOR
+    picture = magnify(picture, factor)
     bitmap.blit(picture, x=x, y=y - picture.height + 1)
+
+
+def _lowest_row(layer: Bitmap) -> int | None:
+    """Return the lowest row of ``layer`` holding a black dot, or None when it is blank."""
+    rows = layer.rows()
+    return next((y for y in range(len(rows) - 1, -1, -1) if any(rows[y])), None)
+
+
+def _leftmost_column(layer: Bitmap) -> int:
+    """Return the leftmost column of a non-blank ``layer`` holding a black dot."""
+    pad = -layer.width % 8
+    union = 0
+    for row in layer.rows():
+        union |= int.from_bytes(row, "big") >> pad
+    return layer.width - union.bit_length()
+
+
+def _draw_halved_graphic(element: Element, bitmap: Bitmap, canvas: Canvas) -> None:
+    """Draw a graphic the printer gets as a halved image: its dots in 2x2 blocks.
+
+    The element is drawn alone, cut at its lowest row and leftmost column (where the encoder's
+    image starts), halved and doubled there. The blocks line up with the printed ones as far as
+    the preview's drawing matches the encoder's raster, to a dot or so.
+    """
+    layer = Bitmap(canvas.width, canvas.height)
+    draw_element(element, layer, canvas)
+    bottom = _lowest_row(layer)
+    if bottom is None:
+        return
+    left = _leftmost_column(layer)
+    cut = Bitmap(canvas.width - left, bottom + 1)
+    cut.blit(layer, x=-left, y=0)
+    picture = magnify(halve(cut), HALVING_FACTOR)
+    bitmap.blit(picture, x=left, y=bottom - picture.height + 1)
 
 
 def _qr_symbol(element: Qr) -> Bitmap | None:
@@ -251,7 +291,7 @@ def _barcode_top(element: Barcode, unit: Unit, dpi: float) -> float:
 
 def _image_top(element: Image, unit: Unit, dpi: float) -> float:
     rows = len(element.bitmap) if element.bitmap else _PLACEHOLDER_IMAGE_DOTS
-    return to_inches(element.y, unit, dpi=dpi) + rows / dpi
+    return to_inches(element.y, unit, dpi=dpi) + rows * element.magnification / dpi
 
 
 def _qr_top(element: Qr, unit: Unit, dpi: float) -> float:
@@ -291,13 +331,25 @@ def _content_height_in(label: Label, dpi: float) -> float:
     return highest + _MARGIN_DOTS / dpi
 
 
-def preview_bitmap(label: Label, profile: PrinterProfile) -> Bitmap:
-    """Draw ``label`` for ``profile`` with a one-dot frame marking the label (or print) edge."""
+def preview_bitmap(label: Label, profile: PrinterProfile, *, halved: frozenset[int] = frozenset()) -> Bitmap:
+    """Draw ``label`` for ``profile`` with a one-dot frame marking the label (or print) edge.
+
+    Args:
+        label: The label.
+        profile: The model; decides the resolution and the print width.
+        halved: Elements the job sends at half resolution (``RenderResult.halved_elements``):
+            they are drawn the way they print, in 2x2 blocks.
+    """
     canvas = canvas_for(label, profile)
     bitmap = Bitmap(canvas.width, canvas.height)
     bitmap.draw_polygon([(0, 0), (canvas.width - 1, 0), (canvas.width - 1, canvas.height - 1), (0, canvas.height - 1)])
-    for element in label.elements:
-        draw_element(element, bitmap, canvas)
+    for index, element in enumerate(label.elements):
+        if index not in halved:
+            draw_element(element, bitmap, canvas)
+        elif isinstance(element, Image):
+            _draw_image(element, bitmap, canvas, halved=True)
+        else:
+            _draw_halved_graphic(element, bitmap, canvas)
     return bitmap
 
 

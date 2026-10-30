@@ -145,6 +145,16 @@ options = []
 # Environment Variable: DATAMAX_DPL___PRINTER__CUTTER_STOP_POSITION=80
 # cutter_stop_position = 80
 
+# Purpose: Bytes of image dot data one job may download (rows times bytes per
+#          row of every image it sends; images it only places cost nothing). Past
+#          it, policy degrade sends every image but a QR Code at half resolution
+#          and double magnification (image_halved); strict refuses the job
+#          (image_memory_exceeded). `datamax-dpl memory` shows the free bytes.
+# Type: integer, greater than 0
+# Default: unset (the model's budget: 44535 for the Allegro 2, none elsewhere)
+# Environment Variable: DATAMAX_DPL___PRINTER__IMAGE_MEMORY_BYTES=40000
+# image_memory_bytes = 40000
+
 # ------------------------------------------------------------------------------
 # Named printers - one section per printer, chosen with --printer NAME
 # ------------------------------------------------------------------------------

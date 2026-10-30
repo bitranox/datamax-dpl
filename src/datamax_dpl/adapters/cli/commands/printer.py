@@ -17,6 +17,7 @@ from ....application.use_cases import (
     print_result,
     query_status,
     read_memory_directory,
+    render_label,
     send_command,
 )
 from ....application.verify import verify_print
@@ -31,7 +32,7 @@ from ..constants import CLICK_CONTEXT_SETTINGS
 from ..label_io import load_label, load_records
 from ..payloads import render_payload
 from ..runner import CommandResult, run_command
-from ..settings import camera_settings, require_uri
+from ..settings import camera_settings, render_options, require_uri
 from ..typed_click import argument, option
 from .labels import render_loaded
 from .model_options import loaded_config, printer_options_decorator, render_options_decorator, resolve_settings
@@ -249,7 +250,9 @@ def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | 
             label = fill_label(label, load_records(data)[0])
         profile = get_profile(settings.model)
         canvas = canvas_for(label, profile)
-        Path(output).write_bytes(render_preview_png(label, profile))
+        # Rendered for the elements a job past its image memory budget halves: they preview halved.
+        halved = frozenset(render_label(label, render_options(settings)).halved_elements)
+        Path(output).write_bytes(render_preview_png(label, profile, halved=halved))
         payload = PreviewPayload(
             output=output,
             width_dots=canvas.width,

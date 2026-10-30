@@ -121,19 +121,19 @@ def rasterize(element: Graphic, *, index: int, ctx: RenderContext, reason: str) 
     frame = _frame(element, ctx)
     bitmap = Bitmap(frame.width_dots, frame.height_dots)
     _draw(element, bitmap, frame, ctx)
-    name = ctx.download_drawn_image(bitmap, element=index)
-    if name is None:
+    placed = ctx.download_drawn_image(bitmap, element=index)
+    if placed is None:
         return []
     ctx.findings.deviate(
         _RASTERIZED[type(element)],
         f"{element.type} cannot be drawn natively: {reason}",
-        fallback=f"drawn as downloaded image {name} ({frame.width_dots}x{frame.height_dots} dots)",
+        fallback=f"drawn as downloaded image {placed.name} ({frame.width_dots}x{frame.height_dots} dots)",
         element=index,
     )
     # Through row_of/column_of like every other field, so the printer's offset moves it too.
     row = row_of(frame.bottom, index=index, ctx=ctx)
     column = column_of(frame.left, index=index, ctx=ctx)
-    return [line(image_record(row=row, column=column, name=name))]
+    return [line(image_record(row=row, column=column, name=placed.name, magnification=placed.dots))]
 
 
 __all__ = ["Graphic", "rasterize"]

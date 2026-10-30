@@ -14,7 +14,9 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict, Field
 
 from .enums import Attribute, FallbackPolicy, FindingCode, HardwareOption, Unit
-from .image_records import MAX_WIDTH, download_command
+from .image_budget import HALVING_FACTOR, halve, halved_magnification, image_data_bytes
+from .image_records import CR, MAX_WIDTH, download_command
+from .records import MAX_IMAGE_MAGNIFICATION
 from .units import (
     MAX_OFFSET_MM,
     MAX_SCALE,
@@ -89,6 +91,9 @@ class RenderOptions(BaseModel):
             own setting. A label's own ``stop_position`` wins, and a job that cuts never uses it.
         cutter_stop_position_mm: Stop position in mm for a job that cuts, sent as configured;
             None sends no stop position for such a job and leaves the printer's own setting.
+        image_memory_bytes: Bytes of image data one job may download (see
+            :mod:`~datamax_dpl.domain.image_budget`); None takes the model's budget, which most
+            models do not have.
 
     Example:
         >>> RenderOptions(model="dmx-600").policy
@@ -110,6 +115,7 @@ class RenderOptions(BaseModel):
     offset_along: float | None = Field(default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
     stop_position_mm: float | None = Field(default=None, gt=0)
     cutter_stop_position_mm: float | None = Field(default=None, gt=0)
+    image_memory_bytes: int | None = Field(default=None, gt=0)
 
 
 @dataclass(frozen=True)
@@ -126,6 +132,34 @@ class ImageDownload:
 
     name: str
     command: bytes
+
+    @property
+    def data_bytes(self) -> int:
+        """Bytes of dot data the printer stores for this image, read from the command's records.
+
+        Counted from the encoded records rather than from the bitmap they came from, so the
+        figure is the one the bytes on the wire carry (see :func:`image_data_bytes`).
+        """
+        return image_data_bytes(self.command.split(CR, 1)[1])
+
+
+@dataclass(frozen=True)
+class PlacedImage:
+    """An image queued for download and how its placing record prints it.
+
+    Attributes:
+        name: The image name the placing record refers to.
+        magnification: Printer dots per image dot, across and along alike; doubled for a halved
+            image.
+    """
+
+    name: str
+    magnification: int
+
+    @property
+    def dots(self) -> tuple[int, int]:
+        """The magnification as the placing record's (across, along) pair."""
+        return self.magnification, self.magnification
 
 
 @dataclass
@@ -154,6 +188,9 @@ class RenderContext:
         cutter_stop_position_mm: Stop position in mm when cutting, or None for its own setting.
         reserved_image_names: Names of the label's own ``image`` elements, with or without a
             bitmap; a drawn image never takes one, whichever element comes first.
+        halve_images: Download every image that may be halved at half resolution, placed at
+            double magnification (the job is past its image memory budget).
+        halved_elements: Elements whose image was halved, in the order they were encoded.
     """
 
     profile: PrinterProfile
@@ -175,6 +212,8 @@ class RenderContext:
     stop_position_mm: float | None = None
     cutter_stop_position_mm: float | None = None
     reserved_image_names: frozenset[str] = frozenset[str]()
+    halve_images: bool = False
+    halved_elements: list[int] = field(default_factory=list[int])
 
     def correction(self, axis: Axis) -> Correction:
         """Return how this printer prints lengths on ``axis``."""
@@ -256,35 +295,82 @@ class RenderContext:
         )
         return False
 
-    def download_image(self, name: str, bitmap: Bitmap, *, element: int) -> str | None:
-        """Queue ``bitmap`` for download under ``name`` before the format and return the name.
+    def _sent_form(self, bitmap: Bitmap, *, what: str, element: int, magnification: int) -> tuple[Bitmap, int]:
+        """Return the bitmap this job sends and the magnification it is placed at.
+
+        Unchanged unless the job halves its images; then halved and placed at double the
+        magnification, or kept and refused (``image_memory_exceeded``) when the doubled
+        magnification passes the largest a record writes.
+        """
+        if not self.halve_images:
+            return bitmap, magnification
+        doubled = halved_magnification(magnification)
+        if doubled is None:
+            self.findings.refuse(
+                FindingCode.IMAGE_MEMORY_EXCEEDED,
+                f"{what} is placed at magnification {magnification}; halving it would need "
+                f"{magnification * HALVING_FACTOR}, past {MAX_IMAGE_MAGNIFICATION}, the largest image magnification",
+                element=element,
+            )
+            return bitmap, magnification
+        self.halved_elements.append(element)
+        return halve(bitmap), doubled
+
+    def download_image(self, name: str, bitmap: Bitmap, *, element: int, magnification: int = 1) -> PlacedImage | None:
+        """Queue ``bitmap`` for download under ``name`` before the format and say how to place it.
+
+        Args:
+            name: The image name, the label's own.
+            bitmap: The image.
+            element: Position of the element in the label, for findings.
+            magnification: Printer dots per image dot the element asks for.
 
         Returns:
-            ``name``, or None when the image is too wide for one row record: it is then refused
+            The name and the magnification to place it at (doubled when the job halves its
+            images), or None when the image is too wide for one row record: it is then refused
             (``image_too_wide``), not queued, and the caller places nothing for the element.
 
         Raises:
             ValueError: When the name is not 1-8 letters, digits or underscores.
         """
-        if not self._fits_an_image_row(name, bitmap, element=element):
+        sent, placed_at = self._sent_form(bitmap, what=f"image {name}", element=element, magnification=magnification)
+        if not self._fits_an_image_row(name, sent, element=element):
             return None
-        self.downloads.append(ImageDownload(name=name, command=download_command(name, bitmap)))
-        return name
+        self.downloads.append(ImageDownload(name=name, command=download_command(name, sent)))
+        return PlacedImage(name=name, magnification=placed_at)
 
-    def download_drawn_image(self, bitmap: Bitmap, *, element: int) -> str | None:
-        """Queue an image the library drew under its content name, once per job, and return the name.
+    def download_drawn_image(
+        self, bitmap: Bitmap, *, element: int, magnification: int = 1, halvable: bool = True
+    ) -> PlacedImage | None:
+        """Queue an image the library drew under its content name, once per job, and say how to place it.
 
         A bitmap already queued is not queued again. When the content name is taken in this job,
         by a different drawn bitmap (a hash collision) or by a user ``image`` of that name (a
         reserved name, whether or not it is downloaded), the next salt is tried, so a job never
-        sends or places two different images under one name, whatever the element order.
+        sends or places two different images under one name, whatever the element order. A
+        halved bitmap is named by its own content.
+
+        Args:
+            bitmap: The drawn image.
+            element: Position of the element in the label, for findings.
+            magnification: Printer dots per image dot.
+            halvable: False for an image halving would distort (a QR Code's modules): it is sent
+                as it is even when the job halves its images.
 
         Returns:
-            The name, or None when the image is too wide for one row record: it is then refused
-            (``image_too_wide``), not queued, and the caller places nothing for the element.
+            The name and the magnification to place it at, or None when the image is too wide
+            for one row record: it is then refused (``image_too_wide``), not queued, and the
+            caller places nothing for the element.
         """
-        if not self._fits_an_image_row(drawn_image_name(bitmap), bitmap, element=element):
+        sent, placed_at = bitmap, magnification
+        if halvable:
+            sent, placed_at = self._sent_form(bitmap, what="drawn image", element=element, magnification=magnification)
+        if not self._fits_an_image_row(drawn_image_name(sent), sent, element=element):
             return None
+        return PlacedImage(name=self._queue_drawn(sent), magnification=placed_at)
+
+    def _queue_drawn(self, bitmap: Bitmap) -> str:
+        """Queue ``bitmap`` under the first free salted content name and return the name."""
         salt = 0
         while True:
             name = drawn_image_name(bitmap, salt=salt)
@@ -305,6 +391,7 @@ __all__ = [
     "DRAWN_IMAGE_PREFIX",
     "MAX_FIELD_VALUE",
     "ImageDownload",
+    "PlacedImage",
     "RenderContext",
     "RenderOptions",
     "drawn_image_name",

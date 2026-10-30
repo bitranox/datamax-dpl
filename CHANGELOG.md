@@ -8,6 +8,24 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Image memory budget: the bytes of dot data one job's image downloads may
+  hold (rows times bytes per row; an image the label only places costs
+  nothing). The `allegro-2` profile ships 44535 (48631 free bytes of module A
+  read on one Allegro 2 holding 11 stored graphics, less a 4096-byte margin);
+  no other model has one. `[printer] image_memory_bytes` overrides it, and
+  `RenderOptions.image_memory_bytes` carries it. Past the budget, `degrade`
+  sends every image but a QR Code at half resolution (each 2x2 block of dots
+  OR-ed into one, so a one-dot line survives) and places it at double
+  magnification, with one `image_halved` warning naming the elements; a drawn
+  image is named by its halved content. A QR Code is never halved. A job
+  still past the budget after one halving, any job past it under `strict`,
+  and an image whose doubled magnification would pass 9 are refused with
+  `image_memory_exceeded`. `preview` and `verify` draw halved images the way
+  they print. `RenderResult` gains `image_bytes` and `halved_elements`.
+  `scripts/image_ladder.py` writes labels of growing image size around a
+  budget, for the test on paper. Unverified on paper.
+- `image` element: `magnification` 1-9 (default 1), printer dots per image
+  dot across and along; `preview` draws it.
 - `memory` command: lists the printer's memory modules with the stored
   names and free bytes of each (`<STX>W`), for `--kind graphic` (default),
   `font`, `format` or `all`, in the usual JSON envelope or as text. The

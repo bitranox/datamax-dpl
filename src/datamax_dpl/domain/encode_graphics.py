@@ -130,11 +130,17 @@ def encode_polygon(element: Polygon, *, index: int, ctx: RenderContext) -> list[
 def encode_image(element: Image, *, index: int, ctx: RenderContext) -> list[bytes]:
     """Queue the image download (when a bitmap is given) and return its placing record.
 
-    A bitmap refused for its width places nothing.
+    A bitmap refused for its width places nothing. A stored image is placed at the element's
+    magnification; a downloaded one at the magnification the download comes back with, doubled
+    when the job halves its images.
     """
+    magnification = element.magnification
     if element.bitmap is not None:
-        if ctx.download_image(element.name, Bitmap.from_rows(element.bitmap), element=index) is None:
+        bitmap = Bitmap.from_rows(element.bitmap)
+        placed = ctx.download_image(element.name, bitmap, element=index, magnification=magnification)
+        if placed is None:
             return []
+        magnification = placed.magnification
     else:
         ctx.findings.info(
             FindingCode.IMAGE_MUST_BE_STORED, f"image {element.name} must already be on the printer", element=index
@@ -143,6 +149,7 @@ def encode_image(element: Image, *, index: int, ctx: RenderContext) -> list[byte
         row=row_of(element.y, index=index, ctx=ctx),
         column=column_of(element.x, index=index, ctx=ctx),
         name=element.name,
+        magnification=(magnification, magnification),
     )
     return [line(record)]
 
@@ -211,11 +218,11 @@ def encode_qr(element: Qr, *, index: int, ctx: RenderContext) -> list[bytes]:
     if field_column <= last_column(ctx):
         extent = symbol.width * element.module_dots + quiet_dots
         _check_right_edge(element, start_column=column, extent_dots=extent, index=index, ctx=ctx)
-    name = ctx.download_drawn_image(symbol, element=index)
-    if name is None:
+    # Never halved: the image holds one dot per module, so halving it would merge modules.
+    placed = ctx.download_drawn_image(symbol, element=index, magnification=element.module_dots, halvable=False)
+    if placed is None:
         return []
-    record = image_record(row=row, column=column, name=name, magnification=(element.module_dots, element.module_dots))
-    return [line(record)]
+    return [line(image_record(row=row, column=column, name=placed.name, magnification=placed.dots))]
 
 
 __all__ = ["encode_box", "encode_circle", "encode_image", "encode_line", "encode_polygon", "encode_qr"]

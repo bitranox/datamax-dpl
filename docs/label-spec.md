@@ -314,14 +314,26 @@ described in the Datamax manual and is passed through as written.
 
 ### `image`
 
-| Key      | Type                      | Meaning                                                                                       |
-|----------|---------------------------|-----------------------------------------------------------------------------------------------|
-| `x`, `y` | number >= 0               | Lower-left corner. DPL images cannot be rotated.                                              |
-| `name`   | 1-8 of `A-Z a-z 0-9 _`    | Image name on the printer.                                                                    |
-| `bitmap` | list of strings, optional | Rows, top row first: `1` or `#` is black, `0` or `.` is white. All rows have the same length. |
+| Key             | Type                      | Meaning                                                                                       |
+|-----------------|---------------------------|-----------------------------------------------------------------------------------------------|
+| `x`, `y`        | number >= 0               | Lower-left corner. DPL images cannot be rotated.                                              |
+| `name`          | 1-8 of `A-Z a-z 0-9 _`    | Image name on the printer.                                                                    |
+| `bitmap`        | list of strings, optional | Rows, top row first: `1` or `#` is black, `0` or `.` is white. All rows have the same length. |
+| `magnification` | integer 1-9, default 1    | Printer dots per image dot, across and along.                                                 |
 
 With `bitmap` the image is downloaded to the printer under `name` before the label. Without it the
 image must already be stored on the printer, and the info finding `image_must_be_stored` says so.
+
+A model may carry an image memory budget, the bytes of dot data one job's downloads may hold (the
+Allegro 2 ships 44535; `[printer] image_memory_bytes` sets it, see
+[capabilities.md](capabilities.md)). An image without `bitmap` costs nothing. Past the budget,
+under `degrade`, every image the job downloads or draws (raster fallbacks) is sent at half
+resolution, each 2x2 block of dots becoming one dot that is black if any of the four was, and
+placed at double magnification, with the warning `image_halved`; `preview` draws it the same way.
+An image keeps its `name`, and a drawn image gets the name of its halved content. A QR Code is
+never halved. A job still past the budget after one halving, or any job past it under `strict`, is
+refused with `image_memory_exceeded`, as is an image at `magnification` 5 or more, since doubled it
+would pass 9. Unverified on paper: halved images have not been printed yet.
 
 ```json
 {

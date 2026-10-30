@@ -358,6 +358,13 @@ def test_identical_qrs_in_one_job_are_downloaded_once_and_placed_twice() -> None
     assert other != same
 
 
+def drawn_name(ctx: RenderContext, bitmap: Bitmap) -> str:
+    """Queue ``bitmap`` as a drawn image of element 0 and return the name it is placed under."""
+    placed = ctx.download_drawn_image(bitmap, element=0)
+    assert placed is not None
+    return placed.name
+
+
 @pytest.mark.os_agnostic
 def test_two_different_images_whose_names_collide_in_one_job_get_different_names() -> None:
     """A hash collision is forced by queuing another image under the first candidate name."""
@@ -372,10 +379,10 @@ def test_two_different_images_whose_names_collide_in_one_job_get_different_names
     bitmap = Bitmap.from_rows(["#."])
     taken = drawn_image_name(bitmap)
     ctx.download_image(taken, Bitmap.from_rows([".#"]), element=0)
-    name = ctx.download_drawn_image(bitmap, element=0)
+    name = drawn_name(ctx, bitmap)
     assert name not in (taken, "")
     assert name == drawn_image_name(bitmap, salt=1)
-    assert ctx.download_drawn_image(bitmap, element=0) == name
+    assert drawn_name(ctx, bitmap) == name
     assert [download.name for download in ctx.downloads] == [taken, name]
 
 
@@ -468,10 +475,10 @@ def test_download_drawn_image_never_names_two_different_images_alike(
     )
     if taken_by_other:
         ctx.download_image(drawn_image_name(bitmap, salt=1), Bitmap.from_rows([".#"]), element=0)
-    name = ctx.download_drawn_image(bitmap, element=0)
+    name = drawn_name(ctx, bitmap)
     assert name == drawn_image_name(bitmap, salt=salt)
     if queued_twice:
-        assert ctx.download_drawn_image(bitmap, element=0) == name
+        assert drawn_name(ctx, bitmap) == name
     assert name not in ctx.reserved_image_names
     commands = [download.command for download in ctx.downloads if download.name == name]
     assert len(commands) == 1
