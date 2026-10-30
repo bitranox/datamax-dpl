@@ -207,6 +207,23 @@ def _context(label: Label, options: RenderOptions, *, halve: bool) -> RenderCont
     return probe
 
 
+def job_context(label: Label, options: RenderOptions | None = None) -> RenderContext:
+    """Return the context a job for ``label`` and ``options`` encodes with, before any field is encoded.
+
+    Its findings hold what preparing it noticed (the model defaults used, inch units).
+
+    Raises:
+        UnknownModelError: ``options.model`` names no profile.
+        ValueError: ``options.firmware`` is malformed.
+
+    Example:
+        >>> from datamax_dpl.domain.label import Label, Text
+        >>> job_context(Label(elements=[Text(x=5, y=5, text="Hi")]), RenderOptions(model="allegro-2")).dots_per_unit
+        2.0
+    """
+    return _context(label, options or RenderOptions(), halve=False)
+
+
 def _check_label_level(label: Label, ctx: RenderContext, *, filled: bool) -> None:
     # A filled record's remaining braces are literal text that came from {{ }}, not placeholders.
     unfilled = [] if filled else label_placeholders(label)
@@ -400,4 +417,4 @@ def render(label: Label, options: RenderOptions | None = None) -> RenderResult:
     return result
 
 
-__all__ = ["RenderResult", "build_job", "effective_calibration", "render"]
+__all__ = ["RenderResult", "build_job", "effective_calibration", "job_context", "render"]

@@ -36,7 +36,7 @@ if set(_RASTERIZED) != set(get_args(Graphic)):  # pragma: no cover - import-time
 
 
 @dataclass(frozen=True)
-class _Frame:
+class Frame:
     """Bounding box of a graphic in label units, and its size in dots."""
 
     left: float
@@ -61,10 +61,11 @@ def _extent(element: Graphic) -> tuple[float, float, float, float]:
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def _frame(element: Graphic, ctx: RenderContext) -> _Frame:
+def frame_of(element: Graphic, ctx: RenderContext) -> Frame:
+    """Return the graphic's bounding box in label units (clipped at 0) and its size in dots at this job's scale."""
     left, bottom, right, top = _extent(element)
     left, bottom = max(left, 0.0), max(bottom, 0.0)
-    return _Frame(
+    return Frame(
         left,
         bottom,
         ctx.offset_dots(right - left, axis=Axis.ACROSS) + 1,
@@ -72,14 +73,15 @@ def _frame(element: Graphic, ctx: RenderContext) -> _Frame:
     )
 
 
-def _pixel(x: float, y: float, frame: _Frame, ctx: RenderContext) -> tuple[int, int]:
+def _pixel(x: float, y: float, frame: Frame, ctx: RenderContext) -> tuple[int, int]:
     """Map a label point to bitmap pixel coordinates (bitmap row 0 is the top)."""
     column = ctx.offset_dots(x - frame.left, axis=Axis.ACROSS)
     from_bottom = ctx.offset_dots(y - frame.bottom, axis=Axis.ALONG)
     return column, frame.height_dots - 1 - from_bottom
 
 
-def _draw(element: Graphic, bitmap: Bitmap, frame: _Frame, ctx: RenderContext) -> None:
+def draw_graphic(element: Graphic, bitmap: Bitmap, frame: Frame, ctx: RenderContext) -> None:
+    """Draw ``element`` onto ``bitmap``, a picture of ``frame`` (row 0 at its top), as the image fallback sends it."""
     if isinstance(element, Circle):
         cx, cy = _pixel(element.x, element.y, frame, ctx)
         bitmap.draw_circle(cx, cy, ctx.dots(element.radius, axis=Axis.ACROSS), fill=element.fill)
@@ -106,7 +108,7 @@ def _draw_box(element: Box, bitmap: Bitmap, ctx: RenderContext) -> None:
     bitmap.fill_rect(width - side, 0, side, height)
 
 
-def _sent_size(placed: PlacedImage, frame: _Frame) -> str:
+def _sent_size(placed: PlacedImage, frame: Frame) -> str:
     """Describe the image as sent: its size in dots, and its magnification when it was halved."""
     width, height = placed.size or (frame.width_dots, frame.height_dots)
     if placed.magnification == 1:
@@ -126,9 +128,9 @@ def rasterize(element: Graphic, *, index: int, ctx: RenderContext, reason: str) 
     Returns:
         The format line that places the image, or nothing when the image is refused as too wide.
     """
-    frame = _frame(element, ctx)
+    frame = frame_of(element, ctx)
     bitmap = Bitmap(frame.width_dots, frame.height_dots)
-    _draw(element, bitmap, frame, ctx)
+    draw_graphic(element, bitmap, frame, ctx)
     placed = ctx.download_drawn_image(bitmap, element=index)
     if placed is None:
         return []
@@ -144,4 +146,4 @@ def rasterize(element: Graphic, *, index: int, ctx: RenderContext, reason: str) 
     return [line(image_record(row=row, column=column, name=placed.name, magnification=placed.dots))]
 
 
-__all__ = ["Graphic", "rasterize"]
+__all__ = ["Frame", "Graphic", "draw_graphic", "frame_of", "rasterize"]

@@ -257,11 +257,38 @@ class RenderContext:
         option = support.option.value if support.option is not None else ""
         return f"{self.profile.name} needs the '{option}' option installed"
 
-    def distance(self, value: float, *, axis: Axis, element: int | None, what: str) -> int:
-        """Convert a label length on ``axis`` to this job's DPL unit, refusing values past four digits."""
-        converted = to_dpl(
+    def dpl_units(self, value: float, *, axis: Axis) -> int:
+        """Convert a label length on ``axis`` to this job's DPL unit, with no check and no finding."""
+        return to_dpl(
             value, self.unit, target=self.dpl_unit, dpi=self.profile.dpi, correction=self.correction(axis)
         ).value
+
+    @property
+    def dots_per_unit(self) -> float:
+        """Printhead dots one DPL distance unit of this job addresses.
+
+        The measured whole dots of a model that rounds 1/100 in to them (2 on the Allegro 2), else
+        the nominal ratio of the resolution to the unit.
+        """
+        unit_dots = self.across.unit_dots
+        if unit_dots is not None and self.dpl_unit is DplUnit.INCH_HUNDREDTHS:
+            return float(unit_dots)
+        return self.profile.dpi / self.dpl_unit.per_inch
+
+    def length_of_dots(self, dots: int) -> float:
+        """Return ``dots`` printer dots as a nominal length in the label's unit."""
+        if self.unit is Unit.DOTS:
+            return float(dots)
+        inches = dots / self.profile.dpi
+        return inches * MM_PER_INCH if self.unit is Unit.MM else inches
+
+    def printed_dots(self, units: int) -> int:
+        """Return how many printhead dots ``units`` DPL distance units of this job print as."""
+        return round(units * self.dots_per_unit)
+
+    def distance(self, value: float, *, axis: Axis, element: int | None, what: str) -> int:
+        """Convert a label length on ``axis`` to this job's DPL unit, refusing values past four digits."""
+        converted = self.dpl_units(value, axis=axis)
         if converted > MAX_FIELD_VALUE:
             self.findings.refuse(
                 FindingCode.DISTANCE_TOO_LARGE,

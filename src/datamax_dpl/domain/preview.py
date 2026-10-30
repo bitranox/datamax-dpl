@@ -73,8 +73,9 @@ _MODULES_PER_CHAR = 11
 _DEFAULT_BARCODE_HEIGHT_IN = 0.5
 _DEFAULT_MODULE_DOTS = 2
 _MARGIN_DOTS = 8
-#: Side of the grid square drawn for an image that is stored on the printer, not in the label.
-_PLACEHOLDER_IMAGE_DOTS = 40
+#: Side of the grid square drawn for an image that is stored on the printer, not in the label,
+#: at magnification 1: its real size is unknown.
+STORED_IMAGE_DOTS = 40
 _MIN_POINTS = 4
 _MAX_POINTS = 72
 
@@ -289,7 +290,7 @@ def _draw_image(element: Image, bitmap: Bitmap, canvas: Canvas, *, halved: bool 
     """Draw the image as the printer prints it: magnified, and at half resolution when halved."""
     x, y = canvas.point(element.x, element.y)
     if element.bitmap is None:
-        size = _PLACEHOLDER_IMAGE_DOTS * element.magnification
+        size = STORED_IMAGE_DOTS * element.magnification
         bitmap.fill_rect(x, y - size + 1, size, size, pattern=FillPattern.GRID)
         return
     picture = Bitmap.from_rows(element.bitmap)
@@ -381,7 +382,7 @@ def _field_top(element: Text | ScalableText | Barcode, unit: Unit, dpi: float) -
 
 
 def _image_top(element: Image, unit: Unit, dpi: float) -> float:
-    rows = len(element.bitmap) if element.bitmap else _PLACEHOLDER_IMAGE_DOTS
+    rows = len(element.bitmap) if element.bitmap else STORED_IMAGE_DOTS
     return to_inches(element.y, unit, dpi=dpi) + rows * element.magnification / dpi
 
 
@@ -495,6 +496,7 @@ def preview_bitmap(label: Label, profile: PrinterProfile, *, halved: frozenset[i
 
 
 __all__ = [
+    "STORED_IMAGE_DOTS",
     "Canvas",
     "FieldArea",
     "Rect",

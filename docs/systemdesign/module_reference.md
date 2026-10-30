@@ -78,6 +78,8 @@ turn the outcome into output and an exit code.
 - `encode_barcode.py` - barcode fields, symbology gates, bar widths.
 - `raster.py` - 1-bit raster drawing.
 - `raster_fallback.py` - graphics a model cannot draw, as downloaded images.
+- `overlap.py` - which fields share printed dots (`find_overlaps`): groups of exact fields, and text,
+  barcodes and stored images by their rectangle.
 - `qr.py` - the QR Code module matrix via segno (`qr_bitmap`, `QrDataTooLongError`).
 - `image_records.py` - the Datamax image download format.
 - `image_budget.py` - the image memory budget: bytes a download holds, halving (`halve`, `magnify`).

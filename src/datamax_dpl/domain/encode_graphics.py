@@ -6,14 +6,14 @@ import math
 from typing import TYPE_CHECKING
 
 from .encode_common import column_of, last_column, row_of
-from .enums import FillPattern, FindingCode, Unit
+from .enums import FillPattern, FindingCode
 from .label import Box, Circle, Image, Line, Point, Polygon, Qr
 from .profiles import Feature
 from .qr import QrDataTooLongError, qr_bitmap
 from .raster import Bitmap
 from .raster_fallback import rasterize
 from .records import BoxRecord, circle_record, image_record, line, line_record, polygon_record
-from .units import MM_PER_INCH, Axis, DplUnit
+from .units import Axis
 
 if TYPE_CHECKING:
     from .render_context import RenderContext
@@ -93,7 +93,7 @@ def _box_corners(element: Box) -> list[Point]:
 
 def _units_of_dots(dots: int, ctx: RenderContext) -> int:
     """The fewest DPL units that span at least ``dots`` printer dots."""
-    return math.ceil(dots / _dots_per_unit(ctx))
+    return math.ceil(dots / ctx.dots_per_unit)
 
 
 def _inset_fill(outline: BoxRecord, *, pattern: FillPattern, ctx: RenderContext) -> list[bytes]:
@@ -185,22 +185,6 @@ def encode_image(element: Image, *, index: int, ctx: RenderContext) -> list[byte
     return [line(record)]
 
 
-def _label_length_of_dots(dots: int, ctx: RenderContext) -> float:
-    """Return ``dots`` printer dots as a length in the label's unit."""
-    inches = dots / ctx.profile.dpi
-    if ctx.unit is Unit.DOTS:
-        return float(dots)
-    return inches * MM_PER_INCH if ctx.unit is Unit.MM else inches
-
-
-def _dots_per_unit(ctx: RenderContext) -> float:
-    """Printhead dots one DPL distance unit of this job addresses across the web."""
-    unit_dots = ctx.across.unit_dots
-    if unit_dots is not None and ctx.dpl_unit is DplUnit.INCH_HUNDREDTHS:
-        return unit_dots
-    return ctx.profile.dpi / ctx.dpl_unit.per_inch
-
-
 def _check_right_edge(element: Qr, *, start_column: int, extent_dots: int, index: int, ctx: RenderContext) -> None:
     """Refuse a QR Code whose area, quiet zone included, ends past the printhead's last dot.
 
@@ -215,7 +199,7 @@ def _check_right_edge(element: Qr, *, start_column: int, extent_dots: int, index
         index: Position of the element in the label.
         ctx: The render context.
     """
-    end = round(start_column * _dots_per_unit(ctx)) + extent_dots
+    end = ctx.printed_dots(start_column) + extent_dots
     limit = round(ctx.profile.print_width_in * ctx.profile.dpi)
     if end > limit:
         ctx.findings.refuse(
@@ -240,7 +224,7 @@ def encode_qr(element: Qr, *, index: int, ctx: RenderContext) -> list[bytes]:
         ctx.findings.refuse(FindingCode.QR_DATA_TOO_LONG, str(exc), element=index)
         return []
     quiet_dots = element.quiet_zone * element.module_dots
-    quiet = _label_length_of_dots(quiet_dots, ctx)
+    quiet = ctx.length_of_dots(quiet_dots)
     row = row_of(element.y, index=index, ctx=ctx) + ctx.distance(
         quiet, axis=Axis.ALONG, element=index, what="quiet zone"
     )

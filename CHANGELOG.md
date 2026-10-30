@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `find_overlaps` (`domain/overlap.py`): which fields of a label share
+  printed dots, at the job's calibration, as groups of exact fields and the
+  text, barcodes and stored images whose rectangle meets another field.
 - Image memory budget: the bytes of dot data one job's image downloads may
   hold (rows times bytes per row; an image the label only places costs
   nothing). The `allegro-2` profile ships 44535 (48631 free bytes of module A

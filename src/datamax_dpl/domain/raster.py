@@ -423,6 +423,27 @@ class Bitmap:
             moved = (row << shift if shift >= 0 else row >> -shift) & full
             self._rows[target] = _merged(self._rows[target], moved, under=under, mode=mode)
 
+    def shares_dots(self, other: Bitmap, x: int, y: int) -> bool:
+        """Return whether ``other``, top-left corner at (x, y), has a black pixel where this bitmap has one.
+
+        Only the rows both cover are compared, so the cost follows their common area.
+
+        Example:
+            >>> ring = Bitmap.from_rows(["###", "#.#", "###"])
+            >>> ring.shares_dots(Bitmap.from_rows(["#"]), 1, 1), ring.shares_dots(Bitmap.from_rows(["#"]), 2, 1)
+            (False, True)
+        """
+        if x >= self.width or x + other.width <= 0:
+            return False
+        shift = self.width - x - other.width
+        full = (1 << self.width) - 1
+        for target in range(max(y, 0), min(y + other.height, self.height)):
+            row = other._rows[target - y]
+            moved = (row << shift if shift >= 0 else row >> -shift) & full
+            if moved & self._rows[target]:
+                return True
+        return False
+
     def bounds(self) -> tuple[int, int, int, int] | None:
         """Return (left, top, width, height) of the smallest rectangle holding every black pixel.
 
