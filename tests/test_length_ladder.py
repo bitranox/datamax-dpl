@@ -8,7 +8,6 @@ row its number names (``max_format_rows`` at that row renders, one row less refu
 from __future__ import annotations
 
 import json
-import os
 import runpy
 import shlex
 import sys
@@ -17,26 +16,26 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import pytest
 
-from datamax_dpl import __init__conf__
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.composition import build_production
 from datamax_dpl.domain.enums import FindingCode, Severity
 from datamax_dpl.domain.label import Label, Text
 from datamax_dpl.domain.overlap import DotArea, inexact_rectangle, printed_dots
-from datamax_dpl.domain.render import build_job, job_context
+from datamax_dpl.domain.render import build_job, effective_calibration, job_context
+from datamax_dpl.domain.render_context import RenderOptions
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from click.testing import CliRunner
-
-    from datamax_dpl.domain.render_context import RenderOptions
+    from click.testing import CliRunner, Result
 
 _SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "length_ladder.py"
-_ENV_PREFIX = __init__conf__.LAYEREDCONF_SLUG.upper().replace("-", "_")
-#: The Allegro 2's image memory budget; a ladder past it would be halved and its rows doubled.
-_ALLEGRO_2_BUDGET = 44535
+_PRINTER = "tcp://192.0.2.60:9100"
 _SPINE = "##"
+#: An on-site calibration the ladder must survive: another scale and the model's offset.
+_AMBIENT_CALIBRATION = "[printer]\nscale_along = 1.0\noffset_along = -0.25\n"
+
+pytestmark = pytest.mark.usefixtures("no_ambient_configuration")
 
 
 class _Ladder(Protocol):
@@ -73,17 +72,9 @@ def _script() -> _Script:
     return _Namespace()
 
 
-@pytest.fixture(autouse=True)
-def no_ambient_configuration(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, clear_config_cache: None) -> None:
-    """Keep a developer's ``DATAMAX_DPL___`` variables and ``.env`` out of the CLI the command runs."""
-    for name in [name for name in os.environ if name.startswith(_ENV_PREFIX)]:
-        monkeypatch.delenv(name)
-    monkeypatch.chdir(tmp_path)
-
-
 def _run(tmp_path: Path, capsys: pytest.CaptureFixture[str], *extra: str) -> tuple[dict[str, Any], str]:
     """Run the script; return its JSON line and the command line it printed."""
-    assert _script().main(["--out", str(tmp_path / "out"), *extra]) == 0
+    assert _script().main(["--out", str(tmp_path / "out"), "--printer", _PRINTER, *extra]) == 0
     first, command = capsys.readouterr().out.splitlines()
     return cast("dict[str, Any]", json.loads(first)), command
 
@@ -118,7 +109,9 @@ def test_the_ladder_renders_clean_in_strict_with_its_image_whole(
     ]
     assert result.halved_elements == ()
     assert result.image_bytes == summary["image_bytes"] == 3 * (summary["image_rows"][1] + 1)
-    assert result.image_bytes < _ALLEGRO_2_BUDGET
+    budget = effective_calibration(RenderOptions(model="allegro-2")).image_memory_bytes
+    assert budget is not None
+    assert result.image_bytes < budget
 
 
 @pytest.mark.os_agnostic
@@ -190,23 +183,53 @@ def test_each_number_stands_centred_on_its_tick_beside_the_image() -> None:
     assert all(top < bottom for top, bottom in zip(tops[:-1], bottoms[1:], strict=True))
 
 
+def _render_twin(cli_runner: CliRunner, argv: list[str], output: Path) -> Result:
+    """Run the printed print command as ``render -o output`` through the production CLI."""
+    words = ["render" if word == "print" else word for word in argv[1:]]
+    return cli_runner.invoke(cli_mod.cli, [*words, "-o", str(output)], obj=build_production)
+
+
+def _without_override(argv: list[str], key: str) -> list[str]:
+    """``argv`` without its ``--set <key>=...`` pair."""
+    index = next(index for index, word in enumerate(argv) if word.startswith(f"{key}="))
+    assert argv[index - 1] == "--set"
+    return argv[: index - 1] + argv[index + 1 :]
+
+
 @pytest.mark.os_agnostic
-def test_the_printed_command_renders_exactly_the_job_the_rows_were_counted_for(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], cli_runner: CliRunner
+def test_the_printed_command_beats_an_ambient_calibration(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], cli_runner: CliRunner, user_layer_config_file: Path
 ) -> None:
-    """The command line pins scale, offset and limit, so the CLI's job is the script's own."""
+    """A configured scale 1.0 and offset -0.25 mm, the on-site risk, leave the job as the rows were counted.
+
+    The scale cannot reach a label in dots, so no override is needed for it. The offset can: the
+    control drops the command's offset override, and the ambient -0.25 mm then pushes the image past
+    the label edge and is refused, which also shows the ambient layer is read.
+    """
+    user_layer_config_file.write_text(_AMBIENT_CALIBRATION, encoding="utf-8")
     summary, command = _run(tmp_path, capsys)
     argv: list[str] = summary["argv"]
     if sys.platform != "win32":
         assert shlex.split(command) == argv
-    output = tmp_path / "ladder.prn"
-    words = ["render" if word == "print" else word for word in argv[1:]]
+    expected = build_job(_label(summary), _script().ladder_options("allegro-2")).data
 
-    result = cli_runner.invoke(cli_mod.cli, [*words, "-o", str(output)], obj=build_production)
-
+    result = _render_twin(cli_runner, argv, tmp_path / "ladder.prn")
     assert result.exit_code == 0, result.output
-    assert output.read_bytes() == build_job(_label(summary), _script().ladder_options("allegro-2")).data
-    assert argv[argv.index("--printer") + 1] == "tcp://192.0.2.60:9100"
+    assert (tmp_path / "ladder.prn").read_bytes() == expected
+
+    unshifted = _render_twin(cli_runner, _without_override(argv, "printer.offset_along"), tmp_path / "unshifted.prn")
+    assert unshifted.exit_code != 0
+    assert "offset_past_label_edge" in unshifted.output
+    assert argv[argv.index("--printer") + 1] == _PRINTER
+
+
+@pytest.mark.os_agnostic
+def test_the_printer_must_be_named(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The address only goes into the printed command; a forgotten one must not fall back to anything."""
+    with pytest.raises(SystemExit) as exited:
+        _script().main(["--out", str(tmp_path)])
+    assert exited.value.code == 2
+    assert "--printer" in capsys.readouterr().err
 
 
 @pytest.mark.os_agnostic
@@ -228,5 +251,5 @@ def test_a_tick_range_off_the_grid_is_refused(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], first: str, last: str
 ) -> None:
     main: Callable[[list[str]], int] = _script().main
-    assert main(["--out", str(tmp_path), "--first", first, "--last", last]) == 2
+    assert main(["--out", str(tmp_path), "--printer", _PRINTER, "--first", first, "--last", last]) == 2
     assert "error: --" in capsys.readouterr().err

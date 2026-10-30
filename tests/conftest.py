@@ -9,6 +9,7 @@ Centralizes test infrastructure following clean architecture principles:
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sys
 from dataclasses import fields, replace
@@ -315,6 +316,24 @@ def clear_config_cache() -> Iterator[None]:
 
     config_mod.get_config.cache_clear()
     yield
+
+
+@pytest.fixture
+def no_ambient_configuration(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, clear_config_cache: None) -> None:
+    """Keep the developer's environment layer and ``.env`` out of the production loader.
+
+    The rootdir conftest already moves the file layers under ``tmp_path``; a ``DATAMAX_DPL___``
+    variable or a ``.env`` above the working directory would still set a scale or a stop position
+    and change the bytes a test compares. A module whose CLI runs read the configuration opts in
+    with ``pytestmark = pytest.mark.usefixtures("no_ambient_configuration")``; a subprocess the
+    test starts inherits the cleaned environment and the working directory.
+    """
+    from datamax_dpl import __init__conf__
+
+    prefix = __init__conf__.LAYEREDCONF_SLUG.upper().replace("-", "_")
+    for name in [name for name in os.environ if name.startswith(prefix)]:
+        monkeypatch.delenv(name)
+    monkeypatch.chdir(tmp_path)
 
 
 @pytest.fixture

@@ -9,7 +9,6 @@ URI parsing, the transport and the timeout plumbing are the ones a user gets.
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -17,7 +16,6 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from printer_server import answering, silent
 
-from datamax_dpl import __init__conf__
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.composition import build_production
 from datamax_dpl.domain.label import Label
@@ -44,20 +42,7 @@ GRAPHIC_FREE_BYTES = 48631
 #: Slack over the waited seconds for starting the CLI, loading the configuration and one connect.
 STARTUP_SLACK_SECONDS = 2.0
 
-_ENV_PREFIX = __init__conf__.LAYEREDCONF_SLUG.upper().replace("-", "_")
-
-
-@pytest.fixture(autouse=True)
-def no_ambient_configuration(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, clear_config_cache: None) -> None:
-    """Keep the developer's environment layer and ``.env`` out of the production loader.
-
-    The rootdir conftest already moves the file layers under ``tmp_path``; a ``DATAMAX_DPL___``
-    variable or a ``.env`` above the working directory would still set a scale or a stop position
-    and change the bytes these tests compare.
-    """
-    for name in [name for name in os.environ if name.startswith(_ENV_PREFIX)]:
-        monkeypatch.delenv(name)
-    monkeypatch.chdir(tmp_path)
+pytestmark = pytest.mark.usefixtures("no_ambient_configuration")
 
 
 def run(runner: CliRunner, args: list[str]) -> Result:

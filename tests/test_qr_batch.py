@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 import json
-import os
 import re
 import runpy
 import shlex
@@ -15,7 +14,6 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from printer_server import silent
 
-from datamax_dpl import __init__conf__
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.composition import build_production
 from datamax_dpl.domain.enums import Severity
@@ -30,8 +28,10 @@ if TYPE_CHECKING:
     from printer_server import Play, PrinterServer
 
 _SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "qr_batch.py"
-_ENV_PREFIX = __init__conf__.LAYEREDCONF_SLUG.upper().replace("-", "_")
+_PRINTER = "tcp://192.0.2.60:9100"
 _CODE = re.compile(r"DMX-130-([0-9]{2})-[A-Z0-9]{6}")
+
+pytestmark = pytest.mark.usefixtures("no_ambient_configuration")
 
 
 def _main() -> Callable[[list[str]], int]:
@@ -41,17 +41,9 @@ def _main() -> Callable[[list[str]], int]:
     return main
 
 
-@pytest.fixture(autouse=True)
-def no_ambient_configuration(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, clear_config_cache: None) -> None:
-    """Keep a developer's ``DATAMAX_DPL___`` variables and ``.env`` out of the CLI the command runs."""
-    for name in [name for name in os.environ if name.startswith(_ENV_PREFIX)]:
-        monkeypatch.delenv(name)
-    monkeypatch.chdir(tmp_path)
-
-
 def _run(tmp_path: Path, capsys: pytest.CaptureFixture[str], *extra: str) -> tuple[dict[str, Any], list[str]]:
     """Run the script; return its JSON line and the lines after it."""
-    assert _main()(["--out", str(tmp_path / "qr"), *extra]) == 0
+    assert _main()(["--out", str(tmp_path / "qr"), "--printer", _PRINTER, *extra]) == 0
     first, *rest = capsys.readouterr().out.splitlines()
     return cast("dict[str, Any]", json.loads(first)), rest
 
@@ -124,5 +116,14 @@ def test_the_printed_command_sends_each_record_with_its_own_code(
 
 @pytest.mark.os_agnostic
 def test_a_count_past_two_digits_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert _main()(["--out", str(tmp_path), "--count", "100"]) == 2
+    assert _main()(["--out", str(tmp_path), "--printer", _PRINTER, "--count", "100"]) == 2
     assert "--count must be 1 to 99" in capsys.readouterr().err
+
+
+@pytest.mark.os_agnostic
+def test_the_printer_must_be_named(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The address only goes into the printed command; a forgotten one must not fall back to anything."""
+    with pytest.raises(SystemExit) as exited:
+        _main()(["--out", str(tmp_path)])
+    assert exited.value.code == 2
+    assert "--printer" in capsys.readouterr().err

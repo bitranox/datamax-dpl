@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from printer_server import ConnectionsServer
 
-from datamax_dpl import __init__conf__
 from datamax_dpl.domain.label import Label
 from datamax_dpl.domain.render import build_job
 from datamax_dpl.domain.render_context import RenderOptions
@@ -28,7 +27,6 @@ if TYPE_CHECKING:
 
 _SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "status_cycles.py"
 _SRC = str(Path(__file__).resolve().parent.parent / "src")
-_ENV_PREFIX = __init__conf__.LAYEREDCONF_SLUG.upper().replace("-", "_")
 _LABEL = {"elements": [{"type": "text", "x": 5, "y": 5, "text": "Hello"}]}
 _MODEL = "allegro-2"
 #: ``<SOH>A`` answer of a printer with no flag set.
@@ -36,6 +34,12 @@ _IDLE_STATUS = b"NNNNNNNN\r"
 _FIELDS = ["t", "elapsed", "cycle", "step", "rc", "bytes", "answer", "error"]
 #: Short enough for a test, long enough that a busy runner keeps the order of the connects.
 _INTERVAL = 0.2
+#: Seconds of failing connects the wedged-port test stops at. Below one Windows refusal (about
+#: 2 s, where nothing is bound), so there the first refused connect already ends the run, while a
+#: platform that refuses at once probes several times: the assertions hold for both.
+_GIVE_UP = 0.5
+
+pytestmark = pytest.mark.usefixtures("no_ambient_configuration", "package_from_this_tree")
 
 
 def _names() -> dict[str, Any]:
@@ -48,19 +52,15 @@ def _main() -> Callable[[list[str]], int]:
     return main
 
 
-@pytest.fixture(autouse=True)
-def isolated_commands(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Give the datamax-dpl subprocesses no ambient configuration, and the package from this tree.
+@pytest.fixture
+def package_from_this_tree(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Let the ``python -m datamax_dpl`` subprocesses import the package from this tree's ``src``.
 
-    The rootdir conftest already points the configuration layers under ``tmp_path`` through
-    ``os.environ``, which the subprocesses inherit; a ``DATAMAX_DPL___`` variable or a ``.env``
-    above the working directory would still set a scale and change the bytes compared here.
+    The configuration they read is kept clean by ``no_ambient_configuration``, which they inherit
+    through ``os.environ`` and the working directory.
     """
-    for name in [name for name in os.environ if name.startswith(_ENV_PREFIX)]:
-        monkeypatch.delenv(name)
     existing = os.environ.get("PYTHONPATH")
     monkeypatch.setenv("PYTHONPATH", f"{_SRC}{os.pathsep}{existing}" if existing else _SRC)
-    monkeypatch.chdir(tmp_path)
 
 
 @pytest.fixture
@@ -128,24 +128,38 @@ def test_a_cycle_prints_asks_status_three_times_and_connects_bare(
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize("accepted_connects", [0, 1])
 def test_a_port_that_stops_accepting_ends_the_run_and_says_so(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], connections: Callable[[int], ConnectionsServer]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    connections: Callable[[int], ConnectionsServer],
+    accepted_connects: int,
 ) -> None:
-    """The server takes the print and the three status questions, then nothing listens on the port."""
-    server = connections(1 + 3)
+    """The server takes the print, the three status questions and ``accepted_connects``, then stops listening.
 
-    code = _main()(_args(server, tmp_path, "--cycles", "2", "--connects", "2", "--give-up", "0.5"))
+    A connect made just before the listener closes can still be taken from its backlog, so the
+    accepted connects are a floor; what follows the first refused connect must all be refused. The
+    run stops in cycle 1, only after the port has failed for ``--give-up`` seconds counted from the
+    START of the first refused connect (a Windows refusal alone takes about 2 s).
+    """
+    server = connections(1 + 3 + accepted_connects)
+
+    code = _main()(_args(server, tmp_path, "--cycles", "2", "--connects", "3", "--give-up", str(_GIVE_UP)))
     server.join()
 
     assert code == 3
     rows = _log_rows(tmp_path / "cycles.jsonl")
     assert [row["step"] for row in rows[:4]] == ["print", "status", "status", "status"]
-    assert rows[-1]["step"] == "stop"
-    assert rows[-1]["cycle"] == 1
-    assert "looks wedged" in rows[-1]["error"]
-    refused = [row for row in rows if row["step"] == "connect" and row["error"] == "refused"]
-    assert len(refused) >= 2
-    assert refused[-1]["elapsed"] - refused[0]["elapsed"] >= 0.5 - _INTERVAL
+    stop = rows[-1]
+    assert (stop["step"], stop["cycle"], stop["rc"]) == ("stop", 1, 3)
+    assert "looks wedged" in stop["error"]
+    connects = [row for row in rows if row["step"] == "connect"]
+    first_refused = next(index for index, row in enumerate(connects) if row["error"] == "refused")
+    assert first_refused >= accepted_connects
+    assert all(row["rc"] == 0 for row in connects[:first_refused])
+    assert all(row["error"] == "refused" for row in connects[first_refused:])
+    refused_started = connects[first_refused]["elapsed"] - connects[first_refused]["answer"]["seconds"]
+    assert stop["elapsed"] - refused_started >= _GIVE_UP
     assert "stopped:" in capsys.readouterr().err
 
 

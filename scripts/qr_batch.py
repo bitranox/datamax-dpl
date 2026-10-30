@@ -12,7 +12,7 @@ run can be repeated exactly; it only tells the labels apart and is not a secret.
 
 Usage::
 
-    .venv/bin/python scripts/qr_batch.py --out qr --count 20
+    .venv/bin/python scripts/qr_batch.py --out qr --count 20 --printer tcp://192.0.2.60:9100
     datamax-dpl print qr/qr-batch.json --data qr/rows.csv --model allegro-2 --printer tcp://192.0.2.60:9100
 
 The first output line is JSON (the label and CSV paths, the seed, the codes in order and the
@@ -44,7 +44,6 @@ BAD_ARGUMENTS = 2
 
 _RANDOM_LENGTH = 6
 _RANDOM_ALPHABET = string.ascii_uppercase + string.digits
-_DEFAULT_PRINTER = "tcp://192.0.2.60:9100"
 _FRESH_SEEDS = 2**32
 
 
@@ -107,7 +106,7 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--count", type=int, default=20, help="number of records, 1 to 99 (default: 20)")
     parser.add_argument("--seed", type=int, default=None, help="seed of the random part (default: a fresh one)")
     parser.add_argument("--model", default="allegro-2", help="model for the printed command (default: allegro-2)")
-    parser.add_argument("--printer", default=_DEFAULT_PRINTER, help="printer URI for the printed command")
+    parser.add_argument("--printer", required=True, help="printer URI for the printed command")
     return parser.parse_args(argv)
 
 
