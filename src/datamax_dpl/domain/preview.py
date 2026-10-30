@@ -22,7 +22,8 @@ puts it. Rotation 1 (0) runs right and grows up; 2 (90) runs down and grows righ
 and grows down; 4 (270) runs up and grows left. Characters advance from the reference point along
 the running direction. Images are placed in rotation 1 only. Unverified until a test print.
 
-Overlapping fields combine the way the printer's attribute says (manual, ``A`` command, pages 64-65):
+Overlapping fields combine the way the printer's attribute says (manual, ``A`` command, page 65;
+the DMX 600/800 default, page 66):
 1 XOR prints only dots an odd number of fields share, 2 transparent prints both, 3 opaque lets the
 later field whiten the rectangle its dots span (for text, the run of its character cells) first.
 Inverse (5) prints white on black, which the preview does not draw; it shows as XOR. A model without
