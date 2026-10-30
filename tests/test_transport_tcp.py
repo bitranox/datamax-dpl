@@ -107,6 +107,18 @@ def test_a_line_refused_between_kept_lines_is_cut_out_of_a_multi_line_answer(
 
 
 @pytest.mark.os_agnostic
+def test_an_answer_cut_short_after_a_skipped_line_times_out(serve: Callable[..., PrinterServer]) -> None:
+    # The serial transport ends in the same words (test_transport_serial.py).
+    server = serve(answering(b"\x02KQ", b"VER: 2.03\rMODULE: A\r"))
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer, pytest.raises(PrinterTimeoutError) as caught:
+        printer.query(b"\x02KQ", timeout=0.3, lines=2, accept=lambda line: not line.startswith(b"MODULE"))
+    assert str(caught.value) == (
+        f"tcp {server.uri.target}: no complete answer within 0.3 s"
+        " (20 bytes read; 1 line skipped, last b'MODULE: A\\r')"
+    )
+
+
+@pytest.mark.os_agnostic
 def test_without_accept_a_stale_line_is_the_answer(serve: Callable[..., PrinterServer]) -> None:
     server = serve(answering(b"\x02KQ", b"MODULE: A\rNNNNNNNN\r"))
     with TcpTransport.connect(server.uri, timeout=2.0) as printer:

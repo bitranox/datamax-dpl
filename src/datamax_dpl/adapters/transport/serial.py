@@ -191,7 +191,8 @@ class SerialTransport(ClosingTransport):
         line ``accept`` refuses is skipped, as one the printer still owed an earlier query.
 
         Raises:
-            PrinterTimeoutError: No complete answer within ``timeout`` seconds.
+            PrinterTimeoutError: Fewer than ``lines`` lines within ``timeout`` seconds; the lines
+                that did come are not returned.
             PrinterProtocolError: ``MAX_ANSWER_BYTES`` arrived, skipped lines included, without
                 the answer.
             TransportError: The port failed or is closed.
@@ -203,7 +204,7 @@ class SerialTransport(ClosingTransport):
         self.send(request)
         wait = Wait.since(time.monotonic(), timeout)
         read = self._read_lines(terminator, wait=wait, lines=lines, accept=accept)
-        if read.answer.endswith(terminator):
+        if read.complete:
             return read.answer
         channel = f"serial {self._uri.path}"
         if len(read.answer) + read.skipped.size >= MAX_ANSWER_BYTES:
@@ -355,7 +356,7 @@ class SerialTransport(ClosingTransport):
             if not complete:
                 break
             kept += 1
-        return _LinesRead(answer=answer, skipped=skipped)
+        return _LinesRead(answer=answer, skipped=skipped, complete=kept == lines)
 
     def _read(self, terminator: bytes, *, timeout: float, size: int) -> bytes:
         """Read until ``terminator``, ``size`` bytes or ``timeout``, whichever comes first."""
@@ -367,10 +368,13 @@ class SerialTransport(ClosingTransport):
 
 
 class _LinesRead(NamedTuple):
-    """What :meth:`SerialTransport._read_lines` read: the kept lines and what it skipped."""
+    """What :meth:`SerialTransport._read_lines` read: the kept lines, what it skipped, and whether
+    all the lines asked for came; a wait that ran out after some of them is no answer, as on tcp.
+    """
 
     answer: bytes
     skipped: Skipped
+    complete: bool
 
 
 __all__ = ["SerialPort", "SerialTransport"]

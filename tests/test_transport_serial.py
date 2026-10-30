@@ -15,11 +15,12 @@ from datamax_dpl.adapters.transport import open_printer
 from datamax_dpl.adapters.transport.serial import SerialTransport
 from datamax_dpl.adapters.transport.tcp import MAX_ANSWER_BYTES, MAX_IDLE_ANSWER_BYTES
 from datamax_dpl.adapters.transport.uri import SerialUri
+from datamax_dpl.application.use_cases import MEMORY_REPORT_LINES, detect_printer
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.status import is_status_line
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Mapping
 
 LOOP = SerialUri(path="loop://")
 JOIN_SECONDS = 5.0
@@ -58,6 +59,16 @@ def test_a_loop_port_skips_echoed_lines_the_caller_does_not_accept() -> None:
     with SerialTransport.open(LOOP, timeout=1.0) as printer:
         echoed = printer.query(b"MODULE: A\rNNNNNNNN\r", timeout=1.0, accept=is_status_line)
     assert echoed == b"NNNNNNNN\r"
+
+
+@pytest.mark.os_agnostic
+def test_a_loop_port_that_answers_fewer_lines_than_asked_times_out() -> None:
+    with SerialTransport.open(LOOP, timeout=1.0) as printer:
+        started = time.monotonic()
+        with pytest.raises(PrinterTimeoutError) as caught:
+            printer.query(b"A\r", timeout=0.3, lines=2)
+        assert 0.25 <= time.monotonic() - started < 1.5
+    assert str(caught.value) == "serial loop://: no complete answer within 0.3 s (2 bytes read)"
 
 
 @pytest.mark.os_agnostic
@@ -188,6 +199,53 @@ class ScriptedPort(DrainingPort):
             take = min(take, size)
         chunk, self.pending = self.pending[:take], self.pending[take:]
         return chunk
+
+
+class AnsweringPort(ScriptedPort):
+    """A port that answers each written request from a table, as a printer on the line would."""
+
+    def __init__(self, answers: Mapping[bytes, bytes]) -> None:
+        super().__init__(b"")
+        self._answers = dict(answers)
+
+    def write(self, b: bytes, /) -> int | None:
+        self.pending += self._answers.get(bytes(b), b"")
+        return len(b)
+
+    def reset_input_buffer(self) -> None:
+        self.pending = b""
+
+
+@pytest.mark.os_agnostic
+def test_a_serial_answer_cut_short_after_a_skipped_line_times_out_as_tcp_does() -> None:
+    # The same answer over tcp ends in the same words (test_transport_tcp.py).
+    printer = SerialTransport(ScriptedPort(b"VER: 2.03\rMODULE: A\r"), uri=LOOP)
+    with pytest.raises(PrinterTimeoutError) as caught:
+        printer.query(b"\x02KQ", timeout=0.3, lines=2, accept=lambda line: not line.startswith(b"MODULE"))
+    assert str(caught.value) == (
+        "serial loop://: no complete answer within 0.3 s (20 bytes read; 1 line skipped, last b'MODULE: A\\r')"
+    )
+
+
+@pytest.mark.os_agnostic
+def test_detect_over_serial_ignores_a_memory_report_cut_short() -> None:
+    # Three of the eight <STX>KQ lines, then silence: half a report is no evidence.
+    port = AnsweringPort(
+        {
+            b"\x02k": b"Y\r",
+            b"\x02v": b"VER DA - 01.01 12/21/93\r",
+            b"\x02KQ": b"INTERNAL MEMORY\rVER: 2.03\rLABEL SIZE: 0400:0600:IN\r",
+        }
+    )
+
+    def open_port(uri: str, *, timeout: float) -> SerialTransport:
+        return SerialTransport(port, uri=LOOP)
+
+    report = detect_printer(uri="serial://loop", timeout=0.3, open_printer=open_port)
+
+    assert MEMORY_REPORT_LINES == 8
+    assert (report.evidence.serial_test, report.evidence.version) == (True, "VER DA - 01.01 12/21/93")
+    assert report.evidence.memory is None
 
 
 @pytest.mark.os_agnostic
