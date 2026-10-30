@@ -166,6 +166,11 @@ printed in font 9 at the nearest point size.
 Horizontal and vertical lines print on every model. A slanted line needs circle and polygon
 support; elsewhere it is drawn as a bitmap image.
 
+A horizontal or vertical line is a filled rectangle whose lower-left corner is the line's lower or
+left end: a horizontal line grows UP from `y` by its thickness, a vertical one RIGHT from `x`, so
+the thickness is not centred on the line. `preview` draws it the same way. A slanted line is
+centred on the path from start to end.
+
 ```json
 {
   "elements": [

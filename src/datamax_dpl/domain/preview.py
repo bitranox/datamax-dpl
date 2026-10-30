@@ -1,6 +1,11 @@
 """Approximate picture of a label at the printer's resolution (one pixel per printer dot).
 
-Graphics (lines, boxes, circles, polygons, images, QR Codes) are drawn exactly as the encoder places them.
+Graphics (lines, boxes, circles, polygons, images, QR Codes) are drawn exactly as the encoder places
+them, at NOMINAL geometry: no scale or offset calibration, and label lengths turned straight into
+dots. A job whose DPL unit cannot hold a length exactly (millimetres on a model with inch formats
+only) can print a field a dot away from the picture. A horizontal or vertical line is the line
+record's rectangle, growing up or right from its lower-left end; a slanted one is a centred stroke.
+
 Text is drawn as one grey block per character cell, sized from the font tables in
 ``docs/dpl-reference.md`` section 6; barcodes as a hatched area of their estimated size. The
 picture answers "does everything sit where I meant and fit the label", not "what does the text
@@ -165,8 +170,26 @@ def _draw_box(element: Box, bitmap: Bitmap, canvas: Canvas) -> None:
         bitmap.fill_rect(*rect)
 
 
+def _draw_axis_line(element: Line, bitmap: Bitmap, canvas: Canvas) -> None:
+    """Draw a horizontal or vertical line as the encoder's line record places it.
+
+    The record's corner is the lower-left end (the smaller x and y); the length runs right or up from
+    there and the thickness up or right, never centred on the line. A line of no length is a square
+    of its thickness, as in ``encode_line``.
+    """
+    horizontal = element.y == element.y2 and element.x != element.x2
+    thickness = max(1, canvas.dots(element.thickness))
+    length = abs(element.x2 - element.x) if horizontal else abs(element.y2 - element.y)
+    extent = canvas.dots(length) or thickness
+    width, height = (extent, thickness) if horizontal else (thickness, extent)
+    left, bottom = canvas.point(min(element.x, element.x2), min(element.y, element.y2))
+    bitmap.fill_rect(left, bottom - height + 1, width, height)
+
+
 def _draw_graphic(element: Line | Circle | Polygon, bitmap: Bitmap, canvas: Canvas) -> None:
-    if isinstance(element, Line):
+    if isinstance(element, Line) and element.is_axis_aligned:
+        _draw_axis_line(element, bitmap, canvas)
+    elif isinstance(element, Line):
         x0, y0 = canvas.point(element.x, element.y)
         x1, y1 = canvas.point(element.x2, element.y2)
         bitmap.draw_line(x0, y0, x1, y1, thickness=max(1, canvas.dots(element.thickness)))

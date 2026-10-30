@@ -122,6 +122,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `preview` drew a horizontal or vertical line with its thickness centred on
+  the line and running past both ends. It now draws the line record's
+  rectangle, as the printer does: from the lower or left end, growing up (a
+  horizontal line) or right (a vertical one) by the thickness. Slanted lines
+  keep the centred stroke, as their polygon is centred.
 - An image wider than one image row (2040 dots) made `build_job` (and
   `validate`, `render`, `print`) fail with a raw `ValueError`; a patterned
   box 20 in wide on an Allegro 2 rasterised to 4061 dots, for one. It is
