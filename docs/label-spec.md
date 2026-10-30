@@ -332,11 +332,52 @@ image must already be stored on the printer, and the info finding `image_must_be
 }
 ```
 
+### `qr`
+
+| Key           | Type                 | Default | Meaning                                                                          |
+|---------------|----------------------|---------|----------------------------------------------------------------------------------|
+| `x`, `y`      | number >= 0          | -       | Lower-left corner of the quiet zone. A QR Code cannot be rotated.                |
+| `data`        | string, 1-4296 chars | -       | The data; may contain `{name}` placeholders.                                     |
+| `error`       | `L`, `M`, `Q`, `H`   | `M`     | Error correction level: about 7, 15, 25 or 30 percent of the symbol may be lost. |
+| `module_dots` | integer 1-9          | 3       | Printer dots per module, across and along.                                       |
+| `quiet_zone`  | integer 0-10         | 4       | Modules of white space kept free on every side of the symbol.                    |
+
+No model in the manual has a QR Code record, so datamax-dpl draws the symbol itself and downloads
+it as an image before the label, one dot per module, then places it with an image record whose dot
+width and height are `module_dots`. The image name follows from its content
+([dpl-reference.md](dpl-reference.md), section 5). The symbol is always a full QR Code, never a
+Micro QR, and the error level is used as given, never raised.
+
+The field is `(modules + 2 * quiet_zone) * module_dots` dots square; the module count follows from
+the data and the level (21 for a short text at `M`). The symbol starts `quiet_zone` modules in
+from `(x, y)`, and nothing is printed in that space, so keep other elements out of it. The quiet
+zone counts as part of the field: `(x, y)` follows the same position rules as any other field's
+reference point, so a QR at the label edge on a model with a default offset (the Allegro 2 moves
+fields 0.25 mm down) is placed on the edge with the warning `model_offset_clamped`, which `strict`
+refuses.
+
+| Finding               | Severity | When                                                                   |
+|-----------------------|----------|------------------------------------------------------------------------|
+| `qr_data_too_long`    | error    | No QR Code version holds the data at that error level.                 |
+| `qr_past_print_width` | error    | The field, quiet zone included, ends past the model's printable width. |
+| `qr_dot_size_not_one` | warning  | The label's `dot_size` is not 1x1, which prints every module larger.   |
+
+Unverified on paper: the magnified image record, the orientation of the symbol and whether a
+printed QR Code scans have not been checked on a real printer.
+
+```json
+{
+  "elements": [
+    {"type": "qr", "x": 5, "y": 5, "data": "https://example.com/p/4711", "error": "Q", "module_dots": 4}
+  ]
+}
+```
+
 ## Placeholders and data records
 
-Text in `text`, `scalable_text` and barcode `data` may contain `{name}` placeholders. Names start
-with a letter or `_` and continue with letters, digits or `_`. `--data` fills them, one label per
-record:
+Text in `text`, `scalable_text`, barcode `data` and qr `data` may contain `{name}` placeholders.
+Names start with a letter or `_` and continue with letters, digits or `_`. `--data` fills them, one
+label per record:
 
 - a `.csv` file: the header row names the fields;
 - any other file: a JSON array of objects, one JSON object, or JSON lines;
@@ -345,7 +386,7 @@ record:
 Every value is used as text. Only element text is filled: coordinates and settings cannot come
 from a record. Two kinds of problem stop the command with exit 2 before anything is rendered: a
 record that lacks a field a placeholder names, and a filled text longer than the label format
-allows (255 characters). A filled value the printer would reject, such as barcode data with the
+allows (255 characters, 4296 for qr `data`). A filled value the printer would reject, such as barcode data with the
 wrong number of digits, is an error finding of that record (exit 1), like any other label error.
 
 `{{` and `}}` stand for literal braces when the label is filled from records. Without `--data`

@@ -16,8 +16,9 @@ All notable changes to this project are documented here. The format follows
   `qr_data_too_long` (no QR Code version holds the data at that level) and
   `qr_past_print_width` (the area, quiet zone included, ends past the
   printable width). Warning `qr_dot_size_not_one` when the label's
-  `dot_size` is not 1x1, which prints the modules larger. Unverified on
-  paper.
+  `dot_size` is not 1x1, which prints the modules larger. `Qr` and
+  `QrError` are exported from `datamax_dpl`, and segno (pure Python) is a
+  new dependency. Unverified on paper.
 - Image placement records carry a magnification: `image_record(...,
   magnification=(across, along))` writes the dot width and height digits
   1-9 (the manual's image fields), and `explain` names a magnified image.
@@ -83,7 +84,7 @@ All notable changes to this project are documented here. The format follows
   box 20 in wide on an Allegro 2 rasterised to 4061 dots, for one. It is
   now refused with `image_too_wide` on the element that made it, for given
   images, raster fallbacks and QR Codes alike, and nothing is downloaded
-  for it.
+  or placed for it.
 
 ## [0.3.0] - 2026-10-29
 

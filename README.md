@@ -13,8 +13,8 @@
 
 datamax-dpl turns a label described in JSON into a print job in DPL, the Datamax Programming
 Language, and sends it to the printer. You describe text, lines, boxes, circles, polygons,
-barcodes (PDF417, MaxiCode and DataMatrix included) and images in millimetres; datamax-dpl writes
-the DPL records for the printer model you name.
+barcodes (PDF417, MaxiCode and DataMatrix included), QR codes and images in millimetres;
+datamax-dpl writes the DPL records for the printer model you name.
 
 Datamax models differ a lot. A Prodigy has no circles, an Allegro no metric formats, scalable
 fonts arrived on the DMX 600 with firmware 2.01. datamax-dpl knows the 18 models of the 1998 DPL
@@ -140,9 +140,9 @@ and a list of elements:
 }
 ```
 
-Element types are `text`, `scalable_text`, `line`, `box`, `circle`, `polygon`, `barcode` and
-`image`. Text and barcode data may contain `{name}` placeholders. Every field is described in
-[docs/label-spec.md](docs/label-spec.md); `datamax-dpl schema` prints the JSON Schema.
+Element types are `text`, `scalable_text`, `line`, `box`, `circle`, `polygon`, `barcode`, `image`
+and `qr`. Text, barcode and QR data may contain `{name}` placeholders. Every field is described
+in [docs/label-spec.md](docs/label-spec.md); `datamax-dpl schema` prints the JSON Schema.
 
 ## Coordinates
 
@@ -299,7 +299,8 @@ datamax-dpl. Inside Claude Code:
 ## Status and limits
 
 - Built from the Datamax DPL Programmer's Manual 88-2051-01 Rev D2 (1998) only. Models and
-  commands that came later, QR codes among them, are not supported.
+  commands that came later are not supported. QR codes are printed as downloaded images
+  (unverified on paper).
 - Only an Allegro 2 has been checked on a real printer; no camera has been attached yet.
 - The manual contradicts itself in places; [docs/dpl-reference.md](docs/dpl-reference.md) lists
   each case and the reading taken.

@@ -60,7 +60,7 @@ turn the outcome into output and an exit code.
 
 ### Domain (`src/datamax_dpl/domain/`)
 
-- `label.py` - the label model: job settings and the eight element types.
+- `label.py` - the label model: job settings and the nine element types.
 - `enums.py` - units, rotations, fill patterns, attributes, speed letters, media, policy, severity.
 - `units.py` - length conversion between label units, DPL units and printer dots.
 - `symbology.py` - barcode symbologies and their DPL identifiers.
@@ -68,15 +68,17 @@ turn the outcome into output and an exit code.
 - `charset.py` - text to font bytes (code page 437, symbol sets), unprintable characters.
 - `profiles.py` - the printer model profiles and their feature tables.
 - `findings.py` - findings and the collector that applies the fallback policy.
-- `render_context.py` - render options and the per-render context.
+- `render_context.py` - render options, the per-render context, content names of drawn images
+  (`drawn_image_name`).
 - `render.py` - `build_job` and `render`: label to DPL bytes plus findings.
 - `job.py` - system commands, format settings, quantity and cutting.
 - `encode_common.py` - positions, field length, attributes and counters shared by encoders.
 - `encode_text.py` - text and scalable text fields and their font fallbacks.
-- `encode_graphics.py` - lines, boxes, circles, polygons, images.
+- `encode_graphics.py` - lines, boxes, circles, polygons, images, QR Codes (`encode_qr`).
 - `encode_barcode.py` - barcode fields, symbology gates, bar widths.
 - `raster.py` - 1-bit raster drawing.
 - `raster_fallback.py` - graphics a model cannot draw, as downloaded images.
+- `qr.py` - the QR Code module matrix via segno (`qr_bitmap`, `QrDataTooLongError`).
 - `image_records.py` - the Datamax image download format.
 - `records.py` - byte-level formatting of DPL records.
 - `placeholders.py` - `{name}` placeholders and filling them from records.
@@ -146,7 +148,9 @@ sockets on 127.0.0.1 and pseudo-terminals. Doctests in the modules run with the 
 
 ## Known Limitations
 
-- Only the 1998 DPL manual is covered; later models and commands (QR codes among them) are not.
-- No output has been checked on a real printer or camera.
-- The library is reached through module paths (`datamax_dpl.domain.render` and so on); the
-  package root exports only configuration and metadata helpers.
+- Only the 1998 DPL manual is covered; later models and commands are not. QR codes are drawn and
+  sent as images.
+- Only an Allegro 2 has been checked on a real printer; no camera has been attached yet.
+- The package root exports the label model and its enums, `render`, `build_job`, `render_batch`,
+  `fill_label`, `open_printer`, `explain`, the profiles and the preview (`datamax_dpl.__all__`);
+  anything else is reached through module paths (`datamax_dpl.domain.render` and so on).
