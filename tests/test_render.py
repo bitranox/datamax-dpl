@@ -322,6 +322,19 @@ def test_a_rasterised_circle_moves_with_the_offset() -> None:
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("unit", "y", "distance"),
+    [(Unit.DOTS, 0, "2 dots"), (Unit.INCH, 0.0, "0.01 in")],
+)
+def test_the_distance_past_the_edge_reads_at_the_label_unit_s_precision(unit: Unit, y: float, distance: str) -> None:
+    # The Allegro 2's -0.25 mm default offset is 1.998 dots or 0.00984 in, which used to print as is.
+    label = Label(unit=unit, elements=[Text(x=0, y=y, text="EDGE")])
+    result = build_job(label, RenderOptions(model="allegro-2"))
+    (clamped,) = [f for f in result.findings if f.code is FindingCode.MODEL_OFFSET_CLAMPED]
+    assert f"would move this field {distance} past the label edge" in clamped.message
+
+
+@pytest.mark.os_agnostic
 def test_a_field_the_offset_pushes_past_the_label_edge_is_refused() -> None:
     label = Label(elements=[Text(x=5, y=0.5, text="EDGE")])
     result = build_job(label, RenderOptions(model="allegro", offset_along=-1))

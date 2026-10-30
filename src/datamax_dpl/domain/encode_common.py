@@ -94,7 +94,7 @@ def position_units(value: float, *, axis: Axis, ctx: RenderContext) -> int:
 def _report_past_edge(shifted: float, axis: Axis, *, index: int, ctx: RenderContext) -> None:
     """Record a field the offset moves past the label's 0 edge: refused, or clamped for a model default."""
     offset = ctx.offset_mm(axis)
-    past = f"{-shifted:g} {ctx.unit.value} past the label edge"
+    past = f"{_readable(-shifted, ctx.unit)} {ctx.unit.value} past the label edge"
     if axis in ctx.model_offset_axes:
         ctx.findings.deviate(
             FindingCode.MODEL_OFFSET_CLAMPED,
@@ -111,6 +111,19 @@ def _report_past_edge(shifted: float, axis: Axis, *, index: int, ctx: RenderCont
             f"the printer's {axis.value} offset of {offset:g} mm moves this field {past}",
             element=index,
         )
+
+
+def _readable(distance: float, unit: Unit) -> str:
+    """Return ``distance`` at the precision a label in ``unit`` is written in.
+
+    The millimetre offset converted to dots or inches carries float noise (0.25 mm is 1.998 Allegro 2
+    dots), which a message should not show.
+
+    Example:
+        >>> _readable(1.99803, Unit.DOTS), _readable(0.00984252, Unit.INCH), _readable(0.5, Unit.MM)
+        ('2', '0.01', '0.5')
+    """
+    return str(round(distance)) if unit is Unit.DOTS else f"{round(distance, 2):g}"
 
 
 def check_field_length(length: int, *, limit: int = MAX_FIELD_DATA, index: int, ctx: RenderContext) -> None:
