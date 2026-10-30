@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from ..domain.label import Label
     from ..domain.profiles import PrinterProfile
     from ..domain.render import RenderResult
+    from ..domain.render_context import RenderOptions
     from .ports import CaptureImage, Clock, OpenPrinter, PrinterTransport, Sleep
 
 #: Seconds between two status polls while the label prints.
@@ -85,6 +86,7 @@ def verify_print(
     label: Label,
     profile: PrinterProfile,
     *,
+    options: RenderOptions,
     uri: str,
     timeout: float,
     camera: CameraSettings,
@@ -95,6 +97,9 @@ def verify_print(
     clock: Clock,
 ) -> VerifyReport:
     """Print ``result``, wait for the printer, photograph the label and return both pictures.
+
+    ``options`` are the ones ``result`` was rendered with: the expected picture places each field
+    at the row and column that job writes.
 
     Raises:
         LabelRejectedError: The job has error findings; nothing was printed.
@@ -110,7 +115,7 @@ def verify_print(
     status = _print_and_wait(result.data, uri=uri, timeout=timeout, open_printer=open_printer, sleep=sleep, clock=clock)
     sleep(camera.settle_seconds)
     photo = capture(camera, output_dir=output_dir)
-    expected = encode_png(preview_bitmap(label, profile, sent_as=result.sent_as))
+    expected = encode_png(preview_bitmap(label, profile, sent_as=result.sent_as, options=options))
     return VerifyReport(bytes_sent=len(result.data), status=status, photo=photo, expected_png=expected)
 
 

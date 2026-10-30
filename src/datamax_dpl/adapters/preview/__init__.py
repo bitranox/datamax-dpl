@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from ...domain.label import Label
     from ...domain.preview import SentAs
     from ...domain.profiles import PrinterProfile
+    from ...domain.render_context import RenderOptions
 
 _MIN_FONT_PIXELS = 6
 _BARCODE_TEXT_SHARE = 4
@@ -100,19 +101,25 @@ def _letter(pillow: _Pillow, image: _Image, area: FieldArea, *, text: str, band:
     image.paste(turned, (left, top))
 
 
-def render_preview_png(label: Label, profile: PrinterProfile, *, sent_as: SentAs | None = None) -> bytes:
+def render_preview_png(
+    label: Label, profile: PrinterProfile, *, sent_as: SentAs | None = None, options: RenderOptions | None = None
+) -> bytes:
     """Return the preview PNG: lettered with Pillow when available, cell blocks otherwise.
 
     ``sent_as`` (``RenderResult.sent_as``) says how the job sends its fields: halved images and
-    merged groups are drawn the way they print.
+    merged groups are drawn the way they print. ``options`` are the ones the job is rendered with,
+    so that each field sits at the row and column that job writes; None renders for ``profile``.
+
+    Raises:
+        ValueError: ``options`` are for another model than ``profile``.
     """
-    bitmap = preview_bitmap(label, profile, sent_as=sent_as)
+    bitmap = preview_bitmap(label, profile, sent_as=sent_as, options=options)
     pillow = _pillow()
     if pillow is None:
         return encode_png(bitmap)
     image = pillow.image.new("L", (bitmap.width, bitmap.height), _WHITE)
     image.putdata([_BLACK if bitmap.get(x, y) else _WHITE for y in range(bitmap.height) for x in range(bitmap.width)])
-    canvas = canvas_for(label, profile)
+    canvas = canvas_for(label, profile, options=options)
     for element in label.elements:
         if isinstance(element, (Text, ScalableText)):
             area = field_area(element, canvas)

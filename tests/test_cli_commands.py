@@ -16,8 +16,12 @@ from lib_layered_config import Config
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory import FakeCamera, RecordingPrinter
+from datamax_dpl.adapters.preview import render_preview_png
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.label import Label
+from datamax_dpl.domain.png import encode_png
+from datamax_dpl.domain.preview import preview_bitmap
+from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.render import render
 from datamax_dpl.domain.render_context import RenderOptions
 
@@ -283,6 +287,28 @@ def test_preview_writes_a_png(cli_runner: CliRunner, tmp_path: Path) -> None:
     assert out.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
 
 
+#: An offset whose rounding moves SIMPLE's text two dots on the paper of a generic job: 5.2 mm is
+#: written as 20/100 in, which prints at dot 41, and the 0.2 mm offset undone puts it at 39.
+CALIBRATED = ["--set", "printer.offset_across=0.2"]
+
+
+def simple_preview(options: RenderOptions | None = None) -> bytes:
+    """The preview PNG of SIMPLE for the generic model, drawn for ``options``."""
+    return render_preview_png(Label.model_validate(SIMPLE), get_profile("generic"), options=options)
+
+
+@pytest.mark.os_agnostic
+def test_preview_places_fields_where_the_configured_calibration_sends_them(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    out = tmp_path / "p.png"
+    label = write_json(tmp_path / "l.json", SIMPLE)
+    result = run(cli_runner, [*CALIBRATED, "preview", label, "-o", str(out), "--model", "generic"])
+    assert result.exit_code == 0, result.output
+    assert out.read_bytes() == simple_preview(RenderOptions(offset_across=0.2))
+    assert out.read_bytes() != simple_preview()
+
+
 @pytest.mark.os_agnostic
 def test_capture_takes_one_photo(cli_runner: CliRunner, tmp_path: Path) -> None:
     camera = FakeCamera()
@@ -314,6 +340,23 @@ def test_verify_prints_waits_photographs_and_writes_the_expected_preview(cli_run
     assert data["status"]["busy_printing"] is False
     assert camera.calls == 1
     assert (tmp_path / data["expected"]).read_bytes().startswith(b"\x89PNG")
+
+
+@pytest.mark.os_agnostic
+def test_verify_writes_the_expected_preview_for_the_configured_calibration(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    printer = RecordingPrinter(answers={b"\x01A": IDLE})
+    label = write_json(tmp_path / "l.json", SIMPLE)
+    args = ["--json", *CALIBRATED, "--set", "camera.kind=file", "verify", label, "--printer", PRINTER]
+    result = run(cli_runner, [*args, "--output-dir", str(tmp_path)], factory(printer, FakeCamera()))
+    assert result.exit_code == 0, result.output
+    expected = (tmp_path / envelope(result)["data"]["expected"]).read_bytes()
+    picture = preview_bitmap(
+        Label.model_validate(SIMPLE), get_profile("generic"), options=RenderOptions(offset_across=0.2)
+    )
+    assert expected == encode_png(picture)
+    assert expected != encode_png(preview_bitmap(Label.model_validate(SIMPLE), get_profile("generic")))
 
 
 @pytest.mark.os_agnostic

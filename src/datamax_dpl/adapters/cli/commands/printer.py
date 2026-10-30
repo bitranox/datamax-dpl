@@ -249,10 +249,11 @@ def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | 
 
             label = fill_label(label, load_records(data)[0])
         profile = get_profile(settings.model)
-        canvas = canvas_for(label, profile)
+        options = render_options(settings)
+        canvas = canvas_for(label, profile, options=options)
         # Rendered for how the job sends its fields: halved images and merged groups preview as they print.
-        sent_as = render_label(label, render_options(settings)).sent_as
-        Path(output).write_bytes(render_preview_png(label, profile, sent_as=sent_as))
+        sent_as = render_label(label, options).sent_as
+        Path(output).write_bytes(render_preview_png(label, profile, sent_as=sent_as, options=options))
         payload = PreviewPayload(
             output=output,
             width_dots=canvas.width,
@@ -313,6 +314,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
             result,
             label,
             get_profile(settings.model),
+            options=render_options(settings),
             uri=require_uri(settings),
             timeout=settings.timeout,
             camera=camera_settings(loaded_config(cli_ctx)),

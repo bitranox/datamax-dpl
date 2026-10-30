@@ -17,16 +17,17 @@ from datamax_dpl.domain.label import Barcode, Box, Element, Image, Label, Line, 
 from datamax_dpl.domain.preview import canvas_for, preview_bitmap, text_box
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.raster import Bitmap
-from datamax_dpl.domain.render import build_job
+from datamax_dpl.domain.render import build_job, job_context
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.symbology import Symbology
-from datamax_dpl.domain.units import MM_PER_INCH
+from datamax_dpl.domain.units import MM_PER_INCH, Axis, DplUnit
 
 #: A 203-dpi model with metric formats and no calibration defaults: the job is nominal geometry.
 MODEL = "dmx-400"
+#: Inch formats at 2.03 dots per unit; the Allegro 2's 2-dot unit with its along scale and offset;
+#: metric formats at nominal geometry.
+MODELS = ["generic", "allegro-2", "dmx-400"]
 LINE_RECORD = re.compile(rb"1X11000(\d{4})(\d{4})[Ll](\d{3,4}?)(\d{3,4})\r")
-TENTHS_PER_MM = 10
-HUNDREDTHS_PER_INCH = 100
 
 
 def black_set(bitmap: Bitmap) -> set[tuple[int, int]]:
@@ -41,30 +42,44 @@ def framed(label: Label, model: str = MODEL) -> Bitmap:
     return frame
 
 
-def drawn(label: Label, model: str = MODEL) -> set[tuple[int, int]]:
+def drawn(label: Label, model: str = MODEL, options: RenderOptions | None = None) -> set[tuple[int, int]]:
     """The black pixels the preview adds to the frame."""
-    return black_set(preview_bitmap(label, get_profile(model))) - black_set(framed(label, model))
+    picture = preview_bitmap(label, get_profile(model), options=options)
+    return black_set(picture) - black_set(framed(label, model))
 
 
 def mm_label(*elements: Element) -> Label:
     return Label(unit=Unit.MM, width=50, height=30, elements=list(elements))
 
 
-def encoded_rectangle(label: Label, model: str = MODEL) -> set[tuple[int, int]]:
-    """The pixels of the label's one line record, converted from the job's own DPL unit to dots.
+def encoded_rectangle(label: Label, model: str = MODEL, options: RenderOptions | None = None) -> set[tuple[int, int]]:
+    """The pixels of the label's one line record, read back from the job and put on nominal paper.
 
     The record's row and column are the rectangle's lower-left corner; its horizontal and vertical
-    sizes run right and up from there.
+    sizes run right and up from there. Each number turns into the dots the printer prints for it
+    (``printed_dots``), then the job's scale and offset are undone: the paper at nominal size.
     """
-    data = build_job(label, RenderOptions(model=model)).data
-    [record] = LINE_RECORD.findall(data)
-    explanation = explain(data)
+    options = options or RenderOptions(model=model)
+    result = build_job(label, options)
+    assert result.ok, result.errors
+    [record] = LINE_RECORD.findall(result.data)
+    explanation = explain(result.data)
+    ctx = job_context(label, options)
     assert explanation.label is not None
-    per_inch = MM_PER_INCH * TENTHS_PER_MM if explanation.label.unit is Unit.MM else HUNDREDTHS_PER_INCH
-    dpi = get_profile(model).dpi
-    row, column, horizontal, vertical = (round(int(value) * dpi / per_inch) for value in record)
-    bottom = canvas_for(label, get_profile(model)).height - 1 - row
-    return {(x, y) for x in range(column, column + horizontal) for y in range(bottom - vertical + 1, bottom + 1)}
+    assert explanation.label.unit is (Unit.MM if ctx.dpl_unit is DplUnit.MM_TENTHS else Unit.INCH)
+    assert label.unit is Unit.MM
+
+    def paper(units: int, axis: Axis) -> float:
+        return ctx.printed_dots(units) * ctx.correction(axis).scale
+
+    def position(units: int, axis: Axis) -> int:
+        return round(paper(units, axis) - ctx.offset_mm(axis) / MM_PER_INCH * ctx.profile.dpi)
+
+    row, column, horizontal, vertical = (int(value) for value in record)
+    left, up = position(column, Axis.ACROSS), position(row, Axis.ALONG)
+    width, height = round(paper(horizontal, Axis.ACROSS)), round(paper(vertical, Axis.ALONG))
+    bottom = canvas_for(label, get_profile(model)).height - 1 - up
+    return {(x, y) for x in range(left, left + width) for y in range(bottom - height + 1, bottom + 1)}
 
 
 @pytest.mark.os_agnostic
@@ -89,6 +104,58 @@ def test_a_line_drawn_right_to_left_covers_the_same_rectangle() -> None:
     assert drawn(label) == encoded_rectangle(label)
 
 
+#: Label positions in mm: short, a whole inch, mid-label and near the print width.
+POSITIONS_MM = [10, 25, 50, 90]
+
+
+def big_label(element: Element) -> Label:
+    return Label(unit=Unit.MM, width=100, height=100, elements=[element])
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("model", MODELS)
+@pytest.mark.parametrize("mm", POSITIONS_MM)
+def test_a_horizontal_line_sits_on_the_row_the_encoder_sends(model: str, mm: int) -> None:
+    label = big_label(Line(x=5, y=mm, x2=mm, y2=mm, thickness=0.5))
+    expected = encoded_rectangle(label, model)
+    assert expected
+    assert drawn(label, model) == expected
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("model", MODELS)
+@pytest.mark.parametrize("mm", POSITIONS_MM)
+def test_a_vertical_line_sits_on_the_column_the_encoder_sends(model: str, mm: int) -> None:
+    label = big_label(Line(x=mm, y=5, x2=mm, y2=mm, thickness=0.5))
+    expected = encoded_rectangle(label, model)
+    assert expected
+    assert drawn(label, model) == expected
+
+
+@pytest.mark.os_agnostic
+def test_generic_draws_10_mm_at_the_79_dots_its_39_hundredths_print() -> None:
+    """10 mm is 79.9 dots, but the job writes 39/100 in, which a 203-dpi printhead prints as 79."""
+    label = mm_label(Line(x=10, y=10, x2=30, y2=10, thickness=1))
+    canvas = canvas_for(label, get_profile("generic"))
+    assert canvas.point(10, 10) == (79, canvas.height - 1 - 79)
+
+
+@pytest.mark.os_agnostic
+def test_the_preview_follows_the_calibration_the_job_is_rendered_with() -> None:
+    """An offset moves the record, and the rounding of the moved value decides the dot."""
+    options = RenderOptions(model="generic", offset_across=0.3, offset_along=-0.3)
+    label = mm_label(Line(x=10, y=10, x2=30, y2=10, thickness=1))
+    assert drawn(label, "generic", options) == encoded_rectangle(label, "generic", options)
+    assert drawn(label, "generic", options) != drawn(label, "generic")
+
+
+@pytest.mark.os_agnostic
+def test_options_for_another_model_than_the_profile_are_refused() -> None:
+    with pytest.raises(ValueError, match=r"options are for dmx-400, not generic"):
+        label = mm_label(Line(x=10, y=10, x2=30, y2=10, thickness=1))
+        preview_bitmap(label, get_profile("generic"), options=RenderOptions(model="dmx-400"))
+
+
 @pytest.mark.os_agnostic
 def test_a_slanted_line_keeps_the_centred_stamp() -> None:
     label = mm_label(Line(x=5, y=5, x2=40, y2=25, thickness=1))
@@ -96,7 +163,7 @@ def test_a_slanted_line_keeps_the_centred_stamp() -> None:
     stamped = framed(label)
     x0, y0 = canvas.point(5, 5)
     x1, y1 = canvas.point(40, 25)
-    stamped.draw_line(x0, y0, x1, y1, thickness=canvas.dots(1))
+    stamped.draw_line(x0, y0, x1, y1, thickness=canvas.length(1, axis=Axis.ACROSS))
     assert drawn(label) == black_set(stamped) - black_set(framed(label))
 
 

@@ -1,10 +1,15 @@
 """Approximate picture of a label at the printer's resolution (one pixel per printer dot).
 
-Graphics (lines, boxes, circles, polygons, images, QR Codes) are drawn exactly as the encoder places
-them, at NOMINAL geometry: no scale or offset calibration, and label lengths turned straight into
-dots. A job whose DPL unit cannot hold a length exactly (millimetres on a model with inch formats
-only) can print a field a dot away from the picture. A horizontal or vertical line is the line
-record's rectangle, growing up or right from its lower-left end; a slanted one is a centred stroke.
+Every field sits where its record puts it, through one conversion (:class:`PreviewGeometry`): the
+label position goes to the DPL row or column the encoder writes (the printer's offset added, kept on
+the label's 0 edge, rounded to the job's unit), that to the dots the printer prints for it (2 per
+1/100 in on the Allegro 2), and then the job's scale and offset are undone. So the picture is the
+paper at nominal size, as the calibration means it to print, and a length the job's unit cannot
+hold exactly (millimetres in 1/100 in) shows the dot the printer really uses. A graphic's lengths
+(a line's, a box's sides, a radius) take the same way without the offset. Sizes the printer counts
+in dots (characters, bars, image and QR Code dots) are drawn as those dots; the platen's scale
+along the feed is not undone for them. A horizontal or vertical line is the line record's
+rectangle, growing up or right from its lower-left end; a slanted one is a centred stroke.
 A patterned box fill is drawn up to its outline; on a model with polygons it prints one or two dots
 short of it, which keeps the fill off the outline's dots (``encode_box``).
 
@@ -43,16 +48,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from .encode_common import position_units
+from .encode_graphics import qr_symbol_position
 from .enums import Attribute, CombineMode, FillPattern, Rotation, Unit
 from .image_budget import HALVING_FACTOR, halve, magnify
 from .label import FONT_9, Barcode, Box, Circle, Element, Image, Label, Line, Polygon, Qr, ScalableText, Text
-from .profiles import Feature
+from .profiles import Feature, get_profile
 from .qr import QrDataTooLongError, qr_bitmap
 from .raster import Bitmap
-from .units import to_inches
+from .render_context import RenderOptions
+from .units import Axis, to_inches
 
 if TYPE_CHECKING:
     from .profiles import PrinterProfile
+    from .render_context import RenderContext
 
 #: Character cell (height, width, gap) in dots at 203 / 300 / 289.56 dpi, for fonts 0-8.
 _CELLS: dict[int, tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]] = {
@@ -85,21 +94,93 @@ _MAX_POINTS = 72
 
 
 @dataclass(frozen=True)
+class PreviewGeometry:
+    """Label lengths to dots on the paper, by the arithmetic the encoder and the printer use.
+
+    A position becomes the DPL row or column its record is written at
+    (:func:`~datamax_dpl.domain.encode_common.position_units`), the dots the printer prints for
+    those units (:meth:`RenderContext.printed_dots`), and then the paper at nominal size: the
+    job's scale (which the encoder divided the length by) and its offset (which it added) are
+    undone. A length takes the same way without the offset.
+
+    Attributes:
+        ctx: The context the job is encoded with (``job_context``).
+
+    Example:
+        >>> from datamax_dpl.domain.label import Label, Text
+        >>> from datamax_dpl.domain.render import job_context
+        >>> label = Label(unit=Unit.MM, elements=[Text(x=10, y=10, text="x")])
+        >>> # 10 mm is 79.9 dots, but the job writes 39/100 in, which prints as 79 dots.
+        >>> PreviewGeometry(job_context(label, RenderOptions(model="generic"))).dots(10, axis=Axis.ACROSS)
+        79
+    """
+
+    ctx: RenderContext
+
+    @property
+    def dpi(self) -> float:
+        """The printer's resolution."""
+        return self.ctx.profile.dpi
+
+    def dots(self, value: float, *, axis: Axis) -> int:
+        """Return where a field at label position ``value`` lies on the paper, in dots from the 0 edge."""
+        return self.at_units(position_units(value, axis=axis, ctx=self.ctx), axis=axis)
+
+    def at_units(self, units: int, *, axis: Axis) -> int:
+        """Return where a record's row or column of ``units`` lies on the paper, in dots from the 0 edge."""
+        return round(self._paper(units, axis) - self._offset_dots(axis))
+
+    def units(self, value: float, *, axis: Axis) -> int:
+        """Return a label length on ``axis`` in the job's DPL unit, as a record writes it."""
+        return self.ctx.dpl_units(value, axis=axis)
+
+    def span(self, units: int, *, axis: Axis) -> int:
+        """Return how many dots a record length of ``units`` takes on the paper."""
+        return round(self._paper(units, axis))
+
+    def length(self, value: float, *, axis: Axis) -> int:
+        """Return how many dots a label length takes on the paper, written as a record writes it."""
+        return self.span(self.units(value, axis=axis), axis=axis)
+
+    def _paper(self, units: int, axis: Axis) -> float:
+        """The dots ``units`` print as, at the paper's nominal size."""
+        return self.ctx.printed_dots(units) * self._scale(axis)
+
+    def _scale(self, axis: Axis) -> float:
+        """The scale the encoder divided this axis by; a length in dots is sent unscaled."""
+        return 1.0 if self.ctx.unit is Unit.DOTS else self.ctx.correction(axis).scale
+
+    def _offset_dots(self, axis: Axis) -> float:
+        """The offset the encoder added on this axis, in nominal dots."""
+        return to_inches(self.ctx.shifted(0.0, axis=axis), self.ctx.unit, dpi=self.dpi) * self.dpi
+
+
+@dataclass(frozen=True)
 class Canvas:
-    """Size of the preview in dots and the conversion from label units."""
+    """Size of the preview in dots and where label lengths land on it.
+
+    Attributes:
+        width: Pixels across.
+        height: Pixels along; row 0 is the label's top edge.
+        geometry: The conversion from label lengths to dots.
+    """
 
     width: int
     height: int
-    dpi: float
-    unit: Unit
+    geometry: PreviewGeometry
 
-    def dots(self, value: float) -> int:
-        """Label length to whole dots."""
-        return round(to_inches(value, self.unit, dpi=self.dpi) * self.dpi)
+    @property
+    def dpi(self) -> float:
+        """The printer's resolution."""
+        return self.geometry.dpi
+
+    def length(self, value: float, *, axis: Axis) -> int:
+        """Return how many dots a label length on ``axis`` takes on the paper (a size)."""
+        return self.geometry.length(value, axis=axis)
 
     def point(self, x: float, y: float) -> tuple[int, int]:
         """Label point (origin bottom-left) to pixel (origin top-left)."""
-        return self.dots(x), self.height - 1 - self.dots(y)
+        return self.geometry.dots(x, axis=Axis.ACROSS), self.height - 1 - self.geometry.dots(y, axis=Axis.ALONG)
 
 
 def _cell(font: int, dpi: float) -> tuple[int, int, int]:
@@ -211,8 +292,11 @@ class FieldArea:
 def _barcode_size(element: Barcode, canvas: Canvas) -> tuple[int, int]:
     module = element.narrow_dots or _DEFAULT_MODULE_DOTS
     width = len(element.data) * _MODULES_PER_CHAR * module
-    height = canvas.dots(element.height) if element.height else round(_DEFAULT_BARCODE_HEIGHT_IN * canvas.dpi)
-    return width, height
+    if not element.height:
+        return width, round(_DEFAULT_BARCODE_HEIGHT_IN * canvas.dpi)
+    # The height runs along the feed unless the field is turned a quarter turn (``encode_barcode``).
+    axis = Axis.ACROSS if element.rotation in (Rotation.DEG_90, Rotation.DEG_270) else Axis.ALONG
+    return width, canvas.length(element.height, axis=axis)
 
 
 def field_area(element: Text | ScalableText | Barcode, canvas: Canvas) -> FieldArea:
@@ -247,13 +331,16 @@ def _draw_barcode(element: Barcode, bitmap: Bitmap, canvas: Canvas) -> None:
 
 
 def _draw_box(element: Box, bitmap: Bitmap, canvas: Canvas) -> None:
+    """Draw a box as its box record prints it: each side's thickness at least one DPL unit."""
+    geometry = canvas.geometry
     left, bottom = canvas.point(element.x, element.y)
-    width, height = canvas.dots(element.width), canvas.dots(element.height)
+    width, height = canvas.length(element.width, axis=Axis.ACROSS), canvas.length(element.height, axis=Axis.ALONG)
     top = bottom - height + 1
     if element.fill is not FillPattern.NONE:
         bitmap.fill_rect(left, top, width, height, pattern=element.fill)
-    edge = max(1, canvas.dots(element.thickness))
-    side = max(1, canvas.dots(element.side_thickness or element.thickness))
+    edge = geometry.span(geometry.units(element.thickness, axis=Axis.ALONG) or 1, axis=Axis.ALONG)
+    side_units = geometry.units(element.side_thickness or element.thickness, axis=Axis.ACROSS) or 1
+    side = geometry.span(side_units, axis=Axis.ACROSS)
     for rect in ((left, top, width, edge), (left, bottom - edge + 1, width, edge)):
         bitmap.fill_rect(*rect)
     for rect in ((left, top, side, height), (left + width - side, top, side, height)):
@@ -267,11 +354,15 @@ def _draw_axis_line(element: Line, bitmap: Bitmap, canvas: Canvas) -> None:
     there and the thickness up or right, never centred on the line. A line of no length is a square
     of its thickness, as in ``encode_line``.
     """
+    geometry = canvas.geometry
     horizontal = element.y == element.y2 and element.x != element.x2
-    thickness = max(1, canvas.dots(element.thickness))
+    thickness_axis, length_axis = (Axis.ALONG, Axis.ACROSS) if horizontal else (Axis.ACROSS, Axis.ALONG)
     length = abs(element.x2 - element.x) if horizontal else abs(element.y2 - element.y)
-    extent = canvas.dots(length) or thickness
-    width, height = (extent, thickness) if horizontal else (thickness, extent)
+    # In DPL units, as the record holds them: at least one unit thick, a point as long as thick.
+    thickness = geometry.units(element.thickness, axis=thickness_axis) or 1
+    extent = geometry.units(length, axis=length_axis) or thickness
+    across, along = (extent, thickness) if horizontal else (thickness, extent)
+    width, height = geometry.span(across, axis=Axis.ACROSS), geometry.span(along, axis=Axis.ALONG)
     left, bottom = canvas.point(min(element.x, element.x2), min(element.y, element.y2))
     bitmap.fill_rect(left, bottom - height + 1, width, height)
 
@@ -282,10 +373,12 @@ def _draw_graphic(element: Line | Circle | Polygon, bitmap: Bitmap, canvas: Canv
     elif isinstance(element, Line):
         x0, y0 = canvas.point(element.x, element.y)
         x1, y1 = canvas.point(element.x2, element.y2)
-        bitmap.draw_line(x0, y0, x1, y1, thickness=max(1, canvas.dots(element.thickness)))
+        bitmap.draw_line(x0, y0, x1, y1, thickness=max(1, canvas.length(element.thickness, axis=Axis.ACROSS)))
     elif isinstance(element, Circle):
         cx, cy = canvas.point(element.x, element.y)
-        bitmap.draw_circle(cx, cy, canvas.dots(element.radius), fill=element.fill)
+        geometry = canvas.geometry
+        radius = geometry.span(geometry.units(element.radius, axis=Axis.ACROSS) or 1, axis=Axis.ACROSS)
+        bitmap.draw_circle(cx, cy, radius, fill=element.fill)
     else:
         bitmap.draw_polygon([canvas.point(p.x, p.y) for p in element.points], fill=element.fill)
 
@@ -339,13 +432,20 @@ def _qr_symbol(element: Qr) -> Bitmap | None:
 
 
 def _draw_qr(element: Qr, bitmap: Bitmap, canvas: Canvas) -> None:
-    """Draw each dark module ``module_dots`` square, the quiet zone in from ``(x, y)``."""
+    """Draw each dark module ``module_dots`` square where ``encode_qr`` places the symbol."""
     symbol = _qr_symbol(element)
     if symbol is None:
         return
-    size, quiet = element.module_dots, element.quiet_zone * element.module_dots
-    x, y = canvas.point(element.x, element.y)
-    left, top = x + quiet, y - quiet - symbol.height * size + 1
+    geometry = canvas.geometry
+    column, row = qr_symbol_position(
+        element,
+        column=position_units(element.x, axis=Axis.ACROSS, ctx=geometry.ctx),
+        row=position_units(element.y, axis=Axis.ALONG, ctx=geometry.ctx),
+        ctx=geometry.ctx,
+    )
+    size = element.module_dots
+    left = geometry.at_units(column, axis=Axis.ACROSS)
+    top = canvas.height - 1 - geometry.at_units(row, axis=Axis.ALONG) - symbol.height * size + 1
     for row in range(symbol.height):
         for column in range(symbol.width):
             if symbol.get(column, row):
@@ -375,30 +475,59 @@ def draw_element(element: Element, bitmap: Bitmap, canvas: Canvas) -> None:
         _draw_graphic(element, bitmap, canvas)
 
 
-def canvas_for(label: Label, profile: PrinterProfile) -> Canvas:
-    """Size the preview: the label size when given, else the print width and the tallest field."""
-    dpi = profile.dpi
-    width_in = to_inches(label.width, label.unit, dpi=dpi) if label.width else profile.print_width_in
-    height_in = to_inches(label.height, label.unit, dpi=dpi) if label.height else _content_height_in(label, dpi)
-    return Canvas(width=round(width_in * dpi) + 1, height=round(height_in * dpi) + 1, dpi=dpi, unit=label.unit)
+def canvas_for(label: Label, profile: PrinterProfile, *, options: RenderOptions | None = None) -> Canvas:
+    """Size the preview: the label size when given, else the print width and the tallest field.
+
+    Args:
+        label: The label.
+        profile: The model.
+        options: The options the job is rendered with; None renders for ``profile`` alone. Their
+            scale, offset and unit decide where every field lands.
+
+    Raises:
+        ValueError: ``options`` are for another model than ``profile``.
+    """
+    return _canvas(label, PreviewGeometry(_job_context(label, profile, options)))
 
 
-def _field_top(element: Text | ScalableText | Barcode, unit: Unit, dpi: float) -> float:
-    """Highest point of a text field or barcode, turned, in inches."""
+def _job_context(label: Label, profile: PrinterProfile, options: RenderOptions | None) -> RenderContext:
+    """The context the job for ``label`` is encoded with, for ``profile``."""
+    # render imports SentAs from here, and its transparency step reaches Canvas through overlap.
+    from .render import job_context  # noqa: PLC0415 - import cycle: render imports this module
+
+    chosen = options or RenderOptions(model=profile.id)
+    if get_profile(chosen.model).id != profile.id:
+        msg = f"options are for {chosen.model}, not {profile.id}"
+        raise ValueError(msg)
+    return job_context(label, chosen)
+
+
+def _canvas(label: Label, geometry: PreviewGeometry) -> Canvas:
+    dpi = geometry.dpi
+    width_in = to_inches(label.width, label.unit, dpi=dpi) if label.width else geometry.ctx.profile.print_width_in
+    if label.height:
+        height = round(to_inches(label.height, label.unit, dpi=dpi) * dpi)
+    else:
+        height = max(_top_dots(element, geometry) for element in label.elements) + _MARGIN_DOTS
+    return Canvas(width=round(width_in * dpi) + 1, height=height + 1, geometry=geometry)
+
+
+def _field_top(element: Text | ScalableText | Barcode, geometry: PreviewGeometry) -> int:
+    """Highest row of a text field or barcode, turned, in dots above the label bottom."""
     # Only the sizes are read here; a one-pixel canvas converts lengths like the real one.
-    area = field_area(element, Canvas(width=1, height=1, dpi=dpi, unit=unit))
-    return to_inches(element.y, unit, dpi=dpi) + area.rise() / dpi
+    area = field_area(element, Canvas(width=1, height=1, geometry=geometry))
+    return geometry.dots(element.y, axis=Axis.ALONG) + area.rise()
 
 
-def _image_top(element: Image, unit: Unit, dpi: float) -> float:
+def _image_top(element: Image, geometry: PreviewGeometry) -> int:
     rows = len(element.bitmap) if element.bitmap else STORED_IMAGE_DOTS
-    return to_inches(element.y, unit, dpi=dpi) + rows * element.magnification / dpi
+    return geometry.dots(element.y, axis=Axis.ALONG) + rows * element.magnification
 
 
-def _qr_top(element: Qr, unit: Unit, dpi: float) -> float:
+def _qr_top(element: Qr, geometry: PreviewGeometry) -> int:
     symbol = _qr_symbol(element)
     modules = (symbol.height if symbol is not None else 0) + 2 * element.quiet_zone
-    return to_inches(element.y, unit, dpi=dpi) + modules * element.module_dots / dpi
+    return geometry.dots(element.y, axis=Axis.ALONG) + modules * element.module_dots
 
 
 def _graphic_top(element: Element) -> float:
@@ -414,20 +543,15 @@ def _graphic_top(element: Element) -> float:
     return 0.0
 
 
-def _top_inches(element: Element, unit: Unit, dpi: float) -> float:
-    """Highest point of ``element`` above the label bottom, in inches."""
+def _top_dots(element: Element, geometry: PreviewGeometry) -> int:
+    """Highest point of ``element`` above the label bottom, in dots."""
     if isinstance(element, (Text, ScalableText, Barcode)):
-        return _field_top(element, unit, dpi)
+        return _field_top(element, geometry)
     if isinstance(element, Image):
-        return _image_top(element, unit, dpi)
+        return _image_top(element, geometry)
     if isinstance(element, Qr):
-        return _qr_top(element, unit, dpi)
-    return to_inches(_graphic_top(element), unit, dpi=dpi)
-
-
-def _content_height_in(label: Label, dpi: float) -> float:
-    highest = max(_top_inches(element, label.unit, dpi) for element in label.elements)
-    return highest + _MARGIN_DOTS / dpi
+        return _qr_top(element, geometry)
+    return geometry.dots(_graphic_top(element), axis=Axis.ALONG)
 
 
 #: The combine mode of each attribute that has one. Inverse (5) prints a field white on black,
@@ -503,7 +627,9 @@ def _draw_group(group: tuple[int, ...], label: Label, layer: Bitmap, canvas: Can
         _blit_halved(drawn, layer, canvas)
 
 
-def preview_bitmap(label: Label, profile: PrinterProfile, *, sent_as: SentAs | None = None) -> Bitmap:
+def preview_bitmap(
+    label: Label, profile: PrinterProfile, *, sent_as: SentAs | None = None, options: RenderOptions | None = None
+) -> Bitmap:
     """Draw ``label`` for ``profile`` with a one-dot frame marking the label (or print) edge.
 
     Args:
@@ -512,17 +638,22 @@ def preview_bitmap(label: Label, profile: PrinterProfile, *, sent_as: SentAs | N
         sent_as: How the job sends its fields (``RenderResult.sent_as``): halved elements are
             drawn in 2x2 blocks, and each merged group OR on one layer. None draws every field
             as the label states it.
+        options: The options the job is rendered with, so that the picture places each field at
+            the row and column that job writes; None renders for ``profile`` alone.
 
     Returns:
         The picture, one pixel per printer dot. Each element (or merged group, at its first
         element) is drawn on its own layer and combined in the mode it prints in (module
         docstring): XOR on a model without the ``A`` command, else the field's or the label's
         attribute.
+
+    Raises:
+        ValueError: ``options`` are for another model than ``profile``.
     """
     sent = sent_as or SentAs()
     groups = {group[0]: group for group in sent.merged}
     merged = {index for group in sent.merged for index in group}
-    canvas = canvas_for(label, profile)
+    canvas = canvas_for(label, profile, options=options)
     bitmap = Bitmap(canvas.width, canvas.height)
     attributes = _has_attributes(profile)
     for index, element in enumerate(label.elements):
@@ -544,6 +675,7 @@ __all__ = [
     "STORED_IMAGE_DOTS",
     "Canvas",
     "FieldArea",
+    "PreviewGeometry",
     "Rect",
     "SentAs",
     "canvas_for",

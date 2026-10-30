@@ -14,11 +14,12 @@ from hypothesis import strategies as st
 from datamax_dpl.domain.decoder import explain
 from datamax_dpl.domain.enums import CombineMode, FillPattern, Unit
 from datamax_dpl.domain.label import Box, Label
-from datamax_dpl.domain.preview import Canvas, canvas_for, draw_element
+from datamax_dpl.domain.preview import Canvas, PreviewGeometry, canvas_for, draw_element
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.raster import Bitmap
-from datamax_dpl.domain.render import build_job
+from datamax_dpl.domain.render import build_job, job_context
 from datamax_dpl.domain.render_context import RenderOptions
+from datamax_dpl.domain.units import Axis
 
 #: Polygon models at 300, 289.56 and 203 dpi (the DMX 400 from firmware 2.01).
 _POLYGON_MODELS = (("dmx-600", ""), ("dmx-430", ""), ("dmx-400", "2.01"))
@@ -66,7 +67,7 @@ def _printed_xor(layers: list[Bitmap]) -> Bitmap:
 def _box_area(box: Box, canvas: Canvas) -> tuple[int, int, int, int]:
     """The box's (left, top, width, height) in preview pixels."""
     left, bottom = canvas.point(box.x, box.y)
-    width, height = canvas.dots(box.width), canvas.dots(box.height)
+    width, height = canvas.length(box.width, axis=Axis.ACROSS), canvas.length(box.height, axis=Axis.ALONG)
     return left, bottom - height + 1, width, height
 
 
@@ -95,7 +96,10 @@ def test_a_solid_box_prints_solid(model: str, firmware: str) -> None:
     box = Box(x=0.2, y=0.2, width=1.0, height=0.5, thickness=0.05, fill=FillPattern.SOLID)
     layers = _layers(box, unit=Unit.INCH, model=model, firmware=firmware)
     printed = _printed_xor(layers)
-    canvas = Canvas(width=printed.width, height=printed.height, dpi=get_profile(model).dpi, unit=Unit.INCH)
+    geometry = PreviewGeometry(
+        job_context(Label(unit=Unit.INCH, elements=[box]), RenderOptions(model=model, firmware=firmware))
+    )
+    canvas = Canvas(width=printed.width, height=printed.height, geometry=geometry)
     left, top, width, height = _box_area(box, canvas)
     white = [(x, y) for y in range(top, top + height) for x in range(left, left + width) if not printed.get(x, y)]
     assert white == []

@@ -51,7 +51,7 @@ from .encode_graphics import qr_symbol_position
 from .enums import FillPattern
 from .image_budget import magnify
 from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText, Text
-from .preview import STORED_IMAGE_DOTS, Canvas, field_area
+from .preview import STORED_IMAGE_DOTS, Canvas, PreviewGeometry, field_area
 from .qr import QrDataTooLongError, qr_bitmap
 from .raster import Bitmap
 from .raster_fallback import draw_graphic, frame_of
@@ -240,7 +240,7 @@ def _field_rectangle(element: Text | ScalableText | Barcode, ctx: RenderContext)
     reference point is where the record puts it.
     """
     # A one-pixel canvas puts the reference point's row at minus its height above the bottom.
-    area = field_area(element, Canvas(width=1, height=1, dpi=ctx.profile.dpi, unit=ctx.unit))
+    area = field_area(element, Canvas(width=1, height=1, geometry=PreviewGeometry(ctx)))
     x, y = _dots_at(element.x, axis=Axis.ACROSS, ctx=ctx), _dots_at(element.y, axis=Axis.ALONG, ctx=ctx)
     left, top, width, height = dataclasses.replace(area, x=x, y=-y).box()
     return DotArea(left=left, bottom=-(top + height - 1), width=width, height=height)
