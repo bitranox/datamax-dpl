@@ -116,12 +116,14 @@ def rasterize(element: Graphic, *, index: int, ctx: RenderContext, reason: str) 
         reason: Why the native record cannot be used, for the finding's message.
 
     Returns:
-        The format line that places the image.
+        The format line that places the image, or nothing when the image is refused as too wide.
     """
     frame = _frame(element, ctx)
     bitmap = Bitmap(frame.width_dots, frame.height_dots)
     _draw(element, bitmap, frame, ctx)
     name = ctx.download_drawn_image(bitmap, element=index)
+    if name is None:
+        return []
     ctx.findings.deviate(
         _RASTERIZED[type(element)],
         f"{element.type} cannot be drawn natively: {reason}",

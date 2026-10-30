@@ -20,6 +20,11 @@ if TYPE_CHECKING:
 STX = b"\x02"
 
 
+def image_placements(data: bytes) -> list[bytes]:
+    """The image placing records (``1Y...``) of a job."""
+    return [line for line in data.split(b"\r") if line.startswith(b"1Y")]
+
+
 def records(label: Label, model: str = "dmx-600") -> list[bytes]:
     """The record lines (those starting with a rotation digit) of the rendered job."""
     data = build_job(label, RenderOptions(model=model)).data
@@ -714,3 +719,41 @@ def test_a_user_image_wider_than_an_image_row_is_refused_not_raised() -> None:
         label.model_copy(update={"elements": [label.elements[1].model_copy(update={"bitmap": ["#" * 2040]})]}),
         RenderOptions(model="permissive"),
     ).ok
+
+
+@pytest.mark.os_agnostic
+def test_a_refused_image_places_nothing_and_claims_no_fallback() -> None:
+    """A refused download leaves no placing record behind and no "drawn as downloaded image"."""
+    label = Label.model_validate(
+        {
+            "unit": "in",
+            "elements": [
+                {"type": "box", "x": 1, "y": 1, "width": 20, "height": 1, "thickness": 0.5, "fill": 4},
+                {"type": "image", "x": 0, "y": 0, "name": "WIDE", "bitmap": ["#" * 2041]},
+            ],
+        }
+    )
+    result = build_job(label, RenderOptions(model="allegro-2"))
+    assert not image_placements(result.data)
+    assert result.downloads == ()
+    assert FindingCode.BOX_RASTERIZED not in {f.code for f in result.findings}
+    too_wide = [f.element for f in result.findings if f.code is FindingCode.IMAGE_TOO_WIDE]
+    assert too_wide == [0, 1]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("box_dots", "fits"), [(2039, True), (2040, False)])
+def test_a_raster_fallback_of_exactly_2040_dots_fits_and_2041_is_refused(box_dots: int, fits: bool) -> None:
+    """A rasterised box is its width plus one dot wide: 2039 dots -> 2040, 2040 dots -> 2041."""
+    label = Label.model_validate(
+        {
+            "unit": "dots",
+            "elements": [{"type": "box", "x": 0, "y": 5, "width": box_dots, "height": 10, "thickness": 2, "fill": 4}],
+        }
+    )
+    result = build_job(label, RenderOptions(model="allegro-2"))
+    codes = {f.code for f in result.findings}
+    assert (FindingCode.IMAGE_TOO_WIDE in codes) is not fits
+    assert (FindingCode.BOX_RASTERIZED in codes) is fits
+    assert len(result.downloads) == (1 if fits else 0)
+    assert len(image_placements(result.data)) == (1 if fits else 0)

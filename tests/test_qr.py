@@ -390,7 +390,7 @@ def _user_image(*, bitmap: list[str] | None) -> dict[str, object]:
 
 
 def _names_and_bits(result: RenderResult) -> dict[str, set[bytes]]:
-    """Every name the job downloads or places, with each distinct download sent under it."""
+    """Each name the job downloads, with the set of distinct download bodies sent under it."""
     sent: dict[str, set[bytes]] = {}
     for name in result.downloads:
         records = download_records(result.data, name)
@@ -434,12 +434,27 @@ def test_a_drawn_image_never_takes_the_name_of_a_stored_user_image(qr_first: boo
 
 
 @pytest.mark.os_agnostic
-@given(reserved=st.booleans(), taken_by_other=st.booleans(), queued_twice=st.booleans())
+@pytest.mark.parametrize(
+    ("reserved", "taken_by_other", "queued_twice", "salt"),
+    [
+        pytest.param(False, False, False, 0, id="nothing-in-the-way"),
+        pytest.param(False, False, True, 0, id="queued-twice-keeps-its-name"),
+        pytest.param(False, True, False, 0, id="salt-1-taken-but-not-needed"),
+        pytest.param(False, True, True, 0, id="salt-1-taken-queued-twice"),
+        pytest.param(True, False, False, 1, id="reserved-goes-to-salt-1"),
+        pytest.param(True, False, True, 1, id="reserved-queued-twice"),
+        pytest.param(True, True, False, 2, id="reserved-and-salt-1-taken-goes-to-salt-2"),
+        pytest.param(True, True, True, 2, id="reserved-salt-1-taken-queued-twice"),
+    ],
+)
 def test_download_drawn_image_never_names_two_different_images_alike(
-    reserved: bool, taken_by_other: bool, queued_twice: bool
+    reserved: bool, taken_by_other: bool, queued_twice: bool, salt: int
 ) -> None:
     """The docstring's claim: whatever already holds or reserves the content name, a job never
-    sends two different images under one name, and the same bitmap keeps one name."""
+    sends two different images under one name, and the same bitmap keeps one name.
+
+    ``reserved``: a user image holds the content name; ``taken_by_other``: a different image is
+    already queued under the salt-1 name; ``queued_twice``: the same bitmap is queued again."""
     bitmap = Bitmap.from_rows(["#."])
     first = drawn_image_name(bitmap)
     ctx = RenderContext(
@@ -454,6 +469,7 @@ def test_download_drawn_image_never_names_two_different_images_alike(
     if taken_by_other:
         ctx.download_image(drawn_image_name(bitmap, salt=1), Bitmap.from_rows([".#"]), element=0)
     name = ctx.download_drawn_image(bitmap, element=0)
+    assert name == drawn_image_name(bitmap, salt=salt)
     if queued_twice:
         assert ctx.download_drawn_image(bitmap, element=0) == name
     assert name not in ctx.reserved_image_names

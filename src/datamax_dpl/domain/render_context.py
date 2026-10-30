@@ -256,28 +256,35 @@ class RenderContext:
         )
         return False
 
-    def download_image(self, name: str, bitmap: Bitmap, *, element: int) -> None:
-        """Queue ``bitmap`` for download under ``name`` before the format.
+    def download_image(self, name: str, bitmap: Bitmap, *, element: int) -> str | None:
+        """Queue ``bitmap`` for download under ``name`` before the format and return the name.
 
-        An image too wide for one row record is refused (``image_too_wide``) and not queued.
+        Returns:
+            ``name``, or None when the image is too wide for one row record: it is then refused
+            (``image_too_wide``), not queued, and the caller places nothing for the element.
 
         Raises:
             ValueError: When the name is not 1-8 letters, digits or underscores.
         """
-        if self._fits_an_image_row(name, bitmap, element=element):
-            self.downloads.append(ImageDownload(name=name, command=download_command(name, bitmap)))
+        if not self._fits_an_image_row(name, bitmap, element=element):
+            return None
+        self.downloads.append(ImageDownload(name=name, command=download_command(name, bitmap)))
+        return name
 
-    def download_drawn_image(self, bitmap: Bitmap, *, element: int) -> str:
+    def download_drawn_image(self, bitmap: Bitmap, *, element: int) -> str | None:
         """Queue an image the library drew under its content name, once per job, and return the name.
 
         A bitmap already queued is not queued again. When the content name is taken in this job,
         by a different drawn bitmap (a hash collision) or by a user ``image`` of that name (a
         reserved name, whether or not it is downloaded), the next salt is tried, so a job never
-        sends or places two different images under one name, whatever the element order. An image
-        too wide for one row record is refused (``image_too_wide``) and not queued.
+        sends or places two different images under one name, whatever the element order.
+
+        Returns:
+            The name, or None when the image is too wide for one row record: it is then refused
+            (``image_too_wide``), not queued, and the caller places nothing for the element.
         """
         if not self._fits_an_image_row(drawn_image_name(bitmap), bitmap, element=element):
-            return drawn_image_name(bitmap)
+            return None
         salt = 0
         while True:
             name = drawn_image_name(bitmap, salt=salt)
