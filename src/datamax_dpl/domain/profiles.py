@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
-from .enums import HardwareOption, ModelFamily, SpeedCode
+from .enums import HardwareOption, ImageModule, ModelFamily, SpeedCode
 
 
 class Feature(str, Enum):
@@ -204,6 +204,9 @@ class PrinterProfile:
             dots; None where the exact 1/100 in is assumed. Measured 2 on the Allegro 2 only.
         calibration: Scale, offset and stop position measured for this model, applied where the
             render options leave them unset.
+        image_module: Letter of the memory module image downloads go to, the model's built-in
+            RAM (manual, Appendix L); None for a model with no built-in module, where the render
+            options must name the plug-in module fitted.
     """
 
     id: str
@@ -224,6 +227,7 @@ class PrinterProfile:
     default_dot_size: tuple[int, int] = (2, 2)
     inch_unit_dots: int | None = None
     calibration: CalibrationDefaults = CalibrationDefaults()
+    image_module: str | None = "A"
 
     def support(self, feature: Feature) -> Support:
         """Return how this model supports ``feature`` (missing entries mean no)."""
@@ -498,6 +502,33 @@ _CALIBRATION: dict[str, CalibrationDefaults] = {
 }
 
 
+#: The module of each model's built-in RAM, from the manual's Appendix L. On the DMX 600/800
+#: modules A and B are plug-ins and D is non-volatile NVRAM, so images go to E, its RAM, and vanish
+#: at power-off as they do on the Allegro 2. The Prodigy and Prodigy Plus have no built-in module
+#: (A and B are plug-ins): None, so a job downloading images there needs the module named.
+#: Only A has been seen on a printer (an Allegro 2).
+_IMAGE_MODULE: dict[str, str | None] = {
+    "allegro": ImageModule.A.value,
+    "allegro-2": ImageModule.A.value,
+    "dmx-400": ImageModule.A.value,
+    "dmx-430": ImageModule.A.value,
+    "prodigy-max-203": ImageModule.A.value,
+    "prodigy-max-300": ImageModule.A.value,
+    "pe42": ImageModule.A.value,
+    "pe43": ImageModule.A.value,
+    "ovation": ImageModule.A.value,
+    "ovation-300": ImageModule.A.value,
+    "ovation-2": ImageModule.A.value,
+    "titan-6200": ImageModule.A.value,
+    "dmx-600": ImageModule.E.value,
+    "dmx-800": ImageModule.E.value,
+    "prodigy": None,
+    "prodigy-152": None,
+    "prodigy-plus": None,
+    "prodigy-plus-152": None,
+}
+
+
 def _build(row: _Row) -> PrinterProfile:
     print_speed, slew_speed, backup_speed = row.speeds
     return PrinterProfile(
@@ -518,6 +549,7 @@ def _build(row: _Row) -> PrinterProfile:
         default_dot_size=(1, 1) if row.family in _FAMILIES_DEFAULTING_TO_D11 else (2, 2),
         inch_unit_dots=_INCH_UNIT_DOTS.get(row.id),
         calibration=_CALIBRATION.get(row.id, CalibrationDefaults()),
+        image_module=_IMAGE_MODULE[row.id],
     )
 
 
@@ -555,6 +587,9 @@ def _generic() -> PrinterProfile:
         old_series_points=_OLD_NO_5PT,
         features={feature: _common_support(feature) for feature in Feature},
         synthetic=True,
+        # Not the common subset: the Prodigy family has no built-in module, so a strict subset
+        # would refuse every image. A is the built-in module of most models.
+        image_module=ImageModule.A.value,
     )
 
 
@@ -576,6 +611,7 @@ def _permissive() -> PrinterProfile:
         old_series_points=OLD_SERIES_POINTS,
         features=dict.fromkeys(Feature, YES),
         synthetic=True,
+        image_module=ImageModule.A.value,
     )
 
 

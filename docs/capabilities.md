@@ -82,6 +82,7 @@ Other fallbacks do not depend on a feature column:
 | A field the printer's offset moves past the label edge   | Refused (`offset_past_label_edge`).                                                                                                                           |
 | More fields than the model takes                         | Refused (`too_many_fields`).                                                                                                                                  |
 | Image downloads past the image memory budget (see below) | Every image but a QR Code sent at half resolution and printed at double magnification (`image_halved`); refused when still past it (`image_memory_exceeded`). |
+| An image download with no memory module (see below)      | Refused unless `image_module` names the module fitted (`image_module_unknown`).                                                                               |
 | Field data longer than the model takes                   | Refused (`field_too_long`).                                                                                                                                   |
 | A distance above 9999 DPL units                          | Refused (`distance_too_large`).                                                                                                                               |
 | Barcode data the symbology does not accept               | Refused; one code per problem, e.g. `barcode_bad_check_digit` (see Finding codes).                                                                            |
@@ -97,6 +98,15 @@ downloads from a bitmap or draws (each 2x2 block of dots becomes one, black if a
 one-dot line survives) and places it at double magnification; a QR Code is never halved, since
 that would merge its modules. Halving happens once: a job still past the budget, and under
 `strict` any job past it, is refused. Unverified on paper.
+
+Images download to the memory module the "Image module" column of the Limits table names, the
+model's built-in RAM (manual, Appendix L): module A on most models, E on the DMX 600/800 (where A
+and B are plug-in modules and D is non-volatile, so images there vanish at power-off as on the
+Allegro 2), and none on the Prodigy and Prodigy Plus, whose modules A and B are both plug-ins.
+`image_module` (`A` to `E`) names another module; `C` is the printer's default module on every
+model. On a model without a built-in module a job that downloads an image is refused
+(`image_module_unknown`) until `image_module` names the module fitted; a job that only places
+stored images is not. Only module A has been seen on a printer (an Allegro 2).
 
 The features `cutter_pulse`, `field_terminator`, `stored_formats` and `time_date` are listed for
 reference. The label format has no field that uses them, so they never cause a finding.
@@ -144,6 +154,7 @@ Every code a render can report, in alphabetical order. The severity column is th
 | `heat_out_of_range`                    | warning, error under strict                                   | `heat` is above the model's maximum; the maximum is used.                                                                                                                                                 |
 | `image_halved`                         | warning, error under strict                                   | The job's image downloads hold more than its image memory budget; every image but a QR Code is sent at half resolution and printed at double magnification. Unverified on paper.                          |
 | `image_memory_exceeded`                | error                                                         | The image downloads hold more than the budget under strict, or still after one halving; or an image whose doubled magnification would pass 9.                                                             |
+| `image_module_unknown`                 | error                                                         | The model has no built-in memory module (Prodigy, Prodigy Plus) and no `image_module` is set; a job that downloads an image (given, QR Code, raster fallback, emulated transparency) is refused.          |
 | `image_must_be_stored`                 | info                                                          | An image without a bitmap must already be stored on the printer.                                                                                                                                          |
 | `image_too_wide`                       | error                                                         | An image, given or drawn (raster fallback, QR Code), is wider than the 2040 dots of one image row.                                                                                                        |
 | `inch_units`                           | info                                                          | The model takes inches only; millimetres are rounded to 1/100 in.                                                                                                                                         |
@@ -196,28 +207,28 @@ DPL letters, A = 1.0 inch per second up to S = 10.0, in steps of 0.5.
 
 ### Limits
 
-| Model              | Name                      | dpi    | Print width (in) | Max column (in/100) | Max fields | Chars/field | Heat |
-|--------------------|---------------------------|--------|------------------|---------------------|------------|-------------|------|
-| `generic`          | Any model (common subset) | 203    | 3.98             | 398                 | 100        | 3000        | 0-20 |
-| `permissive`       | No model checks           | 203    | 99.99            | 9999                | 9999       | 10000       | 0-30 |
-| `allegro`          | Allegro                   | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 |
-| `allegro-2`        | Allegro 2                 | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 |
-| `prodigy`          | Prodigy                   | 203    | 4.1              | 410                 | 100        | 3000        | 0-20 |
-| `prodigy-152`      | Prodigy 152               | 152    | 4.15             | 410                 | 100        | 3000        | 0-20 |
-| `prodigy-plus`     | Prodigy Plus              | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 |
-| `prodigy-plus-152` | Prodigy Plus 152          | 152    | 4.21             | 410                 | 200        | 5000        | 0-20 |
-| `dmx-400`          | DMX 400                   | 203    | 4.1              | 410                 | 199        | 5000        | 0-20 |
-| `dmx-430`          | DMX 430                   | 289.56 | 3.98             | 398                 | 399        | 10000       | 0-20 |
-| `dmx-600`          | DMX 600                   | 300    | 6.4              | 640                 | 399        | 10000       | 0-20 |
-| `dmx-800`          | DMX 800                   | 300    | 8.53             | 860                 | 399        | 10000       | 0-20 |
-| `prodigy-max-203`  | Prodigy Max 203           | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 |
-| `prodigy-max-300`  | Prodigy Max 300           | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 |
-| `pe42`             | PE42                      | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 |
-| `pe43`             | PE43                      | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 |
-| `ovation`          | Ovation!                  | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 |
-| `ovation-300`      | Ovation! 300              | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 |
-| `ovation-2`        | Ovation 2                 | 203    | 4.256            | 425                 | 319        | 7000        | 0-30 |
-| `titan-6200`       | Titan 6200                | 203    | 6.62             | 661                 | 399        | 10000       | 0-30 |
+| Model              | Name                      | dpi    | Print width (in) | Max column (in/100) | Max fields | Chars/field | Heat | Image module |
+|--------------------|---------------------------|--------|------------------|---------------------|------------|-------------|------|--------------|
+| `generic`          | Any model (common subset) | 203    | 3.98             | 398                 | 100        | 3000        | 0-20 | A            |
+| `permissive`       | No model checks           | 203    | 99.99            | 9999                | 9999       | 10000       | 0-30 | A            |
+| `allegro`          | Allegro                   | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | A            |
+| `allegro-2`        | Allegro 2                 | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | A            |
+| `prodigy`          | Prodigy                   | 203    | 4.1              | 410                 | 100        | 3000        | 0-20 | none         |
+| `prodigy-152`      | Prodigy 152               | 152    | 4.15             | 410                 | 100        | 3000        | 0-20 | none         |
+| `prodigy-plus`     | Prodigy Plus              | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | none         |
+| `prodigy-plus-152` | Prodigy Plus 152          | 152    | 4.21             | 410                 | 200        | 5000        | 0-20 | none         |
+| `dmx-400`          | DMX 400                   | 203    | 4.1              | 410                 | 199        | 5000        | 0-20 | A            |
+| `dmx-430`          | DMX 430                   | 289.56 | 3.98             | 398                 | 399        | 10000       | 0-20 | A            |
+| `dmx-600`          | DMX 600                   | 300    | 6.4              | 640                 | 399        | 10000       | 0-20 | E            |
+| `dmx-800`          | DMX 800                   | 300    | 8.53             | 860                 | 399        | 10000       | 0-20 | E            |
+| `prodigy-max-203`  | Prodigy Max 203           | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 | A            |
+| `prodigy-max-300`  | Prodigy Max 300           | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 | A            |
+| `pe42`             | PE42                      | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 | A            |
+| `pe43`             | PE43                      | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 | A            |
+| `ovation`          | Ovation!                  | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 | A            |
+| `ovation-300`      | Ovation! 300              | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 | A            |
+| `ovation-2`        | Ovation 2                 | 203    | 4.256            | 425                 | 319        | 7000        | 0-30 | A            |
+| `titan-6200`       | Titan 6200                | 203    | 6.62             | 661                 | 399        | 10000       | 0-30 | A            |
 
 ### Speeds
 

@@ -10,7 +10,7 @@ from hypothesis import strategies as st
 
 from datamax_dpl.application.use_cases import render_batch
 from datamax_dpl.domain.decoder import explain
-from datamax_dpl.domain.enums import CombineMode, FallbackPolicy, FillPattern, FindingCode, Severity, Unit
+from datamax_dpl.domain.enums import CombineMode, FallbackPolicy, FillPattern, FindingCode, ImageModule, Severity, Unit
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.image_budget import halve, magnify
 from datamax_dpl.domain.image_records import decode_image
@@ -485,7 +485,8 @@ def test_a_merged_qr_code_prints_where_it_prints_alone(
 
     A line crosses the middle of the symbol, so the two always share dots.
     """
-    options = RenderOptions(model=model)
+    # The Prodigy 152 has no built-in memory module: A stands for a plug-in fitted there.
+    options = RenderOptions(model=model, image_module=ImageModule.A)
     qr = {"type": "qr", "x": x, "y": y, "data": "HELLO", "module_dots": module_dots, "quiet_zone": quiet_zone}
     probe = mm_label(qr, attribute=None)
     unit_dots = job_context(probe, options).dots_per_unit

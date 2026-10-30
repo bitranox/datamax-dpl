@@ -271,6 +271,7 @@ class FindingCode(str, Enum):
     HEAT_OUT_OF_RANGE = "heat_out_of_range"
     IMAGE_HALVED = "image_halved"
     IMAGE_MEMORY_EXCEEDED = "image_memory_exceeded"
+    IMAGE_MODULE_UNKNOWN = "image_module_unknown"
     IMAGE_MUST_BE_STORED = "image_must_be_stored"
     IMAGE_TOO_WIDE = "image_too_wide"
     INCH_UNITS = "inch_units"
@@ -443,6 +444,24 @@ class HardwareOption(str, Enum):
     DATAMATRIX = "datamatrix"
 
 
+class ImageModule(str, Enum):
+    """A printer memory module an image download is stored in; the value is the DPL module letter.
+
+    Which letter is a model's built-in RAM differs per model (manual, Appendix L); ``C`` stands for
+    the printer's default module on every model (manual, ``<STX>X``).
+
+    Example:
+        >>> ImageModule("E") is ImageModule.E
+        True
+    """
+
+    A = "A"
+    B = "B"
+    C = "C"
+    D = "D"
+    E = "E"
+
+
 class MediaType(str, Enum):
     """Image format of a camera capture.
 
@@ -467,6 +486,7 @@ __all__ = [
     "FillPattern",
     "FindingCode",
     "HardwareOption",
+    "ImageModule",
     "LineDirection",
     "MediaSensor",
     "MediaType",

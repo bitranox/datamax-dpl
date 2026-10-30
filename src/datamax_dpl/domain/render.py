@@ -194,6 +194,7 @@ def _context(label: Label, options: RenderOptions, *, halve: bool) -> RenderCont
         unit=label.unit,
         dpl_unit=DplUnit.INCH_HUNDREDTHS,
         findings=findings,
+        image_module=profile.image_module if options.image_module is None else options.image_module.value,
         cutter_installed=options.cutter_installed,
         symbol_set=label.symbol_set,
         default_attribute=label.attribute or Attribute.XOR,

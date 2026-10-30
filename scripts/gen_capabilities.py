@@ -110,7 +110,17 @@ def _points(points: tuple[int, ...]) -> str:
 
 
 def _limits_table(profiles: list[PrinterProfile]) -> list[str]:
-    header = ["Model", "Name", "dpi", "Print width (in)", "Max column (in/100)", "Max fields", "Chars/field", "Heat"]
+    header = [
+        "Model",
+        "Name",
+        "dpi",
+        "Print width (in)",
+        "Max column (in/100)",
+        "Max fields",
+        "Chars/field",
+        "Heat",
+        "Image module",
+    ]
     rows = [
         [
             f"`{p.id}`",
@@ -121,6 +131,7 @@ def _limits_table(profiles: list[PrinterProfile]) -> list[str]:
             str(p.max_fields),
             str(p.max_field_chars),
             f"0-{p.heat_max}",
+            p.image_module or "none",
         ]
         for p in profiles
     ]

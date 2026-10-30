@@ -477,7 +477,7 @@ def test_a_halved_user_image_and_a_stored_reference_to_it_print_alike(bitmap_fir
     assert result.ok, result.findings
     assert result.downloads == (drawn_image_name(halved),)
     assert "LOGO" not in result.downloads
-    assert b"IAAFLOGO\r" not in result.data
+    assert re.search(rb"\x02I[A-E]AFLOGO\r", result.data) is None
     records = placements(result.data)
     assert len(records) == 2
     assert all(

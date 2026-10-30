@@ -19,6 +19,7 @@ _PUBLIC_ENUMS = (
     "FillPattern",
     "FindingCode",
     "HardwareOption",
+    "ImageModule",
     "MediaSensor",
     "MediaType",
     "QrError",

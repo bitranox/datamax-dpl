@@ -29,13 +29,15 @@ CUT_NOW = b"\x02o"
 
 
 def _supports(options: RenderOptions, feature: Feature, findings: FindingCollector) -> tuple[bool, str]:
+    profile = get_profile(options.model)
     ctx = RenderContext(
-        profile=get_profile(options.model),
+        profile=profile,
         firmware=parse_firmware(options.firmware),
         options=options.options,
         unit=Unit.MM,
         dpl_unit=DplUnit.INCH_HUNDREDTHS,
         findings=findings,
+        image_module=profile.image_module,
         default_attribute=Attribute.XOR,
     )
     return ctx.supports(feature), ctx.requirement(feature)

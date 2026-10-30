@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, Severity, SpeedCode
+from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, Severity, SpeedCode
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.label import Label
 from datamax_dpl.domain.profiles import PROFILES
@@ -53,10 +53,21 @@ KITCHEN_SINK = Label.model_validate(
 )
 
 
+def kitchen_sink_options(model: str, *, policy: FallbackPolicy = FallbackPolicy.DEGRADE) -> RenderOptions:
+    """Options that print the kitchen sink on ``model``: a cutter, no offset, and a memory module.
+
+    The circle and polygon are downloaded on a model without them, and a model with no built-in
+    memory module refuses any download (``image_module_unknown``) until one is named: module A
+    stands for a plug-in module fitted there.
+    """
+    module = ImageModule.A if PROFILES[model].image_module is None else None
+    return RenderOptions(model=model, cutter_installed=True, offset_along=0.0, policy=policy, image_module=module)
+
+
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("model", sorted(PROFILES))
 def test_every_model_renders_the_kitchen_sink_under_degrade_without_errors(model: str) -> None:
-    result = build_job(KITCHEN_SINK, RenderOptions(model=model, cutter_installed=True, offset_along=0.0))
+    result = build_job(KITCHEN_SINK, kitchen_sink_options(model))
     assert [f.message for f in result.errors] == []
     assert result.data.count(STX + b"L\r") == 1
 
@@ -64,11 +75,8 @@ def test_every_model_renders_the_kitchen_sink_under_degrade_without_errors(model
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("model", sorted(PROFILES))
 def test_under_strict_every_applied_fallback_becomes_an_error(model: str) -> None:
-    degraded = build_job(KITCHEN_SINK, RenderOptions(model=model, cutter_installed=True, offset_along=0.0))
-    strict = build_job(
-        KITCHEN_SINK,
-        RenderOptions(model=model, cutter_installed=True, offset_along=0.0, policy=FallbackPolicy.STRICT),
-    )
+    degraded = build_job(KITCHEN_SINK, kitchen_sink_options(model))
+    strict = build_job(KITCHEN_SINK, kitchen_sink_options(model, policy=FallbackPolicy.STRICT))
     fallbacks = {f.code for f in degraded.findings if f.fallback is not None}
     assert {f.code for f in strict.errors} == fallbacks
 

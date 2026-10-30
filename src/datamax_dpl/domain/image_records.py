@@ -1,4 +1,4 @@
-"""The Datamax 7-bit ASCII image format sent after ``<STX>IAAF<name><CR>``.
+"""The Datamax 7-bit ASCII image format sent after ``<STX>I<module>AF<name><CR>``.
 
 The manual (``docs/dpl-reference.md`` section 5, "Image download") defines three records, each
 ending with ``<CR>``:
@@ -30,14 +30,17 @@ from __future__ import annotations
 
 import re
 
+from .enums import ImageModule
 from .raster import Bitmap
 
 #: Start-of-text byte that opens every DPL system-level command.
 STX = b"\x02"
 #: Record terminator.
 CR = b"\r"
-#: Command that starts a 7-bit ASCII image download into the default module.
-DOWNLOAD_COMMAND = STX + b"IAAF"
+#: Start of an image download command; the memory module letter follows it.
+DOWNLOAD_PREFIX = STX + b"I"
+#: Format of the download after the module letter: ``A`` 7-bit ASCII, ``F`` the image format.
+DOWNLOAD_FORMAT = b"AF"
 #: Prefix of a row record.
 ROW_PREFIX = b"80"
 #: Prefix of a repeat-previous-row record.
@@ -57,6 +60,7 @@ MAX_WIDTH = MAX_COUNT * _BITS_PER_BYTE
 #: The end record plus the empty piece after its final carriage return.
 _TAIL_RECORDS = 2
 _NAME_PATTERN = re.compile(r"[A-Za-z0-9_]{1,8}")
+_MODULE_LETTERS = frozenset(member.value for member in ImageModule)
 
 
 def _count(value: int) -> bytes:
@@ -148,7 +152,7 @@ def decode_image(data: bytes) -> Bitmap:
     pixel width; padding pixels come back white when the encoder padded with white.
 
     Args:
-        data: Row and repeat records ending with ``FFFF<CR>``, without the ``<STX>IAAF`` header.
+        data: Row and repeat records ending with ``FFFF<CR>``, without the ``<STX>I`` header.
 
     Returns:
         The image; the first row record is its bottom row.
@@ -173,33 +177,41 @@ def decode_image(data: bytes) -> Bitmap:
     return Bitmap.from_packed_rows(rows[::-1], width=len(rows[0]) * _BITS_PER_BYTE)
 
 
-def download_command(name: str, bitmap: Bitmap) -> bytes:
+def download_command(name: str, bitmap: Bitmap, *, module: str) -> bytes:
     """Return the complete command that stores ``bitmap`` on the printer under ``name``.
 
     Args:
         name: Image name, 1-8 characters of letters, digits and underscore.
         bitmap: The image.
+        module: Letter of the memory module the image is stored in, ``A`` to ``E``
+            (:class:`~datamax_dpl.domain.enums.ImageModule`).
 
     Returns:
-        ``<STX>IAAF<name><CR>`` followed by :func:`encode_image` of the bitmap.
+        ``<STX>I<module>AF<name><CR>`` followed by :func:`encode_image` of the bitmap.
 
     Raises:
-        ValueError: When the name is not 1-8 letters, digits or underscores, or the image is too
-            wide.
+        ValueError: When the name is not 1-8 letters, digits or underscores, the module is not
+            one of ``A`` to ``E``, or the image is too wide.
 
     Example:
-        >>> download_command("DOT", Bitmap(1, 1))
+        >>> download_command("DOT", Bitmap(1, 1), module="A")
         b'\\x02IAAFDOT\\r800100\\rFFFF\\r'
+        >>> download_command("DOT", Bitmap(1, 1), module="E")[:4]
+        b'\\x02IEA'
     """
     if not _NAME_PATTERN.fullmatch(name):
         msg = f"image name must be 1-8 letters, digits or underscores, got {name!r}"
         raise ValueError(msg)
-    return DOWNLOAD_COMMAND + name.encode("ascii") + CR + encode_image(bitmap)
+    if module not in _MODULE_LETTERS:
+        msg = f"image module must be one of A to E, got {module!r}"
+        raise ValueError(msg)
+    return DOWNLOAD_PREFIX + module.encode("ascii") + DOWNLOAD_FORMAT + name.encode("ascii") + CR + encode_image(bitmap)
 
 
 __all__ = [
     "CR",
-    "DOWNLOAD_COMMAND",
+    "DOWNLOAD_FORMAT",
+    "DOWNLOAD_PREFIX",
     "END_RECORD",
     "MAX_COUNT",
     "MAX_WIDTH",

@@ -152,8 +152,16 @@ Fill patterns: 0 none, 1 solid, 2 6%, 3 12%, 4 25%, 5 38%, 6 50%, 7 diamonds, 8 
 9 right diagonal, 10 left diagonal, 11 grid.
 
 Image placement: `1Y11000rrrrccccNAME` (rotation 1 only, name up to 8 characters). Image download:
-`<STX>IAAFNAME<CR>` followed by rows `80nn<hex bytes><CR>` (nn = byte count in hex),
-`0000FFnn<CR>` (repeat the previous row nn times), and `FFFF<CR>` to end.
+`<STX>ImAFNAME<CR>` followed by rows `80nn<hex bytes><CR>` (nn = byte count in hex),
+`0000FFnn<CR>` (repeat the previous row nn times), and `FFFF<CR>` to end. `m` is the memory module
+the image is stored in, `A` to `E`, with `C` the default module on every model (`<STX>X`).
+
+datamax-dpl sends each image to the model's built-in RAM (Appendix L): module A on the Allegro,
+Allegro 2, DMX 400/430, Prodigy Max, PE42/PE43, Ovation and Titan 6200; module E on the DMX
+600/800, where A and B are plug-in modules and D is internal non-volatile NVRAM; none on the
+Prodigy and Prodigy Plus, whose A and B are both plug-ins, so a job there that downloads an image
+is refused (`image_module_unknown`) until `image_module` names the module fitted. `generic` and
+`permissive` use A. Only module A has been seen on a printer (an Allegro 2).
 
 An image the library draws (a raster fallback, a QR Code) is named `D` plus 7 upper-case hex
 digits of a sha256 of its size and bits: the printer keeps an image in its module across jobs and

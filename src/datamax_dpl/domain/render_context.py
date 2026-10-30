@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .enums import Attribute, FallbackPolicy, FindingCode, HardwareOption, Unit
+from .enums import Attribute, FallbackPolicy, FindingCode, HardwareOption, ImageModule, Unit
 from .image_budget import HALVING_FACTOR, halve, halved_magnification, image_data_bytes
 from .image_records import CR, MAX_WIDTH, download_command
 from .raster import Bitmap
@@ -96,6 +96,9 @@ class RenderOptions(BaseModel):
         image_memory_bytes: Bytes of image data one job may download (see
             :mod:`~datamax_dpl.domain.image_budget`); None takes the model's budget, which most
             models do not have.
+        image_module: Memory module image downloads are stored in; None takes the model's
+            built-in module (``PrinterProfile.image_module``). A model without one refuses a job
+            that downloads an image (``image_module_unknown``) until this names the module fitted.
 
     Example:
         >>> RenderOptions(model="dmx-600").policy
@@ -118,6 +121,7 @@ class RenderOptions(BaseModel):
     stop_position_mm: float | None = Field(default=None, gt=0)
     cutter_stop_position_mm: float | None = Field(default=None, gt=0)
     image_memory_bytes: int | None = Field(default=None, gt=0)
+    image_module: ImageModule | None = None
 
 
 @dataclass(frozen=True)
@@ -178,6 +182,8 @@ class RenderContext:
         unit: Unit the label's lengths are written in.
         dpl_unit: DPL distance unit of this job.
         findings: Where every step records what it noticed.
+        image_module: Letter of the memory module images are downloaded to, or None when the
+            model has none and the options name none: a download then refuses the job.
         cutter_installed: Whether the printer has a working cutter; None when unknown.
         symbol_set: Symbol set of the label's scalable text, or None for the printer default.
         default_attribute: Attribute the format is in when no element overrides it.
@@ -209,6 +215,7 @@ class RenderContext:
     unit: Unit
     dpl_unit: DplUnit
     findings: FindingCollector
+    image_module: str | None
     cutter_installed: bool | None = None
     symbol_set: str | None = None
     default_attribute: Attribute = Attribute.XOR
@@ -226,6 +233,7 @@ class RenderContext:
     halve_images: bool = False
     halved_elements: list[int] = field(default_factory=list[int])
     emulated_groups: list[tuple[int, ...]] = field(default_factory=list[tuple[int, ...]])
+    module_refused: bool = field(default=False, init=False)
 
     def correction(self, axis: Axis) -> Correction:
         """Return how this printer prints lengths on ``axis``."""
@@ -334,6 +342,22 @@ class RenderContext:
         )
         return False
 
+    def _module(self, *, element: int) -> str | None:
+        """Return the module letter a download goes to; with none, refuse the job once and return None.
+
+        The refusal names the first element that downloads; a later download is dropped silently,
+        since one finding already says why the job cannot be printed.
+        """
+        if self.image_module is None and not self.module_refused:
+            self.module_refused = True
+            self.findings.refuse(
+                FindingCode.IMAGE_MODULE_UNKNOWN,
+                f"{self.profile.name} has no built-in memory module for images; "
+                "set image_module (A-E) to the module fitted",
+                element=element,
+            )
+        return self.image_module
+
     def _sent_form(self, bitmap: Bitmap, *, what: str, element: int, magnification: int) -> tuple[Bitmap, int]:
         """Return the bitmap this job sends and the magnification it is placed at.
 
@@ -371,8 +395,9 @@ class RenderContext:
 
         Returns:
             The name and the magnification to place it at (doubled when the job halves its
-            images), or None when the image is too wide for one row record: it is then refused
-            (``image_too_wide``), not queued, and the caller places nothing for the element.
+            images), or None when the image is too wide for one row record (``image_too_wide``)
+            or the job has no memory module to download to (``image_module_unknown``): it is then
+            refused, not queued, and the caller places nothing for the element.
 
         Raises:
             ValueError: When the name is not 1-8 letters, digits or underscores.
@@ -380,11 +405,14 @@ class RenderContext:
         sent, placed_at = self._sent_form(bitmap, what=f"image {name}", element=element, magnification=magnification)
         if not self._fits_an_image_row(name, sent, element=element):
             return None
+        module = self._module(element=element)
+        if module is None:
+            return None
         size = (sent.width, sent.height)
         # Halving always doubles the magnification, so a changed one means the bits were halved.
         if placed_at != magnification:
-            return PlacedImage(name=self._queue_drawn(sent), magnification=placed_at, size=size)
-        self.downloads.append(ImageDownload(name=name, command=download_command(name, sent)))
+            return PlacedImage(name=self._queue_drawn(sent, module=module), magnification=placed_at, size=size)
+        self.downloads.append(ImageDownload(name=name, command=download_command(name, sent, module=module)))
         return PlacedImage(name=name, magnification=placed_at, size=size)
 
     def place_stored_image(self, name: str, *, element: int, magnification: int) -> PlacedImage | None:
@@ -397,7 +425,8 @@ class RenderContext:
 
         Returns:
             How to place it, or None when the halved image is too wide for one row record
-            (refused as ``image_too_wide``; nothing is placed).
+            (refused as ``image_too_wide``) or the job has no memory module to download it to
+            (refused as ``image_module_unknown``); nothing is placed.
         """
         rows = self.bitmap_rows.get(name)
         if not self.halve_images or rows is None:
@@ -408,7 +437,12 @@ class RenderContext:
             return PlacedImage(name=name, magnification=magnification)
         if not self._fits_an_image_row(name, sent, element=element):
             return None
-        return PlacedImage(name=self._queue_drawn(sent), magnification=placed_at, size=(sent.width, sent.height))
+        module = self._module(element=element)
+        if module is None:
+            return None
+        return PlacedImage(
+            name=self._queue_drawn(sent, module=module), magnification=placed_at, size=(sent.width, sent.height)
+        )
 
     def download_drawn_image(
         self, bitmap: Bitmap, *, element: int, magnification: int = 1, halvable: bool = True
@@ -430,25 +464,31 @@ class RenderContext:
 
         Returns:
             The name and the magnification to place it at, or None when the image is too wide
-            for one row record: it is then refused (``image_too_wide``), not queued, and the
-            caller places nothing for the element.
+            for one row record (``image_too_wide``) or the job has no memory module to download
+            to (``image_module_unknown``): it is then refused, not queued, and the caller places
+            nothing for the element.
         """
         sent, placed_at = bitmap, magnification
         if halvable:
             sent, placed_at = self._sent_form(bitmap, what="drawn image", element=element, magnification=magnification)
         if not self._fits_an_image_row(drawn_image_name(sent), sent, element=element):
             return None
-        return PlacedImage(name=self._queue_drawn(sent), magnification=placed_at, size=(sent.width, sent.height))
+        module = self._module(element=element)
+        if module is None:
+            return None
+        return PlacedImage(
+            name=self._queue_drawn(sent, module=module), magnification=placed_at, size=(sent.width, sent.height)
+        )
 
-    def _queue_drawn(self, bitmap: Bitmap) -> str:
-        """Queue ``bitmap`` under the first free salted content name and return the name."""
+    def _queue_drawn(self, bitmap: Bitmap, *, module: str) -> str:
+        """Queue ``bitmap`` into ``module`` under the first free salted content name and return the name."""
         salt = 0
         while True:
             name = drawn_image_name(bitmap, salt=salt)
             if name in self.reserved_image_names:
                 salt += 1
                 continue
-            command = download_command(name, bitmap)
+            command = download_command(name, bitmap, module=module)
             held = next((download.command for download in self.downloads if download.name == name), None)
             if held is None:
                 self.downloads.append(ImageDownload(name=name, command=command))

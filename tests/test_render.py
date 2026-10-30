@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from datamax_dpl.domain.enums import FillPattern, FindingCode, MediaSensor, Rotation, Severity, Unit
+from datamax_dpl.domain.enums import FillPattern, FindingCode, ImageModule, MediaSensor, Rotation, Severity, Unit
 from datamax_dpl.domain.errors import LabelRejectedError
-from datamax_dpl.domain.label import Barcode, Box, Circle, DotSize, Element, Label, Line, Point, Polygon, Text
+from datamax_dpl.domain.label import Barcode, Box, Circle, DotSize, Element, Image, Label, Line, Point, Polygon, Text
 from datamax_dpl.domain.render import RenderResult, build_job, effective_calibration, render
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.symbology import Symbology
@@ -837,3 +837,124 @@ def test_a_raster_fallback_of_exactly_2040_dots_fits_and_2041_is_refused(box_dot
     assert (FindingCode.BOX_RASTERIZED in codes) is fits
     assert len(result.downloads) == (1 if fits else 0)
     assert len(image_placements(result.data)) == (1 if fits else 0)
+
+
+# ======================== the memory module images download to ========================
+
+_EIGHT_BY_EIGHT = ["#......#"] * 8
+
+
+def label_with_image() -> Label:
+    return Label(elements=[Image(x=1, y=1, name="LOGO", bitmap=_EIGHT_BY_EIGHT)])
+
+
+def text_only_label() -> Label:
+    return Label(elements=[Text(x=5, y=5, text="Hi")])
+
+
+def module_findings(result: RenderResult) -> list[Finding]:
+    return [f for f in result.findings if f.code is FindingCode.IMAGE_MODULE_UNKNOWN]
+
+
+@pytest.mark.os_agnostic
+def test_an_allegro_2_job_downloads_its_image_to_module_a() -> None:
+    job = build_job(label_with_image(), RenderOptions(model="allegro-2")).data
+    assert b"\x02IAAFLOGO\r" in job
+
+
+@pytest.mark.os_agnostic
+def test_a_dmx_600_job_downloads_its_image_to_module_e() -> None:
+    job = build_job(label_with_image(), RenderOptions(model="dmx-600")).data
+    assert b"\x02IEAFLOGO\r" in job
+    assert b"\x02IAAF" not in job
+
+
+@pytest.mark.os_agnostic
+def test_the_configured_module_wins_over_the_model() -> None:
+    job = build_job(label_with_image(), RenderOptions(model="dmx-600", image_module=ImageModule.C)).data
+    assert b"\x02ICAFLOGO\r" in job
+
+
+@pytest.mark.os_agnostic
+def test_a_drawn_image_downloads_to_the_models_module_too() -> None:
+    circle = Label(elements=[Circle(x=20, y=20, radius=5)])
+    result = build_job(circle, RenderOptions(model="dmx-400"))
+    [name] = result.downloads
+    assert b"\x02IAAF" + name.encode("ascii") + b"\r" in result.data
+    configured = build_job(circle, RenderOptions(model="dmx-400", image_module=ImageModule.B))
+    assert b"\x02IBAF" + name.encode("ascii") + b"\r" in configured.data
+
+
+@pytest.mark.os_agnostic
+def test_a_prodigy_without_a_module_refuses_a_job_with_images_and_names_the_setting() -> None:
+    result = build_job(label_with_image(), RenderOptions(model="prodigy"))
+    assert not result.ok
+    assert any(f.code is FindingCode.IMAGE_MODULE_UNKNOWN and "image_module" in f.message for f in result.findings)
+
+
+@pytest.mark.os_agnostic
+def test_a_prodigy_label_without_images_still_renders() -> None:
+    assert build_job(text_only_label(), RenderOptions(model="prodigy")).ok
+
+
+@pytest.mark.os_agnostic
+def test_a_stored_only_image_on_a_prodigy_downloads_nothing_and_is_not_refused() -> None:
+    stored = Label(elements=[Image(x=1, y=1, name="LOGO")])
+    result = build_job(stored, RenderOptions(model="prodigy"))
+    assert result.ok, [f.message for f in result.errors]
+    assert module_findings(result) == []
+
+
+#: Every way a label downloads an image: its own bitmap, a QR Code, a raster fallback (a circle
+#: on a model without circles) and overlapping fields drawn together for transparency.
+_DOWNLOADING_LABELS: dict[str, dict[str, object]] = {
+    "image": {"elements": [{"type": "image", "x": 1, "y": 1, "name": "LOGO", "bitmap": _EIGHT_BY_EIGHT}]},
+    "qr": {"elements": [{"type": "qr", "x": 5, "y": 5, "data": "HELLO"}]},
+    "raster fallback": {"elements": [{"type": "circle", "x": 20, "y": 20, "radius": 5}]},
+    "emulated group": {
+        "attribute": 2,
+        "elements": [
+            {"type": "box", "x": 10, "y": 10, "width": 30, "height": 20, "thickness": 1},
+            {"type": "line", "x": 5, "y": 20, "x2": 50, "y2": 20, "thickness": 1},
+        ],
+    },
+}
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("model", ["prodigy", "prodigy-152", "prodigy-plus", "prodigy-plus-152"])
+@pytest.mark.parametrize("kind", sorted(_DOWNLOADING_LABELS))
+def test_every_kind_of_download_is_refused_on_a_model_without_a_module(model: str, kind: str) -> None:
+    label = Label.model_validate(_DOWNLOADING_LABELS[kind])
+    result = build_job(label, RenderOptions(model=model))
+    assert [f.severity for f in module_findings(result)] == [Severity.ERROR]
+    assert result.downloads == ()
+    assert STX + b"I" not in result.data
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("model", ["prodigy", "prodigy-plus-152"])
+@pytest.mark.parametrize("kind", sorted(_DOWNLOADING_LABELS))
+def test_a_configured_module_lets_a_model_without_one_download(model: str, kind: str) -> None:
+    label = Label.model_validate(_DOWNLOADING_LABELS[kind])
+    result = build_job(label, RenderOptions(model=model, image_module=ImageModule.A))
+    assert module_findings(result) == []
+    assert result.downloads
+    assert result.data.count(STX + b"IAAF") == len(result.downloads)
+
+
+@pytest.mark.os_agnostic
+def test_a_job_with_several_downloads_is_refused_once_on_the_first_downloading_element() -> None:
+    label = Label.model_validate(
+        {
+            "elements": [
+                {"type": "text", "x": 5, "y": 5, "text": "Hi"},
+                {"type": "qr", "x": 5, "y": 5, "data": "HELLO"},
+                {"type": "image", "x": 1, "y": 1, "name": "LOGO", "bitmap": _EIGHT_BY_EIGHT},
+                {"type": "circle", "x": 20, "y": 20, "radius": 5},
+            ]
+        }
+    )
+    result = build_job(label, RenderOptions(model="prodigy"))
+    assert [f.element for f in module_findings(result)] == [1]
+    assert "Prodigy" in module_findings(result)[0].message

@@ -21,7 +21,7 @@ from datamax_dpl.adapters.memory import RecordingPrinter
 from datamax_dpl.application.use_cases import render_batch
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.decoder import explain
-from datamax_dpl.domain.enums import CommandKind, FallbackPolicy, FindingCode, QrError, Severity, Unit
+from datamax_dpl.domain.enums import CommandKind, FallbackPolicy, FindingCode, ImageModule, QrError, Severity, Unit
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.findings import FindingCollector
 from datamax_dpl.domain.image_records import decode_image
@@ -58,10 +58,14 @@ def black_set(bitmap: Bitmap) -> set[tuple[int, int]]:
 
 
 def download_records(data: bytes, name: str) -> list[bytes]:
-    """The image records sent after ``<STX>IAAF<name><CR>``, up to and including ``FFFF``."""
-    head = STX + b"IAAF" + name.encode("ascii") + b"\r"
+    """The image records sent after ``<STX>I<module>AF<name><CR>``, up to and including ``FFFF``.
+
+    Any module letter: the module is the model's (E on a DMX 600), which these tests do not pin.
+    """
+    head = re.search(re.escape(STX) + rb"I[A-E]AF" + re.escape(name.encode("ascii")) + rb"\r", data)
+    assert head is not None, f"no download of {name}"
     records: list[bytes] = []
-    for record in data[data.index(head) + len(head) :].split(b"\r"):
+    for record in data[head.end() :].split(b"\r"):
         records.append(record)
         if record == END_RECORD:
             return records
@@ -235,8 +239,12 @@ def test_an_unknown_error_level_is_refused() -> None:
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("model", [profile.id for profile in list_profiles()])
 def test_every_model_prints_a_qr(model: str) -> None:
-    """No model lacks image records, so none lacks the qr element."""
-    result = build_job(qr_label(), RenderOptions(model=model))
+    """No model lacks image records, so none lacks the qr element.
+
+    A model with no built-in memory module needs one named (A stands for a plug-in fitted there).
+    """
+    module = ImageModule.A if get_profile(model).image_module is None else None
+    result = build_job(qr_label(), RenderOptions(model=model, image_module=module))
     assert result.ok, result.findings
     assert len(result.downloads) == 1
 
@@ -354,7 +362,7 @@ def test_identical_qrs_in_one_job_are_downloaded_once_and_placed_twice() -> None
     )
     result = build_job(label, RenderOptions(model="dmx-600"))
     same, other = result.downloads
-    assert result.data.count(STX + b"IAAF" + same.encode("ascii") + b"\r") == 1
+    assert result.data.count(STX + b"IEAF" + same.encode("ascii") + b"\r") == 1
     assert [record.endswith(same.encode("ascii")) for record in image_records_of(result.data)] == [True, True, False]
     assert other != same
 
@@ -376,6 +384,7 @@ def test_two_different_images_whose_names_collide_in_one_job_get_different_names
         unit=Unit.MM,
         dpl_unit=DplUnit.INCH_HUNDREDTHS,
         findings=FindingCollector(FallbackPolicy.DEGRADE),
+        image_module="A",
     )
     bitmap = Bitmap.from_rows(["#."])
     taken = drawn_image_name(bitmap)
@@ -472,6 +481,7 @@ def test_download_drawn_image_never_names_two_different_images_alike(
         unit=Unit.MM,
         dpl_unit=DplUnit.INCH_HUNDREDTHS,
         findings=FindingCollector(FallbackPolicy.DEGRADE),
+        image_module="A",
         reserved_image_names=frozenset({first}) if reserved else frozenset(),
     )
     if taken_by_other:
