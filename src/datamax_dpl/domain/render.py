@@ -162,6 +162,15 @@ def _report_model_defaults(label: Label, ctx: RenderContext, *, provenance: str,
         )
 
 
+def _bitmap_rows(label: Label) -> dict[str, tuple[str, ...]]:
+    """Return the bitmap of each image name the label downloads, the first element's when two do."""
+    rows: dict[str, tuple[str, ...]] = {}
+    for element in label.elements:
+        if isinstance(element, Image) and element.bitmap is not None:
+            rows.setdefault(element.name, tuple(element.bitmap))
+    return rows
+
+
 def _context(label: Label, options: RenderOptions, *, halve: bool) -> RenderContext:
     profile = get_profile(options.model)
     findings = FindingCollector(options.policy)
@@ -185,6 +194,7 @@ def _context(label: Label, options: RenderOptions, *, halve: bool) -> RenderCont
         stop_position_mm=calibration.stop_position_mm,
         cutter_stop_position_mm=options.cutter_stop_position_mm,
         reserved_image_names=frozenset(e.name for e in label.elements if isinstance(e, Image)),
+        bitmap_rows=_bitmap_rows(label),
         halve_images=halve,
     )
     _report_model_defaults(label, probe, provenance=calibration.provenance, from_model=from_model)

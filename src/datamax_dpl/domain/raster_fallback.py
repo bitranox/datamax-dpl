@@ -19,7 +19,7 @@ from .records import image_record, line
 from .units import Axis
 
 if TYPE_CHECKING:
-    from .render_context import RenderContext
+    from .render_context import PlacedImage, RenderContext
 
 Graphic = Line | Box | Circle | Polygon
 
@@ -106,6 +106,14 @@ def _draw_box(element: Box, bitmap: Bitmap, ctx: RenderContext) -> None:
     bitmap.fill_rect(width - side, 0, side, height)
 
 
+def _sent_size(placed: PlacedImage, frame: _Frame) -> str:
+    """Describe the image as sent: its size in dots, and its magnification when it was halved."""
+    width, height = placed.size or (frame.width_dots, frame.height_dots)
+    if placed.magnification == 1:
+        return f"{width}x{height} dots"
+    return f"{width}x{height} dots, placed at magnification {placed.magnification}"
+
+
 def rasterize(element: Graphic, *, index: int, ctx: RenderContext, reason: str) -> list[bytes]:
     """Draw ``element`` as an image, queue its download and return the placing format line.
 
@@ -127,7 +135,7 @@ def rasterize(element: Graphic, *, index: int, ctx: RenderContext, reason: str) 
     ctx.findings.deviate(
         _RASTERIZED[type(element)],
         f"{element.type} cannot be drawn natively: {reason}",
-        fallback=f"drawn as downloaded image {placed.name} ({frame.width_dots}x{frame.height_dots} dots)",
+        fallback=f"drawn as downloaded image {placed.name} ({_sent_size(placed, frame)})",
         element=index,
     )
     # Through row_of/column_of like every other field, so the printer's offset moves it too.

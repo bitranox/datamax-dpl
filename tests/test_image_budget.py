@@ -237,7 +237,9 @@ def test_over_budget_every_image_is_halved_and_placed_at_double_magnification() 
     assert result.downloads[0] == drawn_image_name(halved_circle)
     sent_circle = trimmed(downloaded(result.data, result.downloads[0]), halved_circle.width)
     assert black_set(sent_circle) == black_set(halved_circle)
-    assert black_set(trimmed(downloaded(result.data, "LOGO"), 80)) == black_set(halve(Bitmap.from_rows(USER_ROWS)))
+    halved_logo = halve(Bitmap.from_rows(USER_ROWS))
+    assert result.downloads[1] == drawn_image_name(halved_logo)
+    assert black_set(trimmed(downloaded(result.data, result.downloads[1]), 80)) == black_set(halved_logo)
     assert all(record.startswith(b"1Y22000") for record in placements(result.data))
     assert result.image_bytes == packed_bytes(halved_circle.width, halved_circle.height) + 320
 
@@ -449,3 +451,68 @@ def test_a_configured_budget_wins_over_the_models_through_render(
     tight_codes = [f["code"] for f in json.loads(tight.stdout)["data"]["findings"]]
     assert "image_halved" not in default_codes
     assert "image_halved" in tight_codes
+
+
+# ======================== a halved user image never takes the user's name ========================
+
+#: 64 x 40 dots: 8 bytes a row, 320 bytes; halved 32 x 20, 80 bytes.
+LOGO_ROWS = ["#" * 64] * 40
+LOGO_WITH_BITMAP = {"type": "image", "x": 5, "y": 5, "name": "LOGO", "bitmap": LOGO_ROWS}
+LOGO_STORED = {"type": "image", "x": 40, "y": 5, "name": "LOGO"}
+
+
+def dmx(budget: int | None) -> RenderOptions:
+    return RenderOptions(model="dmx-600", image_memory_bytes=budget)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("bitmap_first", [True, False], ids=["bitmap-first", "stored-first"])
+def test_a_halved_user_image_and_a_stored_reference_to_it_print_alike(bitmap_first: bool) -> None:
+    """The name LOGO keeps meaning the full bitmap: the halved bits go under their content name,
+    and the stored-only reference in the same job is placed as that halved image."""
+    elements = [LOGO_WITH_BITMAP, LOGO_STORED] if bitmap_first else [LOGO_STORED, LOGO_WITH_BITMAP]
+    result = build_job(label(*elements), dmx(100))
+    halved = halve(Bitmap.from_rows(LOGO_ROWS))
+
+    assert result.ok, result.findings
+    assert result.downloads == (drawn_image_name(halved),)
+    assert "LOGO" not in result.downloads
+    assert b"IAAFLOGO\r" not in result.data
+    records = placements(result.data)
+    assert len(records) == 2
+    assert all(
+        record.startswith(b"1Y22000") and record.endswith(drawn_image_name(halved).encode()) for record in records
+    )
+    assert result.halved_elements == (0, 1)
+
+
+@pytest.mark.os_agnostic
+def test_within_the_budget_the_user_image_keeps_its_name() -> None:
+    result = build_job(label(LOGO_WITH_BITMAP, LOGO_STORED), dmx(10_000))
+    assert result.downloads == ("LOGO",)
+    assert all(record.startswith(b"1Y11000") and record.endswith(b"LOGO") for record in placements(result.data))
+
+
+@pytest.mark.os_agnostic
+def test_a_stored_reference_keeps_its_own_magnification_doubled() -> None:
+    stored = {**LOGO_STORED, "magnification": 2}
+    result = build_job(label(LOGO_WITH_BITMAP, stored), dmx(100))
+    assert [record[:4] for record in placements(result.data)] == [b"1Y22", b"1Y44"]
+
+
+@pytest.mark.os_agnostic
+def test_a_stored_image_this_job_does_not_download_is_left_alone_when_halving() -> None:
+    other = {"type": "image", "x": 40, "y": 5, "name": "OTHER"}
+    result = build_job(label(LOGO_WITH_BITMAP, other), dmx(100))
+    assert placements(result.data)[1].startswith(b"1Y11000")
+    assert placements(result.data)[1].endswith(b"OTHER")
+    assert result.halved_elements == (0,)
+
+
+@pytest.mark.os_agnostic
+def test_a_halved_raster_fallback_reports_the_size_and_magnification_it_is_sent_at() -> None:
+    width, height = circle_frame()
+    full = build_job(label(CIRCLE), allegro(10**9))
+    finding = only(build_job(label(CIRCLE), allegro(full.image_bytes - 1)), FindingCode.CIRCLE_RASTERIZED)
+    assert finding.fallback is not None
+    assert f"({-(-width // 2)}x{-(-height // 2)} dots, placed at magnification 2)" in finding.fallback

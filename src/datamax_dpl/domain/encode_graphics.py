@@ -130,26 +130,26 @@ def encode_polygon(element: Polygon, *, index: int, ctx: RenderContext) -> list[
 def encode_image(element: Image, *, index: int, ctx: RenderContext) -> list[bytes]:
     """Queue the image download (when a bitmap is given) and return its placing record.
 
-    A bitmap refused for its width places nothing. A stored image is placed at the element's
-    magnification; a downloaded one at the magnification the download comes back with, doubled
-    when the job halves its images.
+    A bitmap refused for its width places nothing. The record places what the context says:
+    the element's name at its magnification, or, when the job halves its images, the halved image's
+    content name at double the magnification (also for a stored-only reference to a name the job
+    downloads).
     """
-    magnification = element.magnification
     if element.bitmap is not None:
         bitmap = Bitmap.from_rows(element.bitmap)
-        placed = ctx.download_image(element.name, bitmap, element=index, magnification=magnification)
-        if placed is None:
-            return []
-        magnification = placed.magnification
+        placed = ctx.download_image(element.name, bitmap, element=index, magnification=element.magnification)
     else:
         ctx.findings.info(
             FindingCode.IMAGE_MUST_BE_STORED, f"image {element.name} must already be on the printer", element=index
         )
+        placed = ctx.place_stored_image(element.name, element=index, magnification=element.magnification)
+    if placed is None:
+        return []
     record = image_record(
         row=row_of(element.y, index=index, ctx=ctx),
         column=column_of(element.x, index=index, ctx=ctx),
-        name=element.name,
-        magnification=(magnification, magnification),
+        name=placed.name,
+        magnification=placed.dots,
     )
     return [line(record)]
 

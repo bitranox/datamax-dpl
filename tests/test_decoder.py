@@ -8,7 +8,7 @@ import pytest
 
 from datamax_dpl.domain.decoder import explain, readable
 from datamax_dpl.domain.enums import CommandKind, Rotation, SpeedCode, Unit
-from datamax_dpl.domain.label import Barcode, Box, Circle, Counter, Cut, Label, Line, Point, Polygon, Text
+from datamax_dpl.domain.label import Barcode, Box, Circle, Counter, Cut, Image, Label, Line, Point, Polygon, Text
 from datamax_dpl.domain.render import render
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.symbology import Symbology
@@ -224,3 +224,29 @@ def test_lower_case_text_in_a_capitals_only_font_is_reported() -> None:
     result = render(Label(elements=[Text(x=1, y=1, text="Hello", font=3)]), RenderOptions(model="dmx-600"))
     assert b"HELLO" in result.data
     assert "text_uppercased" in {f.code for f in result.findings}
+
+
+# ======================== image magnification round trip ========================
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("magnification", [1, 3])
+def test_explain_rebuilds_an_images_square_magnification(magnification: int) -> None:
+    source = Label(elements=[Image(x=5, y=5, name="LOGO", magnification=magnification)])
+    explanation = explain(render(source, RenderOptions(model="dmx-600")).data)
+    assert explanation.label is not None
+    [element] = explanation.label.elements
+    assert isinstance(element, Image)
+    assert element.magnification == magnification
+    assert not any("magnified" in command.meaning for command in explanation.commands)
+
+
+@pytest.mark.os_agnostic
+def test_explain_names_a_non_square_image_magnification_the_image_cannot_hold() -> None:
+    data = render(Label(elements=[Image(x=5, y=5, name="LOGO")]), RenderOptions(model="dmx-600")).data
+    explanation = explain(data.replace(b"1Y11000", b"1Y23000"))
+    assert "image, magnified 2x3" in [command.meaning for command in explanation.commands]
+    assert explanation.label is not None
+    [element] = explanation.label.elements
+    assert isinstance(element, Image)
+    assert element.magnification == 1

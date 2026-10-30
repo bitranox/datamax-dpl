@@ -330,7 +330,9 @@ Allegro 2 ships 44535; `[printer] image_memory_bytes` sets it, see
 under `degrade`, every image the job downloads or draws (raster fallbacks) is sent at half
 resolution, each 2x2 block of dots becoming one dot that is black if any of the four was, and
 placed at double magnification, with the warning `image_halved`; `preview` draws it the same way.
-An image keeps its `name`, and a drawn image gets the name of its halved content. A QR Code is
+A halved image is sent under the name of its halved content, never under its own `name`, so on
+the printer `name` always holds the full bitmap; an element that names the same image without a
+`bitmap` in that job is placed as the halved image too, at double its own magnification. A QR Code is
 never halved. A job still past the budget after one halving, or any job past it under `strict`, is
 refused with `image_memory_exceeded`, as is an image at `magnification` 5 or more, since doubled it
 would pass 9. Unverified on paper: halved images have not been printed yet.

@@ -281,11 +281,12 @@ def test_explain_shows_the_download_and_the_magnified_placement() -> None:
     result = build_job(qr_label(), RenderOptions(model="allegro-2"))
     explanation = explain(result.data)
     assert [c.kind for c in explanation.commands].count(CommandKind.DOWNLOAD) == 1
-    assert any(c.meaning == "image, magnified 3x3" for c in explanation.commands)
+    assert any(c.meaning == "image at magnification 3" for c in explanation.commands)
     assert explanation.label is not None
     [element] = explanation.label.elements
     assert isinstance(element, Image)
     assert element.name == result.downloads[0]
+    assert element.magnification == 3
 
 
 @pytest.mark.os_agnostic
@@ -576,4 +577,4 @@ def test_explain_of_a_qr_job_shows_the_download_and_the_placement(cli_runner: Cl
     job.write_bytes(render(Label.model_validate(QR_DOCUMENT), RenderOptions(model="allegro-2")).data)
     commands = envelope(run_cli(cli_runner, ["--json", "explain", str(job)]))["data"]["commands"]
     assert [c["meaning"] for c in commands if c["kind"] == "download"] == ["image download"]
-    assert "image, magnified 4x4" in [c["meaning"] for c in commands]
+    assert "image at magnification 4" in [c["meaning"] for c in commands]

@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .enums import Attribute, FallbackPolicy, FindingCode, HardwareOption, Unit
 from .image_budget import HALVING_FACTOR, halve, halved_magnification, image_data_bytes
 from .image_records import CR, MAX_WIDTH, download_command
+from .raster import Bitmap
 from .records import MAX_IMAGE_MAGNIFICATION
 from .units import (
     MAX_OFFSET_MM,
@@ -32,9 +33,10 @@ from .units import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from .findings import FindingCollector
     from .profiles import Feature, Firmware, PrinterProfile
-    from .raster import Bitmap
 
 #: Largest value of a four-digit DPL distance field.
 MAX_FIELD_VALUE = 9999
@@ -151,10 +153,13 @@ class PlacedImage:
         name: The image name the placing record refers to.
         magnification: Printer dots per image dot, across and along alike; doubled for a halved
             image.
+        size: Width and height in dots of the image as downloaded, or None for an image placed
+            from the printer's memory.
     """
 
     name: str
     magnification: int
+    size: tuple[int, int] | None = None
 
     @property
     def dots(self) -> tuple[int, int]:
@@ -188,6 +193,9 @@ class RenderContext:
         cutter_stop_position_mm: Stop position in mm when cutting, or None for its own setting.
         reserved_image_names: Names of the label's own ``image`` elements, with or without a
             bitmap; a drawn image never takes one, whichever element comes first.
+        bitmap_rows: The bitmap of each name a label ``image`` downloads (the first such
+            element's), so a stored-only reference to that name in a halving job is placed as
+            the halved image, whichever element comes first.
         halve_images: Download every image that may be halved at half resolution, placed at
             double magnification (the job is past its image memory budget).
         halved_elements: Elements whose image was halved, in the order they were encoded.
@@ -212,6 +220,7 @@ class RenderContext:
     stop_position_mm: float | None = None
     cutter_stop_position_mm: float | None = None
     reserved_image_names: frozenset[str] = frozenset[str]()
+    bitmap_rows: Mapping[str, tuple[str, ...]] = field(default_factory=dict[str, tuple[str, ...]])
     halve_images: bool = False
     halved_elements: list[int] = field(default_factory=list[int])
 
@@ -317,7 +326,12 @@ class RenderContext:
         return halve(bitmap), doubled
 
     def download_image(self, name: str, bitmap: Bitmap, *, element: int, magnification: int = 1) -> PlacedImage | None:
-        """Queue ``bitmap`` for download under ``name`` before the format and say how to place it.
+        """Queue a label's ``bitmap`` for download before the format and say how to place it.
+
+        The full bitmap goes under ``name``. A halved one goes under its content name like a drawn
+        image: on the printer ``name`` then always holds the full bitmap, and a printer that keeps
+        an image it already holds (manual, Appendix D) can never place a halved one at a size meant
+        for the full one, or the other way round.
 
         Args:
             name: The image name, the label's own.
@@ -336,8 +350,35 @@ class RenderContext:
         sent, placed_at = self._sent_form(bitmap, what=f"image {name}", element=element, magnification=magnification)
         if not self._fits_an_image_row(name, sent, element=element):
             return None
+        size = (sent.width, sent.height)
+        # Halving always doubles the magnification, so a changed one means the bits were halved.
+        if placed_at != magnification:
+            return PlacedImage(name=self._queue_drawn(sent), magnification=placed_at, size=size)
         self.downloads.append(ImageDownload(name=name, command=download_command(name, sent)))
-        return PlacedImage(name=name, magnification=placed_at)
+        return PlacedImage(name=name, magnification=placed_at, size=size)
+
+    def place_stored_image(self, name: str, *, element: int, magnification: int) -> PlacedImage | None:
+        """Say how to place an image the label names without a bitmap.
+
+        Normally the printer's own image under ``name``. In a halving job where another element
+        of the label downloads ``name``, that download goes out halved under its content name, so
+        this reference is placed as the same halved image at double its own magnification, and
+        prints like the element that downloads it, whichever comes first.
+
+        Returns:
+            How to place it, or None when the halved image is too wide for one row record
+            (refused as ``image_too_wide``; nothing is placed).
+        """
+        rows = self.bitmap_rows.get(name)
+        if not self.halve_images or rows is None:
+            return PlacedImage(name=name, magnification=magnification)
+        bitmap = Bitmap.from_rows(rows)
+        sent, placed_at = self._sent_form(bitmap, what=f"image {name}", element=element, magnification=magnification)
+        if placed_at == magnification:
+            return PlacedImage(name=name, magnification=magnification)
+        if not self._fits_an_image_row(name, sent, element=element):
+            return None
+        return PlacedImage(name=self._queue_drawn(sent), magnification=placed_at, size=(sent.width, sent.height))
 
     def download_drawn_image(
         self, bitmap: Bitmap, *, element: int, magnification: int = 1, halvable: bool = True
@@ -367,7 +408,7 @@ class RenderContext:
             sent, placed_at = self._sent_form(bitmap, what="drawn image", element=element, magnification=magnification)
         if not self._fits_an_image_row(drawn_image_name(sent), sent, element=element):
             return None
-        return PlacedImage(name=self._queue_drawn(sent), magnification=placed_at)
+        return PlacedImage(name=self._queue_drawn(sent), magnification=placed_at, size=(sent.width, sent.height))
 
     def _queue_drawn(self, bitmap: Bitmap) -> str:
         """Queue ``bitmap`` under the first free salted content name and return the name."""

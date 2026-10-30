@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from .enums import CommandKind, FillPattern, Rotation, SpeedCode, Unit
 from .label import Barcode, Box, Circle, Counter, Cut, Element, Image, Label, Line, Point, Polygon, ScalableText, Text
 from .profiles import OLD_SERIES_POINTS
-from .records import multiplier_value
+from .records import MAX_IMAGE_MAGNIFICATION, multiplier_value
 from .symbology import SYMBOLOGY_BY_IDENTIFIER
 
 _SOH, _STX, _CR = 0x01, 0x02, 0x0D
@@ -304,11 +304,23 @@ def _parse_record(text: str, state: _State) -> tuple[Element | None, str]:
 
 
 def _image(text: str, state: _State) -> tuple[Element, str]:
-    """An image placement; a dot width or height other than 1 is named, the rebuilt Image cannot hold it."""
+    """An image placement, its square magnification in the rebuilt Image.
+
+    A dot width and height that differ, or one past the 9 an Image holds, is named in the meaning
+    instead (``image, magnified 2x3``) and the rebuilt Image keeps magnification 1.
+    """
     head = _head(text)
-    image = Image(name=text[_HEADER_LENGTH:], x=_scale(head.column, state), y=_scale(head.row, state))
-    if (head.width, head.height) == (1, 1):
+    square = head.width == head.height and head.width <= MAX_IMAGE_MAGNIFICATION
+    image = Image(
+        name=text[_HEADER_LENGTH:],
+        x=_scale(head.column, state),
+        y=_scale(head.row, state),
+        magnification=head.width if square else 1,
+    )
+    if square and head.width == 1:
         return image, "image"
+    if square:
+        return image, f"image at magnification {head.width}"
     return image, f"image, magnified {head.width}x{head.height}"
 
 
