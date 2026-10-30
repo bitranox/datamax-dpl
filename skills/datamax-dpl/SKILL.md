@@ -160,7 +160,8 @@ configured stop only the info `configured_stop_position_unsupported` (prints und
   `stop_position` 67.4 mm), named in the info finding `model_defaults_applied`; every other model
   starts neutral. A value set in the config or with `--set printer.KEY=VALUE` (`scale_across`,
   `scale_along`, `offset_across`, `offset_along`, `stop_position`) wins, even scale 1.0 or offset
-  0.0; `stop_position = "printer"` (in the label too) sends no `<STX>f`: the printer's own stop.
+  0.0; `stop_position = "printer"` (in the label too) sends no `<STX>f`: the printer's own stop
+  (a label `present_distance` without `<STX>Kf` still goes out as `<STX>f`).
   Calibrate once per printer:
   1. `datamax-dpl calibrate print --printer NAME` prints two labels with the printer's current
      factors: the ACROSS label (a thin frame 2 mm in from every edge, so 96 mm on a 100 mm

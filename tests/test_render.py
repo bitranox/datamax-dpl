@@ -629,6 +629,16 @@ def test_a_stop_position_option_of_printer_sends_no_stop_and_drops_the_models_fr
 
 
 @pytest.mark.os_agnostic
+def test_a_stop_position_option_of_printer_leaves_the_cutter_stop_of_a_job_that_cuts() -> None:
+    """The configured "printer" is the tear-off stop only; a job that cuts sends the cutter stop."""
+    cutting: dict[str, object] = {"cut": {"every": 1}}
+    with_printer = _stop_job(cutting, cutter_installed=True, cutter_stop_position_mm=80, stop_position_mm="printer")
+    plain = _stop_job(cutting, cutter_installed=True, cutter_stop_position_mm=80)
+    assert _stop_commands(plain) == [STX + b"f315"]
+    assert with_printer.data == plain.data
+
+
+@pytest.mark.os_agnostic
 def test_a_stop_position_option_of_printer_leaves_no_stop_in_the_effective_calibration() -> None:
     assert effective_calibration(RenderOptions(model="allegro-2", stop_position_mm="printer")).stop_position_mm is None
 

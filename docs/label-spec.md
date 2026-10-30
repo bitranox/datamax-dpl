@@ -67,9 +67,11 @@ formats reports the info finding `inch_units`. Check placement without paper wit
 | `plain_zero`        | boolean                                | false   | Print 0 without the slash in fonts 0-8 and barcodes (`z`).                                            |
 
 A `stop_position` of `"printer"` sends no `<STX>f`: the printer keeps its own setting, and the
-configured stop and the model's default are not sent either. How `stop_position` and
-`present_distance` rank against the configured stop positions and the model's default, and what a model without `<STX>f` or `<STX>Kf` does with them, is in the README
-under [Where the label stops](../README.md#where-the-label-stops).
+configured stop and the model's default are not sent either. The one exception is a
+`present_distance` on a model without `<STX>Kf`, which still goes out as `<STX>f`
+(`present_distance_unsupported`). How `stop_position` and `present_distance` rank against the
+configured stop positions and the model's default, and what a model without `<STX>f` or `<STX>Kf`
+does with them, is in the README under [Where the label stops](../README.md#where-the-label-stops).
 
 Where fields overlap, the attribute decides what prints, and `preview` draws the same: 1 XOR
 prints only the dots an odd number of fields share, 2 transparent prints both, 3 opaque lets the

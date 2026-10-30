@@ -12,7 +12,7 @@ one is needed.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -33,7 +33,7 @@ from .transparency import Emulation, emulate_transparency
 from .units import Axis, Correction, DplUnit, to_inches
 
 if TYPE_CHECKING:
-    from .label import Element, Label
+    from .label import Element, Label, PrinterStop
 
 _RECORD_PREFIXES = tuple("1234")
 _Given = TypeVar("_Given")
@@ -139,7 +139,7 @@ def _resolve(options: RenderOptions, model: CalibrationDefaults) -> CalibrationD
     )
 
 
-def _tear_off_stop(explicit: float | Literal["printer"] | None, default: float | None) -> float | None:
+def _tear_off_stop(explicit: float | PrinterStop | None, default: float | None) -> float | None:
     """Return the tear-off stop position a job sends: none for ``"printer"``, else as :func:`_pick`."""
     if explicit == PRINTER_STOP:
         return None

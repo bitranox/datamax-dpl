@@ -14,7 +14,7 @@ Text fields may contain ``{name}`` placeholders, filled per record by
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypeAlias
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 
@@ -39,7 +39,10 @@ NonNegative = Annotated[float, Field(ge=0)]
 Positive = Annotated[float, Field(gt=0)]
 Multiplier = Annotated[int, Field(ge=1, le=MAX_MULTIPLIER)]
 
-_PRINTER_WORD: TypeAdapter[Literal["printer"]] = TypeAdapter(Literal["printer"])
+#: The stop position word that sends no ``<STX>f`` (``job.PRINTER_STOP``), spelled once for every model.
+PrinterStop: TypeAlias = Literal["printer"]
+
+_PRINTER_WORD: TypeAdapter[PrinterStop] = TypeAdapter(PrinterStop)
 
 
 def stop_position_or_printer(number: TypeAdapter[float]) -> BeforeValidator:
@@ -66,6 +69,8 @@ def stop_position_or_printer(number: TypeAdapter[float]) -> BeforeValidator:
             return number.validate_python(value)
         except ValidationError as exc:
             if exc.errors()[0]["type"] != "float_parsing":
+                # pydantic-core merges a nested ValidationError's line errors into the field's
+                # own, so this refusal still names the field and keeps the bound's message.
                 raise
         return _PRINTER_WORD.validate_python(value)
 
@@ -73,7 +78,7 @@ def stop_position_or_printer(number: TypeAdapter[float]) -> BeforeValidator:
 
 
 #: A stop position: a length greater than 0, or ``"printer"`` to send none and keep the printer's own.
-StopPosition = Annotated[Positive | Literal["printer"], stop_position_or_printer(TypeAdapter(Positive))]
+StopPosition = Annotated[Positive | PrinterStop, stop_position_or_printer(TypeAdapter(Positive))]
 
 
 class _Frozen(BaseModel):
@@ -440,6 +445,7 @@ __all__ = [
     "Pdf417Options",
     "Point",
     "Polygon",
+    "PrinterStop",
     "Qr",
     "ScalableText",
     "StopPosition",

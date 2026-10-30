@@ -7,7 +7,7 @@ the boundary, so a typo in a config file is reported as a configuration error wi
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Annotated, Any, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
@@ -15,7 +15,7 @@ from ...domain.camera import CameraSettings
 from ...domain.enums import CutterPresence, FallbackPolicy, HardwareOption, ImageModule
 from ...domain.errors import ConfigurationError
 from ...domain.job import MAX_STOP_POSITION_MM
-from ...domain.label import stop_position_or_printer
+from ...domain.label import PrinterStop, stop_position_or_printer
 from ...domain.render_context import RenderOptions
 from ...domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
 from ..transport.uri import is_printer_name, is_printer_uri
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 _T = TypeVar("_T")
 
 _BoundedStop = Annotated[float, Field(gt=0, le=MAX_STOP_POSITION_MM)]
-_ConfiguredStop = Annotated[_BoundedStop | Literal["printer"], stop_position_or_printer(TypeAdapter(_BoundedStop))]
+_ConfiguredStop = Annotated[_BoundedStop | PrinterStop, stop_position_or_printer(TypeAdapter(_BoundedStop))]
 
 
 class PrinterSettings(BaseModel):
