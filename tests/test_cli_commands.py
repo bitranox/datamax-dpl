@@ -399,6 +399,19 @@ def test_verify_prints_waits_photographs_and_writes_the_expected_preview(cli_run
 
 
 @pytest.mark.os_agnostic
+def test_status_and_verify_skip_a_line_left_over_from_an_earlier_query(cli_runner: CliRunner, tmp_path: Path) -> None:
+    printer = RecordingPrinter(answers={b"\x01A": b"AVAILABLE BYTES IN MODULE : 00048631\r" + IDLE})
+    status = run(cli_runner, ["--json", "status", "--printer", PRINTER], factory(printer))
+    assert status.exit_code == 0, status.output
+    assert envelope(status)["data"]["idle"] is True
+    label = write_json(tmp_path / "l.json", SIMPLE)
+    args = ["--json", "--set", "camera.kind=file", "verify", label, "--printer", PRINTER, "--output-dir", str(tmp_path)]
+    verify = run(cli_runner, args, factory(printer, FakeCamera()))
+    assert verify.exit_code == 0, verify.output
+    assert envelope(verify)["data"]["status"]["busy_printing"] is False
+
+
+@pytest.mark.os_agnostic
 def test_verify_writes_the_expected_preview_for_the_configured_calibration(
     cli_runner: CliRunner, tmp_path: Path
 ) -> None:

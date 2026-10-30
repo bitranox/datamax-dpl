@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from pathlib import Path
 
     from lib_layered_config import Config
@@ -111,10 +111,22 @@ class PrinterTransport(Protocol):
         """Write ``data`` completely, or raise ``TransportError``."""
         ...
 
-    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r", lines: int = 1) -> bytes:
+    def query(
+        self,
+        request: bytes,
+        *,
+        timeout: float,
+        terminator: bytes = b"\r",
+        lines: int = 1,
+        accept: Callable[[bytes], bool] | None = None,
+    ) -> bytes:
         """Send ``request`` and return the answer through the ``lines``-th ``terminator``.
 
-        Most answers are one line; the ``<STX>KQ`` memory report has eight.
+        Most answers are one line; the ``<STX>KQ`` memory report has eight. ``accept``, when given,
+        judges each line read (terminator included): a line it refuses is skipped and does not
+        count toward ``lines``, so a line a printer still owed an earlier query is never read as
+        this answer. Skipped bytes count toward the transport's size bound, so a printer sending
+        nothing but refused lines is cut off as one sending an endless answer is.
         """
         ...
 

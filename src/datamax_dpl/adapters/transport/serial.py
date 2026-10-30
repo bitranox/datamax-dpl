@@ -10,14 +10,17 @@ from __future__ import annotations
 
 import contextlib
 import time
-from typing import Protocol
+from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 import serial
 
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
 
 from .tcp import MAX_ANSWER_BYTES, MAX_ANSWER_SECONDS, MAX_IDLE_ANSWER_BYTES
-from .uri import ClosingTransport, SerialUri, Wait, answer_started, check_timeout, no_answer
+from .uri import ClosingTransport, SerialUri, Wait, answer_overflow, answer_started, check_timeout, no_answer
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _DRAIN_POLL_SECONDS = 0.01
 
@@ -163,14 +166,24 @@ class SerialTransport(ClosingTransport):
             raise TransportError(f"cannot write to serial {self._uri.path}: {exc}") from exc
         self._drain()
 
-    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r", lines: int = 1) -> bytes:
+    def query(
+        self,
+        request: bytes,
+        *,
+        timeout: float,
+        terminator: bytes = b"\r",
+        lines: int = 1,
+        accept: Callable[[bytes], bool] | None = None,
+    ) -> bytes:
         """Send ``request`` and return the answer up to and including ``terminator``.
 
-        Bytes received before the request belong to an earlier exchange and are dropped first.
+        Bytes received before the request belong to an earlier exchange and are dropped first. A
+        line ``accept`` refuses is skipped, as one the printer still owed an earlier query.
 
         Raises:
             PrinterTimeoutError: No complete answer within ``timeout`` seconds.
-            PrinterProtocolError: More than ``MAX_ANSWER_BYTES`` arrived without a terminator.
+            PrinterProtocolError: ``MAX_ANSWER_BYTES`` arrived, skipped lines included, without
+                the answer.
             TransportError: The port failed or is closed.
         """
         check_timeout(timeout)
@@ -179,12 +192,13 @@ class SerialTransport(ClosingTransport):
         self._drop_waiting_input()
         self.send(request)
         wait = Wait.since(time.monotonic(), timeout)
-        answer = self._read_lines(terminator, wait=wait, lines=lines)
-        if answer.endswith(terminator):
-            return answer
-        if len(answer) >= MAX_ANSWER_BYTES:
-            raise PrinterProtocolError(f"serial {self._uri.path}: no answer terminator within {MAX_ANSWER_BYTES} bytes")
-        raise no_answer(f"serial {self._uri.path}", wait=wait, received=len(answer))
+        read = self._read_lines(terminator, wait=wait, lines=lines, accept=accept)
+        if read.answer.endswith(terminator):
+            return read.answer
+        received = len(read.answer) + read.skipped_bytes
+        if received >= MAX_ANSWER_BYTES:
+            raise answer_overflow(f"serial {self._uri.path}", limit=MAX_ANSWER_BYTES, skipped_lines=read.skipped_lines)
+        raise no_answer(f"serial {self._uri.path}", wait=wait, received=received)
 
     def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = MAX_ANSWER_SECONDS) -> bytes:
         """Send ``request`` and return every byte until ``idle`` seconds pass without a new one.
@@ -306,26 +320,48 @@ class SerialTransport(ClosingTransport):
         except OSError as exc:
             raise TransportError(f"cannot read from serial {self._uri.path}: {exc}") from exc
 
-    def _read_lines(self, terminator: bytes, *, wait: Wait, lines: int) -> bytes:
-        """Read ``lines`` terminated chunks before the one overall ``wait`` ends."""
-        answer = b""
-        for _ in range(lines):
-            remaining = wait.remaining()
-            if remaining <= 0:
-                break
-            chunk = self._read(terminator, timeout=remaining)
-            answer += chunk
-            if not chunk.endswith(terminator) or len(answer) >= MAX_ANSWER_BYTES:
-                break
-        return answer
+    def _read_lines(
+        self, terminator: bytes, *, wait: Wait, lines: int, accept: Callable[[bytes], bool] | None
+    ) -> _LinesRead:
+        """Read ``lines`` kept lines before the one overall ``wait`` ends, skipping those ``accept`` refuses.
 
-    def _read(self, terminator: bytes, *, timeout: float) -> bytes:
-        """Read until ``terminator``, the size bound or ``timeout``, whichever comes first."""
+        Skipped bytes count toward ``MAX_ANSWER_BYTES`` like kept ones, so a printer sending
+        nothing but refused lines is cut off as one sending an endless answer is.
+        """
+        answer = b""
+        skipped_bytes = skipped_lines = kept = 0
+        while kept < lines:
+            remaining = wait.remaining()
+            room = MAX_ANSWER_BYTES - len(answer) - skipped_bytes
+            if remaining <= 0 or room <= 0:
+                break
+            chunk = self._read(terminator, timeout=remaining, size=room)
+            complete = chunk.endswith(terminator)
+            if complete and accept is not None and not accept(chunk):
+                skipped_bytes += len(chunk)
+                skipped_lines += 1
+                continue
+            answer += chunk
+            if not complete:
+                break
+            kept += 1
+        return _LinesRead(answer=answer, skipped_bytes=skipped_bytes, skipped_lines=skipped_lines)
+
+    def _read(self, terminator: bytes, *, timeout: float, size: int) -> bytes:
+        """Read until ``terminator``, ``size`` bytes or ``timeout``, whichever comes first."""
         try:
             self._port.timeout = timeout
-            return self._port.read_until(terminator, MAX_ANSWER_BYTES)
+            return self._port.read_until(terminator, size)
         except OSError as exc:
             raise TransportError(f"cannot read from serial {self._uri.path}: {exc}") from exc
+
+
+class _LinesRead(NamedTuple):
+    """What :meth:`SerialTransport._read_lines` read: the kept lines and what it skipped."""
+
+    answer: bytes
+    skipped_bytes: int
+    skipped_lines: int
 
 
 __all__ = ["SerialPort", "SerialTransport"]

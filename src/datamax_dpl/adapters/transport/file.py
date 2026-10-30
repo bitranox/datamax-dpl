@@ -8,13 +8,16 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import BinaryIO
+from typing import TYPE_CHECKING, BinaryIO
 
 from datamax_dpl.domain.errors import TransportError
 from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS
 
 from .device import WRITE_FLAGS, DescriptorTransport
 from .uri import ClosingTransport, FileUri, StdoutUri, channel_name, transport_error, unsupported_query
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # Read-write for everyone before the umask, the mode any ordinary tool creates a file with.
 _NEW_FILE_MODE = 0o666
@@ -63,7 +66,15 @@ class StdoutTransport(ClosingTransport):
         """
         _write(self._stream, data, uri=self._uri)
 
-    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r", lines: int = 1) -> bytes:
+    def query(
+        self,
+        request: bytes,
+        *,
+        timeout: float,
+        terminator: bytes = b"\r",
+        lines: int = 1,
+        accept: Callable[[bytes], bool] | None = None,
+    ) -> bytes:
         """Refuse: standard output cannot answer.
 
         Raises:

@@ -17,7 +17,7 @@ from ..domain.camera import CameraKind, CameraSettings, CapturedImage
 from ..domain.errors import CameraError, LabelRejectedError, PrinterTimeoutError
 from ..domain.png import encode_png
 from ..domain.preview import preview_bitmap
-from ..domain.status import STATUS_REQUEST, PrinterStatus, parse_ascii_status
+from ..domain.status import STATUS_REQUEST, PrinterStatus, is_status_line, parse_ascii_status
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -61,7 +61,7 @@ def wait_idle(printer: PrinterTransport, *, timeout: float, sleep: Sleep, clock:
     """
     deadline = clock() + timeout
     while True:
-        status = parse_ascii_status(printer.query(STATUS_REQUEST, timeout=timeout))
+        status = parse_ascii_status(printer.query(STATUS_REQUEST, timeout=timeout, accept=is_status_line))
         if status.idle or status.problems:
             return status
         if clock() >= deadline:

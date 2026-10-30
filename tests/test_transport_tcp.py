@@ -22,6 +22,7 @@ from datamax_dpl.adapters.transport.tcp import (
 )
 from datamax_dpl.adapters.transport.uri import TcpUri
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
+from datamax_dpl.domain.status import is_status_line
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -70,10 +71,66 @@ def test_a_printer_that_never_answers_times_out_within_the_timeout(serve: Callab
     server = serve(silent)
     with TcpTransport.connect(server.uri, timeout=2.0) as printer:
         started = time.monotonic()
-        with pytest.raises(PrinterTimeoutError, match=r"no complete answer within 0\.3 s \(0 bytes read\)"):
+        with pytest.raises(PrinterTimeoutError, match=r"no complete answer within 0\.3 s \(0 bytes read\)") as caught:
             printer.query(b"\x01A", timeout=0.3)
         elapsed = time.monotonic() - started
     assert 0.25 <= elapsed < 1.5
+    assert str(caught.value).endswith(
+        "(0 bytes read); the printer may still be printing an earlier job; try again or raise --timeout"
+    )
+
+
+@pytest.mark.os_agnostic
+def test_a_query_skips_whole_lines_the_caller_does_not_accept(serve: Callable[..., PrinterServer]) -> None:
+    # Captured through a print server: a status request answered first by lines left over from an
+    # earlier memory query, which arrive after the request and so are not dropped before it.
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        server.read_exactly(connection, 2)
+        connection.sendall(b"MODULE: A\r")
+        time.sleep(0.02)
+        connection.sendall(b"AVAILABLE BYTES IN MODULE : 00048631\rNNNNNNNN\rtrailing")
+        server.read_to_end(connection)
+
+    server = serve(play)
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        assert printer.query(b"\x01A", timeout=1.0, accept=is_status_line) == b"NNNNNNNN\r"
+
+
+@pytest.mark.os_agnostic
+def test_a_line_refused_between_kept_lines_is_cut_out_of_a_multi_line_answer(
+    serve: Callable[..., PrinterServer],
+) -> None:
+    server = serve(answering(b"\x02KQ", b"VER: 2.03\rMODULE: A\rINSTALLED: 1\rLABEL MEM: 0\r"))
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        answer = printer.query(b"\x02KQ", timeout=1.0, lines=2, accept=lambda line: not line.startswith(b"MODULE"))
+    assert answer == b"VER: 2.03\rINSTALLED: 1\r"
+
+
+@pytest.mark.os_agnostic
+def test_without_accept_a_stale_line_is_the_answer(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(answering(b"\x02KQ", b"MODULE: A\rNNNNNNNN\r"))
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        assert printer.query(b"\x02KQ", timeout=1.0) == b"MODULE: A\r"
+
+
+@pytest.mark.os_agnostic
+def test_skipped_lines_then_silence_time_out_counting_the_skipped_bytes(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(answering(b"\x01A", b"MODULE: A\r"))
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        with pytest.raises(PrinterTimeoutError, match=r"no complete answer within 0\.3 s \(10 bytes read\)") as caught:
+            printer.query(b"\x01A", timeout=0.3, accept=is_status_line)
+        assert "earlier job" not in str(caught.value)
+
+
+@pytest.mark.os_agnostic
+def test_skipped_lines_are_bounded_like_an_answer(serve: Callable[..., PrinterServer]) -> None:
+    stale = b"MODULE: A\r" * (70 * 1024 // 10)
+    server = serve(answering(b"\x01A", stale))
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        started = time.monotonic()
+        with pytest.raises(PrinterProtocolError, match=rf"no complete answer within {MAX_ANSWER_BYTES} bytes"):
+            printer.query(b"\x01A", timeout=5.0, accept=is_status_line)
+        assert time.monotonic() - started < 2.5
 
 
 @pytest.mark.os_agnostic

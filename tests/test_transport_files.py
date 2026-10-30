@@ -13,6 +13,7 @@ from datamax_dpl.adapters.transport.device import DeviceTransport
 from datamax_dpl.adapters.transport.file import FileTransport, StdoutTransport
 from datamax_dpl.adapters.transport.uri import DeviceUri, FileUri
 from datamax_dpl.domain.errors import ConfigurationError, TransportError, UnsupportedOperationError
+from datamax_dpl.domain.status import is_status_line
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -63,7 +64,7 @@ def test_a_device_cannot_answer_a_query(tmp_path: Path) -> None:
         DeviceTransport.open(DeviceUri(path=str(device))) as printer,
         pytest.raises(UnsupportedOperationError, match="is one-way: it cannot read the printer's answer"),
     ):
-        printer.query(b"\x01A", timeout=1.0)
+        printer.query(b"\x01A", timeout=1.0, accept=is_status_line)
 
 
 @pytest.mark.os_agnostic
@@ -162,7 +163,7 @@ def test_stdout_cannot_answer_a_query() -> None:
         StdoutTransport(io.BytesIO()) as printer,
         pytest.raises(UnsupportedOperationError, match=r"^stdout is one-way"),
     ):
-        printer.query(b"\x01A", timeout=1.0)
+        printer.query(b"\x01A", timeout=1.0, accept=is_status_line)
 
 
 @pytest.mark.os_agnostic

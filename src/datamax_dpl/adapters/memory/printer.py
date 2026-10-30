@@ -13,7 +13,7 @@ from datamax_dpl.domain.errors import PrinterTimeoutError, TransportError, Unsup
 from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS, check_timeout
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from datamax_dpl.application.ports import OpenPrinter, PrinterTransport
 
@@ -65,16 +65,39 @@ class RecordingPrinter:
         self._ensure_open()
         self.sent.append(bytes(data))
 
-    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r", lines: int = 1) -> bytes:
+    def query(
+        self,
+        request: bytes,
+        *,
+        timeout: float,
+        terminator: bytes = b"\r",
+        lines: int = 1,
+        accept: Callable[[bytes], bool] | None = None,
+    ) -> bytes:
         """Record ``request`` and return its answer from the table.
+
+        With ``accept``, the answer is cut into lines at ``terminator`` and the lines ``accept``
+        refuses are skipped, as a real transport skips them: the first ``lines`` kept lines are the
+        answer. Without it the whole table entry is returned.
 
         Raises:
             UnsupportedOperationError: The printer is configured one-way.
-            PrinterTimeoutError: The table has no answer for ``request``, like a printer that
-                stays silent.
+            PrinterTimeoutError: The table has no answer for ``request``, or fewer than ``lines``
+                lines of it are accepted, like a printer that stays silent.
             TransportError: The printer was closed.
+
+        Example:
+            >>> printer = RecordingPrinter(answers={b"\\x01A": b"MODULE: A\\rNNNNNNNN\\r"})
+            >>> printer.query(b"\\x01A", timeout=1.0, accept=lambda line: line.startswith(b"N"))
+            b'NNNNNNNN\\r'
         """
-        return self._answer(request, timeout=timeout)
+        answer = self._answer(request, timeout=timeout)
+        if accept is None:
+            return answer
+        kept = [line for line in _lines(answer, terminator) if accept(line)][:lines]
+        if len(kept) < lines:
+            raise PrinterTimeoutError(f"recording printer: no answer to {request!r} accepted within {timeout} s")
+        return b"".join(kept)
 
     def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = MAX_ANSWER_SECONDS) -> bytes:
         """Record ``request`` and return its whole answer from the table, as a silence would end it.
@@ -141,6 +164,11 @@ def open_recording_printer(printer: RecordingPrinter) -> OpenPrinter:
         return printer
 
     return _open
+
+
+def _lines(answer: bytes, terminator: bytes) -> list[bytes]:
+    """The terminated lines of ``answer``, each with its terminator; an unterminated tail is dropped."""
+    return [part + terminator for part in answer.split(terminator)[:-1]]
 
 
 __all__ = ["RecordingPrinter", "open_recording_printer"]

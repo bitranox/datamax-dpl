@@ -6,7 +6,7 @@ import pytest
 
 from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
 from datamax_dpl.domain.errors import PrinterTimeoutError, TransportError, UnsupportedOperationError
-from datamax_dpl.domain.status import STATUS_REQUEST, VERSION_REQUEST, parse_ascii_status
+from datamax_dpl.domain.status import STATUS_REQUEST, VERSION_REQUEST, is_status_line, parse_ascii_status
 
 
 @pytest.mark.os_agnostic
@@ -25,6 +25,20 @@ def test_a_query_is_answered_from_the_table_and_recorded_on_the_wire() -> None:
     assert parse_ascii_status(answer).paper_out
     assert printer.queries == [STATUS_REQUEST]
     assert printer.sent == [STATUS_REQUEST]
+
+
+@pytest.mark.os_agnostic
+def test_a_query_with_accept_skips_the_lines_it_refuses_like_a_real_transport() -> None:
+    printer = RecordingPrinter(answers={STATUS_REQUEST: b"MODULE: A\rNNNNNNNN\rNYNNNNNN\r"})
+    assert printer.query(STATUS_REQUEST, timeout=1.0, accept=is_status_line) == b"NNNNNNNN\r"
+
+
+@pytest.mark.os_agnostic
+def test_a_query_whose_every_line_is_refused_behaves_like_a_silent_printer() -> None:
+    printer = RecordingPrinter(answers={STATUS_REQUEST: b"MODULE: A\r"})
+    with pytest.raises(PrinterTimeoutError, match="no answer"):
+        printer.query(STATUS_REQUEST, timeout=0.5, accept=is_status_line)
+    assert printer.queries == [STATUS_REQUEST]
 
 
 @pytest.mark.os_agnostic

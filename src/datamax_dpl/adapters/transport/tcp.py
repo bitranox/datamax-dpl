@@ -4,11 +4,24 @@ from __future__ import annotations
 
 import socket
 import time
+from typing import TYPE_CHECKING
 
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS
 
-from .uri import ClosingTransport, TcpUri, Wait, answer_started, check_timeout, no_answer, transport_error
+from .uri import (
+    ClosingTransport,
+    TcpUri,
+    Wait,
+    answer_overflow,
+    answer_started,
+    check_timeout,
+    no_answer,
+    transport_error,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 #: Longest answer read before the printer is judged to be sending something other than an answer.
 MAX_ANSWER_BYTES = 64 * 1024
@@ -94,16 +107,27 @@ class TcpTransport(ClosingTransport):
         except OSError as exc:
             raise transport_error(self._uri, action="write to", error=exc) from exc
 
-    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r", lines: int = 1) -> bytes:
+    def query(
+        self,
+        request: bytes,
+        *,
+        timeout: float,
+        terminator: bytes = b"\r",
+        lines: int = 1,
+        accept: Callable[[bytes], bool] | None = None,
+    ) -> bytes:
         """Send ``request`` and return the answer up to and including ``terminator``.
 
         Bytes already waiting before the request belong to an earlier exchange (an answer that
         arrived after its query timed out) and are discarded, so they are never read as this
-        answer. Bytes after the terminator are dropped for the same reason.
+        answer. Bytes after the terminator are dropped for the same reason. A line ``accept``
+        refuses is skipped: a print server can pass on what the printer still owed an earlier
+        query only after this request went out.
 
         Raises:
             PrinterTimeoutError: No complete answer within ``timeout`` seconds.
-            PrinterProtocolError: More than :data:`MAX_ANSWER_BYTES` arrived without a terminator.
+            PrinterProtocolError: :data:`MAX_ANSWER_BYTES` arrived, skipped lines included,
+                without the answer.
             TransportError: The connection failed or the printer closed it.
         """
         wait = Wait.since(time.monotonic(), check_timeout(timeout))
@@ -113,7 +137,8 @@ class TcpTransport(ClosingTransport):
         self._discard_waiting()
         self.send(request)
         try:
-            return self._read_until(terminator, wait=wait, lines=lines)
+            answer = _Lines(f"tcp {self._uri.target}", terminator, lines=lines, accept=accept)
+            return self._read_until(answer, wait=wait)
         finally:
             self._sock.settimeout(self._timeout)
 
@@ -177,18 +202,12 @@ class TcpTransport(ClosingTransport):
         finally:
             self._sock.settimeout(self._timeout)
 
-    def _read_until(self, terminator: bytes, *, wait: Wait, lines: int = 1) -> bytes:
-        """Collect bytes until the ``lines``-th ``terminator``, the end of ``wait`` or the size bound."""
-        answer = bytearray()
+    def _read_until(self, lines: _Lines, *, wait: Wait) -> bytes:
+        """Receive into ``lines`` until it holds the answer, ``wait`` ends or the size bound is reached."""
         while True:
-            end = _nth(answer, terminator, lines)
-            if 0 <= end <= MAX_ANSWER_BYTES - len(terminator):
-                return bytes(answer[: end + len(terminator)])
-            if end >= 0 or len(answer) >= MAX_ANSWER_BYTES:
-                raise PrinterProtocolError(
-                    f"tcp {self._uri.target}: no answer terminator within {MAX_ANSWER_BYTES} bytes"
-                )
-            answer += self._receive(wait, received=len(answer))
+            answer = lines.add(self._receive(wait, received=lines.received))
+            if answer is not None:
+                return answer
 
     def _receive(self, wait: Wait, *, received: int) -> bytes:
         """Receive one chunk before ``wait`` ends; an empty read means the printer hung up."""
@@ -246,6 +265,66 @@ class TcpTransport(ClosingTransport):
             raise transport_error(self._uri, action="read from", error=exc) from exc
 
 
+class _Lines:
+    """An answer received in chunks, judged line by line; a line ``accept`` refuses is cut out of it.
+
+    Every byte received counts toward :data:`MAX_ANSWER_BYTES`, the skipped ones too, so a printer
+    streaming refused lines is cut off as one streaming an endless answer is.
+    """
+
+    def __init__(self, channel: str, terminator: bytes, *, lines: int, accept: Callable[[bytes], bool] | None) -> None:
+        self._channel = channel
+        self._terminator = terminator
+        self._lines = lines
+        self._accept = accept
+        self._data = bytearray()
+        self._start = 0
+        self._kept = 0
+        self._skipped_bytes = 0
+        self._skipped_lines = 0
+
+    @property
+    def received(self) -> int:
+        """Bytes received so far, skipped lines included."""
+        return len(self._data) + self._skipped_bytes
+
+    def add(self, chunk: bytes) -> bytes | None:
+        """Take ``chunk``; return the answer once its ``lines``-th kept line is in, else None.
+
+        Raises:
+            PrinterProtocolError: The bytes received reached :data:`MAX_ANSWER_BYTES` without the answer.
+        """
+        self._data += chunk
+        while (line_end := self._next_line_end()) >= 0:
+            if line_end + self._skipped_bytes > MAX_ANSWER_BYTES:
+                raise self._overflow()
+            if self._take(line_end):
+                return bytes(self._data[:line_end])
+        if self.received >= MAX_ANSWER_BYTES:
+            raise self._overflow()
+        return None
+
+    def _next_line_end(self) -> int:
+        """Index just past the terminator of the line being read, or -1 while it is incomplete."""
+        end = self._data.find(self._terminator, self._start)
+        return end if end < 0 else end + len(self._terminator)
+
+    def _take(self, line_end: int) -> bool:
+        """Keep the line ending at ``line_end`` or cut it out; True when it was the answer's last line."""
+        line = bytes(self._data[self._start : line_end])
+        if self._accept is not None and not self._accept(line):
+            del self._data[self._start : line_end]
+            self._skipped_bytes += len(line)
+            self._skipped_lines += 1
+            return False
+        self._kept += 1
+        self._start = line_end
+        return self._kept == self._lines
+
+    def _overflow(self) -> PrinterProtocolError:
+        return answer_overflow(self._channel, limit=MAX_ANSWER_BYTES, skipped_lines=self._skipped_lines)
+
+
 def _connect_retrying_refusals(uri: TcpUri, *, timeout: float) -> socket.socket:
     """Connect, retrying a refused connection while the retry window is open.
 
@@ -262,16 +341,6 @@ def _connect_retrying_refusals(uri: TcpUri, *, timeout: float) -> socket.socket:
             if time.monotonic() + _REFUSED_RETRY_INTERVAL >= deadline:
                 raise
         time.sleep(_REFUSED_RETRY_INTERVAL)
-
-
-def _nth(data: bytearray, needle: bytes, count: int) -> int:
-    """Index of the ``count``-th occurrence of ``needle`` in ``data``, or -1."""
-    index = -len(needle)
-    for _ in range(count):
-        index = data.find(needle, index + len(needle))
-        if index < 0:
-            return -1
-    return index
 
 
 __all__ = ["MAX_ANSWER_BYTES", "MAX_ANSWER_SECONDS", "MAX_IDLE_ANSWER_BYTES", "REFUSED_RETRY_SECONDS", "TcpTransport"]

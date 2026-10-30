@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `status` and `verify` skip a whole line that is not a status answer
+  before the eight `Y`/`N` flags arrive. Through a print server a status
+  request can be answered first by a line the printer still owed an earlier
+  memory query (`MODULE: A`, `AVAILABLE BYTES IN MODULE : 00048631`), which
+  made `status` fail to parse; junk on the status line itself is still
+  refused. Skipped lines count toward the 64 KiB answer bound, so a printer
+  sending nothing else fails with `no complete answer within 65536 bytes`.
+  `PrinterTransport.query` takes an `accept` test for this.
+- A query that read not one byte now adds `the printer may still be printing
+  an earlier job; try again or raise --timeout` to its timeout message.
+
 ## [0.4.0] - 2026-10-30
 
 ### Added

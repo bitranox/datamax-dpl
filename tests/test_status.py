@@ -24,6 +24,7 @@ from datamax_dpl.domain.status import (
     VERSION_REQUEST,
     MemoryReport,
     PrinterStatus,
+    is_status_line,
     parse_ascii_status,
     parse_batch_remaining,
     parse_memory_report,
@@ -128,6 +129,55 @@ def test_an_error_character_mixed_with_garbage_is_still_named() -> None:
     ],
 )
 def test_an_ascii_status_outside_the_manual_is_refused(answer: bytes) -> None:
+    with pytest.raises(PrinterProtocolError):
+        parse_ascii_status(answer)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "line",
+    [
+        b"NNNNNNNN\r",
+        b"\x11NNNNYNNN\r",
+        b"NNNN\x11NNNN\r",  # flow control between the flags
+        b"\x11cZNNNNNNNN\r",  # error character and junk in front: the parser names them
+        b"YNNNNNNNN\r",  # nine flags: the parser refuses it, the transport must not skip it
+        b"NNNNNNNY\r",  # reserved flag set: the same
+        b"x" * 5000 + b"NNNNNNNN\r",
+    ],
+)
+def test_a_line_ending_in_eight_flags_is_a_status_line(line: bytes) -> None:
+    assert is_status_line(line)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "line",
+    [
+        # Lines of an <STX>W or <STX>KQ answer captured on an Allegro 2, left over from an earlier query.
+        b"MODULE: A\r",
+        b"AVAILABLE BYTES IN MODULE : 00048631\r",
+        b"INTERNAL MEMORY\r",
+        b"LABEL SIZE: 0400:0600:IN\r",
+        b"NNNNNNN\r",
+        b"nnnnnnnn\r",
+        b"NNNNNNNN",  # no terminator: not a whole line
+        b"YNNNNNNNN",  # nor is this, though its last eight bytes are flags
+        b"NNNNNNNN\r\n",
+        b"\r",
+        b"",
+    ],
+)
+def test_a_line_not_ending_in_eight_flags_is_not_a_status_line(line: bytes) -> None:
+    assert not is_status_line(line)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("answer", [b"cZNNNNNNNN\r", b"YNNNNNNNN\r", b"NNNNNNNY\r", b"x" * 5000 + b"NNNNNNNN\r"])
+def test_junk_on_the_status_line_itself_is_still_refused(answer: bytes) -> None:
+    # The transport keeps a line that ends in eight flags, so junk in front of them on the same
+    # line reaches the parser and is refused there, never skipped as a stale line.
+    assert is_status_line(answer)
     with pytest.raises(PrinterProtocolError):
         parse_ascii_status(answer)
 

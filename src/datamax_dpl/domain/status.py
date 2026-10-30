@@ -204,6 +204,34 @@ def parse_ascii_status(answer: bytes) -> PrinterStatus:
     )
 
 
+def is_status_line(line: bytes) -> bool:
+    """Whether ``line`` is the line an ``<SOH>A`` answer arrives on: it ends in eight ``Y``/``N`` and ``<CR>``.
+
+    A transport hands each line it reads to this test and skips the ones it refuses, so a line left
+    over from an earlier query (an ``<STX>W`` or ``<STX>KQ`` line such as ``MODULE: A``) is never
+    read as the status. Flow-control bytes are dropped first. Whatever stands in front of the eight
+    flags on the same line stays for :func:`parse_ascii_status` to judge, so an error character or
+    junk on the answer's own line is still refused there rather than skipped here.
+
+    Args:
+        line: One line as a transport read it, terminator included.
+
+    Returns:
+        True when the line ends in eight ``Y``/``N`` characters and ``<CR>``.
+
+    Example:
+        >>> is_status_line(b"\\x11NNNNYNNN\\r"), is_status_line(b"cZNNNNNNNN\\r")
+        (True, True)
+        >>> is_status_line(b"AVAILABLE BYTES IN MODULE : 00048631\\r"), is_status_line(b"NNNNNNN\\r")
+        (False, False)
+    """
+    cleaned = _drop_flow_control(line)
+    if not cleaned.endswith(ANSWER_TERMINATOR):
+        return False
+    flags = cleaned[: -len(ANSWER_TERMINATOR)][-STATUS_FLAG_COUNT:]
+    return len(flags) == STATUS_FLAG_COUNT and all(char in (_YES, _NO) for char in flags)
+
+
 def parse_status_byte(answer: bytes) -> PrinterStatus:
     """Parse the ``<SOH>F`` answer: one bit field byte and ``<CR>``.
 
@@ -408,6 +436,7 @@ __all__ = [
     "XON",
     "MemoryReport",
     "PrinterStatus",
+    "is_status_line",
     "parse_ascii_status",
     "parse_batch_remaining",
     "parse_memory_report",

@@ -9,11 +9,15 @@ from __future__ import annotations
 
 import os
 import sys
+from typing import TYPE_CHECKING
 
 from datamax_dpl.domain.errors import TransportError
 from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS
 
 from .uri import ClosingTransport, DeviceUri, FileUri, channel_name, transport_error, unsupported_query
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # Windows opens files in text mode unless told otherwise, which would rewrite every LF byte of a
 # job; POSIX has no such flag.
@@ -50,7 +54,15 @@ class DescriptorTransport(ClosingTransport):
         except OSError as exc:
             raise transport_error(self._uri, action="write to", error=exc) from exc
 
-    def query(self, request: bytes, *, timeout: float, terminator: bytes = b"\r", lines: int = 1) -> bytes:
+    def query(
+        self,
+        request: bytes,
+        *,
+        timeout: float,
+        terminator: bytes = b"\r",
+        lines: int = 1,
+        accept: Callable[[bytes], bool] | None = None,
+    ) -> bytes:
         """Refuse: the channel cannot read the printer's answer.
 
         Raises:

@@ -26,6 +26,7 @@ from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS, STATUS_REQUEST
 
 if TYPE_CHECKING:
+    import socket
     from collections.abc import Callable
 
     from click.testing import CliRunner, Result
@@ -116,6 +117,25 @@ def test_status_over_tcp_reads_an_idle_printer(cli_runner: CliRunner, serve: Cal
 
 
 @pytest.mark.os_agnostic
+def test_status_skips_a_stale_memory_line_sent_after_the_request(
+    cli_runner: CliRunner, serve: Callable[[Play], PrinterServer]
+) -> None:
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        server.read_exactly(connection, len(STATUS_REQUEST))
+        connection.sendall(b"MODULE: A\r")
+        connection.sendall(IDLE_STATUS)
+        server.read_to_end(connection)
+
+    server = serve(play)
+
+    result = run(cli_runner, ["--json", "status", "--printer", server.address])
+    server.join()
+
+    assert result.exit_code == 0, result.output
+    assert envelope(result)["data"]["idle"] is True
+
+
+@pytest.mark.os_agnostic
 def test_memory_over_tcp_lists_the_module_and_its_free_bytes(
     cli_runner: CliRunner, serve: Callable[[Play], PrinterServer]
 ) -> None:
@@ -148,6 +168,7 @@ def test_a_silent_printer_fails_status_within_the_given_timeout(
 
     assert result.exit_code == 2, result.output
     assert f"no complete answer within {timeout:g} s" in result.stderr
+    assert "the printer may still be printing an earlier job; try again or raise --timeout" in result.stderr
     # The lower margin: on Windows (Python 3.10-3.12) the monotonic clock ticks every 15.6 ms and a
     # socket wait can return a tick early, as the transport tests also allow.
     assert timeout - 0.1 <= elapsed < timeout + STARTUP_SLACK_SECONDS, f"{elapsed=:.2f}"

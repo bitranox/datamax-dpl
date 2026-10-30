@@ -33,6 +33,7 @@ from ..domain.status import (
     TOGGLE_PAUSE,
     VERSION_REQUEST,
     PrinterStatus,
+    is_status_line,
     parse_ascii_status,
     parse_memory_report,
     parse_version,
@@ -159,13 +160,16 @@ def send_command(command: PrinterCommand, *, uri: str, timeout: float, open_prin
 def query_status(*, uri: str, timeout: float, open_printer: OpenPrinter) -> PrinterStatus:
     """Ask the printer for its status (``<SOH>A``).
 
+    Lines that do not end in eight status flags are skipped: a print server can pass on what the
+    printer still owed an earlier query (a memory report line) after the status request went out.
+
     Raises:
         UnsupportedOperationError: The channel cannot read answers (file, stdout, device file).
         PrinterTimeoutError: The printer did not answer in time.
         PrinterProtocolError: The answer was not a status string.
     """
     with closing(open_printer(uri, timeout=timeout)) as printer:
-        return parse_ascii_status(printer.query(STATUS_REQUEST, timeout=timeout))
+        return parse_ascii_status(printer.query(STATUS_REQUEST, timeout=timeout, accept=is_status_line))
 
 
 #: Seconds of silence that end a ``<STX>W`` directory answer, which has no terminator. A printer

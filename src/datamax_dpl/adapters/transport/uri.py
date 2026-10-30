@@ -25,7 +25,12 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 from pydantic import BaseModel, Field
 
-from datamax_dpl.domain.errors import PrinterTimeoutError, TransportError, UnsupportedOperationError
+from datamax_dpl.domain.errors import (
+    PrinterProtocolError,
+    PrinterTimeoutError,
+    TransportError,
+    UnsupportedOperationError,
+)
 from datamax_dpl.domain.status import XOFF, XON
 from datamax_dpl.domain.timing import MAX_TIMEOUT_SECONDS, check_timeout
 
@@ -257,13 +262,19 @@ class Wait(NamedTuple):
         return self.deadline - time.monotonic()
 
 
+#: Added to a timeout when not one byte came: a printer busy with an earlier job answers late.
+NO_ANSWER_HINT = "the printer may still be printing an earlier job; try again or raise --timeout"
+
+
 def no_answer(channel: str, *, wait: Wait, received: int) -> PrinterTimeoutError:
     """Return the error for a printer that sent no complete answer within ``wait``.
+
+    When not one byte came, the message ends with :data:`NO_ANSWER_HINT`.
 
     Args:
         channel: The channel as messages name it, e.g. ``tcp 192.0.2.60:9100``.
         wait: The wait that ran out.
-        received: Bytes of the answer that did arrive.
+        received: Bytes that did arrive, lines skipped as not the answer included.
 
     Example:
         >>> print(no_answer("tcp 192.0.2.60:9100", wait=Wait(seconds=0.5, deadline=0.0), received=4))
@@ -271,10 +282,35 @@ def no_answer(channel: str, *, wait: Wait, received: int) -> PrinterTimeoutError
 
         The seconds print as the sibling messages print theirs (``:g``), without float noise:
 
-        >>> print(no_answer("serial COM3", wait=Wait(seconds=0.1 + 0.2, deadline=0.0), received=0))
-        serial COM3: no complete answer within 0.3 s (0 bytes read)
+        >>> print(no_answer("serial COM3", wait=Wait(seconds=0.1 + 0.2, deadline=0.0), received=3))
+        serial COM3: no complete answer within 0.3 s (3 bytes read)
+
+        >>> str(no_answer("serial COM3", wait=Wait(seconds=2.0, deadline=0.0), received=0)).endswith(NO_ANSWER_HINT)
+        True
     """
-    return PrinterTimeoutError(f"{channel}: no complete answer within {wait.seconds:g} s ({received} bytes read)")
+    message = f"{channel}: no complete answer within {wait.seconds:g} s ({received} bytes read)"
+    if received == 0:
+        message += f"; {NO_ANSWER_HINT}"
+    return PrinterTimeoutError(message)
+
+
+def answer_overflow(channel: str, *, limit: int, skipped_lines: int) -> PrinterProtocolError:
+    """Return the error for an answer that did not end within ``limit`` bytes.
+
+    Args:
+        channel: The channel as messages name it, e.g. ``tcp 192.0.2.60:9100``.
+        limit: The size bound that was reached.
+        skipped_lines: Lines read and skipped as not the answer; those bytes count toward ``limit``.
+
+    Example:
+        >>> print(answer_overflow("tcp 192.0.2.60:9100", limit=65536, skipped_lines=0))
+        tcp 192.0.2.60:9100: no answer terminator within 65536 bytes
+        >>> print(answer_overflow("serial COM3", limit=65536, skipped_lines=6553))
+        serial COM3: no complete answer within 65536 bytes (6553 lines skipped)
+    """
+    if not skipped_lines:
+        return PrinterProtocolError(f"{channel}: no answer terminator within {limit} bytes")
+    return PrinterProtocolError(f"{channel}: no complete answer within {limit} bytes ({skipped_lines} lines skipped)")
 
 
 class ClosingTransport:
@@ -418,6 +454,7 @@ __all__ = [
     "FLOW_CONTROL_BYTES",
     "MAX_TCP_PORT",
     "MAX_TIMEOUT_SECONDS",
+    "NO_ANSWER_HINT",
     "ClosingTransport",
     "DeviceUri",
     "FileUri",
@@ -427,6 +464,7 @@ __all__ = [
     "StdoutUri",
     "TcpUri",
     "Wait",
+    "answer_overflow",
     "answer_started",
     "channel_name",
     "check_timeout",

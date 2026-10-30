@@ -16,6 +16,7 @@ from datamax_dpl.adapters.transport.serial import SerialTransport
 from datamax_dpl.adapters.transport.tcp import MAX_ANSWER_BYTES, MAX_IDLE_ANSWER_BYTES
 from datamax_dpl.adapters.transport.uri import SerialUri
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
+from datamax_dpl.domain.status import is_status_line
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -50,6 +51,13 @@ def test_an_answer_without_terminator_times_out_within_the_timeout() -> None:
         with pytest.raises(PrinterTimeoutError, match=r"no complete answer within 0\.3 s \(2 bytes read\)"):
             printer.query(b"\x01A", timeout=0.3)
         assert 0.25 <= time.monotonic() - started < 1.5
+
+
+@pytest.mark.os_agnostic
+def test_a_loop_port_skips_echoed_lines_the_caller_does_not_accept() -> None:
+    with SerialTransport.open(LOOP, timeout=1.0) as printer:
+        echoed = printer.query(b"MODULE: A\rNNNNNNNN\r", timeout=1.0, accept=is_status_line)
+    assert echoed == b"NNNNNNNN\r"
 
 
 @pytest.mark.os_agnostic
@@ -164,6 +172,48 @@ class DrainingPort:
 
     def close(self) -> None:
         return None
+
+
+class ScriptedPort(DrainingPort):
+    """A port with nothing queued whose input holds ``pending``; reads end at once when it is used up."""
+
+    def __init__(self, pending: bytes) -> None:
+        super().__init__(queued=0, bytes_per_tick=0)
+        self.pending = pending
+
+    def read_until(self, expected: bytes = b"\n", size: int | None = None) -> bytes:
+        end = self.pending.find(expected)
+        take = len(self.pending) if end < 0 else end + len(expected)
+        if size is not None:
+            take = min(take, size)
+        chunk, self.pending = self.pending[:take], self.pending[take:]
+        return chunk
+
+
+@pytest.mark.os_agnostic
+def test_a_query_skips_a_stale_memory_line_before_the_status() -> None:
+    port = ScriptedPort(b"AVAILABLE BYTES IN MODULE : 00048631\rNNNNNNNN\r")
+    printer = SerialTransport(port, uri=LOOP)
+    assert printer.query(b"\x01A", timeout=1.0, accept=is_status_line) == b"NNNNNNNN\r"
+
+
+@pytest.mark.os_agnostic
+def test_skipped_serial_lines_are_bounded_like_an_answer() -> None:
+    port = ScriptedPort(b"MODULE: A\r" * (70 * 1024 // 10))
+    printer = SerialTransport(port, uri=LOOP)
+    with pytest.raises(PrinterProtocolError, match=rf"no complete answer within {MAX_ANSWER_BYTES} bytes"):
+        printer.query(b"\x01A", timeout=1.0, accept=is_status_line)
+    assert port.pending, "the transport read past its bound"
+
+
+@pytest.mark.os_agnostic
+def test_a_serial_printer_sending_nothing_is_told_it_may_still_be_printing() -> None:
+    printer = SerialTransport(ScriptedPort(b""), uri=LOOP)
+    with pytest.raises(PrinterTimeoutError, match=r"\(0 bytes read\)") as caught:
+        printer.query(b"\x01A", timeout=0.3, accept=is_status_line)
+    assert str(caught.value).endswith(
+        "(0 bytes read); the printer may still be printing an earlier job; try again or raise --timeout"
+    )
 
 
 @pytest.mark.os_agnostic
