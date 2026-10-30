@@ -1353,13 +1353,13 @@ def _image_reaching(row: int, options: RenderOptions) -> Label:
 
 
 @pytest.mark.os_agnostic
-def test_an_allegro_2_format_reaches_row_1640_and_not_row_1641() -> None:
-    """The last length-ladder tick the printer printed whole was the one on row 1640."""
+def test_an_allegro_2_format_reaches_row_1648_and_not_row_1649() -> None:
+    """A ladder of one line per dot row printed row 1648 whole and cut row 1649 off."""
     options = RenderOptions(model="allegro-2")
-    assert _format_length_findings(build_job(_image_reaching(1640, options), options)) == []
-    (refused,) = _format_length_findings(build_job(_image_reaching(1641, options), options))
-    assert "dot row 1641" in refused.message
-    assert "1640 rows" in refused.message
+    assert _format_length_findings(build_job(_image_reaching(1648, options), options)) == []
+    (refused,) = _format_length_findings(build_job(_image_reaching(1649, options), options))
+    assert "dot row 1649" in refused.message
+    assert "1648 rows" in refused.message
 
 
 def _stored_logo(y: float) -> Label:

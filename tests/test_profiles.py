@@ -25,8 +25,8 @@ def test_allegro_2_ships_the_measured_calibration_defaults() -> None:
 
 
 @pytest.mark.os_agnostic
-def test_allegro_2_holds_the_format_length_its_ladder_printed() -> None:
-    assert get_profile("allegro-2").max_format_rows == 1640
+def test_allegro_2_holds_the_format_length_measured_row_by_row() -> None:
+    assert get_profile("allegro-2").max_format_rows == 1648
 
 
 @pytest.mark.os_agnostic

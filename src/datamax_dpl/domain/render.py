@@ -303,7 +303,7 @@ def format_row_limit(options: RenderOptions) -> int | None:
 
     Example:
         >>> format_row_limit(RenderOptions(model="allegro-2"))
-        1640
+        1648
         >>> format_row_limit(RenderOptions(model="dmx-600")) is None
         True
     """

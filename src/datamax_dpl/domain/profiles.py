@@ -534,10 +534,11 @@ _IMAGE_MODULE: dict[str, str | None] = {
 
 
 #: The highest dot row along the feed one format reaches, at dot height 1, counted as the encoder
-#: commands it. Measured for the Allegro 2 with scripts/length_ladder.py (one Allegro 2, firmware
-#: CA02 03.04, 2026-10-30): the last tick printed whole was the one numbered row 1640. No other
-#: model has one: their manuals give none and none was measured.
-_MAX_FORMAT_ROWS: dict[str, int] = {"allegro-2": 1640}
+#: commands it. Measured for the Allegro 2 (one Allegro 2, firmware CA02 03.04, 2026-10-30) with a
+#: zigzag ladder: an image with one 3 mm line per dot row, each shifted sideways from the one below
+#: so every row prints as its own line; the last line printed whole was row 1648, and row 1649 was
+#: cut off. No other model has one: their manuals give none and none was measured.
+_MAX_FORMAT_ROWS: dict[str, int] = {"allegro-2": 1648}
 
 
 def _build(row: _Row) -> PrinterProfile:

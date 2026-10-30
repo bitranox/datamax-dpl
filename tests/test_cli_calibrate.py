@@ -124,7 +124,7 @@ def test_without_an_along_length_the_bar_is_the_longest_that_fits_the_model(
     model: str,
     fits: str,
 ) -> None:
-    """At most 200 mm; the Allegro 2's 1640 rows at its 0.976 feed scale hold a 190 mm bar."""
+    """At most 200 mm; at its 0.976 feed scale a 200 mm bar needs row 1653, past the Allegro 2's 1648."""
     defaulted, given = tmp_path / "defaulted.dpl", tmp_path / "given.dpl"
     size = ("--printer", "lager", "--axis", "along", "--width", "100", "--height", "55")
 
