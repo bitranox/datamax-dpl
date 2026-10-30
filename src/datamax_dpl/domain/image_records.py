@@ -52,6 +52,8 @@ _COUNT_DIGITS = 2
 _REPEAT_RECORD_LENGTH = len(REPEAT_PREFIX) + _COUNT_DIGITS
 _ROW_HEADER_LENGTH = len(ROW_PREFIX) + _COUNT_DIGITS
 _BITS_PER_BYTE = 8
+#: Widest image in pixels: a row record holds at most 255 bytes.
+MAX_WIDTH = MAX_COUNT * _BITS_PER_BYTE
 #: The end record plus the empty piece after its final carriage return.
 _TAIL_RECORDS = 2
 _NAME_PATTERN = re.compile(r"[A-Za-z0-9_]{1,8}")
@@ -87,10 +89,7 @@ def encode_image(bitmap: Bitmap) -> bytes:
     """
     rows = bitmap.rows()
     if len(rows[0]) > MAX_COUNT:
-        msg = (
-            f"an image row may be at most {MAX_COUNT} bytes ({MAX_COUNT * _BITS_PER_BYTE} pixels), "
-            f"got {bitmap.width} pixels"
-        )
+        msg = f"an image row may be at most {MAX_COUNT} bytes ({MAX_WIDTH} pixels), got {bitmap.width} pixels"
         raise ValueError(msg)
     return b"".join(_row_record(row) for row in reversed(rows)) + END_RECORD + CR
 
@@ -203,6 +202,7 @@ __all__ = [
     "DOWNLOAD_COMMAND",
     "END_RECORD",
     "MAX_COUNT",
+    "MAX_WIDTH",
     "REPEAT_PREFIX",
     "ROW_PREFIX",
     "STX",

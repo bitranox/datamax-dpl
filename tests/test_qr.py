@@ -371,11 +371,11 @@ def test_two_different_images_whose_names_collide_in_one_job_get_different_names
     )
     bitmap = Bitmap.from_rows(["#."])
     taken = drawn_image_name(bitmap)
-    ctx.download_image(taken, Bitmap.from_rows([".#"]))
-    name = ctx.download_drawn_image(bitmap)
+    ctx.download_image(taken, Bitmap.from_rows([".#"]), element=0)
+    name = ctx.download_drawn_image(bitmap, element=0)
     assert name not in (taken, "")
     assert name == drawn_image_name(bitmap, salt=1)
-    assert ctx.download_drawn_image(bitmap) == name
+    assert ctx.download_drawn_image(bitmap, element=0) == name
     assert [download.name for download in ctx.downloads] == [taken, name]
 
 
@@ -452,10 +452,10 @@ def test_download_drawn_image_never_names_two_different_images_alike(
         reserved_image_names=frozenset({first}) if reserved else frozenset(),
     )
     if taken_by_other:
-        ctx.download_image(drawn_image_name(bitmap, salt=1), Bitmap.from_rows([".#"]))
-    name = ctx.download_drawn_image(bitmap)
+        ctx.download_image(drawn_image_name(bitmap, salt=1), Bitmap.from_rows([".#"]), element=0)
+    name = ctx.download_drawn_image(bitmap, element=0)
     if queued_twice:
-        assert ctx.download_drawn_image(bitmap) == name
+        assert ctx.download_drawn_image(bitmap, element=0) == name
     assert name not in ctx.reserved_image_names
     commands = [download.command for download in ctx.downloads if download.name == name]
     assert len(commands) == 1

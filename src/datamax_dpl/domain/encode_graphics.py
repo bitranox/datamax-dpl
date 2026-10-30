@@ -130,7 +130,7 @@ def encode_polygon(element: Polygon, *, index: int, ctx: RenderContext) -> list[
 def encode_image(element: Image, *, index: int, ctx: RenderContext) -> list[bytes]:
     """Queue the image download (when a bitmap is given) and return its placing record."""
     if element.bitmap is not None:
-        ctx.download_image(element.name, Bitmap.from_rows(element.bitmap))
+        ctx.download_image(element.name, Bitmap.from_rows(element.bitmap), element=index)
     else:
         ctx.findings.info(
             FindingCode.IMAGE_MUST_BE_STORED, f"image {element.name} must already be on the printer", element=index
@@ -207,7 +207,7 @@ def encode_qr(element: Qr, *, index: int, ctx: RenderContext) -> list[bytes]:
     if field_column <= last_column(ctx):
         extent = symbol.width * element.module_dots + quiet_dots
         _check_right_edge(element, start_column=column, extent_dots=extent, index=index, ctx=ctx)
-    name = ctx.download_drawn_image(symbol)
+    name = ctx.download_drawn_image(symbol, element=index)
     record = image_record(row=row, column=column, name=name, magnification=(element.module_dots, element.module_dots))
     return [line(record)]
 

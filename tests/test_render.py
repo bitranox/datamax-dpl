@@ -672,3 +672,45 @@ def test_the_effective_calibration_of_a_model_without_measurements_is_neutral() 
     calibration = effective_calibration(RenderOptions(model="dmx-600"))
     assert (calibration.scale_across, calibration.scale_along, calibration.offset_along) == (1.0, 1.0, 0.0)
     assert calibration.stop_position_mm is None
+
+
+# ======================== images wider than one image row ========================
+
+_ROW_LIMIT_PHRASE = "one image row holds at most 2040 dots"
+
+
+@pytest.mark.os_agnostic
+def test_a_raster_fallback_wider_than_an_image_row_is_refused_not_raised() -> None:
+    """A patterned box 20 in wide rasterises to 4061 dots on an Allegro 2; one row holds 2040."""
+    label = Label.model_validate(
+        {
+            "unit": "in",
+            "elements": [{"type": "box", "x": 1, "y": 1, "width": 20, "height": 1, "thickness": 0.5, "fill": 4}],
+        }
+    )
+    result = build_job(label, RenderOptions(model="allegro-2"))
+    [finding] = [f for f in result.findings if f.code is FindingCode.IMAGE_TOO_WIDE]
+    assert (finding.severity, finding.element) == (Severity.ERROR, 0)
+    assert result.downloads == ()
+    with pytest.raises(LabelRejectedError, match=_ROW_LIMIT_PHRASE):
+        render(label, RenderOptions(model="allegro-2"))
+
+
+@pytest.mark.os_agnostic
+def test_a_user_image_wider_than_an_image_row_is_refused_not_raised() -> None:
+    label = Label.model_validate(
+        {
+            "elements": [
+                {"type": "text", "x": 1, "y": 1, "text": "x"},
+                {"type": "image", "x": 0, "y": 0, "name": "WIDE", "bitmap": ["#" * 2041]},
+            ]
+        }
+    )
+    result = build_job(label, RenderOptions(model="permissive"))
+    [finding] = [f for f in result.findings if f.code is FindingCode.IMAGE_TOO_WIDE]
+    assert (finding.severity, finding.element) == (Severity.ERROR, 1)
+    assert result.downloads == ()
+    assert build_job(
+        label.model_copy(update={"elements": [label.elements[1].model_copy(update={"bitmap": ["#" * 2040]})]}),
+        RenderOptions(model="permissive"),
+    ).ok

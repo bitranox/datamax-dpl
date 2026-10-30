@@ -76,6 +76,15 @@ All notable changes to this project are documented here. The format follows
   old file is kept as `.bak`), to get the model defaults. Earlier releases
   did not ship these keys.
 
+### Fixed
+
+- An image wider than one image row (2040 dots) made `build_job` (and
+  `validate`, `render`, `print`) fail with a raw `ValueError`; a patterned
+  box 20 in wide on an Allegro 2 rasterised to 4061 dots, for one. It is
+  now refused with `image_too_wide` on the element that made it, for given
+  images, raster fallbacks and QR Codes alike, and nothing is downloaded
+  for it.
+
 ## [0.3.0] - 2026-10-29
 
 ### Added

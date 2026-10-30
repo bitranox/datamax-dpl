@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict, Field
 
 from .enums import Attribute, FallbackPolicy, FindingCode, HardwareOption, Unit
-from .image_records import download_command
+from .image_records import MAX_WIDTH, download_command
 from .units import (
     MAX_OFFSET_MM,
     MAX_SCALE,
@@ -245,23 +245,39 @@ class RenderContext:
         """Convert a label length on ``axis`` to the nearest whole number of dots, zero allowed (a position)."""
         return round(exact_dots(value, self.unit, dpi=self.profile.dpi, correction=self.correction(axis)))
 
-    def download_image(self, name: str, bitmap: Bitmap) -> None:
+    def _fits_an_image_row(self, name: str, bitmap: Bitmap, *, element: int) -> bool:
+        """Refuse an image wider than one row record holds, on the element that made it."""
+        if bitmap.width <= MAX_WIDTH:
+            return True
+        self.findings.refuse(
+            FindingCode.IMAGE_TOO_WIDE,
+            f"image {name} is {bitmap.width} dots wide; one image row holds at most {MAX_WIDTH} dots",
+            element=element,
+        )
+        return False
+
+    def download_image(self, name: str, bitmap: Bitmap, *, element: int) -> None:
         """Queue ``bitmap`` for download under ``name`` before the format.
 
-        Raises:
-            ValueError: When the name is not 1-8 letters, digits or underscores, or the image is
-                too wide.
-        """
-        self.downloads.append(ImageDownload(name=name, command=download_command(name, bitmap)))
+        An image too wide for one row record is refused (``image_too_wide``) and not queued.
 
-    def download_drawn_image(self, bitmap: Bitmap) -> str:
+        Raises:
+            ValueError: When the name is not 1-8 letters, digits or underscores.
+        """
+        if self._fits_an_image_row(name, bitmap, element=element):
+            self.downloads.append(ImageDownload(name=name, command=download_command(name, bitmap)))
+
+    def download_drawn_image(self, bitmap: Bitmap, *, element: int) -> str:
         """Queue an image the library drew under its content name, once per job, and return the name.
 
         A bitmap already queued is not queued again. When the content name is taken in this job,
         by a different drawn bitmap (a hash collision) or by a user ``image`` of that name (a
         reserved name, whether or not it is downloaded), the next salt is tried, so a job never
-        sends or places two different images under one name, whatever the element order.
+        sends or places two different images under one name, whatever the element order. An image
+        too wide for one row record is refused (``image_too_wide``) and not queued.
         """
+        if not self._fits_an_image_row(drawn_image_name(bitmap), bitmap, element=element):
+            return drawn_image_name(bitmap)
         salt = 0
         while True:
             name = drawn_image_name(bitmap, salt=salt)
