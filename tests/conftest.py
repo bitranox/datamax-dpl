@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping
 
     from lib_layered_config.domain.config import SourceInfo
-    from printer_server import Play
+    from printer_server import Play, Serve
 
     from datamax_dpl.composition import AppServices
 
@@ -635,14 +635,15 @@ def config_cli_context(
 
 
 @pytest.fixture
-def serve() -> Iterator[Callable[[Play], PrinterServer]]:
-    """Start one-connection printer servers on 127.0.0.1; every one is joined at teardown.
+def serve() -> Iterator[Serve]:
+    """Start printer servers on 127.0.0.1; every one is joined at teardown.
 
     A thread still running after its join would outlive its test and run on into later ones, so
     teardown fails the test that left it.
 
     Yields:
-        A function taking the printer's side of the connection and returning the started server.
+        A function taking the printer's side of each connection, in order (and ``refuse_for``,
+        seconds every connect is refused first), and returning the started server.
 
     Example:
         def test_status(serve: Callable[[Play], PrinterServer]) -> None:
@@ -650,8 +651,8 @@ def serve() -> Iterator[Callable[[Play], PrinterServer]]:
     """
     servers: list[PrinterServer] = []
 
-    def start(play: Play) -> PrinterServer:
-        server = PrinterServer(play)
+    def start(*plays: Play, refuse_for: float = 0.0) -> PrinterServer:
+        server = PrinterServer(*plays, refuse_for=refuse_for)
         servers.append(server)
         return server
 

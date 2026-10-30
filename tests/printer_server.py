@@ -1,7 +1,8 @@
 """TCP servers on 127.0.0.1 that play a printer, for transport, CLI and script tests.
 
-:class:`PrinterServer` serves one connection; :class:`ConnectionsServer` serves several, one after
-another, for a client that connects again and again (``scripts/status_cycles.py``).
+:class:`PrinterServer` serves one connection per play it is given, in order, and can refuse every
+connect for a while first; :class:`ConnectionsServer` serves several, one after another, for a
+client that connects again and again (``scripts/status_cycles.py``).
 
 Imported by bare module name (``from printer_server import ...``): ``pythonpath`` in pyproject puts
 ``tests/`` on ``sys.path``, while ``from tests.printer_server`` passes under ``python -m pytest`` and
@@ -14,7 +15,8 @@ from __future__ import annotations
 import contextlib
 import socket
 import threading
-from typing import TYPE_CHECKING, TypeAlias
+import time
+from typing import TYPE_CHECKING, Protocol, TypeAlias
 
 from datamax_dpl.adapters.transport.uri import TcpUri
 from datamax_dpl.domain.status import STATUS_REQUEST
@@ -22,7 +24,7 @@ from datamax_dpl.domain.status import STATUS_REQUEST
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-__all__ = ["JOIN_SECONDS", "ConnectionsServer", "Play", "PrinterServer", "answering", "silent"]
+__all__ = ["JOIN_SECONDS", "ConnectionsServer", "Play", "PrinterServer", "Serve", "answering", "hanging_up", "silent"]
 
 #: Longest wait for a server thread to end, and for a client to connect to it.
 JOIN_SECONDS = 5.0
@@ -32,19 +34,28 @@ Play: TypeAlias = "Callable[[PrinterServer, socket.socket], None]"
 
 
 class PrinterServer:
-    """A one-connection server on an ephemeral port; ``play`` acts the printer on the accepted socket.
+    """A server on an ephemeral port; each play acts the printer on one accepted socket, in order.
 
     It binds 127.0.0.1, never ``localhost``: GitHub's runners resolve ``localhost`` to ``::1`` first,
-    where nothing listens.
+    where nothing listens. With ``refuse_for`` nothing is bound to the port for that many seconds,
+    so every connect is refused, and only then does it listen.
     """
 
-    def __init__(self, play: Play) -> None:
+    def __init__(self, *plays: Play, refuse_for: float = 0.0) -> None:
         self.listener = socket.create_server(("127.0.0.1", 0))
-        # Bounded, so a test whose client never connects still ends the thread instead of leaking it.
-        self.listener.settimeout(JOIN_SECONDS)
         self.port: int = self.listener.getsockname()[1]
+        if refuse_for:
+            # Nothing bound, not bound without listening: macOS ignores a SYN to a bound port that
+            # does not listen, so the client would wait out its timeout instead of being refused.
+            self.listener.close()
+        else:
+            # Bounded, so a test whose client never connects still ends the thread instead of leaking it.
+            self.listener.settimeout(JOIN_SECONDS)
         self.received = bytearray()
-        self._play = play
+        #: The bytes each connection received, one entry per accepted connection.
+        self.connections: list[bytearray] = []
+        self._plays = plays
+        self._refuse_for = refuse_for
         self._thread = threading.Thread(target=self._serve, daemon=True)
         self._thread.start()
 
@@ -64,15 +75,21 @@ class PrinterServer:
         return not self._thread.is_alive()
 
     def _serve(self) -> None:
-        try:
-            connection, _ = self.listener.accept()
-        except OSError:
-            # No client came within JOIN_SECONDS, or join() closed the listener first.
-            return
-        # Bounded too: a client that never closes would otherwise hold read_to_end, and the thread, forever.
-        connection.settimeout(JOIN_SECONDS)
-        with connection:
-            self._play(self, connection)
+        if self._refuse_for:
+            time.sleep(self._refuse_for)
+            self.listener = socket.create_server(("127.0.0.1", self.port))
+            self.listener.settimeout(JOIN_SECONDS)
+        for play in self._plays:
+            try:
+                connection, _ = self.listener.accept()
+            except OSError:
+                # No client came within JOIN_SECONDS, or join() closed the listener first.
+                return
+            self.connections.append(bytearray())
+            # Bounded too: a client that never closes would otherwise hold read_to_end, and the thread, forever.
+            connection.settimeout(JOIN_SECONDS)
+            with connection:
+                play(self, connection)
 
     def read_exactly(self, connection: socket.socket, count: int) -> bytes:
         """Receive ``count`` bytes, fewer when the client hangs up or falls silent first, and record them."""
@@ -85,7 +102,7 @@ class PrinterServer:
             if not chunk:
                 break
             data += chunk
-        self.received += data
+        self._record(data)
         return bytes(data)
 
     def read_to_end(self, connection: socket.socket) -> None:
@@ -94,12 +111,22 @@ class PrinterServer:
         # One silent for JOIN_SECONDS is treated the same, so the thread still ends.
         with contextlib.suppress(ConnectionResetError, TimeoutError):
             while chunk := connection.recv(65536):
-                self.received += chunk
+                self._record(chunk)
+
+    def _record(self, data: bytes | bytearray) -> None:
+        self.received += data
+        self.connections[-1] += data
 
     def join(self) -> None:
-        """Wait up to :data:`JOIN_SECONDS` for the thread to end, then close the listener."""
-        self._thread.join(JOIN_SECONDS)
+        """Wait up to :data:`JOIN_SECONDS` past any refusing time for the thread to end, then close the listener."""
+        self._thread.join(self._refuse_for + JOIN_SECONDS)
         self.listener.close()
+
+
+class Serve(Protocol):
+    """The ``serve`` fixture: start a :class:`PrinterServer` that the fixture joins at teardown."""
+
+    def __call__(self, *plays: Play, refuse_for: float = ...) -> PrinterServer: ...
 
 
 def answering(request: bytes, reply: bytes) -> Play:
@@ -109,6 +136,15 @@ def answering(request: bytes, reply: bytes) -> Play:
         server.read_exactly(connection, len(request))
         connection.sendall(reply)
         server.read_to_end(connection)
+
+    return play
+
+
+def hanging_up(request: bytes) -> Play:
+    """A print server that takes ``request`` and closes the connection without a byte of answer."""
+
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        server.read_exactly(connection, len(request))
 
     return play
 

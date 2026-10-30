@@ -200,16 +200,18 @@ def parse_printer_uri(uri: str) -> PrinterUri:
         raise ValueError(f"printer URI {uri!r}: {exc}; accepted forms: {ACCEPTED_FORMS}") from exc
 
 
-def transport_error(uri: PrinterUri, *, action: str, error: OSError) -> TransportError:
+def transport_error(uri: PrinterUri, *, action: str, error: OSError, unanswered: bool = False) -> TransportError:
     """Turn an ``OSError`` into the :class:`~datamax_dpl.domain.errors.TransportError` callers see.
 
     A timeout becomes :class:`~datamax_dpl.domain.errors.PrinterTimeoutError`, so a caller can
-    tell a silent printer from a missing one.
+    tell a silent printer from a missing one. A refused connection is always ``unanswered``: no
+    request went out on it.
 
     Args:
         uri: The channel the error happened on.
         action: What was attempted, e.g. ``open`` or ``write to``.
         error: The operating system's error.
+        unanswered: The channel ended before a byte of answer came (see ``TransportError``).
 
     Returns:
         The error to raise (chain it with ``from error``); its message names the URI kind, the
@@ -220,12 +222,15 @@ def transport_error(uri: PrinterUri, *, action: str, error: OSError) -> Transpor
         'cannot write to stdout: Broken pipe'
         >>> type(transport_error(StdoutUri(), action="read from", error=TimeoutError())).__name__
         'PrinterTimeoutError'
+        >>> refused = ConnectionRefusedError(111, "Connection refused")
+        >>> transport_error(TcpUri(host="192.0.2.60", port=9100), action="connect to", error=refused).unanswered
+        True
     """
     reason = error.strerror or str(error) or type(error).__name__
     message = f"cannot {action} {channel_name(uri)}: {reason}"
     if isinstance(error, TimeoutError):
         return PrinterTimeoutError(message)
-    return TransportError(message)
+    return TransportError(message, unanswered=unanswered or isinstance(error, ConnectionRefusedError))
 
 
 #: Bytes a printer sends for flow control at any time; alone they are not the start of an answer.

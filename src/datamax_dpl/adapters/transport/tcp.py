@@ -214,21 +214,28 @@ class TcpTransport(ClosingTransport):
     def _receive(self, wait: Wait, *, received: bytes | bytearray, skipped: Skipped = NOTHING_SKIPPED) -> bytes:
         """Receive one chunk before ``wait`` ends; an empty read means the printer hung up.
 
-        ``received`` and ``skipped`` are what came of the answer so far, for the error messages.
+        ``received`` and ``skipped`` are what came of the answer so far, for the error messages. A
+        hang-up (closed or reset) before any of it is ``unanswered``; once a line was skipped it is
+        not, since a print server passing on an earlier answer may yet pass on this one.
         """
         remaining = wait.remaining()
         if remaining <= 0:
             raise no_answer(f"tcp {self._uri.target}", wait=wait, received=received, skipped=skipped)
         self._sock.settimeout(remaining)
+        nothing_came = not answer_started(received) and not skipped.lines
         try:
             chunk = self._sock.recv(_RECV_CHUNK)
         except TimeoutError as exc:
             raise no_answer(f"tcp {self._uri.target}", wait=wait, received=received, skipped=skipped) from exc
         except OSError as exc:
-            raise transport_error(self._uri, action="read from", error=exc) from exc
+            hung_up = nothing_came and isinstance(exc, ConnectionError)
+            raise transport_error(self._uri, action="read from", error=exc, unanswered=hung_up) from exc
         if not chunk:
             read = len(received) + skipped.size
-            raise TransportError(f"tcp {self._uri.target}: the printer closed the connection ({read} bytes read)")
+            raise TransportError(
+                f"tcp {self._uri.target}: the printer closed the connection ({read} bytes read)",
+                unanswered=nothing_came,
+            )
         return chunk
 
     def _receive_start(self, wait: Wait) -> bytearray:

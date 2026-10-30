@@ -192,6 +192,10 @@ The model matrix, the limits and the full fallback table are in
 | `-`                                                                               | Writes the job to standard output.                                                           |
 
 `status`, `detect` and `memory` need a channel that can read the printer's answer (tcp or serial).
+`status` and `memory` keep trying for `[printer] status_wait` seconds (default 30) while a print
+server is still busy with an earlier job: a refused connection, or one closed unanswered, is tried
+again on a new one, and a silent one is read until the wait ends, never asked twice. `--timeout`
+sets that whole wait instead.
 `reset`, `cancel`, `pause`, `feed` and `cut` send single printer commands.
 
 `memory` lists what the printer's memory modules hold and how many bytes each has free

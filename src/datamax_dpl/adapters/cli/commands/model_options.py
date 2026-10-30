@@ -48,7 +48,15 @@ _PRINTER_CHOICE = option(
 
 _PRINTER_OPTIONS: tuple[_Decorator, ...] = (
     _PRINTER_CHOICE,
-    option("--timeout", type=float, default=None, help="Seconds to wait for the printer; default [printer] timeout."),
+    option(
+        "--timeout",
+        type=float,
+        default=None,
+        help=(
+            "Seconds to wait for the printer; default [printer] timeout. For status and memory, the whole"
+            " wait for the first answer instead of [printer] status_wait."
+        ),
+    ),
 )
 
 

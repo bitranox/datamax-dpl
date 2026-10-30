@@ -6,8 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `[printer] status_wait` (default 30 s) and `status_retry_interval` (0.25 s),
+  also per named printer: `status` and `memory` keep trying for the printer's
+  first answer while a print server is still busy with an earlier job. A
+  refused connection, or one closed before a byte of answer, is tried again
+  on a new one; an open but silent connection is read until the wait ends
+  and never asked a second time, so no second request is left outstanding.
+  A malformed answer is reported, not asked again. When the wait runs out
+  the error counts the attempts, quotes the last failure and names
+  `status_wait` and `--timeout`. `TransportError.unanswered` marks the
+  failures that may be retried; `application.use_cases.AnswerWait` carries
+  the wait for library callers.
+
 ### Changed
 
+- `--timeout` on `status` and `memory` is now the whole wait for the first
+  answer, retries included, in place of `status_wait`; before, it bounded
+  one connect and one answer wait. Without `wait`, `query_status` and
+  `read_memory_directory` keep trying for `timeout` seconds in all.
+- `read_memory_directory` with no kinds returns at once without opening the
+  printer.
 - `allegro-2` model values measured on the printer: `max_format_rows` is
   1648 (about 201 mm at `scale_along` 0.976), the lowest row any test
   format was cut at; where the printer cuts depends on the format's

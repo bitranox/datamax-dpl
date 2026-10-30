@@ -12,7 +12,7 @@ import tomlkit
 from lib_layered_config import Config
 
 from datamax_dpl.adapters import cli as cli_mod
-from datamax_dpl.adapters.cli.settings import PrinterOverrides, printer_settings, render_options
+from datamax_dpl.adapters.cli.settings import PrinterOverrides, PrinterSettings, printer_settings, render_options
 from datamax_dpl.domain.enums import ImageModule
 from datamax_dpl.domain.errors import ConfigurationError
 
@@ -98,6 +98,57 @@ def test_a_max_format_rows_of_zero_is_refused_with_the_key_named(section: str, p
         ConfigurationError, match=rf"^{re.escape(section)}\.max_format_rows: Input should be greater than 0$"
     ):
         _options(config, printer=printer)
+
+
+def _settings(config: dict[str, Any], printer: str | None = None, timeout: float | None = None) -> PrinterSettings:
+    return printer_settings(Config(config, {}), PrinterOverrides(printer=printer, timeout=timeout))
+
+
+@pytest.mark.os_agnostic
+def test_status_waits_thirty_seconds_and_retries_every_quarter_second_by_default() -> None:
+    settings = _settings({})
+
+    assert (settings.status_wait, settings.status_retry_interval) == (30.0, 0.25)
+
+
+@pytest.mark.os_agnostic
+def test_a_configured_status_wait_and_retry_interval_reach_the_settings() -> None:
+    settings = _settings({"printer": {"status_wait": 5, "status_retry_interval": 0.5}})
+
+    assert (settings.status_wait, settings.status_retry_interval) == (5.0, 0.5)
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printers_status_wait_and_retry_interval_win_over_the_printer_section() -> None:
+    config = {
+        "printer": {"status_wait": 5, "status_retry_interval": 0.5},
+        "printers": {"x": {"status_wait": 45, "status_retry_interval": 1.0}},
+    }
+
+    named = _settings(config, printer="x")
+
+    assert (named.status_wait, named.status_retry_interval) == (45.0, 1.0)
+
+
+@pytest.mark.os_agnostic
+def test_a_timeout_given_on_the_command_line_is_the_whole_status_wait() -> None:
+    config = {"printer": {"status_wait": 30}, "printers": {"x": {"status_wait": 45}}}
+
+    assert _settings(config, timeout=2.0).status_wait == 2.0
+    assert _settings(config, printer="x", timeout=2.0).status_wait == 2.0
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("key", ["status_wait", "status_retry_interval"])
+@pytest.mark.parametrize("value", [0, -1.0])
+@pytest.mark.parametrize(("section", "printer"), [("printer", None), ("printers.x", "x")])
+def test_a_status_wait_or_retry_interval_not_above_zero_is_refused_with_the_key_named(
+    key: str, value: float, section: str, printer: str | None
+) -> None:
+    config = {"printer": {key: value}} if printer is None else {"printers": {"x": {key: value}}}
+
+    with pytest.raises(ConfigurationError, match=rf"^{re.escape(section)}\.{key}: Input should be greater than 0$"):
+        _settings(config, printer=printer)
 
 
 @pytest.mark.os_agnostic

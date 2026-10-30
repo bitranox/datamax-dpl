@@ -21,7 +21,8 @@ Global options (`--json` / `--json-bare`, `--set SECTION.KEY=VALUE`, `--profile`
 Exit codes: 0 done, 1 refused (an error finding), 2 could not run (bad JSON, unknown model,
 printer unreachable or silent, broken config). A printer that does not answer in time says how
 long it was given (`no complete answer within 0.5 s`): raise `--timeout` (seconds) or
-`[printer] timeout`.
+`[printer] timeout`. `status` and `memory` keep trying for `[printer] status_wait` (30 s) while a
+print server is busy with an earlier job; `--timeout` sets that whole wait.
 
 ## The loop - labels cost money, so do every step
 

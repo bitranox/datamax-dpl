@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Annotated, Any, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
+from ...application.use_cases import RETRY_INTERVAL_SECONDS, STATUS_WAIT_SECONDS
 from ...domain.camera import CameraSettings
 from ...domain.enums import CutterPresence, FallbackPolicy, HardwareOption, ImageModule
 from ...domain.errors import ConfigurationError
@@ -49,6 +50,10 @@ class PrinterSettings(BaseModel):
     uri: str = ""
     policy: FallbackPolicy = FallbackPolicy.DEGRADE
     timeout: float = Field(default=10.0, gt=0)
+    # How long status and memory keep trying for the first answer while a print server is still
+    # busy with an earlier job, and the pause between two of their connections.
+    status_wait: float = Field(default=STATUS_WAIT_SECONDS, gt=0)
+    status_retry_interval: float = Field(default=RETRY_INTERVAL_SECONDS, gt=0)
     cutter: CutterPresence = CutterPresence.UNKNOWN
     options: frozenset[HardwareOption] = Field(default_factory=frozenset[HardwareOption])
     # Same range as RenderOptions, so a bad value is refused here with its config key named. None
@@ -132,6 +137,8 @@ def printer_settings(config: Config, overrides: PrinterOverrides) -> PrinterSett
             "uri": _given(uri, base.uri),
             "policy": _given(overrides.policy, base.policy),
             "timeout": _given(overrides.timeout, base.timeout),
+            # --timeout is the whole wait where one applies: status and memory keep trying for it.
+            "status_wait": _given(overrides.timeout, base.status_wait),
             "cutter": _given(overrides.cutter, base.cutter),
             # Options add up instead of replacing: --option names one more installed option.
             "options": base.options | overrides.options,

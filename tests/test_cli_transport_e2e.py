@@ -167,7 +167,8 @@ def test_a_silent_printer_fails_status_within_the_given_timeout(
     elapsed = time.monotonic() - started
 
     assert result.exit_code == 2, result.output
-    assert f"no complete answer within {timeout:g} s" in result.stderr
+    # --timeout is the whole wait, so the message names it rather than the last attempt's remainder.
+    assert f"no answer within {timeout:g} s (1 attempt)" in result.stderr
     assert "the printer may still be printing an earlier job; try again or raise the timeout" in result.stderr
     # The lower margin: on Windows (Python 3.10-3.12) the monotonic clock ticks every 15.6 ms and a
     # socket wait can return a tick early, as the transport tests also allow.

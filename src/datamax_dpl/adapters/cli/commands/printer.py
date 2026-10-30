@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict
 
 from ....application.use_cases import (
     DIRECTORY_IDLE_SECONDS,
+    AnswerWait,
     PrinterCommand,
     detect_printer,
     print_result,
@@ -32,7 +33,7 @@ from ..constants import CLICK_CONTEXT_SETTINGS
 from ..label_io import load_label, load_records
 from ..payloads import FindingOut, findings_text, render_payload
 from ..runner import CommandResult, run_command
-from ..settings import camera_settings, render_options, require_uri
+from ..settings import PrinterSettings, camera_settings, render_options, require_uri
 from ..typed_click import argument, option
 from .labels import render_loaded
 from .model_options import loaded_config, printer_options_decorator, render_options_decorator, resolve_settings
@@ -88,12 +89,32 @@ def cli_status(ctx: click.Context, **given: Any) -> None:
     def body(cli_ctx: CLIContext) -> CommandResult:
         settings = resolve_settings(cli_ctx, **given)
         uri = require_uri(settings)
-        status = query_status(uri=uri, timeout=settings.timeout, open_printer=cli_ctx.services.open_printer)
+        status = query_status(
+            uri=uri,
+            timeout=settings.timeout,
+            open_printer=cli_ctx.services.open_printer,
+            wait=_answer_wait(settings, cli_ctx),
+        )
         payload = StatusPayload(printer=uri, idle=status.idle, problems=list(status.problems), flags=status)
         lines = [f"{name:16} {'yes' if is_set else 'no'}" for name, is_set in status.flags()]
         return CommandResult(ok=not status.problems, payload=payload, human="\n".join(lines))
 
     run_command(ctx, command="status", body=body)
+
+
+#: How the CLI lengthens the wait ``status`` and ``memory`` keep trying for, named when it runs out.
+WAIT_LONGER = "wait longer with [printer] status_wait or --timeout"
+
+
+def _answer_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> AnswerWait:
+    """How long ``status`` and ``memory`` keep trying for the first answer (``--timeout`` already folded in)."""
+    return AnswerWait(
+        seconds=settings.status_wait,
+        retry_interval=settings.status_retry_interval,
+        wait_longer=WAIT_LONGER,
+        clock=cli_ctx.services.clock,
+        sleep=cli_ctx.services.sleep,
+    )
 
 
 @click.command("detect", context_settings=CLICK_CONTEXT_SETTINGS)
@@ -161,6 +182,7 @@ def cli_memory(ctx: click.Context, kind: str, idle: float, **given: Any) -> None
             timeout=settings.timeout,
             idle=idle,
             open_printer=cli_ctx.services.open_printer,
+            wait=_answer_wait(settings, cli_ctx),
         )
         payload = MemoryPayload(printer=uri, directories=list(directories))
         return CommandResult(ok=True, payload=payload, human="\n".join(_directory_lines(directories)))

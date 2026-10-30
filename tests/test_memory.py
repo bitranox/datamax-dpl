@@ -164,6 +164,17 @@ def test_reading_one_kind_sends_its_request_and_parses_the_answer() -> None:
 
 
 @pytest.mark.os_agnostic
+def test_reading_no_kind_returns_nothing_and_opens_nothing() -> None:
+    printer = RecordingPrinter()
+
+    directories = read_memory_directory(
+        kinds=(), uri=PRINTER, timeout=2.0, idle=0.5, open_printer=open_recording_printer(printer)
+    )
+
+    assert (directories, printer.opened, printer.queries) == ((), [], [])
+
+
+@pytest.mark.os_agnostic
 def test_reading_every_kind_asks_in_the_order_given_over_one_connection() -> None:
     answers = {b"\x02WF": b"No Modules Available\r", b"\x02WG": MANUAL_SAMPLE, b"\x02WL": b"MODULE: C\rSHIP\r"}
     printer = RecordingPrinter(answers=answers)
