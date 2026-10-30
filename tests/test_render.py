@@ -664,6 +664,42 @@ def test_a_present_distance_on_a_model_with_neither_command_is_ignored() -> None
     assert (deviation.fallback, deviation.severity) == ("ignored", Severity.WARNING)
 
 
+def _present_commands(result: RenderResult) -> list[bytes]:
+    return re.findall(rb"\x02Kf[0-9]+", result.data)
+
+
+def _present_job(model: str, unit: str, distance: float) -> RenderResult:
+    """A one-text label in ``unit`` whose text sits near the origin, so the unit alone moves nothing else."""
+    text = {"type": "text", "x": 0.1, "y": 0.1, "text": "X"}
+    return build_job(
+        Label.model_validate({"unit": unit, "present_distance": distance, "elements": [text]}),
+        RenderOptions(model=model),
+    )
+
+
+# System commands go out in inch mode (<STX>n), so <STX>Kf always carries hundredths of an inch:
+# 99.99 in and 2539.746 mm are 9999, the largest four digits; 100 in and 2540 mm are 10000.
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("unit", "distance"), [("in", 99.99), ("mm", 2539.746)])
+@pytest.mark.parametrize("model", ["pe42", "ovation", "permissive"])
+def test_the_largest_four_digit_present_distance_is_sent(model: str, unit: str, distance: float) -> None:
+    result = _present_job(model, unit, distance)
+    assert _present_commands(result) == [STX + b"Kf9999"]
+    assert result.errors == ()
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("unit", "distance"), [("in", 100.0), ("mm", 2540.0)])
+@pytest.mark.parametrize("model", ["pe42", "ovation", "permissive"])
+def test_a_present_distance_past_four_digits_is_refused(model: str, unit: str, distance: float) -> None:
+    """The manual (``<STX>Kf``, page 53) takes a four-digit present distance."""
+    result = _present_job(model, unit, distance)
+    assert _present_commands(result) == []
+    (error,) = result.errors
+    assert error.code is FindingCode.PRESENT_DISTANCE_TOO_LARGE
+    assert error.message == "present distance takes at most 9999/100 in"
+
+
 # ======================== the effective calibration, shared with the CLI ========================
 
 

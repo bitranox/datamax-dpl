@@ -285,6 +285,7 @@ class FindingCode(str, Enum):
     PAUSE_EACH_LABEL_UNSUPPORTED = "pause_each_label_unsupported"
     PAUSE_PERSISTS = "pause_persists"
     PLACEHOLDERS_UNFILLED = "placeholders_unfilled"
+    PRESENT_DISTANCE_TOO_LARGE = "present_distance_too_large"
     PRESENT_DISTANCE_UNSUPPORTED = "present_distance_unsupported"
     QR_DATA_TOO_LONG = "qr_data_too_long"
     QR_DOT_SIZE_NOT_ONE = "qr_dot_size_not_one"

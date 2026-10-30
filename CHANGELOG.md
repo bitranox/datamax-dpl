@@ -173,6 +173,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A `present_distance` on a model with `<STX>Kf` (PE42, PE43, the Ovation
+  models, `permissive`) had no upper bound: 2540 mm sent `<STX>Kf10000`
+  and 3000 mm `<STX>Kf11811`, five digits where the command takes four
+  (manual page 53), without a finding. Past 9999/100 inch (2539.746 mm) it
+  is now the error `present_distance_too_large`, so `print` refuses the
+  label, as `stop_position_too_large` does for `<STX>f`.
 - A filled box on a model with polygons (DMX 400 from firmware 2.01, DMX
   430/600/800, Prodigy Max, PE42/PE43, Ovation, Titan) was sent as a fill
   polygon over the whole box plus its outline record. Those models print

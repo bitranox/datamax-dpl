@@ -25,6 +25,9 @@ MAX_STOP_POSITION = 999
 #: The same limit in millimetres (253.746), for a stop position configured in mm; rounded to the
 #: thousandth, which holds it exactly, so a refusal names 253.746 rather than its float noise.
 MAX_STOP_POSITION_MM = round(MAX_STOP_POSITION / 100 * MM_PER_INCH, 3)
+#: Largest present distance ``<STX>Kf`` takes: four digits (manual page 53), hundredths of an inch
+#: because the job's system commands go out in inch mode.
+MAX_PRESENT_DISTANCE = 9999
 
 
 def _system(command: str) -> bytes:
@@ -136,7 +139,14 @@ def _present_commands(label: Label, ctx: RenderContext) -> list[bytes]:
 
 def _present_distance(value: float, ctx: RenderContext) -> list[bytes]:
     if ctx.supports(Feature.PRESENT_DISTANCE):
-        return [_system(f"Kf{ctx.inch_hundredths(value, axis=Axis.ALONG):04d}")]
+        hundredths = ctx.inch_hundredths(value, axis=Axis.ALONG)
+        if hundredths > MAX_PRESENT_DISTANCE:
+            ctx.findings.refuse(
+                FindingCode.PRESENT_DISTANCE_TOO_LARGE,
+                f"present distance takes at most {MAX_PRESENT_DISTANCE}/100 in",
+            )
+            return []
+        return [_system(f"Kf{hundredths:04d}")]
     if _present_distance_is_a_stop(ctx):
         ctx.findings.deviate(
             FindingCode.PRESENT_DISTANCE_UNSUPPORTED,
@@ -347,6 +357,7 @@ def format_footer(label: Label, ctx: RenderContext) -> list[bytes]:
 __all__ = [
     "CUT_NOW",
     "INCH_MODE",
+    "MAX_PRESENT_DISTANCE",
     "MAX_STOP_POSITION",
     "MAX_STOP_POSITION_MM",
     "format_footer",
