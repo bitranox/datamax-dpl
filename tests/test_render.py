@@ -194,9 +194,11 @@ def test_downloads_list_stored_and_rasterized_images_in_the_order_they_are_sent(
         }
     )
     result = build_job(label, RenderOptions(model="allegro"))
-    assert result.downloads == ("LOGO_1", "DPLR0001")
-    assert result.data.index(STX + b"IAAFLOGO_1\r") < result.data.index(STX + b"IAAFDPLR0001\r")
-    assert result.data.index(STX + b"IAAFDPLR0001\r") < result.data.index(STX + b"L\r")
+    logo, drawn = result.downloads
+    assert logo == "LOGO_1"
+    circle = STX + b"IAAF" + drawn.encode("ascii") + b"\r"
+    assert result.data.index(STX + b"IAAFLOGO_1\r") < result.data.index(circle)
+    assert result.data.index(circle) < result.data.index(STX + b"L\r")
     assert STX + b"IAAFSTORED\r" not in result.data
 
 

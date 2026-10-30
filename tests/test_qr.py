@@ -7,6 +7,7 @@ first row record is the BOTTOM row, measured on an Allegro 2) and the placing re
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -17,10 +18,12 @@ from pydantic import ValidationError
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory import RecordingPrinter
+from datamax_dpl.application.use_cases import render_batch
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.decoder import explain
-from datamax_dpl.domain.enums import CommandKind, FindingCode, QrError
+from datamax_dpl.domain.enums import CommandKind, FallbackPolicy, FindingCode, QrError, Severity, Unit
 from datamax_dpl.domain.errors import LabelRejectedError
+from datamax_dpl.domain.findings import FindingCollector
 from datamax_dpl.domain.image_records import decode_image
 from datamax_dpl.domain.label import Image, Label, Qr
 from datamax_dpl.domain.placeholders import fill_label, label_placeholders
@@ -30,7 +33,8 @@ from datamax_dpl.domain.qr import qr_bitmap
 from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.records import image_record
 from datamax_dpl.domain.render import RenderResult, build_job, render
-from datamax_dpl.domain.render_context import RenderOptions
+from datamax_dpl.domain.render_context import RenderContext, RenderOptions, drawn_image_name
+from datamax_dpl.domain.units import DplUnit
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -304,6 +308,112 @@ def test_the_preview_draws_the_modules_scaled_inside_the_quiet_zone() -> None:
     assert not bitmap.get(left - 1, top)
 
 
+# ======================== content-derived image names ========================
+
+DRAWN_NAME = re.compile(r"D[0-9A-F]{7}")
+
+
+@pytest.mark.os_agnostic
+def test_a_drawn_image_name_is_d_and_seven_hex_digits_of_a_stable_hash() -> None:
+    """Pinned literal: Python's hash() is salted per process, hashlib is not."""
+    name = drawn_image_name(Bitmap.from_rows(["#."]))
+    assert DRAWN_NAME.fullmatch(name)
+    assert name == "DBBE51D5"
+
+
+@pytest.mark.os_agnostic
+def test_the_same_bits_at_another_width_get_another_name() -> None:
+    """``#.`` and ``#...`` pack into the same byte; only the width tells them apart."""
+    assert drawn_image_name(Bitmap.from_rows(["#."])) != drawn_image_name(Bitmap.from_rows(["#..."]))
+
+
+@pytest.mark.os_agnostic
+def test_a_batch_downloads_each_records_qr_under_its_own_name() -> None:
+    """Printer memory keeps an image across jobs and refuses to reload a name it holds (manual,
+    Appendix D, BELL): two records sharing a name would print the first record's symbol twice."""
+    label = qr_label(data="{sku}")
+    options = RenderOptions(model="allegro-2")
+    different = render_batch(label, [{"sku": "A1"}, {"sku": "B2"}], options)
+    first, second = (result.downloads for result in different.results)
+    assert first != second
+    same = render_batch(label, [{"sku": "A1"}, {"sku": "A1"}], options)
+    assert same.results[0].downloads == same.results[1].downloads
+
+
+@pytest.mark.os_agnostic
+def test_identical_qrs_in_one_job_are_downloaded_once_and_placed_twice() -> None:
+    label = Label.model_validate(
+        {
+            "elements": [
+                {"type": "qr", "x": 5, "y": 5, "data": "SAME"},
+                {"type": "qr", "x": 30, "y": 5, "data": "SAME"},
+                {"type": "qr", "x": 5, "y": 30, "data": "OTHER"},
+            ]
+        }
+    )
+    result = build_job(label, RenderOptions(model="dmx-600"))
+    same, other = result.downloads
+    assert result.data.count(STX + b"IAAF" + same.encode("ascii") + b"\r") == 1
+    assert [record.endswith(same.encode("ascii")) for record in image_records_of(result.data)] == [True, True, False]
+    assert other != same
+
+
+@pytest.mark.os_agnostic
+def test_two_different_images_whose_names_collide_in_one_job_get_different_names() -> None:
+    """A hash collision is forced by queuing another image under the first candidate name."""
+    ctx = RenderContext(
+        profile=get_profile("generic"),
+        firmware=None,
+        options=frozenset(),
+        unit=Unit.MM,
+        dpl_unit=DplUnit.INCH_HUNDREDTHS,
+        findings=FindingCollector(FallbackPolicy.DEGRADE),
+    )
+    bitmap = Bitmap.from_rows(["#."])
+    taken = drawn_image_name(bitmap)
+    ctx.download_image(taken, Bitmap.from_rows([".#"]))
+    name = ctx.download_drawn_image(bitmap)
+    assert name not in (taken, "")
+    assert name == drawn_image_name(bitmap, salt=1)
+    assert ctx.download_drawn_image(bitmap) == name
+    assert [download.name for download in ctx.downloads] == [taken, name]
+
+
+# ======================== dot size, edge consistency ========================
+
+
+@pytest.mark.os_agnostic
+def test_a_qr_on_a_label_with_a_dot_size_above_1x1_is_warned_about() -> None:
+    def sized(dot_size: dict[str, int] | None) -> Label:
+        return qr_label().model_copy(update={"dot_size": dot_size})
+
+    warned = build_job(Label.model_validate(sized({"width": 2, "height": 1})), RenderOptions(model="dmx-600"))
+    [finding] = [f for f in warned.findings if f.code is FindingCode.QR_DOT_SIZE_NOT_ONE]
+    assert (finding.severity, finding.element) == (Severity.WARNING, 0)
+    assert "2x1 times larger" in finding.message
+    for plain in (Label.model_validate(sized({"width": 1, "height": 1})), qr_label()):
+        assert FindingCode.QR_DOT_SIZE_NOT_ONE not in codes(build_job(plain, RenderOptions(model="dmx-600")))
+
+
+@pytest.mark.os_agnostic
+def test_the_right_edge_follows_the_corrected_column_the_record_writes() -> None:
+    """Allegro 2, scale_across 1.02: x = 93.4 mm is written as column 366 (+6 quiet), dot 744, so
+    the symbol ends at dot 819 of 832; reading x uncorrected (dot 746 + 87) would refuse it."""
+    options = RenderOptions(model="allegro-2", scale_across=1.02)
+    fits = build_job(qr_label(x=93.4), options)
+    assert FindingCode.QR_PAST_PRINT_WIDTH not in codes(fits)
+    assert fits.ok, fits.findings
+    past = build_job(qr_label(x=95.2), options)
+    assert FindingCode.QR_PAST_PRINT_WIDTH in codes(past)
+
+
+@pytest.mark.os_agnostic
+def test_a_qr_starting_past_the_last_column_gets_one_finding_not_two() -> None:
+    result = build_job(qr_label(x=105), RenderOptions(model="allegro-2"))
+    assert FindingCode.OUTSIDE_PRINT_WIDTH in codes(result)
+    assert FindingCode.QR_PAST_PRINT_WIDTH not in codes(result)
+
+
 # ======================== the CLI ========================
 
 
@@ -332,7 +442,8 @@ def test_validate_accepts_a_qr_label(cli_runner: CliRunner, tmp_path: Path) -> N
 def test_render_shows_the_download_and_the_magnified_record(cli_runner: CliRunner, tmp_path: Path) -> None:
     result = run_cli(cli_runner, ["render", qr_file(tmp_path), "--model", "allegro-2"])
     assert result.exit_code == 0, result.output
-    assert "<STX>IAAFDPLR0001<CR>" in result.stdout
+    name = drawn_image_name(qr_bitmap("HELLO", error=QrError.Q))
+    assert f"<STX>IAAF{name}<CR>" in result.stdout
     assert "1Y44000" in result.stdout
 
 

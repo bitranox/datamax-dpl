@@ -16,12 +16,17 @@ if TYPE_CHECKING:
 _TOLERANCE = 1e-6
 
 
+def last_column(ctx: RenderContext) -> int:
+    """Return the model's largest column in this job's DPL unit; a field starting past it is refused."""
+    return to_dpl(ctx.profile.max_column / 100, Unit.INCH, target=ctx.dpl_unit, dpi=ctx.profile.dpi).value
+
+
 def column_of(x: float, *, index: int, ctx: RenderContext) -> int:
     """Convert ``x``, moved by the printer's offset, to a DPL column, refusing it past the printable width."""
     column = ctx.distance(
         _shifted(x, Axis.ACROSS, index=index, ctx=ctx), axis=Axis.ACROSS, element=index, what="column"
     )
-    limit = to_dpl(ctx.profile.max_column / 100, Unit.INCH, target=ctx.dpl_unit, dpi=ctx.profile.dpi).value
+    limit = last_column(ctx)
     if column > limit:
         unit = "1/100 in" if ctx.dpl_unit is DplUnit.INCH_HUNDREDTHS else "1/10 mm"
         ctx.findings.refuse(
@@ -120,4 +125,12 @@ def counter_lines(counter: Counter | None) -> list[bytes]:
     return [line(f"{sign}{counter.fill}{counter.step:02d}")]
 
 
-__all__ = ["attribute_lines", "attribute_reset", "check_field_length", "column_of", "counter_lines", "row_of"]
+__all__ = [
+    "attribute_lines",
+    "attribute_reset",
+    "check_field_length",
+    "column_of",
+    "counter_lines",
+    "last_column",
+    "row_of",
+]

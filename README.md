@@ -239,10 +239,10 @@ datamax-dpl --json validate examples/product-label.json --model allegro --policy
     "dpl_unit": "inch",
     "records": 1,
     "fields": 5,
-    "bytes": 1568,
-    "downloads": ["DPLR0001"],
+    "bytes": 2355,
+    "downloads": ["D5D49655"],
     "findings": [
-      {"code": "circle_rasterized", "severity": "error", "message": "circle cannot be drawn natively: circles: Allegro does not have it", "element": 4, "fallback": "drawn as downloaded image DPLR0001 (81x81 dots)", "record": null}
+      {"code": "circle_rasterized", "severity": "error", "message": "circle cannot be drawn natively: circles: Allegro does not have it", "element": 4, "fallback": "drawn as downloaded image D5D49655 (81x81 dots)", "record": null}
     ]
   },
   "skipped": []

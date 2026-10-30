@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, Severity, SpeedCode
@@ -77,8 +79,9 @@ def test_circle_is_rasterized_and_downloaded_on_a_model_without_circles() -> Non
         label(elements=[{"type": "circle", "x": 20, "y": 20, "radius": 5}]), RenderOptions(model="allegro")
     )
     assert FindingCode.CIRCLE_RASTERIZED in {f.code for f in result.warnings}
-    assert result.downloads == ("DPLR0001",)
-    assert STX + b"IAAFDPLR0001\r" in result.data
+    [name] = result.downloads
+    assert re.fullmatch(r"D[0-9A-F]{7}", name)
+    assert STX + b"IAAF" + name.encode("ascii") + b"\r" in result.data
     assert b"1Y11000" in result.data
     assert result.data.index(STX + b"IAAF") < result.data.index(STX + b"L\r")
 

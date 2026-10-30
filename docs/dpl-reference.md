@@ -155,6 +155,11 @@ Image placement: `1Y11000rrrrccccNAME` (rotation 1 only, name up to 8 characters
 `<STX>IAAFNAME<CR>` followed by rows `80nn<hex bytes><CR>` (nn = byte count in hex),
 `0000FFnn<CR>` (repeat the previous row nn times), and `FFFF<CR>` to end.
 
+An image the library draws (a raster fallback, a QR Code) is named `D` plus 7 upper-case hex
+digits of a sha256 of its size and bits: the printer keeps an image in its module across jobs and
+answers BELL when a job loads a name it already holds (Appendix D), without saying the new image
+replaces the old, so a per-job counter could let the next job print the previous job's image.
+
 Measured on an Allegro 2 (firmware CA02 03.04), not stated in the manual: the printer draws the
 FIRST row record at the BOTTOM of the image, and images holding `0000FFnn` repeat records print
 wrong (one row short per repeat record, or empty, or garbled) while the same images sent one row

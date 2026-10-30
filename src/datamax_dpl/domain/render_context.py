@@ -7,6 +7,7 @@ findings go.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -35,6 +36,35 @@ if TYPE_CHECKING:
 
 #: Largest value of a four-digit DPL distance field.
 MAX_FIELD_VALUE = 9999
+#: First character of the name of every image the library draws (raster fallbacks, QR Codes).
+DRAWN_IMAGE_PREFIX = "D"
+#: Hex digits of the content hash after the prefix: an image name holds at most 8 characters.
+_NAME_HASH_DIGITS = 7
+
+
+def drawn_image_name(bitmap: Bitmap, *, salt: int = 0) -> str:
+    """Return the printer name of a drawn image: ``D`` and 7 hex digits of a hash of its content.
+
+    The printer keeps a downloaded image in its memory module across jobs and answers BELL when a
+    job loads a name it already holds (manual, Appendix D), which does not say the new image
+    replaces the old. A name that follows the content keeps one image's name off another's bits:
+    the same bitmap gets the same name in every job and process (sha256, unlike the per-process
+    salted ``hash()``), and a different bitmap a different one, except with a chance of about
+    1 in 2**28 per pair (within one job :meth:`RenderContext.download_drawn_image` rules that out).
+
+    Args:
+        bitmap: The image; its width and height count, since the packed rows pad to whole bytes.
+        salt: 0 for the name; a higher value gives the next candidate when two different images
+            of one job hash alike.
+
+    Example:
+        >>> from datamax_dpl.domain.raster import Bitmap
+        >>> drawn_image_name(Bitmap.from_rows(["#."]))
+        'DBBE51D5'
+    """
+    header = f"{bitmap.width}x{bitmap.height}:{salt}:".encode("ascii")
+    digest = hashlib.sha256(header + b"".join(bitmap.rows())).hexdigest().upper()
+    return DRAWN_IMAGE_PREFIX + digest[:_NAME_HASH_DIGITS]
 
 
 class RenderOptions(BaseModel):
@@ -113,7 +143,6 @@ class RenderContext:
         default_attribute: Attribute the format is in when no element overrides it.
         downloads: Images to download before ``<STX>L``, in the order they were queued.
         system_suffix: System commands sent after the format (cut now).
-        image_counter: Number of images the library drew so far (raster fallbacks, QR Codes), for their names.
         across: How this printer prints lengths across the web.
         along: How this printer prints lengths along the feed.
         offset_across: Millimetres every field moves to the right on this printer.
@@ -135,7 +164,6 @@ class RenderContext:
     default_attribute: Attribute = Attribute.XOR
     downloads: list[ImageDownload] = field(default_factory=list[ImageDownload])
     system_suffix: list[bytes] = field(default_factory=list[bytes])
-    image_counter: int = 0
     across: Correction = NOMINAL
     along: Correction = NOMINAL
     offset_across: float = 0.0
@@ -222,10 +250,30 @@ class RenderContext:
         """
         self.downloads.append(ImageDownload(name=name, command=download_command(name, bitmap)))
 
-    def next_image_name(self) -> str:
-        """Return a fresh name for an image the library draws: a raster fallback or a QR Code (8 characters)."""
-        self.image_counter += 1
-        return f"DPLR{self.image_counter:04d}"
+    def download_drawn_image(self, bitmap: Bitmap) -> str:
+        """Queue an image the library drew under its content name, once per job, and return the name.
+
+        A bitmap already queued is not queued again. Two different bitmaps of one job that hash
+        to the same name are told apart by the next salt, so a job never names two images alike.
+        """
+        salt = 0
+        while True:
+            name = drawn_image_name(bitmap, salt=salt)
+            command = download_command(name, bitmap)
+            held = next((download.command for download in self.downloads if download.name == name), None)
+            if held is None:
+                self.downloads.append(ImageDownload(name=name, command=command))
+                return name
+            if held == command:
+                return name
+            salt += 1
 
 
-__all__ = ["MAX_FIELD_VALUE", "ImageDownload", "RenderContext", "RenderOptions"]
+__all__ = [
+    "DRAWN_IMAGE_PREFIX",
+    "MAX_FIELD_VALUE",
+    "ImageDownload",
+    "RenderContext",
+    "RenderOptions",
+    "drawn_image_name",
+]

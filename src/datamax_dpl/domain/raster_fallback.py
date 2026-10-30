@@ -121,8 +121,7 @@ def rasterize(element: Graphic, *, index: int, ctx: RenderContext, reason: str) 
     frame = _frame(element, ctx)
     bitmap = Bitmap(frame.width_dots, frame.height_dots)
     _draw(element, bitmap, frame, ctx)
-    name = ctx.next_image_name()
-    ctx.download_image(name, bitmap)
+    name = ctx.download_drawn_image(bitmap)
     ctx.findings.deviate(
         _RASTERIZED[type(element)],
         f"{element.type} cannot be drawn natively: {reason}",

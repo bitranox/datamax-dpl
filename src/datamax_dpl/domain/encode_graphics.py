@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from .encode_common import column_of, row_of
+from .encode_common import column_of, last_column, row_of
 from .enums import FillPattern, FindingCode, Unit
 from .label import Box, Circle, Image, Line, Point, Polygon, Qr
 from .profiles import Feature
@@ -13,7 +13,7 @@ from .qr import QrDataTooLongError, qr_bitmap
 from .raster import Bitmap
 from .raster_fallback import rasterize
 from .records import BoxRecord, circle_record, image_record, line, line_record, polygon_record
-from .units import MM_PER_INCH, Axis, to_inches
+from .units import MM_PER_INCH, Axis, DplUnit
 
 if TYPE_CHECKING:
     from .render_context import RenderContext
@@ -151,19 +151,34 @@ def _label_length_of_dots(dots: int, ctx: RenderContext) -> float:
     return inches * MM_PER_INCH if ctx.unit is Unit.MM else inches
 
 
-def _check_right_edge(element: Qr, *, width_dots: int, index: int, ctx: RenderContext) -> None:
-    """Refuse a QR Code whose area, quiet zone included, ends past the model's print width.
+def _dots_per_unit(ctx: RenderContext) -> float:
+    """Printhead dots one DPL distance unit of this job addresses across the web."""
+    unit_dots = ctx.across.unit_dots
+    if unit_dots is not None and ctx.dpl_unit is DplUnit.INCH_HUNDREDTHS:
+        return unit_dots
+    return ctx.profile.dpi / ctx.dpl_unit.per_inch
 
-    The left edge is the field's position after the printer's offset; a calibrated length prints
-    at its nominal size, so the edge in printer dots is that position at the model's resolution.
+
+def _check_right_edge(element: Qr, *, start_column: int, extent_dots: int, index: int, ctx: RenderContext) -> None:
+    """Refuse a QR Code whose area, quiet zone included, ends past the printhead's last dot.
+
+    Counted in printhead dots from the column the placing record writes (corrected like every
+    column), since the printer addresses the head by dot, whatever the calibration says the dots
+    measure on paper.
+
+    Args:
+        element: The QR element.
+        start_column: The record's column, where the symbol starts.
+        extent_dots: The symbol plus one quiet zone, the part right of ``start_column``.
+        index: Position of the element in the label.
+        ctx: The render context.
     """
-    dpi = ctx.profile.dpi
-    left = round(to_inches(max(ctx.shifted(element.x, axis=Axis.ACROSS), 0.0), ctx.unit, dpi=dpi) * dpi)
-    limit = round(ctx.profile.print_width_in * dpi)
-    if left + width_dots > limit:
+    end = round(start_column * _dots_per_unit(ctx)) + extent_dots
+    limit = round(ctx.profile.print_width_in * ctx.profile.dpi)
+    if end > limit:
         ctx.findings.refuse(
             FindingCode.QR_PAST_PRINT_WIDTH,
-            f"the QR Code with its quiet zone ends at dot {left + width_dots}; it passes the {limit}-dot "
+            f"the {element.type} element with its quiet zone ends at dot {end}; it passes the {limit}-dot "
             f"print width of {ctx.profile.name}",
             element=index,
         )
@@ -174,7 +189,8 @@ def encode_qr(element: Qr, *, index: int, ctx: RenderContext) -> list[bytes]:
 
     The image holds one dot per module, the smallest download; the record's dot width and height
     print each module ``module_dots`` dots square. ``(x, y)`` goes through the same position rules
-    as every other field, and the symbol starts the quiet zone in from it.
+    as every other field, and the symbol starts the quiet zone in from it. A field already refused
+    for starting past the last column gets no second finding for its right edge.
     """
     try:
         symbol = qr_bitmap(element.data, error=element.error)
@@ -182,18 +198,17 @@ def encode_qr(element: Qr, *, index: int, ctx: RenderContext) -> list[bytes]:
         ctx.findings.refuse(FindingCode.QR_DATA_TOO_LONG, str(exc), element=index)
         return []
     quiet_dots = element.quiet_zone * element.module_dots
-    _check_right_edge(element, width_dots=symbol.width * element.module_dots + 2 * quiet_dots, index=index, ctx=ctx)
-    name = ctx.next_image_name()
-    ctx.download_image(name, symbol)
     quiet = _label_length_of_dots(quiet_dots, ctx)
-    record = image_record(
-        row=row_of(element.y, index=index, ctx=ctx)
-        + ctx.distance(quiet, axis=Axis.ALONG, element=index, what="quiet zone"),
-        column=column_of(element.x, index=index, ctx=ctx)
-        + ctx.distance(quiet, axis=Axis.ACROSS, element=index, what="quiet zone"),
-        name=name,
-        magnification=(element.module_dots, element.module_dots),
+    row = row_of(element.y, index=index, ctx=ctx) + ctx.distance(
+        quiet, axis=Axis.ALONG, element=index, what="quiet zone"
     )
+    field_column = column_of(element.x, index=index, ctx=ctx)
+    column = field_column + ctx.distance(quiet, axis=Axis.ACROSS, element=index, what="quiet zone")
+    if field_column <= last_column(ctx):
+        extent = symbol.width * element.module_dots + quiet_dots
+        _check_right_edge(element, start_column=column, extent_dots=extent, index=index, ctx=ctx)
+    name = ctx.download_drawn_image(symbol)
+    record = image_record(row=row, column=column, name=name, magnification=(element.module_dots, element.module_dots))
     return [line(record)]
 
 

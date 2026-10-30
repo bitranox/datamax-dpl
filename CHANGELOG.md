@@ -15,7 +15,9 @@ All notable changes to this project are documented here. The format follows
   per module and placed magnified, so it prints on every model. Refusals
   `qr_data_too_long` (no QR Code version holds the data at that level) and
   `qr_past_print_width` (the area, quiet zone included, ends past the
-  printable width). Unverified on paper.
+  printable width). Warning `qr_dot_size_not_one` when the label's
+  `dot_size` is not 1x1, which prints the modules larger. Unverified on
+  paper.
 - Image placement records carry a magnification: `image_record(...,
   magnification=(across, along))` writes the dot width and height digits
   1-9 (the manual's image fields), and `explain` names a magnified image.
@@ -50,6 +52,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Images the library draws (raster fallbacks, QR Codes) are named `D` plus
+  7 hex digits of a sha256 of the image instead of `DPLR0001`, `DPLR0002`
+  per job: the printer keeps images across jobs and answers BELL to a name
+  it already holds, so a counter let a later job, or the next record of a
+  batch, reuse a name for different bits. An image drawn twice in one job
+  is downloaded once.
 - Unset `scale_across`, `scale_along`, `offset_across` and `offset_along` now
   mean the model's default, and the shipped `config.d/50-printer.toml` no
   longer sets them. An `allegro-2` therefore prints with scale 0.976 along,

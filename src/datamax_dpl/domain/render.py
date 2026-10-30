@@ -196,6 +196,21 @@ def _check_label_level(label: Label, ctx: RenderContext, *, filled: bool) -> Non
         )
 
 
+def _check_qr_dot_size(label: Label, ctx: RenderContext) -> None:
+    """Warn for each QR Code on a label whose dot size prints every image dot larger than one dot."""
+    size = label.dot_size
+    if size is None or (size.width, size.height) == (1, 1):
+        return
+    for index, element in enumerate(label.elements):
+        if isinstance(element, Qr):
+            ctx.findings.warn(
+                FindingCode.QR_DOT_SIZE_NOT_ONE,
+                f"dot size {size.width}x{size.height} prints the QR modules {size.width}x{size.height} times "
+                "larger than module_dots; modules that are not square may not scan",
+                element=index,
+            )
+
+
 def _encode_element(element: Element, *, index: int, ctx: RenderContext) -> list[bytes]:
     """Dispatch ``element`` to its encoder.
 
@@ -246,6 +261,7 @@ def build_job(label: Label, options: RenderOptions | None = None, *, filled: boo
     options = options or RenderOptions()
     ctx = _context(label, options)
     _check_label_level(label, ctx, filled=filled)
+    _check_qr_dot_size(label, ctx)
     prefix = system_prefix(label, ctx)
     body = _encode_elements(label.elements, ctx)
     record_count = _count_records(body)
