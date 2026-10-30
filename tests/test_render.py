@@ -6,6 +6,7 @@ import re
 from typing import TYPE_CHECKING
 
 import pytest
+from pydantic import ValidationError
 
 from datamax_dpl.domain.enums import FillPattern, FindingCode, ImageModule, MediaSensor, Rotation, Severity, Unit
 from datamax_dpl.domain.errors import LabelRejectedError
@@ -612,6 +613,96 @@ def test_a_stop_position_that_rounds_to_zero_is_sent_as_f000() -> None:
     value from an ineffective one.
     """
     assert _stop_commands(_stop_job(stop_position_mm=0.1)) == [STX + b"f000"]
+
+
+# ============== stop position "printer": keep the printer's own setting, send no <STX>f ==============
+
+
+@pytest.mark.os_agnostic
+def test_a_stop_position_option_of_printer_sends_no_stop_and_drops_the_models_from_the_report() -> None:
+    result = _stop_job(stop_position_mm="printer")
+    assert _stop_commands(result) == []
+    assert not _names_the_model_stop(result)
+    # Only the stop position is switched off: the model's other measured defaults still apply.
+    (finding,) = [f for f in result.findings if f.code is FindingCode.MODEL_DEFAULTS_APPLIED]
+    assert "scale_along 0.976" in finding.message
+
+
+@pytest.mark.os_agnostic
+def test_a_stop_position_option_of_printer_leaves_no_stop_in_the_effective_calibration() -> None:
+    assert effective_calibration(RenderOptions(model="allegro-2", stop_position_mm="printer")).stop_position_mm is None
+
+
+@pytest.mark.os_agnostic
+def test_the_labels_stop_position_wins_over_an_option_of_printer() -> None:
+    with_printer = _stop_job({"stop_position": 50}, stop_position_mm="printer")
+    plain = _stop_job({"stop_position": 50})
+    assert _stop_commands(plain) != []
+    assert with_printer.data == plain.data
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("label_fields", "options"),
+    [
+        ({}, {}),
+        ({}, {"stop_position_mm": 60}),
+        ({"cut": {"every": 1}}, {"cutter_installed": True, "cutter_stop_position_mm": 80}),
+    ],
+)
+def test_a_labels_stop_position_of_printer_wins_over_every_configured_stop(
+    label_fields: dict[str, object], options: dict[str, object]
+) -> None:
+    result = _stop_job({"stop_position": "printer", **label_fields}, **options)
+    assert _stop_commands(result) == []
+    assert not _names_the_model_stop(result)
+    assert result.errors == ()
+
+
+@pytest.mark.os_agnostic
+def test_a_labels_stop_position_of_printer_still_sends_its_present_distance_as_a_stop() -> None:
+    """The label's "printer" names its stop_position only; a present distance is its own request."""
+    result = _stop_job({"stop_position": "printer", "present_distance": 30})
+    assert _stop_commands(result) == [STX + b"f123"]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("model", ["prodigy", "generic"])
+def test_printer_on_a_model_without_a_stop_command_asks_for_what_it_does_and_reports_nothing(model: str) -> None:
+    for result in (
+        _stop_job({"stop_position": "printer"}, model=model, policy="strict"),
+        _stop_job(model=model, policy="strict", stop_position_mm="printer"),
+    ):
+        assert _stop_commands(result) == []
+        assert result.errors == ()
+        assert result.warnings == ()
+        codes = {f.code for f in result.findings}
+        assert FindingCode.STOP_POSITION_UNSUPPORTED not in codes
+        assert FindingCode.CONFIGURED_STOP_POSITION_UNSUPPORTED not in codes
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [("paper", "Input should be 'printer'"), (0, "Input should be greater than 0")],
+)
+def test_a_stop_position_other_than_a_positive_number_or_printer_is_refused_once_with_the_field_named(
+    value: object, message: str
+) -> None:
+    for model, field, document in (
+        (Label, "stop_position", {"elements": [{"type": "text", "x": 5, "y": 5, "text": "X"}]}),
+        (RenderOptions, "stop_position_mm", {"model": "allegro-2"}),
+    ):
+        with pytest.raises(ValidationError) as caught:
+            model.model_validate({**document, field: value})
+        assert [(e["loc"], e["msg"]) for e in caught.value.errors()] == [((field,), message)]
+
+
+@pytest.mark.os_agnostic
+def test_the_label_schema_accepts_printer_as_a_stop_position() -> None:
+    choices = Label.model_json_schema()["properties"]["stop_position"]["anyOf"]
+    assert {"const": "printer", "type": "string"} in choices
+    assert {"exclusiveMinimum": 0, "type": "number"} in choices
 
 
 @pytest.mark.os_agnostic

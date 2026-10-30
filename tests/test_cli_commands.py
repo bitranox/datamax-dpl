@@ -116,6 +116,17 @@ def test_an_invalid_label_names_the_field(cli_runner: CliRunner, tmp_path: Path)
 
 
 @pytest.mark.os_agnostic
+def test_a_stop_position_word_other_than_printer_is_refused_by_validate_with_the_field_named(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    label = {**SIMPLE, "stop_position": "paper"}
+    result = run(cli_runner, ["--json", "validate", write_json(tmp_path / "l.json", label)])
+    assert result.exit_code == 2
+    message = envelope(result)["message"]
+    assert message.endswith("is not a valid label: stop_position: Input should be 'printer'")
+
+
+@pytest.mark.os_agnostic
 def test_an_unknown_model_is_an_error(cli_runner: CliRunner, tmp_path: Path) -> None:
     result = run(cli_runner, ["--json", "validate", write_json(tmp_path / "l.json", SIMPLE), "--model", "nope"])
     assert result.exit_code == 2

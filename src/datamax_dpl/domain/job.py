@@ -6,7 +6,7 @@ job does not depend on whatever unit mode the printer was left in.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from .enums import FindingCode, MediaSensor, SpeedCode
 from .profiles import Feature, SpeedRange
@@ -25,6 +25,9 @@ MAX_STOP_POSITION = 999
 #: The same limit in millimetres (253.746), for a stop position configured in mm; rounded to the
 #: thousandth, which holds it exactly, so a refusal names 253.746 rather than its float noise.
 MAX_STOP_POSITION_MM = round(MAX_STOP_POSITION / 100 * MM_PER_INCH, 3)
+#: The stop position that sends no ``<STX>f`` and keeps the printer's own setting, in the label
+#: and in the configuration alike.
+PRINTER_STOP: Final = "printer"
 #: Largest present distance ``<STX>Kf`` takes: four digits (manual page 53), hundredths of an inch
 #: because the job's system commands go out in inch mode.
 MAX_PRESENT_DISTANCE = 9999
@@ -69,9 +72,9 @@ def _label_sets_stop(label: Label, ctx: RenderContext) -> bool:
 def stops_at_tear_off(label: Label, ctx: RenderContext) -> bool:
     """Return True when the job stops at the configured tear-off position.
 
-    The label's own stop wins over any configured one (a present distance this model can only send
-    as a stop position counts as the label's stop), and a job that cuts stops where the cutter
-    needs it (``cutter_stop_position_mm``), never at the tear-off position.
+    The label's own stop wins over any configured one (its ``"printer"`` too, which sends none, and
+    a present distance this model can only send as a stop position), and a job that cuts stops
+    where the cutter needs it (``cutter_stop_position_mm``), never at the tear-off position.
     """
     return not _label_sets_stop(label, ctx) and label.cut is None
 
@@ -128,7 +131,11 @@ def _configured_stop(label: Label, ctx: RenderContext) -> list[bytes]:
 
 
 def _present_commands(label: Label, ctx: RenderContext) -> list[bytes]:
-    if label.stop_position is not None:
+    if label.stop_position == PRINTER_STOP:
+        # The label keeps the printer's own stop, so nothing is sent: not the configured stop it
+        # wins over, and no deviation on a model without the command, which does exactly that.
+        commands: list[bytes] = []
+    elif label.stop_position is not None:
         commands = _label_stop(label.stop_position, ctx)
     else:
         commands = _configured_stop(label, ctx)
@@ -360,6 +367,7 @@ __all__ = [
     "MAX_PRESENT_DISTANCE",
     "MAX_STOP_POSITION",
     "MAX_STOP_POSITION_MM",
+    "PRINTER_STOP",
     "format_footer",
     "format_header",
     "stops_at_tear_off",

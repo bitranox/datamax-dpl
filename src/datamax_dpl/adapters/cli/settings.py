@@ -7,14 +7,15 @@ the boundary, so a typo in a config file is reported as a configuration error wi
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeVar, cast
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
 from ...domain.camera import CameraSettings
 from ...domain.enums import CutterPresence, FallbackPolicy, HardwareOption, ImageModule
 from ...domain.errors import ConfigurationError
 from ...domain.job import MAX_STOP_POSITION_MM
+from ...domain.label import stop_position_or_printer
 from ...domain.render_context import RenderOptions
 from ...domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
 from ..transport.uri import is_printer_name, is_printer_uri
@@ -23,6 +24,9 @@ if TYPE_CHECKING:
     from lib_layered_config import Config
 
 _T = TypeVar("_T")
+
+_BoundedStop = Annotated[float, Field(gt=0, le=MAX_STOP_POSITION_MM)]
+_ConfiguredStop = Annotated[_BoundedStop | Literal["printer"], stop_position_or_printer(TypeAdapter(_BoundedStop))]
 
 
 class PrinterSettings(BaseModel):
@@ -54,8 +58,10 @@ class PrinterSettings(BaseModel):
     offset_across: float | None = Field(default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
     offset_along: float | None = Field(default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
     # Bounded here, unlike RenderOptions, so a config typo is refused with its key named before any
-    # job is built, rather than as a STOP_POSITION_TOO_LARGE finding on every label.
-    stop_position: float | None = Field(default=None, gt=0, le=MAX_STOP_POSITION_MM)
+    # job is built, rather than as a STOP_POSITION_TOO_LARGE finding on every label. "printer"
+    # sends no stop and keeps the printer's own; the cutter stop has no such value, since unset
+    # already sends none for a job that cuts.
+    stop_position: _ConfiguredStop | None = None
     cutter_stop_position: float | None = Field(default=None, gt=0, le=MAX_STOP_POSITION_MM)
     # None is not "no budget": it takes the model's, which most models do not have.
     image_memory_bytes: int | None = Field(default=None, gt=0)

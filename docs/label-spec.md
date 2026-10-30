@@ -60,14 +60,15 @@ formats reports the info finding `inch_units`. Check placement without paper wit
 | `symbol_set`        | two characters `A-Z0-9`                | none    | Symbol set of scalable fonts (`ySxx`), for example `PM` (code page 850) or `W1` (Windows Latin 1).    |
 | `media`             | `gap`, `reflective`, `continuous`      | none    | How the printer finds the next label. `continuous` needs `continuous_length` or `height`.             |
 | `continuous_length` | number > 0                             | none    | Label length on continuous media.                                                                     |
-| `stop_position`     | number > 0                             | none    | Feed this far past the start of print; backed up on the next job (`<STX>f`).                          |
+| `stop_position`     | number > 0, or `"printer"`             | none    | Feed this far past the start of print; backed up on the next job (`<STX>f`). `"printer"` sends none.  |
 | `present_distance`  | number > 0                             | none    | Distance to present a label for removal (`<STX>Kf`).                                                  |
 | `pause_each_label`  | boolean                                | false   | Pause after each label (`<STX>J`). The setting stays on until the printer is reset.                   |
 | `count_by`          | integer 1-99                           | none    | Count-by amount (`^nn`) for counters.                                                                 |
 | `plain_zero`        | boolean                                | false   | Print 0 without the slash in fonts 0-8 and barcodes (`z`).                                            |
 
-How `stop_position` and `present_distance` rank against the configured stop positions and the
-model's default, and what a model without `<STX>f` or `<STX>Kf` does with them, is in the README
+A `stop_position` of `"printer"` sends no `<STX>f`: the printer keeps its own setting, and the
+configured stop and the model's default are not sent either. How `stop_position` and
+`present_distance` rank against the configured stop positions and the model's default, and what a model without `<STX>f` or `<STX>Kf` does with them, is in the README
 under [Where the label stops](../README.md#where-the-label-stops).
 
 Where fields overlap, the attribute decides what prints, and `preview` draws the same: 1 XOR

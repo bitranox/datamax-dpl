@@ -244,15 +244,16 @@ these that applies:
 
 1. The label's `stop_position`, in the label's unit, sent as `<STX>f` and corrected by the
    printer's `scale_along` like every length on the label. It wins over every configured stop,
-   in a job that cuts too.
+   in a job that cuts too. `"stop_position": "printer"` wins the same way but sends no `<STX>f`:
+   the printer keeps its own setting.
 2. On a model with `<STX>f` but no `<STX>Kf`, the label's `present_distance`, sent as the label's
    stop position (`present_distance_unsupported`: it is then measured from the sensor rather than
    from the next label).
 3. A configured stop: `[printer] cutter_stop_position` for a job that cuts (the label has `cut`),
    `[printer] stop_position` for every other job. Both are sent exactly as configured, without
    scale or offset. An unset `stop_position` takes the model's default, which only `allegro-2`
-   has (67.4 mm, sent as `<STX>f265`); an unset `cutter_stop_position` has none, so a cutting job
-   then sends no stop.
+   has (67.4 mm, sent as `<STX>f265`); `stop_position = "printer"` sends none, the model's default
+   included. An unset `cutter_stop_position` has none, so a cutting job then sends no stop.
 4. Nothing: the printer keeps its own setting.
 
 A `present_distance` can also go out beside that stop:
@@ -271,7 +272,8 @@ A `present_distance` can also go out beside that stop:
 [docs/capabilities.md](docs/capabilities.md)). There a label's `stop_position` is not
 sent (`stop_position_unsupported`), a `present_distance` is ignored (`present_distance_unsupported`),
 and a configured stop is not sent either (the info `configured_stop_position_unsupported`; the
-job still prints, under `strict` too). A stop past 999/100 inch is refused
+job still prints, under `strict` too). A `"printer"` stop, in the label or the configuration, asks
+for exactly what these models do and reports nothing. A stop past 999/100 inch is refused
 (`stop_position_too_large`). `render` and `print` name the model's stop position in
 `model_defaults_applied` only when the job sends it. Keys, bounds and the note for configurations
 deployed by 0.3.0 are in [CONFIG.md](CONFIG.md).

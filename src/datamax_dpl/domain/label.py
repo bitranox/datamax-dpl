@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 
 from .enums import Attribute, FillPattern, MediaSensor, QrError, Rotation, SpeedCode, Unit
 from .records import MAX_IMAGE_MAGNIFICATION
@@ -38,6 +38,42 @@ FONT_9 = 9
 NonNegative = Annotated[float, Field(ge=0)]
 Positive = Annotated[float, Field(gt=0)]
 Multiplier = Annotated[int, Field(ge=1, le=MAX_MULTIPLIER)]
+
+_PRINTER_WORD: TypeAdapter[Literal["printer"]] = TypeAdapter(Literal["printer"])
+
+
+def stop_position_or_printer(number: TypeAdapter[float]) -> BeforeValidator:
+    """Return the validator of a stop position that is a ``number`` or ``"printer"``.
+
+    A plain union refuses a value once per arm, so ``0`` read "constrained-float: Input should be
+    greater than 0; literal['printer']: Input should be 'printer'". This validates a number with
+    ``number`` alone, so a refusal names only the bound it missed, and a word with the literal
+    alone, so it names the one word the field takes. ``number`` carries the same bounds as the
+    field's number arm, which the JSON schema shows.
+
+    Example:
+        >>> from pydantic import TypeAdapter
+        >>> validate = TypeAdapter(StopPosition).validate_python
+        >>> validate("printer"), validate("2.5")
+        ('printer', 2.5)
+    """
+
+    def validate(value: object) -> object:
+        # job.PRINTER_STOP, spelled out: job imports transparency, which imports this module.
+        if value == "printer":
+            return value
+        try:
+            return number.validate_python(value)
+        except ValidationError as exc:
+            if exc.errors()[0]["type"] != "float_parsing":
+                raise
+        return _PRINTER_WORD.validate_python(value)
+
+    return BeforeValidator(validate)
+
+
+#: A stop position: a length greater than 0, or ``"printer"`` to send none and keep the printer's own.
+StopPosition = Annotated[Positive | Literal["printer"], stop_position_or_printer(TypeAdapter(Positive))]
 
 
 class _Frozen(BaseModel):
@@ -370,7 +406,10 @@ class Label(_Frozen):
     symbol_set: str | None = Field(default=None, pattern=r"^[A-Z0-9]{2}$")
     media: MediaSensor | None = None
     continuous_length: Positive | None = Field(default=None, description="Label length on continuous media.")
-    stop_position: Positive | None = Field(default=None, description="Feed past the start of print, back on next job.")
+    stop_position: StopPosition | None = Field(
+        default=None,
+        description='Feed past the start of print, back on next job; "printer" sends none and keeps its own.',
+    )
     present_distance: Positive | None = Field(default=None, description="Distance to present a label for removal.")
     pause_each_label: bool = False
     count_by: int | None = Field(default=None, ge=1, le=99)
@@ -403,5 +442,7 @@ __all__ = [
     "Polygon",
     "Qr",
     "ScalableText",
+    "StopPosition",
     "Text",
+    "stop_position_or_printer",
 ]

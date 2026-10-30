@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .enums import Attribute, FallbackPolicy, FindingCode, HardwareOption, ImageModule, Unit
 from .image_budget import HALVING_FACTOR, halve, halved_magnification, image_data_bytes
 from .image_records import CR, MAX_WIDTH, download_command
+from .label import StopPosition
 from .raster import Bitmap
 from .records import MAX_IMAGE_MAGNIFICATION
 from .units import (
@@ -89,8 +90,9 @@ class RenderOptions(BaseModel):
             (``datamax-dpl calibrate``); negative moves left. None takes the model's default.
         offset_along: Millimetres every field is moved toward the label top; negative moves down.
         stop_position_mm: Tear-off stop position in mm, sent as configured (no scale or offset
-            applies); None takes the model's default, which for most models leaves the printer's
-            own setting. A label's own ``stop_position`` wins, and a job that cuts never uses it.
+            applies); ``"printer"`` sends none and keeps the printer's own setting; None takes the
+            model's default, which for most models leaves the printer's own setting. A label's own
+            ``stop_position`` wins, and a job that cuts never uses it.
         cutter_stop_position_mm: Stop position in mm for a job that cuts, sent as configured;
             None sends no stop position for such a job and leaves the printer's own setting.
         image_memory_bytes: Bytes of image data one job may download (see
@@ -118,7 +120,7 @@ class RenderOptions(BaseModel):
     scale_along: float | None = Field(default=None, ge=MIN_SCALE, le=MAX_SCALE)
     offset_across: float | None = Field(default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
     offset_along: float | None = Field(default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
-    stop_position_mm: float | None = Field(default=None, gt=0)
+    stop_position_mm: StopPosition | None = None
     cutter_stop_position_mm: float | None = Field(default=None, gt=0)
     image_memory_bytes: int | None = Field(default=None, gt=0)
     image_module: ImageModule | None = None

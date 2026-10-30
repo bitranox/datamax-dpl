@@ -12,7 +12,7 @@ one is needed.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -23,7 +23,7 @@ from .enums import Attribute, FindingCode, Severity, Unit
 from .errors import LabelRejectedError
 from .findings import Finding, FindingCollector
 from .image_budget import ImageBudget
-from .job import format_footer, format_header, stops_at_tear_off, system_prefix
+from .job import PRINTER_STOP, format_footer, format_header, stops_at_tear_off, system_prefix
 from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText, Text
 from .placeholders import label_placeholders
 from .preview import SentAs
@@ -132,11 +132,18 @@ def _resolve(options: RenderOptions, model: CalibrationDefaults) -> CalibrationD
         scale_along=_pick(options.scale_along, model.scale_along),
         offset_across=_pick(options.offset_across, model.offset_across),
         offset_along=_pick(options.offset_along, model.offset_along),
-        stop_position_mm=_pick(options.stop_position_mm, model.stop_position_mm),
+        stop_position_mm=_tear_off_stop(options.stop_position_mm, model.stop_position_mm),
         provenance=model.provenance,
         image_memory_bytes=_pick(options.image_memory_bytes, model.image_memory_bytes),
         image_memory_provenance=model.image_memory_provenance,
     )
+
+
+def _tear_off_stop(explicit: float | Literal["printer"] | None, default: float | None) -> float | None:
+    """Return the tear-off stop position a job sends: none for ``"printer"``, else as :func:`_pick`."""
+    if explicit == PRINTER_STOP:
+        return None
+    return _pick(explicit, default)
 
 
 def _model_defaults_used(options: RenderOptions, calibration: CalibrationDefaults) -> dict[str, str]:
@@ -148,7 +155,9 @@ def _model_defaults_used(options: RenderOptions, calibration: CalibrationDefault
     naming it would tell the reader nothing.
     """
     neutral = CalibrationDefaults()
-    candidates: list[tuple[str, float | None, float | None, float | None, str]] = [
+    # The given value is "printer" for a stop position that keeps the printer's own: the job's
+    # value is then None, so the model's default is not named.
+    candidates: list[tuple[str, float | str | None, float | None, float | None, str]] = [
         ("scale_across", options.scale_across, calibration.scale_across, neutral.scale_across, ""),
         ("scale_along", options.scale_along, calibration.scale_along, neutral.scale_along, ""),
         ("offset_across", options.offset_across, calibration.offset_across, neutral.offset_across, " mm"),

@@ -127,10 +127,13 @@ options = []
 # Purpose: Tear-off stop position in mm: where the printer stops the label after
 #          printing, found by trying stop values on the printer. Sent as <STX>f
 #          before every job that does not cut, exactly as set (no scale or offset
-#          applies). A label's own stop_position or present distance wins. A model
-#          without a stop-position command does not get it: the job prints and
-#          reports the info finding configured_stop_position_unsupported.
-# Type: float, greater than 0, at most 253.746 (999/100 inch, the DPL limit)
+#          applies). "printer" sends none, the model's default included, and keeps
+#          the stop set on the printer. A label's own stop_position or present
+#          distance wins. A model without a stop-position command does not get it:
+#          the job prints and reports the info finding
+#          configured_stop_position_unsupported.
+# Type: float, greater than 0, at most 253.746 (999/100 inch, the DPL limit), or
+#       "printer"
 # Default: unset (the model's default; for most models the printer's own setting)
 # Environment Variable: DATAMAX_DPL___PRINTER__STOP_POSITION=67.4
 # stop_position = 67.4

@@ -123,6 +123,41 @@ def test_the_largest_stop_position_dpl_takes_is_accepted() -> None:
     assert _options({"printer": {"stop_position": 253.746}}).stop_position_mm == 253.746
 
 
+@pytest.mark.os_agnostic
+def test_a_configured_stop_position_of_printer_reaches_the_render_options() -> None:
+    assert _options({"printer": {"stop_position": "printer"}}).stop_position_mm == "printer"
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printers_stop_position_and_the_printer_sections_win_over_each_other_by_section() -> None:
+    config = {"printer": {"stop_position": 60}, "printers": {"x": {"stop_position": "printer"}}}
+    flipped = {"printer": {"stop_position": "printer"}, "printers": {"x": {"stop_position": 60}}}
+
+    assert _options(config, printer="x").stop_position_mm == "printer"
+    assert _options(config).stop_position_mm == 60
+    assert _options(flipped, printer="x").stop_position_mm == 60
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("section", "printer"), [("printer", None), ("printers.x", "x")])
+def test_a_stop_position_word_other_than_printer_is_refused_with_the_key_named(
+    section: str, printer: str | None
+) -> None:
+    config = {"printer": {"stop_position": "paper"}}
+    if printer is not None:
+        config = {"printers": {"x": {"stop_position": "paper"}}}
+
+    with pytest.raises(ConfigurationError, match=rf"^{re.escape(section)}\.stop_position: Input should be 'printer'$"):
+        _options(config, printer=printer)
+
+
+@pytest.mark.os_agnostic
+def test_the_cutter_stop_position_takes_no_printer_value() -> None:
+    """A job that cuts needs the stop where the cutter is; unset already sends none (decision D37)."""
+    with pytest.raises(ConfigurationError, match=r"^printer\.cutter_stop_position: Input should be a valid number"):
+        _options({"printer": {"cutter_stop_position": "printer"}})
+
+
 def _render(
     cli_runner: CliRunner,
     factory: Callable[[], Any],
@@ -157,6 +192,55 @@ def test_a_set_override_of_the_stop_position_reaches_render(
     stopped = _render(cli_runner, config_cli_context({}), tmp_path, "--set", "printer.stop_position=60")
 
     assert "<STX>f236" in stopped
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("printer_section", [{"stop_position": "printer"}, {}])
+def test_a_configured_stop_position_of_printer_keeps_the_allegro_2s_own_stop(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    tmp_path: Path,
+    printer_section: dict[str, Any],
+) -> None:
+    """Without the config value the Allegro 2 sends its measured 67.4 mm; with it, no stop at all."""
+    dpl = _render(cli_runner, config_cli_context({"printer": printer_section}), tmp_path, model="allegro-2")
+
+    assert ("<STX>f" in dpl) is (printer_section == {})
+
+
+@pytest.mark.os_agnostic
+def test_a_set_override_of_printer_reaches_render(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    factory = config_cli_context({"printer": {"stop_position": 60}})
+    dpl = _render(cli_runner, factory, tmp_path, "--set", "printer.stop_position=printer", model="allegro-2")
+
+    assert "<STX>f" not in dpl
+
+
+@pytest.mark.os_agnostic
+def test_the_labels_stop_position_wins_over_a_configured_printer(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    label = {**_LINE, "stop_position": 50}
+    factory = config_cli_context({"printer": {"stop_position": "printer"}})
+    configured = _render(cli_runner, factory, tmp_path, label=label, model="allegro-2")
+    plain = _render(cli_runner, config_cli_context({}), tmp_path, label=label, model="allegro-2")
+
+    assert "<STX>f" in plain
+    assert configured == plain
+
+
+@pytest.mark.os_agnostic
+def test_a_labels_printer_wins_over_a_configured_stop_position(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    label = {**_LINE, "stop_position": "printer"}
+    dpl = _render(
+        cli_runner, config_cli_context({"printer": {"stop_position": 60}}), tmp_path, label=label, model="allegro-2"
+    )
+
+    assert "<STX>f" not in dpl
 
 
 @pytest.mark.os_agnostic
