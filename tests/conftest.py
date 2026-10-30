@@ -21,11 +21,13 @@ import pytest
 import rich_click.rich_click
 from click.testing import CliRunner
 from lib_layered_config import Config
+from printer_server import PrinterServer
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping
 
     from lib_layered_config.domain.config import SourceInfo
+    from printer_server import Play
 
     from datamax_dpl.composition import AppServices
 
@@ -611,3 +613,31 @@ def config_cli_context(
         return _quiet_production(get_config=_fake_get_config)
 
     return _create
+
+
+@pytest.fixture
+def serve() -> Iterator[Callable[[Play], PrinterServer]]:
+    """Start one-connection printer servers on 127.0.0.1; every one is joined at teardown.
+
+    A thread still running after its join would outlive its test and run on into later ones, so
+    teardown fails the test that left it.
+
+    Yields:
+        A function taking the printer's side of the connection and returning the started server.
+
+    Example:
+        def test_status(serve: Callable[[Play], PrinterServer]) -> None:
+            server = serve(answering(STATUS_REQUEST, b"NNNNNNNN\\r"))
+    """
+    servers: list[PrinterServer] = []
+
+    def start(play: Play) -> PrinterServer:
+        server = PrinterServer(play)
+        servers.append(server)
+        return server
+
+    yield start
+    for server in servers:
+        server.join()
+    still_running = [server.port for server in servers if not server.ended]
+    assert not still_running, f"printer server threads still running on ports {still_running}"

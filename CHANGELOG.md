@@ -158,6 +158,10 @@ All notable changes to this project are documented here. The format follows
   was given, over tcp and serial alike: `no complete answer within 0.5 s
   (0 bytes read)` instead of `no complete answer in time`, so the message
   names the `--timeout` (or `[printer] timeout`) to raise.
+- The test suite now runs `print`, `status` and `memory` with the production
+  wiring against a file and a printer server on 127.0.0.1, so the hand-over
+  of `--printer`, the model's defaults and `--timeout` to the transport is
+  tested, not only the commands against an in-memory printer.
 
 ### Fixed
 
