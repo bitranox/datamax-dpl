@@ -835,8 +835,115 @@ def test_a_raster_fallback_of_exactly_2040_dots_fits_and_2041_is_refused(box_dot
     codes = {f.code for f in result.findings}
     assert (FindingCode.IMAGE_TOO_WIDE in codes) is not fits
     assert (FindingCode.BOX_RASTERIZED in codes) is fits
+    # 2040 dots also pass the Allegro 2's 832-dot print width; only an image that is placed is checked.
+    assert (FindingCode.IMAGE_PAST_PRINT_WIDTH in codes) is fits
     assert len(result.downloads) == (1 if fits else 0)
     assert len(image_placements(result.data)) == (1 if fits else 0)
+
+
+# ======================== images past the print width ========================
+
+_PAST_PRINT_WIDTH_PHRASE = "passes the 832-dot print width of Allegro 2"
+
+
+def _image_label(x: float, *, width: int, unit: str = "mm", magnification: int = 1, rows: int = 2) -> Label:
+    return Label.model_validate(
+        {
+            "unit": unit,
+            "elements": [
+                {
+                    "type": "image",
+                    "x": x,
+                    "y": 5,
+                    "name": "WIDE",
+                    "magnification": magnification,
+                    "bitmap": ["#" * width] * rows,
+                }
+            ],
+        }
+    )
+
+
+def _past_width(result: RenderResult) -> list[Finding]:
+    return [f for f in result.findings if f.code is FindingCode.IMAGE_PAST_PRINT_WIDTH]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("policy", ["degrade", "strict"])
+def test_an_image_ending_past_the_print_width_is_refused(policy: str) -> None:
+    """Allegro 2: 4.10 in at 203 dpi is 832 dots; x = 10 mm is column 40, dot 80, so 800 dots end at dot 880."""
+    options = RenderOptions.model_validate({"model": "allegro-2", "policy": policy})
+    result = build_job(_image_label(10, width=800), options)
+    [finding] = _past_width(result)
+    assert (finding.severity, finding.element) == (Severity.ERROR, 0)
+    assert "ends at dot 880" in finding.message
+    assert FindingCode.OUTSIDE_PRINT_WIDTH not in {f.code for f in result.findings}
+    with pytest.raises(LabelRejectedError, match=_PAST_PRINT_WIDTH_PHRASE):
+        render(_image_label(10, width=800), options)
+
+
+@pytest.mark.os_agnostic
+def test_the_same_image_at_the_left_edge_renders() -> None:
+    result = build_job(_image_label(0, width=800), RenderOptions(model="allegro-2"))
+    assert result.ok, result.findings
+    assert _past_width(result) == []
+
+
+@pytest.mark.os_agnostic
+def test_an_image_is_measured_at_its_magnification() -> None:
+    """400 dots at magnification 2 print 800 dots: inside at x = 0, past at x = 10 mm."""
+    assert build_job(_image_label(0, width=400, magnification=2), RenderOptions(model="allegro-2")).ok
+    past = build_job(_image_label(10, width=400, magnification=2), RenderOptions(model="allegro-2"))
+    assert [f.element for f in _past_width(past)] == [0]
+
+
+@pytest.mark.os_agnostic
+def test_a_halved_image_whose_doubled_magnification_passes_the_edge_is_refused() -> None:
+    """271 dots at magnification 3 from dot 18 end at dot 831; halved, 136 dots at 6 end at dot 834."""
+    label = _image_label(18, width=271, unit="dots", magnification=3, rows=10)
+    whole = build_job(label, RenderOptions(model="allegro-2"))
+    assert whole.ok, whole.findings
+    halved = build_job(label, RenderOptions(model="allegro-2", image_memory_bytes=100))
+    assert halved.halved_elements == (0,)
+    [finding] = _past_width(halved)
+    assert finding.element == 0
+    assert "ends at dot 834" in finding.message
+
+
+@pytest.mark.os_agnostic
+def test_an_image_starting_past_the_last_column_gets_one_finding_not_two() -> None:
+    result = build_job(_image_label(105, width=8), RenderOptions(model="allegro-2"))
+    assert FindingCode.OUTSIDE_PRINT_WIDTH in {f.code for f in result.findings}
+    assert _past_width(result) == []
+
+
+@pytest.mark.os_agnostic
+def test_a_stored_image_of_unknown_size_is_not_checked() -> None:
+    label = Label.model_validate({"elements": [{"type": "image", "x": 100, "y": 5, "name": "LOGO"}]})
+    result = build_job(label, RenderOptions(model="allegro-2"))
+    assert result.ok, result.findings
+    assert _past_width(result) == []
+
+
+def _polygon_label(left: float, right: float) -> Label:
+    points = [{"x": left, "y": 5}, {"x": right, "y": 5}, {"x": left, "y": 15}]
+    return Label.model_validate({"elements": [{"type": "polygon", "points": points, "fill": 1}]})
+
+
+@pytest.mark.os_agnostic
+def test_a_rasterized_polygon_inside_the_print_width_is_untouched() -> None:
+    result = build_job(_polygon_label(10, 50), RenderOptions(model="allegro-2"))
+    assert result.ok, result.findings
+    assert FindingCode.POLYGON_RASTERIZED in {f.code for f in result.findings}
+    assert _past_width(result) == []
+
+
+@pytest.mark.os_agnostic
+def test_a_rasterized_polygon_past_the_print_width_is_refused() -> None:
+    """D31: a raster fallback is a drawn image like any other; 90 mm to 110 mm ends past 104 mm."""
+    result = build_job(_polygon_label(90, 110), RenderOptions(model="allegro-2"))
+    assert [f.element for f in _past_width(result)] == [0]
+    assert not result.ok
 
 
 # ======================== the memory module images download to ========================

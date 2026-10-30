@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, get_args
 
-from .encode_common import column_of, row_of
+from .encode_common import column_of, image_edge, row_of
 from .enums import FillPattern, FindingCode
 from .label import Box, Circle, Line, Polygon
 from .raster import Bitmap
@@ -127,11 +127,16 @@ def rasterize(element: Graphic, *, index: int, ctx: RenderContext, reason: str) 
 
     Returns:
         The format line that places the image, or nothing when the image is refused as too wide.
+        One that ends past the print width is placed but refused (``image_past_print_width``).
     """
     frame = frame_of(element, ctx)
+    # Through row_of/column_of like every other field, so the printer's offset moves it too.
+    row = row_of(frame.bottom, index=index, ctx=ctx)
+    column = column_of(frame.left, index=index, ctx=ctx)
     bitmap = Bitmap(frame.width_dots, frame.height_dots)
     draw_graphic(element, bitmap, frame, ctx)
-    placed = ctx.download_drawn_image(bitmap, element=index)
+    edge = image_edge(column, what=f"the {element.type} drawn as an image", ctx=ctx)
+    placed = ctx.download_drawn_image(bitmap, element=index, edge=edge)
     if placed is None:
         return []
     ctx.findings.deviate(
@@ -140,9 +145,6 @@ def rasterize(element: Graphic, *, index: int, ctx: RenderContext, reason: str) 
         fallback=f"drawn as downloaded image {placed.name} ({_sent_size(placed, frame)})",
         element=index,
     )
-    # Through row_of/column_of like every other field, so the printer's offset moves it too.
-    row = row_of(frame.bottom, index=index, ctx=ctx)
-    column = column_of(frame.left, index=index, ctx=ctx)
     return [line(image_record(row=row, column=column, name=placed.name, magnification=placed.dots))]
 
 

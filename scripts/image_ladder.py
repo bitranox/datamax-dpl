@@ -18,7 +18,8 @@ Usage::
     datamax-dpl print ladder/ladder-03-1.05x.json --printer tcp://192.0.2.60:9100
 
 Each line of the output names a label, its image bytes and what a render does with it
-(``within``, ``halved`` or ``refused``), rendered for ``--model`` at the same budget.
+(``within``, ``halved`` or ``refused``), rendered for ``--model`` at the same budget;
+``past_print_width`` when the image is wider than that model prints (pass a smaller ``--width``).
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ import json
 import sys
 from pathlib import Path
 
+from datamax_dpl.domain.enums import FindingCode
 from datamax_dpl.domain.label import Label
 from datamax_dpl.domain.render import build_job, effective_calibration
 from datamax_dpl.domain.render_context import RenderOptions
@@ -37,7 +39,8 @@ __all__ = ["DEFAULT_WIDTH_DOTS", "NO_BUDGET", "STEPS", "grid_rows", "ladder_labe
 #: Shares of the budget the ladder's images hold: within, just under, just past, well past (both
 #: halved), and past what one halving brings under the budget (refused).
 STEPS = (0.5, 0.95, 1.05, 1.5, 4.2)
-#: Image width in dots: 100 bytes a row, inside the narrowest model's 4.1 in print width.
+#: Image width in dots: 100 bytes a row. From x = 16 it ends at dot 816, inside the 832 dots of a
+#: 4.1 in, 203 dpi model such as the Allegro 2; a narrower model refuses it (image_past_print_width).
 DEFAULT_WIDTH_DOTS = 800
 #: Exit code when the model has no budget and none was given.
 NO_BUDGET = 2
@@ -88,8 +91,13 @@ def ladder_label(share: float, *, budget: int, width: int) -> dict[str, object]:
 
 
 def _outcome(document: dict[str, object], options: RenderOptions) -> tuple[int, str]:
-    """Render ``document`` and return its image bytes and what the budget did to it."""
+    """Render ``document`` and return its image bytes and what the budget did to it.
+
+    An image wider than the model prints is ``past_print_width``, whatever the budget says.
+    """
     result = build_job(Label.model_validate(document), options)
+    if any(finding.code is FindingCode.IMAGE_PAST_PRINT_WIDTH for finding in result.errors):
+        return result.image_bytes, "past_print_width"
     if not result.ok:
         return result.image_bytes, "refused"
     return result.image_bytes, "halved" if result.halved_elements else "within"

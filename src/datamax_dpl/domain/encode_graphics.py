@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from .encode_common import column_of, last_column, row_of
+from .encode_common import column_of, image_edge, last_column, row_of
 from .enums import FillPattern, FindingCode
 from .label import Box, Circle, Image, Line, Point, Polygon, Qr
 from .profiles import Feature
@@ -13,6 +13,7 @@ from .qr import QrDataTooLongError, qr_bitmap
 from .raster import Bitmap
 from .raster_fallback import rasterize
 from .records import BoxRecord, circle_record, image_record, line, line_record, polygon_record
+from .render_context import ImageEdge
 from .units import Axis
 
 if TYPE_CHECKING:
@@ -164,50 +165,23 @@ def encode_image(element: Image, *, index: int, ctx: RenderContext) -> list[byte
     A bitmap refused for its width places nothing. The record places what the context says:
     the element's name at its magnification, or, when the job halves its images, the halved image's
     content name at double the magnification (also for a stored-only reference to a name the job
-    downloads).
+    downloads). An image of known size that ends past the print width is refused
+    (``image_past_print_width``).
     """
+    row = row_of(element.y, index=index, ctx=ctx)
+    column = column_of(element.x, index=index, ctx=ctx)
+    edge = image_edge(column, what=f"image {element.name}", ctx=ctx)
     if element.bitmap is not None:
         bitmap = Bitmap.from_rows(element.bitmap)
-        placed = ctx.download_image(element.name, bitmap, element=index, magnification=element.magnification)
+        placed = ctx.download_image(element.name, bitmap, element=index, edge=edge, magnification=element.magnification)
     else:
         ctx.findings.info(
             FindingCode.IMAGE_MUST_BE_STORED, f"image {element.name} must already be on the printer", element=index
         )
-        placed = ctx.place_stored_image(element.name, element=index, magnification=element.magnification)
+        placed = ctx.place_stored_image(element.name, element=index, edge=edge, magnification=element.magnification)
     if placed is None:
         return []
-    record = image_record(
-        row=row_of(element.y, index=index, ctx=ctx),
-        column=column_of(element.x, index=index, ctx=ctx),
-        name=placed.name,
-        magnification=placed.dots,
-    )
-    return [line(record)]
-
-
-def _check_right_edge(element: Qr, *, start_column: int, extent_dots: int, index: int, ctx: RenderContext) -> None:
-    """Refuse a QR Code whose area, quiet zone included, ends past the printhead's last dot.
-
-    Counted in printhead dots from the column the placing record writes (corrected like every
-    column), since the printer addresses the head by dot, whatever the calibration says the dots
-    measure on paper.
-
-    Args:
-        element: The QR element.
-        start_column: The record's column, where the symbol starts.
-        extent_dots: The symbol plus one quiet zone, the part right of ``start_column``.
-        index: Position of the element in the label.
-        ctx: The render context.
-    """
-    end = ctx.printed_dots(start_column) + extent_dots
-    limit = round(ctx.profile.print_width_in * ctx.profile.dpi)
-    if end > limit:
-        ctx.findings.refuse(
-            FindingCode.QR_PAST_PRINT_WIDTH,
-            f"the {element.type} element with its quiet zone ends at dot {end}; it passes the {limit}-dot "
-            f"print width of {ctx.profile.name}",
-            element=index,
-        )
+    return [line(image_record(row=row, column=column, name=placed.name, magnification=placed.dots))]
 
 
 def qr_symbol_position(element: Qr, *, column: int, row: int, ctx: RenderContext) -> tuple[int, int]:
@@ -233,7 +207,8 @@ def encode_qr(element: Qr, *, index: int, ctx: RenderContext) -> list[bytes]:
 
     The image holds one dot per module, the smallest download; the record's dot width and height
     print each module ``module_dots`` dots square. ``(x, y)`` goes through the same position rules
-    as every other field, and the symbol starts the quiet zone in from it. A field already refused
+    as every other field, and the symbol starts the quiet zone in from it. The symbol with its right
+    quiet zone must end inside the print width (``qr_past_print_width``); a field already refused
     for starting past the last column gets no second finding for its right edge.
     """
     try:
@@ -244,11 +219,18 @@ def encode_qr(element: Qr, *, index: int, ctx: RenderContext) -> list[bytes]:
     field_row = row_of(element.y, index=index, ctx=ctx)
     field_column = column_of(element.x, index=index, ctx=ctx)
     column, row = qr_symbol_position(element, column=field_column, row=field_row, ctx=ctx)
-    if field_column <= last_column(ctx):
-        extent = symbol.width * element.module_dots + element.quiet_zone * element.module_dots
-        _check_right_edge(element, start_column=column, extent_dots=extent, index=index, ctx=ctx)
+    # Checked from the symbol's column, but skipped by the FIELD's: the quiet zone can carry a symbol
+    # whose field is inside past the last column, and that symbol must still be refused.
+    edge = ImageEdge(
+        column=column if field_column <= last_column(ctx) else None,
+        what=f"the {element.type} element with its quiet zone",
+        code=FindingCode.QR_PAST_PRINT_WIDTH,
+        margin_dots=element.quiet_zone * element.module_dots,
+    )
     # Never halved: the image holds one dot per module, so halving it would merge modules.
-    placed = ctx.download_drawn_image(symbol, element=index, magnification=element.module_dots, halvable=False)
+    placed = ctx.download_drawn_image(
+        symbol, element=index, edge=edge, magnification=element.module_dots, halvable=False
+    )
     if placed is None:
         return []
     return [line(image_record(row=row, column=column, name=placed.name, magnification=placed.dots))]

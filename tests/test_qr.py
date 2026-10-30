@@ -33,7 +33,7 @@ from datamax_dpl.domain.qr import qr_bitmap
 from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.records import image_record
 from datamax_dpl.domain.render import RenderResult, build_job, render
-from datamax_dpl.domain.render_context import RenderContext, RenderOptions, drawn_image_name
+from datamax_dpl.domain.render_context import ImageEdge, RenderContext, RenderOptions, drawn_image_name
 from datamax_dpl.domain.units import DplUnit
 
 if TYPE_CHECKING:
@@ -367,9 +367,13 @@ def test_identical_qrs_in_one_job_are_downloaded_once_and_placed_twice() -> None
     assert other != same
 
 
+#: A placement at column 0: these images are a few dots wide, so the print-width check never fires.
+AT_THE_LEFT_EDGE = ImageEdge(column=0, what="image")
+
+
 def drawn_name(ctx: RenderContext, bitmap: Bitmap) -> str:
     """Queue ``bitmap`` as a drawn image of element 0 and return the name it is placed under."""
-    placed = ctx.download_drawn_image(bitmap, element=0)
+    placed = ctx.download_drawn_image(bitmap, element=0, edge=AT_THE_LEFT_EDGE)
     assert placed is not None
     return placed.name
 
@@ -388,7 +392,7 @@ def test_two_different_images_whose_names_collide_in_one_job_get_different_names
     )
     bitmap = Bitmap.from_rows(["#."])
     taken = drawn_image_name(bitmap)
-    ctx.download_image(taken, Bitmap.from_rows([".#"]), element=0)
+    ctx.download_image(taken, Bitmap.from_rows([".#"]), element=0, edge=AT_THE_LEFT_EDGE)
     name = drawn_name(ctx, bitmap)
     assert name not in (taken, "")
     assert name == drawn_image_name(bitmap, salt=1)
@@ -485,7 +489,7 @@ def test_download_drawn_image_never_names_two_different_images_alike(
         reserved_image_names=frozenset({first}) if reserved else frozenset(),
     )
     if taken_by_other:
-        ctx.download_image(drawn_image_name(bitmap, salt=1), Bitmap.from_rows([".#"]), element=0)
+        ctx.download_image(drawn_image_name(bitmap, salt=1), Bitmap.from_rows([".#"]), element=0, edge=AT_THE_LEFT_EDGE)
     name = drawn_name(ctx, bitmap)
     assert name == drawn_image_name(bitmap, salt=salt)
     if queued_twice:

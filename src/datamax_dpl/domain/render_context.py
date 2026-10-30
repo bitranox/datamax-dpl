@@ -196,6 +196,31 @@ class PlacedImage:
         return self.magnification, self.magnification
 
 
+@dataclass(frozen=True)
+class ImageEdge:
+    """Where a placing record starts an image, for the check of its right edge against the print width.
+
+    Every placement takes one, so no image placed with a known size escapes the check.
+
+    Attributes:
+        column: DPL column the record writes, where the image's first dot prints; None when the
+            field is already refused for starting past the last column (``outside_print_width``),
+            so its right edge gets no second finding.
+        what: Names the image in the refusal, e.g. ``image LOGO``.
+        code: The finding an image ending past the print width gets; a QR Code keeps its own.
+        margin_dots: Dots right of the image that must fit too: a QR Code's quiet zone.
+
+    Example:
+        >>> ImageEdge(column=None, what="image LOGO").code
+        <FindingCode.IMAGE_PAST_PRINT_WIDTH: 'image_past_print_width'>
+    """
+
+    column: int | None
+    what: str
+    code: FindingCode = FindingCode.IMAGE_PAST_PRINT_WIDTH
+    margin_dots: int = 0
+
+
 @dataclass
 class RenderContext:
     """Mutable state of one render.
@@ -404,7 +429,34 @@ class RenderContext:
         self.halved_elements.append(element)
         return halve(bitmap), doubled
 
-    def download_image(self, name: str, bitmap: Bitmap, *, element: int, magnification: int = 1) -> PlacedImage | None:
+    def _check_print_width(self, placed: PlacedImage, *, edge: ImageEdge, element: int) -> None:
+        """Refuse an image whose right edge, magnified, ends past the printhead's last dot.
+
+        Counted in printhead dots from the column the placing record writes (corrected like every
+        column), since the printer addresses the head by dot, whatever the calibration says the
+        dots measure on paper. The size is the image as sent, so a halved image counts at its
+        doubled magnification. An image of unknown size (placed from the printer's memory) and
+        one whose field is already refused for its column are not checked.
+        """
+        if placed.size is None or edge.column is None:
+            return
+        end = self.printed_dots(edge.column) + placed.size[0] * placed.magnification + edge.margin_dots
+        limit = round(self.profile.print_width_in * self.profile.dpi)
+        if end > limit:
+            self.findings.refuse(
+                edge.code,
+                f"{edge.what} ends at dot {end}; it passes the {limit}-dot print width of {self.profile.name}",
+                element=element,
+            )
+
+    def _checked(self, placed: PlacedImage, *, edge: ImageEdge, element: int) -> PlacedImage:
+        """Return ``placed`` after checking its right edge against the print width."""
+        self._check_print_width(placed, edge=edge, element=element)
+        return placed
+
+    def download_image(
+        self, name: str, bitmap: Bitmap, *, element: int, edge: ImageEdge, magnification: int = 1
+    ) -> PlacedImage | None:
         """Queue a label's ``bitmap`` for download before the format and say how to place it.
 
         The full bitmap goes under ``name``. A halved one goes under its content name like a drawn
@@ -416,6 +468,8 @@ class RenderContext:
             name: The image name, the label's own.
             bitmap: The image.
             element: Position of the element in the label, for findings.
+            edge: Where the placing record starts it; an image ending past the print width is
+                refused (``image_past_print_width``) but still queued and placed.
             magnification: Printer dots per image dot the element asks for.
 
         Returns:
@@ -436,17 +490,19 @@ class RenderContext:
         size = (sent.width, sent.height)
         # Halving always doubles the magnification, so a changed one means the bits were halved.
         if placed_at != magnification:
-            return PlacedImage(name=self._queue_drawn(sent, module=module), magnification=placed_at, size=size)
+            placed = PlacedImage(name=self._queue_drawn(sent, module=module), magnification=placed_at, size=size)
+            return self._checked(placed, edge=edge, element=element)
         self.downloads.append(ImageDownload(name=name, command=download_command(name, sent, module=module)))
-        return PlacedImage(name=name, magnification=placed_at, size=size)
+        return self._checked(PlacedImage(name=name, magnification=placed_at, size=size), edge=edge, element=element)
 
-    def place_stored_image(self, name: str, *, element: int, magnification: int) -> PlacedImage | None:
+    def place_stored_image(self, name: str, *, element: int, edge: ImageEdge, magnification: int) -> PlacedImage | None:
         """Say how to place an image the label names without a bitmap.
 
         Normally the printer's own image under ``name``. In a halving job where another element
         of the label downloads ``name``, that download goes out halved under its content name, so
         this reference is placed as the same halved image at double its own magnification, and
-        prints like the element that downloads it, whichever comes first.
+        prints like the element that downloads it, whichever comes first. Only that halved image
+        has a known size, so only it is checked against the print width (``edge``).
 
         Returns:
             How to place it, or None when the halved image is too wide for one row record
@@ -465,12 +521,13 @@ class RenderContext:
         module = self._module(element=element)
         if module is None:
             return None
-        return PlacedImage(
+        placed = PlacedImage(
             name=self._queue_drawn(sent, module=module), magnification=placed_at, size=(sent.width, sent.height)
         )
+        return self._checked(placed, edge=edge, element=element)
 
     def download_drawn_image(
-        self, bitmap: Bitmap, *, element: int, magnification: int = 1, halvable: bool = True
+        self, bitmap: Bitmap, *, element: int, edge: ImageEdge, magnification: int = 1, halvable: bool = True
     ) -> PlacedImage | None:
         """Queue an image the library drew under its content name, once per job, and say how to place it.
 
@@ -483,6 +540,8 @@ class RenderContext:
         Args:
             bitmap: The drawn image.
             element: Position of the element in the label, for findings.
+            edge: Where the placing record starts it; an image ending past the print width is
+                refused (``edge.code``) but still queued and placed.
             magnification: Printer dots per image dot.
             halvable: False for an image halving would distort (a QR Code's modules): it is sent
                 as it is even when the job halves its images.
@@ -501,9 +560,10 @@ class RenderContext:
         module = self._module(element=element)
         if module is None:
             return None
-        return PlacedImage(
+        placed = PlacedImage(
             name=self._queue_drawn(sent, module=module), magnification=placed_at, size=(sent.width, sent.height)
         )
+        return self._checked(placed, edge=edge, element=element)
 
     def _queue_drawn(self, bitmap: Bitmap, *, module: str) -> str:
         """Queue ``bitmap`` into ``module`` under the first free salted content name and return the name."""
@@ -527,6 +587,7 @@ __all__ = [
     "DRAWN_IMAGE_PREFIX",
     "MAX_FIELD_VALUE",
     "ImageDownload",
+    "ImageEdge",
     "PlacedImage",
     "RenderContext",
     "RenderOptions",

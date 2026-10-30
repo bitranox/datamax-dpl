@@ -44,3 +44,13 @@ def test_the_ladder_writes_valid_labels_that_straddle_the_allegro_2_budget(
 def test_a_model_without_a_budget_needs_one_given(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert _main()(["--out", str(tmp_path), "--model", "dmx-600"]) == 2
     assert "has no image memory budget" in capsys.readouterr().err
+
+
+@pytest.mark.os_agnostic
+def test_a_model_narrower_than_the_ladder_image_says_so_rather_than_blaming_the_budget(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """generic prints 3.98 in, 808 dots; the 800-dot image from dot 16 ends at dot 816."""
+    assert _main()(["--out", str(tmp_path), "--model", "generic", "--budget", "20000"]) == 0
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert {line["outcome"] for line in lines} == {"past_print_width"}

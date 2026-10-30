@@ -8,6 +8,7 @@ from .enums import Attribute, FindingCode, Unit
 from .label import MAX_FIELD_DATA, Counter
 from .profiles import Feature
 from .records import line
+from .render_context import ImageEdge
 from .units import Axis, DplUnit, to_dpl
 
 if TYPE_CHECKING:
@@ -35,6 +36,20 @@ def column_of(x: float, *, index: int, ctx: RenderContext) -> int:
             element=index,
         )
     return column
+
+
+def image_edge(column: int, *, what: str, ctx: RenderContext) -> ImageEdge:
+    """Return the print-width check of an image whose placing record writes ``column``.
+
+    A column past the last one is already refused by :func:`column_of` (``outside_print_width``),
+    so that image's right edge is not checked again.
+
+    Args:
+        column: The record's column, as :func:`column_of` returned it.
+        what: Names the image in a refusal, e.g. ``image LOGO``.
+        ctx: The render context.
+    """
+    return ImageEdge(column=column if column <= last_column(ctx) else None, what=what)
 
 
 def row_of(y: float, *, index: int, ctx: RenderContext) -> int:
@@ -154,6 +169,7 @@ __all__ = [
     "check_field_length",
     "column_of",
     "counter_lines",
+    "image_edge",
     "last_column",
     "position_units",
     "row_of",

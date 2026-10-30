@@ -273,6 +273,7 @@ class FindingCode(str, Enum):
     IMAGE_MEMORY_EXCEEDED = "image_memory_exceeded"
     IMAGE_MODULE_UNKNOWN = "image_module_unknown"
     IMAGE_MUST_BE_STORED = "image_must_be_stored"
+    IMAGE_PAST_PRINT_WIDTH = "image_past_print_width"
     IMAGE_TOO_WIDE = "image_too_wide"
     INCH_UNITS = "inch_units"
     LABEL_WIDER_THAN_PRINT_WIDTH = "label_wider_than_print_width"

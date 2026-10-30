@@ -31,6 +31,7 @@ from .overlap import find_overlaps, printed_dots
 from .profiles import Feature
 from .raster import Bitmap
 from .records import image_record, line
+from .render_context import ImageEdge
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -62,9 +63,14 @@ class Emulation:
 #: Deviations a member's own encoder records that hold for it inside the merged image too: it is
 #: placed where its own record would be, so a position clamped on the label edge stays clamped.
 _KEPT_DEVIATIONS = frozenset({FindingCode.MODEL_OFFSET_CLAMPED})
+#: Refusals that say a member does not fit the print width; the merged image holding it then gets
+#: no second finding for its own right edge.
+_PRINT_WIDTH_REFUSALS = frozenset(
+    {FindingCode.OUTSIDE_PRINT_WIDTH, FindingCode.IMAGE_PAST_PRINT_WIDTH, FindingCode.QR_PAST_PRINT_WIDTH}
+)
 
 
-def _member_findings(elements: Sequence[Element], group: tuple[int, ...], ctx: RenderContext) -> None:
+def _member_findings(elements: Sequence[Element], group: tuple[int, ...], ctx: RenderContext) -> frozenset[FindingCode]:
     """Record what each member's own encoder refuses, and where it clamps the member's position.
 
     The member is encoded on a scratch copy of the context and its lines and downloads are thrown
@@ -72,6 +78,9 @@ def _member_findings(elements: Sequence[Element], group: tuple[int, ...], ctx: R
     carry over, while every other fallback the encoder would apply is replaced by the merge.
     The copy never halves: the merged image is halved as a whole, so a member's own magnification
     never has to double.
+
+    Returns:
+        The codes of the refusals carried over.
     """
     scratch = dataclasses.replace(
         ctx,
@@ -84,11 +93,14 @@ def _member_findings(elements: Sequence[Element], group: tuple[int, ...], ctx: R
     )
     for index in group:
         _encode_member(elements[index], index=index, ctx=scratch)
+    refused: set[FindingCode] = set()
     for finding in scratch.findings.findings():
         if finding.severity is Severity.ERROR:
+            refused.add(finding.code)
             ctx.findings.refuse(finding.code, finding.message, element=finding.element)
         elif finding.code in _KEPT_DEVIATIONS and finding.fallback is not None:
             ctx.findings.deviate(finding.code, finding.message, fallback=finding.fallback, element=finding.element)
+    return frozenset(refused)
 
 
 def _encode_member(element: Element, *, index: int, ctx: RenderContext) -> None:
@@ -153,14 +165,23 @@ def _bytes_sent(placed: PlacedImage, ctx: RenderContext) -> int:
 
 
 def _emulate_group(label: Label, group: tuple[int, ...], ctx: RenderContext) -> list[bytes]:
-    """Draw ``group`` into one downloaded image and return its placing line; nothing when it is refused."""
-    _member_findings(label.elements, group, ctx)
+    """Draw ``group`` into one downloaded image and return its placing line; nothing when it is refused.
+
+    The merged image is a drawn image like a raster fallback: one that ends past the print width
+    is refused (``image_past_print_width``, also when it holds a QR Code), unless a member is
+    already refused for the print width, which says why.
+    """
+    refused = _member_findings(label.elements, group, ctx)
     members = [printed_dots(label.elements[index], ctx) for index in group]
     merged = _merge([member for member in members if member is not None])
     first = group[0]
     # A QR Code's image holds one dot per module, so halving the group would merge its modules.
     halvable = not any(isinstance(label.elements[index], Qr) for index in group)
-    placed = ctx.download_drawn_image(merged.bitmap, element=first, halvable=halvable)
+    edge = ImageEdge(
+        column=None if refused & _PRINT_WIDTH_REFUSALS else merged.column,
+        what=f"the merged image of elements {', '.join(map(str, group))}",
+    )
+    placed = ctx.download_drawn_image(merged.bitmap, element=first, edge=edge, halvable=halvable)
     _keep_named_downloads(label, group, ctx)
     if placed is None:
         return []

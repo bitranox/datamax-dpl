@@ -350,6 +350,32 @@ def test_a_member_keeps_its_own_refusal() -> None:
     result = build_job(transparent(qr, box), ALLEGRO_2)
     assert result.emulated_groups == ((0, 1),)
     assert only(result, FindingCode.QR_PAST_PRINT_WIDTH).element == 0
+    assert FindingCode.IMAGE_PAST_PRINT_WIDTH not in codes(result)
+
+
+@pytest.mark.os_agnostic
+def test_a_merged_image_past_the_print_width_is_refused_on_the_group() -> None:
+    """D31: merged, two boxes are one image; ending at dot 832 fits the Allegro 2, at dot 840 it does not."""
+    left = {"type": "box", "x": 780, "y": 10, "width": 52, "height": 20, "thickness": 2}
+    right = {"type": "box", "x": 800, "y": 10, "width": 40, "height": 20, "thickness": 2}
+    within = {"type": "box", "x": 790, "y": 10, "width": 30, "height": 20, "thickness": 2}
+    inside = build_job(transparent(left, within), ALLEGRO_2)
+    assert inside.emulated_groups == ((0, 1),)
+    assert inside.ok, inside.findings
+    result = build_job(transparent(left, right), ALLEGRO_2)
+    assert result.emulated_groups == ((0, 1),)
+    finding = only(result, FindingCode.IMAGE_PAST_PRINT_WIDTH)
+    assert (finding.severity, finding.element) == (Severity.ERROR, 0)
+
+
+@pytest.mark.os_agnostic
+def test_a_member_image_past_the_print_width_is_refused_once() -> None:
+    """The member's own refusal says why; the merged image that holds it gets no second finding."""
+    box = {"type": "box", "x": 780, "y": 10, "width": 40, "height": 20, "thickness": 2}
+    image = {"type": "image", "x": 790, "y": 10, "name": "WIDE", "bitmap": ["#" * 60] * 4}
+    result = build_job(transparent(box, image), ALLEGRO_2)
+    assert result.emulated_groups == ((0, 1),)
+    assert only(result, FindingCode.IMAGE_PAST_PRINT_WIDTH).element == 1
 
 
 @pytest.mark.os_agnostic

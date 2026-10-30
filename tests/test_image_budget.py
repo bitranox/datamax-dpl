@@ -308,7 +308,8 @@ def test_an_image_whose_doubled_magnification_passes_9_is_refused_instead_of_hal
 
 @pytest.mark.os_agnostic
 def test_an_image_at_magnification_4_is_halved_to_8() -> None:
-    result = build_job(label({**USER_IMAGE, "magnification": 4}), allegro(500))
+    """Placed at x = 20 mm (dot 160), where the halved 80 dots at magnification 8 end at dot 800 of 832."""
+    result = build_job(label({**USER_IMAGE, "x": 20, "magnification": 4}), allegro(500))
     assert result.ok, result.findings
     assert placements(result.data)[0].startswith(b"1Y88000")
 
