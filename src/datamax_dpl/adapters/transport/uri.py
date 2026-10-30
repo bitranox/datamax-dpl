@@ -31,7 +31,7 @@ from datamax_dpl.domain.errors import (
     TransportError,
     UnsupportedOperationError,
 )
-from datamax_dpl.domain.status import XOFF, XON
+from datamax_dpl.domain.status import XOFF, XON, show_answer
 from datamax_dpl.domain.timing import MAX_TIMEOUT_SECONDS, check_timeout
 
 if TYPE_CHECKING:
@@ -262,55 +262,98 @@ class Wait(NamedTuple):
         return self.deadline - time.monotonic()
 
 
-#: Added to a timeout when not one byte came: a printer busy with an earlier job answers late.
-NO_ANSWER_HINT = "the printer may still be printing an earlier job; try again or raise --timeout"
+#: Added to a timeout when nothing but flow control came: a printer busy with an earlier job
+#: answers late. Worded for the CLI's ``--timeout`` and a library caller's ``timeout`` alike.
+NO_ANSWER_HINT = "the printer may still be printing an earlier job; try again or raise the timeout"
 
 
-def no_answer(channel: str, *, wait: Wait, received: int) -> PrinterTimeoutError:
+class Skipped(NamedTuple):
+    """The lines a query read and skipped as not its answer: how many, their bytes, the last one.
+
+    The last line travels into the error a query ends with, so a malformed answer a test of the
+    lines refused (a status of seven flags) is still shown to the reader rather than only counted.
+
+    Example:
+        >>> skipped = NOTHING_SKIPPED.plus(b"MODULE: A\\r").plus(b"NNNNNNN\\r")
+        >>> skipped.lines, skipped.size, skipped.describe()
+        (2, 18, "2 lines skipped, last b'NNNNNNN\\\\r'")
+    """
+
+    lines: int = 0
+    size: int = 0
+    last: bytes = b""
+
+    def plus(self, line: bytes) -> Skipped:
+        """These skipped lines followed by ``line``."""
+        return Skipped(lines=self.lines + 1, size=self.size + len(line), last=line)
+
+    def describe(self) -> str:
+        """How many lines were skipped and the last one, quoted short as status errors quote an answer."""
+        noun = "line" if self.lines == 1 else "lines"
+        return f"{self.lines} {noun} skipped, last {show_answer(self.last)}"
+
+
+#: No line skipped.
+NOTHING_SKIPPED = Skipped()
+
+
+def no_answer(
+    channel: str, *, wait: Wait, received: bytes | bytearray, skipped: Skipped = NOTHING_SKIPPED
+) -> PrinterTimeoutError:
     """Return the error for a printer that sent no complete answer within ``wait``.
 
-    When not one byte came, the message ends with :data:`NO_ANSWER_HINT`.
+    The message counts every byte read and names the lines skipped as not the answer, quoting the
+    last. When nothing but flow control came, it ends with :data:`NO_ANSWER_HINT`.
 
     Args:
         channel: The channel as messages name it, e.g. ``tcp 192.0.2.60:9100``.
         wait: The wait that ran out.
-        received: Bytes that did arrive, lines skipped as not the answer included.
+        received: The bytes of the answer that did arrive, skipped lines not included.
+        skipped: The lines read and skipped as not the answer.
 
     Example:
-        >>> print(no_answer("tcp 192.0.2.60:9100", wait=Wait(seconds=0.5, deadline=0.0), received=4))
+        >>> print(no_answer("tcp 192.0.2.60:9100", wait=Wait(seconds=0.5, deadline=0.0), received=b"NNNN"))
         tcp 192.0.2.60:9100: no complete answer within 0.5 s (4 bytes read)
 
         The seconds print as the sibling messages print theirs (``:g``), without float noise:
 
-        >>> print(no_answer("serial COM3", wait=Wait(seconds=0.1 + 0.2, deadline=0.0), received=3))
+        >>> print(no_answer("serial COM3", wait=Wait(seconds=0.1 + 0.2, deadline=0.0), received=b"NNN"))
         serial COM3: no complete answer within 0.3 s (3 bytes read)
 
-        >>> str(no_answer("serial COM3", wait=Wait(seconds=2.0, deadline=0.0), received=0)).endswith(NO_ANSWER_HINT)
+        A skipped line is named; XON alone is no answer, so the hint is added:
+
+        >>> wait = Wait(seconds=2.0, deadline=0.0)
+        >>> print(no_answer("serial COM3", wait=wait, received=b"", skipped=NOTHING_SKIPPED.plus(b"NNNNNNN\\r")))
+        serial COM3: no complete answer within 2 s (8 bytes read; 1 line skipped, last b'NNNNNNN\\r')
+        >>> str(no_answer("serial COM3", wait=wait, received=b"\\x11")).endswith(NO_ANSWER_HINT)
         True
     """
-    message = f"{channel}: no complete answer within {wait.seconds:g} s ({received} bytes read)"
-    if received == 0:
+    detail = f"{len(received) + skipped.size} bytes read"
+    if skipped.lines:
+        detail += f"; {skipped.describe()}"
+    message = f"{channel}: no complete answer within {wait.seconds:g} s ({detail})"
+    if not skipped.lines and not answer_started(received):
         message += f"; {NO_ANSWER_HINT}"
     return PrinterTimeoutError(message)
 
 
-def answer_overflow(channel: str, *, limit: int, skipped_lines: int) -> PrinterProtocolError:
+def answer_overflow(channel: str, *, limit: int, skipped: Skipped) -> PrinterProtocolError:
     """Return the error for an answer that did not end within ``limit`` bytes.
 
     Args:
         channel: The channel as messages name it, e.g. ``tcp 192.0.2.60:9100``.
         limit: The size bound that was reached.
-        skipped_lines: Lines read and skipped as not the answer; those bytes count toward ``limit``.
+        skipped: Lines read and skipped as not the answer; their bytes count toward ``limit``.
 
     Example:
-        >>> print(answer_overflow("tcp 192.0.2.60:9100", limit=65536, skipped_lines=0))
+        >>> print(answer_overflow("tcp 192.0.2.60:9100", limit=65536, skipped=NOTHING_SKIPPED))
         tcp 192.0.2.60:9100: no answer terminator within 65536 bytes
-        >>> print(answer_overflow("serial COM3", limit=65536, skipped_lines=6553))
-        serial COM3: no complete answer within 65536 bytes (6553 lines skipped)
+        >>> print(answer_overflow("serial COM3", limit=65536, skipped=NOTHING_SKIPPED.plus(b"MODULE: A\\r")))
+        serial COM3: no complete answer within 65536 bytes (1 line skipped, last b'MODULE: A\\r')
     """
-    if not skipped_lines:
+    if not skipped.lines:
         return PrinterProtocolError(f"{channel}: no answer terminator within {limit} bytes")
-    return PrinterProtocolError(f"{channel}: no complete answer within {limit} bytes ({skipped_lines} lines skipped)")
+    return PrinterProtocolError(f"{channel}: no complete answer within {limit} bytes ({skipped.describe()})")
 
 
 class ClosingTransport:
@@ -454,6 +497,7 @@ __all__ = [
     "FLOW_CONTROL_BYTES",
     "MAX_TCP_PORT",
     "MAX_TIMEOUT_SECONDS",
+    "NOTHING_SKIPPED",
     "NO_ANSWER_HINT",
     "ClosingTransport",
     "DeviceUri",
@@ -461,6 +505,7 @@ __all__ = [
     "Parity",
     "PrinterUri",
     "SerialUri",
+    "Skipped",
     "StdoutUri",
     "TcpUri",
     "Wait",

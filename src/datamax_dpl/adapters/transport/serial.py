@@ -17,7 +17,17 @@ import serial
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
 
 from .tcp import MAX_ANSWER_BYTES, MAX_ANSWER_SECONDS, MAX_IDLE_ANSWER_BYTES
-from .uri import ClosingTransport, SerialUri, Wait, answer_overflow, answer_started, check_timeout, no_answer
+from .uri import (
+    NOTHING_SKIPPED,
+    ClosingTransport,
+    SerialUri,
+    Skipped,
+    Wait,
+    answer_overflow,
+    answer_started,
+    check_timeout,
+    no_answer,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -195,10 +205,10 @@ class SerialTransport(ClosingTransport):
         read = self._read_lines(terminator, wait=wait, lines=lines, accept=accept)
         if read.answer.endswith(terminator):
             return read.answer
-        received = len(read.answer) + read.skipped_bytes
-        if received >= MAX_ANSWER_BYTES:
-            raise answer_overflow(f"serial {self._uri.path}", limit=MAX_ANSWER_BYTES, skipped_lines=read.skipped_lines)
-        raise no_answer(f"serial {self._uri.path}", wait=wait, received=received)
+        channel = f"serial {self._uri.path}"
+        if len(read.answer) + read.skipped.size >= MAX_ANSWER_BYTES:
+            raise answer_overflow(channel, limit=MAX_ANSWER_BYTES, skipped=read.skipped)
+        raise no_answer(channel, wait=wait, received=read.answer, skipped=read.skipped)
 
     def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = MAX_ANSWER_SECONDS) -> bytes:
         """Send ``request`` and return every byte until ``idle`` seconds pass without a new one.
@@ -281,7 +291,7 @@ class SerialTransport(ClosingTransport):
         while not answer_started(answer):
             remaining = wait.remaining()
             if remaining <= 0:
-                raise no_answer(f"serial {self._uri.path}", wait=wait, received=len(answer))
+                raise no_answer(f"serial {self._uri.path}", wait=wait, received=answer)
             answer += self._read_available(wait=remaining, room=MAX_IDLE_ANSWER_BYTES + 1 - len(answer))
             self._check_answer_size(answer)
         return answer
@@ -329,23 +339,23 @@ class SerialTransport(ClosingTransport):
         nothing but refused lines is cut off as one sending an endless answer is.
         """
         answer = b""
-        skipped_bytes = skipped_lines = kept = 0
+        skipped = NOTHING_SKIPPED
+        kept = 0
         while kept < lines:
             remaining = wait.remaining()
-            room = MAX_ANSWER_BYTES - len(answer) - skipped_bytes
+            room = MAX_ANSWER_BYTES - len(answer) - skipped.size
             if remaining <= 0 or room <= 0:
                 break
             chunk = self._read(terminator, timeout=remaining, size=room)
             complete = chunk.endswith(terminator)
             if complete and accept is not None and not accept(chunk):
-                skipped_bytes += len(chunk)
-                skipped_lines += 1
+                skipped = skipped.plus(chunk)
                 continue
             answer += chunk
             if not complete:
                 break
             kept += 1
-        return _LinesRead(answer=answer, skipped_bytes=skipped_bytes, skipped_lines=skipped_lines)
+        return _LinesRead(answer=answer, skipped=skipped)
 
     def _read(self, terminator: bytes, *, timeout: float, size: int) -> bytes:
         """Read until ``terminator``, ``size`` bytes or ``timeout``, whichever comes first."""
@@ -360,8 +370,7 @@ class _LinesRead(NamedTuple):
     """What :meth:`SerialTransport._read_lines` read: the kept lines and what it skipped."""
 
     answer: bytes
-    skipped_bytes: int
-    skipped_lines: int
+    skipped: Skipped
 
 
 __all__ = ["SerialPort", "SerialTransport"]

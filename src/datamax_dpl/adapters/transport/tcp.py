@@ -10,7 +10,9 @@ from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError,
 from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS
 
 from .uri import (
+    NOTHING_SKIPPED,
     ClosingTransport,
+    Skipped,
     TcpUri,
     Wait,
     answer_overflow,
@@ -205,31 +207,35 @@ class TcpTransport(ClosingTransport):
     def _read_until(self, lines: _Lines, *, wait: Wait) -> bytes:
         """Receive into ``lines`` until it holds the answer, ``wait`` ends or the size bound is reached."""
         while True:
-            answer = lines.add(self._receive(wait, received=lines.received))
+            answer = lines.add(self._receive(wait, received=lines.pending, skipped=lines.skipped))
             if answer is not None:
                 return answer
 
-    def _receive(self, wait: Wait, *, received: int) -> bytes:
-        """Receive one chunk before ``wait`` ends; an empty read means the printer hung up."""
+    def _receive(self, wait: Wait, *, received: bytes | bytearray, skipped: Skipped = NOTHING_SKIPPED) -> bytes:
+        """Receive one chunk before ``wait`` ends; an empty read means the printer hung up.
+
+        ``received`` and ``skipped`` are what came of the answer so far, for the error messages.
+        """
         remaining = wait.remaining()
         if remaining <= 0:
-            raise no_answer(f"tcp {self._uri.target}", wait=wait, received=received)
+            raise no_answer(f"tcp {self._uri.target}", wait=wait, received=received, skipped=skipped)
         self._sock.settimeout(remaining)
         try:
             chunk = self._sock.recv(_RECV_CHUNK)
         except TimeoutError as exc:
-            raise no_answer(f"tcp {self._uri.target}", wait=wait, received=received) from exc
+            raise no_answer(f"tcp {self._uri.target}", wait=wait, received=received, skipped=skipped) from exc
         except OSError as exc:
             raise transport_error(self._uri, action="read from", error=exc) from exc
         if not chunk:
-            raise TransportError(f"tcp {self._uri.target}: the printer closed the connection ({received} bytes read)")
+            read = len(received) + skipped.size
+            raise TransportError(f"tcp {self._uri.target}: the printer closed the connection ({read} bytes read)")
         return chunk
 
     def _receive_start(self, wait: Wait) -> bytearray:
         """Receive until a byte other than flow control has come, before ``wait`` ends."""
         answer = bytearray()
         while not answer_started(answer):
-            answer += self._receive(wait, received=len(answer))
+            answer += self._receive(wait, received=answer)
             self._check_answer_size(answer)
         return answer
 
@@ -280,13 +286,17 @@ class _Lines:
         self._data = bytearray()
         self._start = 0
         self._kept = 0
-        self._skipped_bytes = 0
-        self._skipped_lines = 0
+        self.skipped = NOTHING_SKIPPED
 
     @property
     def received(self) -> int:
         """Bytes received so far, skipped lines included."""
-        return len(self._data) + self._skipped_bytes
+        return len(self._data) + self.skipped.size
+
+    @property
+    def pending(self) -> bytearray:
+        """The bytes of the answer received so far: its kept lines and the line being read."""
+        return self._data
 
     def add(self, chunk: bytes) -> bytes | None:
         """Take ``chunk``; return the answer once its ``lines``-th kept line is in, else None.
@@ -296,7 +306,7 @@ class _Lines:
         """
         self._data += chunk
         while (line_end := self._next_line_end()) >= 0:
-            if line_end + self._skipped_bytes > MAX_ANSWER_BYTES:
+            if line_end + self.skipped.size > MAX_ANSWER_BYTES:
                 raise self._overflow()
             if self._take(line_end):
                 return bytes(self._data[:line_end])
@@ -314,15 +324,14 @@ class _Lines:
         line = bytes(self._data[self._start : line_end])
         if self._accept is not None and not self._accept(line):
             del self._data[self._start : line_end]
-            self._skipped_bytes += len(line)
-            self._skipped_lines += 1
+            self.skipped = self.skipped.plus(line)
             return False
         self._kept += 1
         self._start = line_end
         return self._kept == self._lines
 
     def _overflow(self) -> PrinterProtocolError:
-        return answer_overflow(self._channel, limit=MAX_ANSWER_BYTES, skipped_lines=self._skipped_lines)
+        return answer_overflow(self._channel, limit=MAX_ANSWER_BYTES, skipped=self.skipped)
 
 
 def _connect_retrying_refusals(uri: TcpUri, *, timeout: float) -> socket.socket:

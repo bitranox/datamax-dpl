@@ -196,9 +196,9 @@ def parse_ascii_status(answer: bytes) -> PrinterStatus:
     what = "<SOH>A status"
     body = _fixed_body(_drop_flow_control(answer), width=STATUS_FLAG_COUNT, what=what, answer=answer)
     if any(char not in (_YES, _NO) for char in body):
-        raise PrinterProtocolError(f"{what}: expected Y/N characters, got {_show(answer)}")
+        raise PrinterProtocolError(f"{what}: expected Y/N characters, got {show_answer(answer)}")
     if body[-1] != _NO:
-        raise PrinterProtocolError(f"{what}: reserved eighth flag is not N in {_show(answer)}")
+        raise PrinterProtocolError(f"{what}: reserved eighth flag is not N in {show_answer(answer)}")
     return PrinterStatus.model_validate(
         dict(zip(_STATUS_FIELDS, (char == _YES for char in body[: len(_STATUS_FIELDS)]), strict=True))
     )
@@ -256,7 +256,7 @@ def parse_status_byte(answer: bytes) -> PrinterStatus:
     what = "<SOH>F status"
     value = _fixed_body(answer, width=1, what=what, answer=answer)[0]
     if value >> RESERVED_STATUS_BIT:
-        raise PrinterProtocolError(f"{what}: reserved bit 7 is set in {_show(answer)}")
+        raise PrinterProtocolError(f"{what}: reserved bit 7 is set in {show_answer(answer)}")
     return PrinterStatus.model_validate({name: bool(value >> bit & 1) for bit, name in enumerate(_STATUS_FIELDS)})
 
 
@@ -279,7 +279,7 @@ def parse_batch_remaining(answer: bytes) -> int:
     what = "<SOH>E batch count"
     body = _fixed_body(_drop_flow_control(answer), width=BATCH_DIGITS, what=what, answer=answer)
     if _DIGITS.fullmatch(body) is None:
-        raise PrinterProtocolError(f"{what}: expected {BATCH_DIGITS} digits, got {_show(answer)}")
+        raise PrinterProtocolError(f"{what}: expected {BATCH_DIGITS} digits, got {show_answer(answer)}")
     return int(body)
 
 
@@ -306,12 +306,12 @@ def parse_version(answer: bytes) -> str:
     what = "<STX>v version"
     cleaned = _drop_flow_control(answer)
     if not cleaned.endswith(ANSWER_TERMINATOR):
-        raise PrinterProtocolError(f"{what}: answer does not end with <CR>: {_show(answer)}")
+        raise PrinterProtocolError(f"{what}: answer does not end with <CR>: {show_answer(answer)}")
     body = cleaned[: -len(ANSWER_TERMINATOR)].strip(b" ")
     if body[:1] == bytes([BEL]):
-        raise PrinterProtocolError(f"{what}: printer reported {ERROR_CHARACTERS[BEL]} before {_show(answer)}")
+        raise PrinterProtocolError(f"{what}: printer reported {ERROR_CHARACTERS[BEL]} before {show_answer(answer)}")
     if not body or any(not _FIRST_PRINTABLE <= char <= _LAST_PRINTABLE for char in body):
-        raise PrinterProtocolError(f"{what}: expected printable ASCII text, got {_show(answer)}")
+        raise PrinterProtocolError(f"{what}: expected printable ASCII text, got {show_answer(answer)}")
     return body.decode("ascii")
 
 
@@ -338,7 +338,7 @@ def parse_memory_report(answer: bytes) -> MemoryReport:
     raw = _drop_flow_control(answer).decode("ascii", errors="replace")
     fields = _memory_fields(raw)
     if not fields:
-        raise PrinterProtocolError(f"<STX>KQ memory report: no line the manual describes in {_show(answer)}")
+        raise PrinterProtocolError(f"<STX>KQ memory report: no line the manual describes in {show_answer(answer)}")
     width, length, units = _label_size(fields.get("LABEL SIZE", ""))
     return MemoryReport(
         version=fields.get("VER") or None,
@@ -359,10 +359,10 @@ def _drop_flow_control(answer: bytes) -> bytes:
 def _fixed_body(cleaned: bytes, *, width: int, what: str, answer: bytes) -> bytes:
     """Return the ``width`` bytes before the final ``<CR>`` of ``cleaned``, refusing anything in front."""
     if not cleaned.endswith(ANSWER_TERMINATOR):
-        raise PrinterProtocolError(f"{what}: answer does not end with <CR>: {_show(answer)}")
+        raise PrinterProtocolError(f"{what}: answer does not end with <CR>: {show_answer(answer)}")
     framed = cleaned[: -len(ANSWER_TERMINATOR)]
     if len(framed) < width:
-        raise PrinterProtocolError(f"{what}: expected {width} byte(s) before <CR>, got {_show(answer)}")
+        raise PrinterProtocolError(f"{what}: expected {width} byte(s) before <CR>, got {show_answer(answer)}")
     _refuse_prefix(framed[: len(framed) - width], what=what, answer=answer)
     return framed[len(framed) - width :]
 
@@ -376,7 +376,7 @@ def _refuse_prefix(prefix: bytes, *, what: str, answer: bytes) -> None:
     detail = f"printer reported {', '.join(reported)}" if reported else "unexpected bytes"
     if len(reported) != len(meaningful) and reported:
         detail += " and unexpected bytes"
-    raise PrinterProtocolError(f"{what}: {detail} before the answer in {_show(answer)}")
+    raise PrinterProtocolError(f"{what}: {detail} before the answer in {show_answer(answer)}")
 
 
 def _memory_fields(raw: str) -> dict[str, str]:
@@ -405,8 +405,15 @@ def _number(text: str) -> int | None:
     return int(text) if _NUMBER.fullmatch(text) else None
 
 
-def _show(answer: bytes) -> str:
-    """Quote ``answer`` for an error message, cut short so a flood does not flood the message too."""
+def show_answer(answer: bytes) -> str:
+    """Quote ``answer`` for an error message, cut short so a flood does not flood the message too.
+
+    Example:
+        >>> show_answer(b"NNNNNNN\\r")
+        "b'NNNNNNN\\\\r'"
+        >>> show_answer(b"x" * 100)
+        "b'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'... (100 bytes)"
+    """
     if len(answer) <= SHOWN_ANSWER_BYTES:
         return repr(answer)
     return f"{answer[:SHOWN_ANSWER_BYTES]!r}... ({len(answer)} bytes)"
@@ -442,4 +449,5 @@ __all__ = [
     "parse_memory_report",
     "parse_status_byte",
     "parse_version",
+    "show_answer",
 ]

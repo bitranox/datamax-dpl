@@ -201,9 +201,30 @@ def test_a_query_skips_a_stale_memory_line_before_the_status() -> None:
 def test_skipped_serial_lines_are_bounded_like_an_answer() -> None:
     port = ScriptedPort(b"MODULE: A\r" * (70 * 1024 // 10))
     printer = SerialTransport(port, uri=LOOP)
-    with pytest.raises(PrinterProtocolError, match=rf"no complete answer within {MAX_ANSWER_BYTES} bytes"):
+    expected = rf"no complete answer within {MAX_ANSWER_BYTES} bytes \(6553 lines skipped, last b'MODULE: A\\r'\)"
+    with pytest.raises(PrinterProtocolError, match=expected):
         printer.query(b"\x01A", timeout=1.0, accept=is_status_line)
     assert port.pending, "the transport read past its bound"
+
+
+@pytest.mark.os_agnostic
+def test_a_malformed_serial_status_line_is_quoted_in_the_timeout() -> None:
+    printer = SerialTransport(ScriptedPort(b"MODULE: A\rNNNNNNN\r"), uri=LOOP)
+    with pytest.raises(PrinterTimeoutError) as caught:
+        printer.query(b"\x01A", timeout=0.3, accept=is_status_line)
+    assert str(caught.value) == (
+        "serial loop://: no complete answer within 0.3 s (18 bytes read; 2 lines skipped, last b'NNNNNNN\\r')"
+    )
+
+
+@pytest.mark.os_agnostic
+def test_flow_control_alone_on_serial_still_earns_the_earlier_job_hint() -> None:
+    printer = SerialTransport(ScriptedPort(b"\x11"), uri=LOOP)
+    with pytest.raises(PrinterTimeoutError) as caught:
+        printer.query(b"\x01A", timeout=0.3, accept=is_status_line)
+    assert str(caught.value).endswith(
+        "(1 bytes read); the printer may still be printing an earlier job; try again or raise the timeout"
+    )
 
 
 @pytest.mark.os_agnostic
@@ -212,7 +233,7 @@ def test_a_serial_printer_sending_nothing_is_told_it_may_still_be_printing() -> 
     with pytest.raises(PrinterTimeoutError, match=r"\(0 bytes read\)") as caught:
         printer.query(b"\x01A", timeout=0.3, accept=is_status_line)
     assert str(caught.value).endswith(
-        "(0 bytes read); the printer may still be printing an earlier job; try again or raise --timeout"
+        "(0 bytes read); the printer may still be printing an earlier job; try again or raise the timeout"
     )
 
 

@@ -76,7 +76,7 @@ def test_a_printer_that_never_answers_times_out_within_the_timeout(serve: Callab
         elapsed = time.monotonic() - started
     assert 0.25 <= elapsed < 1.5
     assert str(caught.value).endswith(
-        "(0 bytes read); the printer may still be printing an earlier job; try again or raise --timeout"
+        "(0 bytes read); the printer may still be printing an earlier job; try again or raise the timeout"
     )
 
 
@@ -116,10 +116,41 @@ def test_without_accept_a_stale_line_is_the_answer(serve: Callable[..., PrinterS
 @pytest.mark.os_agnostic
 def test_skipped_lines_then_silence_time_out_counting_the_skipped_bytes(serve: Callable[..., PrinterServer]) -> None:
     server = serve(answering(b"\x01A", b"MODULE: A\r"))
-    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
-        with pytest.raises(PrinterTimeoutError, match=r"no complete answer within 0\.3 s \(10 bytes read\)") as caught:
-            printer.query(b"\x01A", timeout=0.3, accept=is_status_line)
-        assert "earlier job" not in str(caught.value)
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer, pytest.raises(PrinterTimeoutError) as caught:
+        printer.query(b"\x01A", timeout=0.3, accept=is_status_line)
+    assert str(caught.value).endswith(
+        "no complete answer within 0.3 s (10 bytes read; 1 line skipped, last b'MODULE: A\\r')"
+    )
+
+
+@pytest.mark.os_agnostic
+def test_a_malformed_status_line_is_quoted_in_the_timeout(serve: Callable[..., PrinterServer]) -> None:
+    # Seven flags are not a status answer, so the line is skipped; the timeout still shows it.
+    server = serve(answering(b"\x01A", b"NNNNNNN\rnnnnnnnn\r"))
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer, pytest.raises(PrinterTimeoutError) as caught:
+        printer.query(b"\x01A", timeout=0.3, accept=is_status_line)
+    assert str(caught.value).endswith("(17 bytes read; 2 lines skipped, last b'nnnnnnnn\\r')")
+
+
+@pytest.mark.os_agnostic
+def test_a_long_skipped_line_is_quoted_short(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(answering(b"\x01A", b"x" * 5000 + b"\r"))
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer, pytest.raises(PrinterTimeoutError) as caught:
+        printer.query(b"\x01A", timeout=0.3, accept=is_status_line)
+    message = str(caught.value)
+    assert "1 line skipped, last b'xxxx" in message
+    assert "(5001 bytes))" in message
+    assert len(message) < 300
+
+
+@pytest.mark.os_agnostic
+def test_flow_control_alone_still_earns_the_earlier_job_hint(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(answering(b"\x01A", b"\x11\x13"))
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer, pytest.raises(PrinterTimeoutError) as caught:
+        printer.query(b"\x01A", timeout=0.3, accept=is_status_line)
+    assert str(caught.value).endswith(
+        "(2 bytes read); the printer may still be printing an earlier job; try again or raise the timeout"
+    )
 
 
 @pytest.mark.os_agnostic
@@ -128,7 +159,8 @@ def test_skipped_lines_are_bounded_like_an_answer(serve: Callable[..., PrinterSe
     server = serve(answering(b"\x01A", stale))
     with TcpTransport.connect(server.uri, timeout=2.0) as printer:
         started = time.monotonic()
-        with pytest.raises(PrinterProtocolError, match=rf"no complete answer within {MAX_ANSWER_BYTES} bytes"):
+        expected = rf"no complete answer within {MAX_ANSWER_BYTES} bytes \(\d+ lines skipped, last b'MODULE: A\\r'\)"
+        with pytest.raises(PrinterProtocolError, match=expected):
             printer.query(b"\x01A", timeout=5.0, accept=is_status_line)
         assert time.monotonic() - started < 2.5
 

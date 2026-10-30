@@ -136,6 +136,21 @@ def test_status_skips_a_stale_memory_line_sent_after_the_request(
 
 
 @pytest.mark.os_agnostic
+def test_status_shows_a_truncated_answer_it_skipped(
+    cli_runner: CliRunner, serve: Callable[[Play], PrinterServer]
+) -> None:
+    server = serve(answering(STATUS_REQUEST, b"NNNNNNN\r"))
+
+    result = run(cli_runner, ["--json", "status", "--printer", server.address, "--timeout", "0.5"])
+    server.join()
+
+    assert result.exit_code == 2, result.output
+    document = envelope(result)
+    assert document["error"] == "PrinterTimeoutError"
+    assert document["message"].endswith("(8 bytes read; 1 line skipped, last b'NNNNNNN\\r')")
+
+
+@pytest.mark.os_agnostic
 def test_memory_over_tcp_lists_the_module_and_its_free_bytes(
     cli_runner: CliRunner, serve: Callable[[Play], PrinterServer]
 ) -> None:
@@ -168,7 +183,7 @@ def test_a_silent_printer_fails_status_within_the_given_timeout(
 
     assert result.exit_code == 2, result.output
     assert f"no complete answer within {timeout:g} s" in result.stderr
-    assert "the printer may still be printing an earlier job; try again or raise --timeout" in result.stderr
+    assert "the printer may still be printing an earlier job; try again or raise the timeout" in result.stderr
     # The lower margin: on Windows (Python 3.10-3.12) the monotonic clock ticks every 15.6 ms and a
     # socket wait can return a tick early, as the transport tests also allow.
     assert timeout - 0.1 <= elapsed < timeout + STARTUP_SLACK_SECONDS, f"{elapsed=:.2f}"
