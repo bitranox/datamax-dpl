@@ -264,11 +264,20 @@ def test_a_pty_printer_answers_a_status_query(pty_printer: PtyPrinter) -> None:
 @pytest.mark.os_posix
 @pytest.mark.skipif(sys.platform == "win32", reason="os.openpty is POSIX only")
 def test_a_silent_pty_printer_times_out(pty_printer: PtyPrinter) -> None:
+    # A silent printer still takes the request off the line and only never answers. A pty master
+    # nobody reads models a printer that takes no data at all: macOS then keeps the request in the
+    # slave's output queue, and the send times out instead of the answer (seen on a CI cell).
     with SerialTransport.open(SerialUri(path=pty_printer.path), timeout=1.0) as printer:
+        reader = threading.Thread(
+            target=pty_printer.read, args=(2,), kwargs={"deadline": time.monotonic() + JOIN_SECONDS}
+        )
+        reader.start()
         started = time.monotonic()
         with pytest.raises(PrinterTimeoutError, match=r"no complete answer within 0\.3 s"):
             printer.query(b"\x01A", timeout=0.3)
         assert time.monotonic() - started < 1.5
+        reader.join(JOIN_SECONDS)
+    assert bytes(pty_printer.received) == b"\x01A"
 
 
 @pytest.mark.os_posix
