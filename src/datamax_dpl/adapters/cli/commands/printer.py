@@ -121,6 +121,8 @@ class MemoryPayload(BaseModel):
     directories: list[MemoryDirectory]
 
 
+#: What the manual (``<STX>q`` Clear Module, page 35) says a "No Modules Available" answer means.
+NO_MODULES_MEANING = "the manual: corrupt or worn-out module"
 #: ``--kind`` value that lists fonts, graphics and formats, in that order.
 ALL_KINDS = "all"
 #: Each ``--kind`` value with the kinds it asks for.
@@ -172,8 +174,8 @@ def _directory_lines(directories: tuple[MemoryDirectory, ...]) -> list[str]:
         lines.append(f"{directory.kind}:")
         if not directory.parsed:
             lines.append(f"  answer not understood: {directory.raw!r}")
-        elif not directory.modules:
-            lines.append("  no modules")
+        if directory.no_modules_available:
+            lines.append(f"  printer reports no modules available ({NO_MODULES_MEANING})")
         for module in directory.modules:
             free = "unknown" if module.available_bytes is None else str(module.available_bytes)
             lines.append(f"  module {module.module}: {free} bytes free")

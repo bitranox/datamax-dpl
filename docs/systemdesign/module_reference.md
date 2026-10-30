@@ -86,7 +86,8 @@ turn the outcome into output and an exit code.
 - `png.py` - minimal PNG writer.
 - `decoder.py` - reads DPL back: explains commands, rebuilds labels.
 - `status.py` - status requests and parsing of the answers.
-- `memory.py` - the memory module directory (`<STX>W`) and its lenient parser.
+- `memory.py` - the memory module directory (`<STX>W`) and its parser.
+- `timing.py` - the seconds rule for timeouts (`check_timeout`) and the read-until-silence deadline.
 - `detect.py` - suggests model profiles from printer answers.
 - `camera.py` - camera settings and captured images.
 - `errors.py` - domain exception types.

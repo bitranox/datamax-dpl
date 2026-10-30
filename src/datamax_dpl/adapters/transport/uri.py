@@ -9,14 +9,14 @@ Accepted forms (see :data:`ACCEPTED_FORMS`):
 * ``file:PATH`` or ``file:///abs/path`` - append the job to a file.
 * ``-`` - write the job to standard output.
 
-The module also holds what every transport shares: the timeout check, the wording of a wrapped
-``OSError``, the one-way refusal and the context-manager base class.
+The module also holds what every transport shares: the timeout check (defined in
+:mod:`datamax_dpl.domain.timing`, re-exported here), the wording of a wrapped ``OSError``, the
+one-way refusal and the context-manager base class.
 """
 
 from __future__ import annotations
 
 import ipaddress
-import math
 import re
 from enum import Enum
 from typing import TYPE_CHECKING, Annotated, Literal, TypeVar
@@ -25,6 +25,8 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 from pydantic import BaseModel, Field
 
 from datamax_dpl.domain.errors import PrinterTimeoutError, TransportError, UnsupportedOperationError
+from datamax_dpl.domain.status import XOFF, XON
+from datamax_dpl.domain.timing import MAX_TIMEOUT_SECONDS, check_timeout
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -39,8 +41,6 @@ DEFAULT_TCP_PORT = 9100
 #: The manual's default serial speed.
 DEFAULT_BAUD = 9600
 MAX_TCP_PORT = 65535
-#: Largest timeout every platform accepts: Windows stores a socket timeout as 2**31-1 ms.
-MAX_TIMEOUT_SECONDS = 2147483.0
 
 _STDOUT = "-"
 _TCP_PREFIX = "tcp://"
@@ -194,28 +194,6 @@ def parse_printer_uri(uri: str) -> PrinterUri:
         raise ValueError(f"printer URI {uri!r}: {exc}; accepted forms: {ACCEPTED_FORMS}") from exc
 
 
-def check_timeout(timeout: float, *, name: str = "timeout") -> float:
-    """Return ``timeout`` when it is a usable number of seconds.
-
-    Args:
-        timeout: Seconds.
-        name: What the seconds are, for the refusal message (``timeout``, ``idle``).
-
-    Returns:
-        ``timeout`` unchanged.
-
-    Raises:
-        ValueError: ``timeout`` is not above 0, not finite, or above :data:`MAX_TIMEOUT_SECONDS`.
-
-    Example:
-        >>> check_timeout(2.5)
-        2.5
-    """
-    if not (math.isfinite(timeout) and 0 < timeout <= MAX_TIMEOUT_SECONDS):
-        raise ValueError(f"{name} must be above 0 and at most {MAX_TIMEOUT_SECONDS:.0f} seconds, got {timeout!r}")
-    return timeout
-
-
 def transport_error(uri: PrinterUri, *, action: str, error: OSError) -> TransportError:
     """Turn an ``OSError`` into the :class:`~datamax_dpl.domain.errors.TransportError` callers see.
 
@@ -242,6 +220,20 @@ def transport_error(uri: PrinterUri, *, action: str, error: OSError) -> Transpor
     if isinstance(error, TimeoutError):
         return PrinterTimeoutError(message)
     return TransportError(message)
+
+
+#: Bytes a printer sends for flow control at any time; alone they are not the start of an answer.
+FLOW_CONTROL_BYTES = bytes((XON, XOFF))
+
+
+def answer_started(data: bytes | bytearray) -> bool:
+    """Whether ``data`` holds a byte other than flow control, so the printer has begun answering.
+
+    Example:
+        >>> answer_started(b"\\x11"), answer_started(b"\\x11M")
+        (False, True)
+    """
+    return bool(data.translate(None, FLOW_CONTROL_BYTES))
 
 
 class ClosingTransport:
@@ -382,6 +374,7 @@ __all__ = [
     "ACCEPTED_FORMS",
     "DEFAULT_BAUD",
     "DEFAULT_TCP_PORT",
+    "FLOW_CONTROL_BYTES",
     "MAX_TCP_PORT",
     "MAX_TIMEOUT_SECONDS",
     "ClosingTransport",
@@ -392,6 +385,7 @@ __all__ = [
     "SerialUri",
     "StdoutUri",
     "TcpUri",
+    "answer_started",
     "channel_name",
     "check_timeout",
     "is_printer_name",

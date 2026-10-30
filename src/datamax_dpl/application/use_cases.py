@@ -37,6 +37,7 @@ from ..domain.status import (
     parse_memory_report,
     parse_version,
 )
+from ..domain.timing import check_timeout
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
@@ -198,10 +199,12 @@ def read_memory_directory(
 
     Raises:
         UnsupportedOperationError: The channel cannot read answers (file, stdout, device file).
-        PrinterTimeoutError: The printer sent nothing in time.
+        PrinterTimeoutError: The printer sent nothing in time, or its answer did not end.
         PrinterProtocolError: The answer ran past the transport's size bound.
         TransportError: The printer could not be reached.
+        ValueError: ``idle`` is not a usable number of seconds; nothing was opened.
     """
+    check_timeout(idle, name="idle")
     with closing(open_printer(uri, timeout=timeout)) as printer:
         return tuple(
             parse_module_directory(

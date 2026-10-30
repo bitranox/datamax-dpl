@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from datamax_dpl.domain.errors import PrinterTimeoutError, TransportError, UnsupportedOperationError
+from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS, check_timeout
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -75,14 +76,20 @@ class RecordingPrinter:
         """
         return self._answer(request, timeout=timeout)
 
-    def read_answer(self, request: bytes, *, timeout: float, idle: float) -> bytes:
+    def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = MAX_ANSWER_SECONDS) -> bytes:
         """Record ``request`` and return its whole answer from the table, as a silence would end it.
 
+        The seconds are checked like a real channel checks them, before anything is recorded.
+
         Raises:
+            ValueError: ``timeout``, ``idle`` or ``total`` is not a usable number of seconds.
             UnsupportedOperationError: The printer is configured one-way.
             PrinterTimeoutError: The table has no answer for ``request``.
             TransportError: The printer was closed.
         """
+        check_timeout(timeout)
+        check_timeout(idle, name="idle")
+        check_timeout(total, name="total")
         return self._answer(request, timeout=timeout)
 
     def close(self) -> None:

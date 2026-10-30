@@ -11,6 +11,7 @@ import os
 import sys
 
 from datamax_dpl.domain.errors import TransportError
+from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS
 
 from .uri import ClosingTransport, DeviceUri, FileUri, channel_name, transport_error, unsupported_query
 
@@ -57,7 +58,7 @@ class DescriptorTransport(ClosingTransport):
         """
         raise unsupported_query(self._uri)
 
-    def read_answer(self, request: bytes, *, timeout: float, idle: float) -> bytes:
+    def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = MAX_ANSWER_SECONDS) -> bytes:
         """Refuse: the channel cannot read the printer's answer.
 
         Raises:

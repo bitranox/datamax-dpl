@@ -258,13 +258,14 @@ AVAILABLE BYTES IN MODULE:
 
 Module A holds no graphic and has 49083 bytes free; module B holds the graphics `LOGO` and `CAM`
 and has 257919 bytes free. The module letters are `A` to `E` (Appendix L), and a stored name is at
-most 16 characters. A corrupt module answers `No Modules Available` (the `<STX>q` Clear Module
-entry, page 34).
+most 16 characters. A corrupt module, or one at the end of its life, answers `No Modules
+Available` (the `<STX>q` Clear Module entry, page 35); `memory` reports that answer as such
+(`no_modules_available` in JSON), not as an empty listing.
 
 What one Allegro 2 (firmware CA02 03.04) sent on 2026-10-30, read through a print server, differs
-from the sample in three ways. It puts a space before the colon of the free-bytes header and the
-number on the same line. Every line, the last one included, ends in `<CR>`. The font answer starts
-with an XON byte (0x11). Its answer to `<STX>WG`:
+from the sample in two ways. It puts a space before the colon of the free-bytes header and the
+number on the same line, each line ending in `<CR>`. The font answer starts with an XON byte
+(0x11). Its answer to `<STX>WG`:
 
 ```text
 MODULE: A<CR>
@@ -287,13 +288,20 @@ is the module's free space, not a per-kind count. The three answers are kept byt
 `tests/fixtures/memory_allegro2_*.txt`.
 
 The answer has no terminator and no fixed length: it ends when the printer stops sending, so it is
-read until a pause (1 s by default, `--idle`; the Allegro 2 above answered completely with it). The
-number after the free-bytes header is accepted on the same line and on the next, with blanks
-around the colon and in any letter case; CR, LF and CRLF all end a line, and XON/XOFF bytes are
-dropped. A line that starts like the free-bytes header but cannot be read as one is never taken as
-a name. The directory is reported unparsed, with its raw text, when it is neither a module list nor
-`No Modules Available`, or when a module's free bytes could not be read. The manual does not bound
-how many names a module lists; the read stops at 1 MiB.
+read until a pause (1 s by default, `--idle`; the Allegro 2 above answered completely with it).
+XON and XOFF alone do not start that clock. The whole answer may take 120 s, sized for a 64 KiB
+listing on a 9600 baud serial line; an answer still running then is a timeout, and one past 1 MiB
+is refused. The manual does not bound how many names a module lists.
+
+Both colons (`MODULE :` and `AVAILABLE BYTES IN MODULE :`) may have blanks around them, in any
+letter case, and the number may follow the header on the same line or the next; CR, LF and CRLF
+all end a line, and XON/XOFF bytes are dropped. A line that starts like the free-bytes header but
+cannot be read as one is never taken as a name. Everything else is held to the manual: a listing
+is reported unparsed, with its raw text and the modules found, when it has a module letter
+outside `A`-`E`, a module listed twice, a name longer than 16 characters or holding a byte that is
+not printable ASCII, or a module whose free bytes are missing or not eight digits ending their
+line (an answer cut short). An answer that is neither a listing nor `No Modules Available` is
+unparsed too.
 
 The manual has no command that returns the model name. `detect` therefore reports evidence
 (which queries answered, the firmware string, the label width from `<STX>KQ`) and the profiles that

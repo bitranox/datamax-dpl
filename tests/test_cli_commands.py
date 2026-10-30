@@ -379,6 +379,7 @@ def test_memory_prints_the_parsed_directory_envelope(cli_runner: CliRunner) -> N
             {
                 "kind": "graphic",
                 "parsed": True,
+                "no_modules_available": False,
                 "modules": [
                     {"module": "A", "names": [], "available_bytes": 49083},
                     {"module": "B", "names": ["LOGO", "CAM"], "available_bytes": 257919},
@@ -404,7 +405,9 @@ def test_memory_kind_all_asks_fonts_graphics_and_formats(cli_runner: CliRunner) 
     printer = RecordingPrinter(answers=answers)
     result = run(cli_runner, ["--json", "memory", "--kind", "all", "--printer", PRINTER], factory(printer))
     assert result.exit_code == 0, result.output
-    assert [d["kind"] for d in envelope(result)["data"]["directories"]] == ["font", "graphic", "format"]
+    directories = envelope(result)["data"]["directories"]
+    assert [d["kind"] for d in directories] == ["font", "graphic", "format"]
+    assert [d["no_modules_available"] for d in directories] == [True, False, False]
     assert printer.queries == [b"\x02WF", b"\x02WG", b"\x02WL"]
 
 
@@ -417,7 +420,7 @@ def test_memory_human_view_lists_modules_names_and_free_bytes(cli_runner: CliRun
     assert result.exit_code == 0, result.output
     assert result.stdout.splitlines() == [
         "font:",
-        "  no modules",
+        "  printer reports no modules available (the manual: corrupt or worn-out module)",
         "graphic:",
         "  module A: 49083 bytes free",
         "  module B: 257919 bytes free",
@@ -470,3 +473,22 @@ def test_memory_reaches_a_printer_named_in_the_configuration(cli_runner: CliRunn
     result = run(cli_runner, ["memory", "--printer", "lager"], lambda: services)
     assert result.exit_code == 0, result.output
     assert printer.opened == [(PRINTER, 4.0)]
+
+
+@pytest.mark.os_agnostic
+def test_memory_refuses_a_bad_idle_before_opening_the_printer(cli_runner: CliRunner) -> None:
+    printer = RecordingPrinter(answers={b"\x02WG": DIRECTORY})
+    result = run(cli_runner, ["--json", "memory", "--idle", "0", "--printer", PRINTER], factory(printer))
+    assert result.exit_code == 2
+    assert "idle must be above 0" in envelope(result)["message"]
+    assert printer.opened == []
+
+
+@pytest.mark.os_agnostic
+def test_memory_keeps_the_raw_text_of_a_listing_past_the_manuals_limits(cli_runner: CliRunner) -> None:
+    answer = b"MODULE: Q\rAVAILABLE BYTES IN MODULE : 00048631\r"
+    printer = RecordingPrinter(answers={b"\x02WG": answer})
+    result = run(cli_runner, ["--json", "memory", "--printer", PRINTER], factory(printer))
+    assert result.exit_code == 0, result.output
+    directory = envelope(result)["data"]["directories"][0]
+    assert (directory["parsed"], directory["raw"]) == (False, answer.decode("ascii"))

@@ -53,10 +53,16 @@ def test_every_line_break_and_the_number_on_its_own_line_parse_alike(line_break:
 @pytest.mark.parametrize(
     "answer", [b"No Modules Available\r", b"NO MODULES AVAILABLE\r\n", b"\x11No Modules Available"]
 )
-def test_no_modules_available_is_an_empty_directory(answer: bytes) -> None:
+def test_no_modules_available_is_reported_as_such(answer: bytes) -> None:
     directory = parse_module_directory(answer, kind="font")
     assert directory.parsed
+    assert directory.no_modules_available
     assert directory.modules == ()
+
+
+@pytest.mark.os_agnostic
+def test_a_module_listing_is_not_no_modules_available() -> None:
+    assert not parse_module_directory(MANUAL_SAMPLE, kind="graphic").no_modules_available
 
 
 @pytest.mark.os_agnostic
@@ -190,3 +196,73 @@ def test_a_one_way_channel_cannot_read_a_directory() -> None:
         read_memory_directory(
             kinds=("graphic",), uri=PRINTER, timeout=2.0, idle=0.5, open_printer=open_recording_printer(printer)
         )
+
+
+def _unparsed(answer: bytes) -> None:
+    directory = parse_module_directory(answer, kind="graphic")
+    assert not directory.parsed
+    assert directory.raw == answer.decode("ascii", errors="backslashreplace")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "figure",
+    [b"0004\r", b"00048631", b"000486310\r", b"0004863\r", b"0004863 \r"],
+    ids=["short", "no-cr", "nine-digits", "seven-digits", "seven-digits-blank"],
+)
+def test_a_free_bytes_figure_must_be_eight_digits_ending_its_line(figure: bytes) -> None:
+    _unparsed(b"MODULE: A\rAVAILABLE BYTES IN MODULE : " + figure)
+
+
+@pytest.mark.os_agnostic
+def test_a_truncated_figure_on_its_own_line_is_unparsed() -> None:
+    _unparsed(b"MODULE: A\rAVAILABLE BYTES IN MODULE:\r0004")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("letter", [b"Q", b"F", b"AB", b"1"])
+def test_a_module_letter_outside_a_to_e_is_unparsed(letter: bytes) -> None:
+    _unparsed(b"MODULE: " + letter + b"\rAVAILABLE BYTES IN MODULE : 00048631\r")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("header", [b"MODULE : A", b"MODULE  :  A", b"module: A"])
+def test_the_module_line_allows_blanks_around_the_colon(header: bytes) -> None:
+    directory = parse_module_directory(header + b"\rAVAILABLE BYTES IN MODULE : 00048631\r", kind="font")
+    assert directory.parsed
+    assert directory.modules == (MemoryModule(module="A", names=(), available_bytes=48631),)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "name",
+    [b"X" * 17, b"LO\x07GO", b"LOGO\xff", b"LO\tGO", b"LOGO\x7f"],
+    ids=["17-chars", "bel", "non-ascii", "tab", "del"],
+)
+def test_a_name_past_the_manuals_limits_is_unparsed(name: bytes) -> None:
+    _unparsed(b"MODULE: B\r" + name + b"\rAVAILABLE BYTES IN MODULE : 00048631\r")
+
+
+@pytest.mark.os_agnostic
+def test_a_name_of_sixteen_printable_characters_is_kept() -> None:
+    name = "A-Z 0123456789_~"
+    directory = parse_module_directory(
+        b"MODULE: B\r" + name.encode("ascii") + b"\rAVAILABLE BYTES IN MODULE : 00048631\r", kind="graphic"
+    )
+    assert directory.parsed
+    assert directory.modules[0].names == (name,)
+
+
+@pytest.mark.os_agnostic
+def test_a_module_listed_twice_is_unparsed() -> None:
+    _unparsed(b"MODULE: A\rAVAILABLE BYTES IN MODULE : 00048631\r" * 2)
+
+
+@pytest.mark.os_agnostic
+def test_a_bad_idle_is_refused_before_the_printer_is_opened() -> None:
+    printer = RecordingPrinter(answers={b"\x02WG": MANUAL_SAMPLE})
+    with pytest.raises(ValueError, match="idle must be above 0"):
+        read_memory_directory(
+            kinds=("graphic",), uri=PRINTER, timeout=2.0, idle=0.0, open_printer=open_recording_printer(printer)
+        )
+    assert printer.opened == []

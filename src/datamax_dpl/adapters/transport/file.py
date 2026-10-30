@@ -11,6 +11,7 @@ import sys
 from typing import BinaryIO
 
 from datamax_dpl.domain.errors import TransportError
+from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS
 
 from .device import WRITE_FLAGS, DescriptorTransport
 from .uri import ClosingTransport, FileUri, StdoutUri, channel_name, transport_error, unsupported_query
@@ -70,7 +71,7 @@ class StdoutTransport(ClosingTransport):
         """
         raise unsupported_query(self._uri)
 
-    def read_answer(self, request: bytes, *, timeout: float, idle: float) -> bytes:
+    def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = MAX_ANSWER_SECONDS) -> bytes:
         """Refuse: standard output cannot answer.
 
         Raises:

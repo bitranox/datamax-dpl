@@ -84,8 +84,8 @@ def test_read_answer_with_no_byte_at_all_times_out_within_the_timeout() -> None:
     with SerialTransport.open(LOOP, timeout=1.0) as printer:
         started = time.monotonic()
         with pytest.raises(PrinterTimeoutError, match="no complete answer in time"):
-            printer.read_answer(b"", timeout=0.3, idle=0.2)
-        assert 0.25 <= time.monotonic() - started < 1.5
+            printer.read_answer(b"", timeout=1.0, idle=0.2)
+        assert 0.7 <= time.monotonic() - started < 2.5
 
 
 @pytest.mark.os_agnostic
@@ -95,8 +95,10 @@ def test_read_answer_arguments_are_checked_and_a_closed_port_refuses() -> None:
         printer.read_answer(b"x", timeout=1.0, idle=-1.0)
     with pytest.raises(ValueError, match="timeout must be above 0"):
         printer.read_answer(b"x", timeout=0.0, idle=0.5)
+    with pytest.raises(ValueError, match="total must be above 0"):
+        printer.read_answer(b"x", timeout=1.0, idle=0.5, total=-1.0)
     printer.close()
-    with pytest.raises(TransportError, match="serial loop://"):
+    with pytest.raises(TransportError, match="cannot read from serial"):
         printer.read_answer(b"x", timeout=1.0, idle=0.5)
 
 
@@ -326,3 +328,43 @@ def test_a_pty_answer_longer_than_the_read_answer_bound_is_refused(pty_printer: 
         thread.start()
         with pytest.raises(PrinterProtocolError, match=f"answer longer than {MAX_IDLE_ANSWER_BYTES} bytes"):
             printer.read_answer(b"\x02WG", timeout=1.5, idle=0.5)
+
+
+@pytest.mark.os_posix
+@pytest.mark.skipif(sys.platform == "win32", reason="os.openpty is POSIX only")
+def test_a_pty_printer_that_never_stops_dripping_ends_at_the_total_deadline(pty_printer: PtyPrinter) -> None:
+    stop = threading.Event()
+
+    def drip() -> None:
+        pty_printer.read(3, deadline=time.monotonic() + JOIN_SECONDS)
+        # One byte every 0.1 s, well inside idle=0.5: only the total deadline can end the read.
+        while not stop.wait(0.1):
+            os.write(pty_printer.master, b"x")
+
+    with SerialTransport.open(SerialUri(path=pty_printer.path, baud=115200), timeout=2.0) as printer:
+        thread = threading.Thread(target=drip, daemon=True)
+        thread.start()
+        started = time.monotonic()
+        try:
+            with pytest.raises(PrinterTimeoutError, match="the answer did not end within 1 s"):
+                printer.read_answer(b"\x02WG", timeout=1.0, idle=0.5, total=1.0)
+        finally:
+            stop.set()
+            thread.join(JOIN_SECONDS)
+        assert 0.7 <= time.monotonic() - started < 2.5
+
+
+@pytest.mark.os_posix
+@pytest.mark.skipif(sys.platform == "win32", reason="os.openpty is POSIX only")
+def test_a_pty_lone_xon_does_not_start_the_idle_clock(pty_printer: PtyPrinter) -> None:
+    def answer() -> None:
+        pty_printer.read(3, deadline=time.monotonic() + JOIN_SECONDS)
+        os.write(pty_printer.master, b"\x11")
+        time.sleep(0.9)
+        os.write(pty_printer.master, DIRECTORY)
+
+    with SerialTransport.open(SerialUri(path=pty_printer.path, baud=115200), timeout=2.0) as printer:
+        thread = threading.Thread(target=answer, daemon=True)
+        thread.start()
+        assert printer.read_answer(b"\x02WG", timeout=3.0, idle=0.3) == b"\x11" + DIRECTORY
+        thread.join(JOIN_SECONDS)

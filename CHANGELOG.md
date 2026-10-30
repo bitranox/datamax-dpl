@@ -13,13 +13,19 @@ All notable changes to this project are documented here. The format follows
   `font`, `format` or `all`, in the usual JSON envelope or as text. The
   answer has no terminator, so it is read until the printer is silent for
   `--idle` seconds (default 1). An answer that is no directory is reported
-  with `parsed: false` and its raw text (exit 0), as is one where a module's
-  free bytes cannot be read; no answer at all is exit 2. The free-bytes
-  header is read with blanks around its colon, as an Allegro 2 (firmware
-  CA02 03.04) sends it.
+  with `parsed: false` and its raw text (exit 0), as is a listing outside
+  the manual's limits (module letter outside A-E, a module twice, a name
+  over 16 characters or not printable ASCII, free bytes missing or not
+  eight digits ending their line); no answer at all is exit 2. "No Modules
+  Available", which the manual gives as a corrupt or worn-out module, is
+  reported as `no_modules_available`. Both colons are read with blanks
+  around them, as an Allegro 2 (firmware CA02 03.04) sends the free-bytes
+  header.
   `PrinterTransport.read_answer(request, timeout=, idle=)` is the new read
   behind it (tcp, serial and `RecordingPrinter`; one-way channels refuse
-  it), bounded at 1 MiB. Read on one Allegro 2 over a print server; the
+  it), bounded at 1 MiB and at 120 s for the whole answer
+  (`MAX_ANSWER_SECONDS`, its `total` argument); XON/XOFF alone do not
+  start it. Read on one Allegro 2 over a print server; the
   other models are unverified.
 - `qr` element: a QR Code from `data` (with `{name}` placeholders), error
   level `L`/`M`/`Q`/`H` (default `M`), `module_dots` 1-9 printer dots per

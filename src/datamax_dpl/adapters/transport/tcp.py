@@ -6,8 +6,9 @@ import socket
 import time
 
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
+from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS
 
-from .uri import ClosingTransport, TcpUri, check_timeout, transport_error
+from .uri import ClosingTransport, TcpUri, answer_started, check_timeout, transport_error
 
 #: Longest answer read before the printer is judged to be sending something other than an answer.
 MAX_ANSWER_BYTES = 64 * 1024
@@ -116,41 +117,40 @@ class TcpTransport(ClosingTransport):
         finally:
             self._sock.settimeout(self._timeout)
 
-    def read_answer(self, request: bytes, *, timeout: float, idle: float) -> bytes:
+    def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = MAX_ANSWER_SECONDS) -> bytes:
         """Send ``request`` and return every byte until ``idle`` seconds pass without a new one.
 
-        Bytes already waiting before the request are discarded, as in :meth:`query`. A printer
-        that closes the connection after its first byte has ended its answer, so what came is
-        returned.
+        Bytes already waiting before the request are discarded, as in :meth:`query`. XON and XOFF
+        alone do not start the answer: until another byte comes, the wait is the first-byte wait.
+        A printer that closes the connection after it began answering has ended its answer, so
+        what came is returned.
 
         Args:
             request: The bytes to send.
             timeout: Seconds to wait for the first byte.
             idle: Seconds of silence that end the answer.
+            total: Seconds the whole answer may take, from the request to its ending silence.
 
         Returns:
             The answer, at most :data:`MAX_IDLE_ANSWER_BYTES` long.
 
         Raises:
-            PrinterTimeoutError: No byte within ``timeout`` seconds.
+            PrinterTimeoutError: No byte within ``timeout`` seconds, or the answer did not end
+                within ``total`` seconds.
             PrinterProtocolError: More than :data:`MAX_IDLE_ANSWER_BYTES` arrived.
             TransportError: The connection failed, or the printer closed it before answering.
-            ValueError: ``timeout`` or ``idle`` is not a usable number of seconds.
+            ValueError: ``timeout``, ``idle`` or ``total`` is not a usable number of seconds.
         """
-        deadline = time.monotonic() + check_timeout(timeout)
+        started = time.monotonic()
+        check_timeout(timeout)
         check_timeout(idle, name="idle")
+        check_timeout(total, name="total")
         self._ensure_open()
         self._discard_waiting()
         self.send(request)
         try:
-            answer = bytearray(self._receive(deadline - time.monotonic(), received=0))
-            while chunk := self._receive_until_idle(idle, room=MAX_IDLE_ANSWER_BYTES + 1 - len(answer)):
-                answer += chunk
-                if len(answer) > MAX_IDLE_ANSWER_BYTES:
-                    raise PrinterProtocolError(
-                        f"tcp {self._uri.target}: answer longer than {MAX_IDLE_ANSWER_BYTES} bytes"
-                    )
-            return bytes(answer)
+            answer = self._receive_start(deadline=started + min(timeout, total))
+            return self._receive_rest(answer, idle=idle, end=started + total, total=total)
         finally:
             self._sock.settimeout(self._timeout)
 
@@ -207,13 +207,42 @@ class TcpTransport(ClosingTransport):
             raise TransportError(f"tcp {self._uri.target}: the printer closed the connection ({received} bytes read)")
         return chunk
 
-    def _receive_until_idle(self, idle: float, *, room: int) -> bytes:
-        """Receive up to ``room`` bytes; empty once ``idle`` seconds pass silently or the printer hangs up."""
-        self._sock.settimeout(idle)
+    def _receive_start(self, *, deadline: float) -> bytearray:
+        """Receive until a byte other than flow control has come, by ``deadline``."""
+        answer = bytearray()
+        while not answer_started(answer):
+            answer += self._receive(deadline - time.monotonic(), received=len(answer))
+            self._check_answer_size(answer)
+        return answer
+
+    def _receive_rest(self, answer: bytearray, *, idle: float, end: float, total: float) -> bytes:
+        """Receive until ``idle`` seconds of silence or a hang-up; past ``end`` the answer did not end."""
+        while True:
+            wait = min(idle, end - time.monotonic())
+            chunk = self._receive_until_idle(wait, room=MAX_IDLE_ANSWER_BYTES + 1 - len(answer)) if wait > 0 else None
+            if chunk is None and wait >= idle:
+                return bytes(answer)
+            if chunk is None:
+                raise PrinterTimeoutError(
+                    f"tcp {self._uri.target}: the answer did not end within {total:g} s ({len(answer)} bytes read)"
+                )
+            if not chunk:
+                return bytes(answer)
+            answer += chunk
+            self._check_answer_size(answer)
+
+    def _check_answer_size(self, answer: bytearray) -> None:
+        """Refuse an answer past :data:`MAX_IDLE_ANSWER_BYTES`."""
+        if len(answer) > MAX_IDLE_ANSWER_BYTES:
+            raise PrinterProtocolError(f"tcp {self._uri.target}: answer longer than {MAX_IDLE_ANSWER_BYTES} bytes")
+
+    def _receive_until_idle(self, wait: float, *, room: int) -> bytes | None:
+        """Receive up to ``room`` bytes within ``wait`` seconds: None on silence, empty on a hang-up."""
+        self._sock.settimeout(wait)
         try:
             return self._sock.recv(min(_RECV_CHUNK, room))
         except TimeoutError:
-            return b""
+            return None
         except OSError as exc:
             raise transport_error(self._uri, action="read from", error=exc) from exc
 
@@ -246,4 +275,4 @@ def _nth(data: bytearray, needle: bytes, count: int) -> int:
     return index
 
 
-__all__ = ["MAX_ANSWER_BYTES", "MAX_IDLE_ANSWER_BYTES", "REFUSED_RETRY_SECONDS", "TcpTransport"]
+__all__ = ["MAX_ANSWER_BYTES", "MAX_ANSWER_SECONDS", "MAX_IDLE_ANSWER_BYTES", "REFUSED_RETRY_SECONDS", "TcpTransport"]

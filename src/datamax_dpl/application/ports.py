@@ -118,12 +118,13 @@ class PrinterTransport(Protocol):
         """
         ...
 
-    def read_answer(self, request: bytes, *, timeout: float, idle: float) -> bytes:
+    def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = ...) -> bytes:
         """Send ``request`` and return every byte until ``idle`` seconds pass without a new one.
 
         For answers with no terminator and no fixed length, such as the ``<STX>W`` module
-        directory. ``timeout`` bounds the wait for the first byte; an answer longer than the
-        transport's size bound is refused rather than read without end.
+        directory. ``timeout`` bounds the wait for the first byte (XON/XOFF alone do not count),
+        ``total`` the whole answer, which then raises ``PrinterTimeoutError``; an answer longer
+        than the transport's size bound is refused rather than read without end.
         """
         ...
 

@@ -16,8 +16,8 @@ import serial
 
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
 
-from .tcp import MAX_ANSWER_BYTES, MAX_IDLE_ANSWER_BYTES
-from .uri import ClosingTransport, SerialUri, check_timeout
+from .tcp import MAX_ANSWER_BYTES, MAX_ANSWER_SECONDS, MAX_IDLE_ANSWER_BYTES
+from .uri import ClosingTransport, SerialUri, answer_started, check_timeout
 
 _DRAIN_POLL_SECONDS = 0.01
 
@@ -185,37 +185,37 @@ class SerialTransport(ClosingTransport):
             raise PrinterProtocolError(f"serial {self._uri.path}: no answer terminator within {MAX_ANSWER_BYTES} bytes")
         raise PrinterTimeoutError(f"serial {self._uri.path}: no complete answer in time ({len(answer)} bytes read)")
 
-    def read_answer(self, request: bytes, *, timeout: float, idle: float) -> bytes:
+    def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = MAX_ANSWER_SECONDS) -> bytes:
         """Send ``request`` and return every byte until ``idle`` seconds pass without a new one.
 
         Bytes received before the request belong to an earlier exchange and are dropped first.
+        XON and XOFF alone do not start the answer: until another byte comes, the wait is the
+        first-byte wait.
 
         Args:
             request: The bytes to send.
             timeout: Seconds to wait for the first byte.
             idle: Seconds of silence that end the answer.
+            total: Seconds the whole answer may take, from the request to its ending silence.
 
         Returns:
             The answer, at most ``MAX_IDLE_ANSWER_BYTES`` long.
 
         Raises:
-            PrinterTimeoutError: No byte within ``timeout`` seconds.
+            PrinterTimeoutError: No byte within ``timeout`` seconds, or the answer did not end
+                within ``total`` seconds.
             PrinterProtocolError: More than ``MAX_IDLE_ANSWER_BYTES`` arrived.
             TransportError: The port failed or is closed.
-            ValueError: ``timeout`` or ``idle`` is not a usable number of seconds.
+            ValueError: ``timeout``, ``idle`` or ``total`` is not a usable number of seconds.
         """
+        started = time.monotonic()
         check_timeout(timeout)
         check_timeout(idle, name="idle")
+        check_timeout(total, name="total")
         self._drop_waiting_input()
         self.send(request)
-        answer = self._read_available(wait=timeout, room=MAX_IDLE_ANSWER_BYTES + 1)
-        if not answer:
-            raise PrinterTimeoutError(f"serial {self._uri.path}: no complete answer in time (0 bytes read)")
-        while chunk := self._read_available(wait=idle, room=MAX_IDLE_ANSWER_BYTES + 1 - len(answer)):
-            answer += chunk
-            if len(answer) > MAX_IDLE_ANSWER_BYTES:
-                raise PrinterProtocolError(f"serial {self._uri.path}: answer longer than {MAX_IDLE_ANSWER_BYTES} bytes")
-        return answer
+        answer = self._read_start(deadline=started + min(timeout, total))
+        return self._read_rest(answer, idle=idle, end=started + total, total=total)
 
     def close(self) -> None:
         """Close the port; safe to call twice."""
@@ -259,6 +259,38 @@ class SerialTransport(ClosingTransport):
             self._port.reset_input_buffer()
         except OSError as exc:
             raise TransportError(f"cannot read from serial {self._uri.path}: {exc}") from exc
+
+    def _read_start(self, *, deadline: float) -> bytes:
+        """Read until a byte other than flow control has come, by ``deadline``."""
+        answer = b""
+        while not answer_started(answer):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise PrinterTimeoutError(
+                    f"serial {self._uri.path}: no complete answer in time ({len(answer)} bytes read)"
+                )
+            answer += self._read_available(wait=remaining, room=MAX_IDLE_ANSWER_BYTES + 1 - len(answer))
+            self._check_answer_size(answer)
+        return answer
+
+    def _read_rest(self, answer: bytes, *, idle: float, end: float, total: float) -> bytes:
+        """Read until ``idle`` seconds of silence; past ``end`` the answer did not end."""
+        while True:
+            wait = min(idle, end - time.monotonic())
+            chunk = self._read_available(wait=wait, room=MAX_IDLE_ANSWER_BYTES + 1 - len(answer)) if wait > 0 else b""
+            if not chunk and wait >= idle:
+                return answer
+            if not chunk:
+                raise PrinterTimeoutError(
+                    f"serial {self._uri.path}: the answer did not end within {total:g} s ({len(answer)} bytes read)"
+                )
+            answer += chunk
+            self._check_answer_size(answer)
+
+    def _check_answer_size(self, answer: bytes) -> None:
+        """Refuse an answer past ``MAX_IDLE_ANSWER_BYTES``."""
+        if len(answer) > MAX_IDLE_ANSWER_BYTES:
+            raise PrinterProtocolError(f"serial {self._uri.path}: answer longer than {MAX_IDLE_ANSWER_BYTES} bytes")
 
     def _read_available(self, *, wait: float, room: int) -> bytes:
         """Wait up to ``wait`` seconds for a byte, then take what else has arrived, at most ``room`` bytes.

@@ -96,3 +96,20 @@ def test_a_one_way_recording_printer_refuses_read_answer() -> None:
     with pytest.raises(UnsupportedOperationError, match="cannot read the printer's answer"):
         printer.read_answer(b"\x02WG", timeout=1.0, idle=0.2)
     assert printer.sent == []
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("seconds", "phrase"),
+    [
+        ({"timeout": 0.0}, "timeout must be above 0"),
+        ({"idle": -1.0}, "idle must be above 0"),
+        ({"total": 0.0}, "total must be above 0"),
+    ],
+)
+def test_read_answer_checks_its_seconds_like_a_real_channel(seconds: dict[str, float], phrase: str) -> None:
+    printer = RecordingPrinter(answers={b"\x02WG": b"x"})
+    arguments = {"timeout": 1.0, "idle": 0.2, **seconds}
+    with pytest.raises(ValueError, match=phrase):
+        printer.read_answer(b"\x02WG", **arguments)
+    assert printer.sent == []

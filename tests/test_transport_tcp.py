@@ -411,9 +411,9 @@ def test_read_answer_with_no_byte_at_all_times_out_within_the_timeout(serve: Cal
     with TcpTransport.connect(server.uri, timeout=2.0) as printer:
         started = time.monotonic()
         with pytest.raises(PrinterTimeoutError, match="no complete answer in time"):
-            printer.read_answer(b"\x02WG", timeout=0.3, idle=0.2)
+            printer.read_answer(b"\x02WG", timeout=1.0, idle=0.2)
         elapsed = time.monotonic() - started
-    assert 0.25 <= elapsed < 1.5
+    assert 0.7 <= elapsed < 2.5
 
 
 @pytest.mark.os_agnostic
@@ -431,7 +431,7 @@ def test_read_answer_accepts_an_answer_exactly_at_its_bound(serve: Callable[...,
     answer = b"x" * MAX_IDLE_ANSWER_BYTES
     server = serve(_answer(b"\x02WG", answer))
     with TcpTransport.connect(server.uri, timeout=2.0) as printer:
-        assert printer.read_answer(b"\x02WG", timeout=2.0, idle=0.5) == answer
+        assert printer.read_answer(b"\x02WG", timeout=2.0, idle=1.0) == answer
 
 
 @pytest.mark.os_agnostic
@@ -483,5 +483,56 @@ def test_read_answer_arguments_are_checked(serve: Callable[..., PrinterServer]) 
             printer.read_answer(b"x", timeout=1.0, idle=0.0)
         with pytest.raises(ValueError, match="timeout must be above 0"):
             printer.read_answer(b"x", timeout=-1.0, idle=0.5)
+        with pytest.raises(ValueError, match="total must be above 0"):
+            printer.read_answer(b"x", timeout=1.0, idle=0.5, total=0.0)
     with pytest.raises(TransportError, match="the transport is closed"):
         printer.read_answer(b"x", timeout=1.0, idle=0.5)
+
+
+@pytest.mark.os_agnostic
+def test_read_answer_from_a_printer_that_never_stops_dripping_ends_at_the_total_deadline(
+    serve: Callable[..., PrinterServer],
+) -> None:
+    stop = threading.Event()
+
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        server.read_exactly(connection, 3)
+        # One byte every 0.1 s, well inside idle=0.5: only the total deadline can end the read.
+        with contextlib.suppress(OSError):
+            while not stop.wait(0.1):
+                connection.sendall(b"x")
+
+    server = serve(play)
+    try:
+        with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+            started = time.monotonic()
+            with pytest.raises(PrinterTimeoutError, match="the answer did not end within 1 s"):
+                printer.read_answer(b"\x02WG", timeout=1.0, idle=0.5, total=1.0)
+            elapsed = time.monotonic() - started
+    finally:
+        stop.set()
+    assert 0.7 <= elapsed < 2.5
+
+
+@pytest.mark.os_agnostic
+def test_read_answer_does_not_start_the_idle_clock_on_a_lone_xon(serve: Callable[..., PrinterServer]) -> None:
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        server.read_exactly(connection, 3)
+        connection.sendall(b"\x11")
+        time.sleep(0.9)
+        connection.sendall(DIRECTORY)
+        server.read_to_end(connection)
+
+    server = serve(play)
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        assert printer.read_answer(b"\x02WG", timeout=3.0, idle=0.3) == b"\x11" + DIRECTORY
+
+
+@pytest.mark.os_agnostic
+def test_read_answer_with_only_flow_control_bytes_is_no_answer(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(_answer(b"\x02WG", b"\x11\x13"))
+    with (
+        TcpTransport.connect(server.uri, timeout=2.0) as printer,
+        pytest.raises(PrinterTimeoutError, match="no complete answer in time"),
+    ):
+        printer.read_answer(b"\x02WG", timeout=1.0, idle=0.3)
