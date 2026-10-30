@@ -155,6 +155,18 @@ options = []
 # Environment Variable: DATAMAX_DPL___PRINTER__IMAGE_MEMORY_BYTES=40000
 # image_memory_bytes = 40000
 
+# Purpose: Memory module the job's images are downloaded to (<STX>I), A to E.
+#          Unset takes the model's built-in RAM: module A on most models, E on the
+#          DMX 600/800 (there A and B are plug-in modules and D is non-volatile).
+#          The Prodigy and Prodigy Plus have no built-in module: a job that
+#          downloads an image is refused (image_module_unknown) until this names
+#          the module fitted. C is the printer's default module on every model.
+#          `datamax-dpl capabilities MODEL` shows the model's module.
+# Type: string, "A", "B", "C", "D" or "E"
+# Default: unset (the model's built-in module)
+# Environment Variable: DATAMAX_DPL___PRINTER__IMAGE_MODULE=B
+# image_module = "A"
+
 # ------------------------------------------------------------------------------
 # Named printers - one section per printer, chosen with --printer NAME
 # ------------------------------------------------------------------------------

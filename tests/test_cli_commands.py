@@ -241,6 +241,19 @@ def test_capabilities_name_firmware_gates(cli_runner: CliRunner) -> None:
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize(("model", "module"), [("allegro-2", "A"), ("dmx-600", "E"), ("prodigy", None)])
+def test_capabilities_name_the_models_image_module(cli_runner: CliRunner, model: str, module: str | None) -> None:
+    data = envelope(run(cli_runner, ["--json", "capabilities", model]))["data"]
+    assert data["image_module"] == module
+
+
+@pytest.mark.os_agnostic
+def test_capabilities_human_output_names_the_image_module(cli_runner: CliRunner) -> None:
+    lines = run(cli_runner, ["capabilities", "dmx-600"]).output.splitlines()
+    assert [line.split() for line in lines if line.startswith("image_module ")] == [["image_module", "E"]]
+
+
+@pytest.mark.os_agnostic
 def test_capabilities_human_output_has_a_row_for_every_json_field(cli_runner: CliRunner) -> None:
     # The human rows are listed by hand; this keeps a field added to the payload from showing up
     # in --json only.

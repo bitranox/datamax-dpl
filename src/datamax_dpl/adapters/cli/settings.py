@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from ...domain.camera import CameraSettings
-from ...domain.enums import CutterPresence, FallbackPolicy, HardwareOption
+from ...domain.enums import CutterPresence, FallbackPolicy, HardwareOption, ImageModule
 from ...domain.errors import ConfigurationError
 from ...domain.job import MAX_STOP_POSITION_MM
 from ...domain.render_context import RenderOptions
@@ -30,8 +30,8 @@ class PrinterSettings(BaseModel):
 
     ``name`` is the chosen printer's name, empty when none was; ``label_width`` and
     ``label_height`` are the loaded labels' size in millimetres, when known. A scale, offset,
-    stop position or image memory budget left unset (None) takes the model's measured default
-    when the job renders.
+    stop position, image memory budget or image module left unset (None) takes the model's
+    default when the job renders.
 
     Example:
         >>> PrinterSettings().model
@@ -59,6 +59,9 @@ class PrinterSettings(BaseModel):
     cutter_stop_position: float | None = Field(default=None, gt=0, le=MAX_STOP_POSITION_MM)
     # None is not "no budget": it takes the model's, which most models do not have.
     image_memory_bytes: int | None = Field(default=None, gt=0)
+    # None is not module A: it takes the model's built-in module, E on a DMX 600/800 and none on a
+    # Prodigy or Prodigy Plus, which refuses a job that downloads an image until this is set.
+    image_module: ImageModule | None = None
     name: str = ""
     label_width: float | None = Field(default=None, gt=0)
     label_height: float | None = Field(default=None, gt=0)
@@ -193,6 +196,7 @@ def render_options(settings: PrinterSettings) -> RenderOptions:
         stop_position_mm=settings.stop_position,
         cutter_stop_position_mm=settings.cutter_stop_position,
         image_memory_bytes=settings.image_memory_bytes,
+        image_module=settings.image_module,
     )
 
 

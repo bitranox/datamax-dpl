@@ -161,7 +161,10 @@ wasting labels.
 `datamax-dpl models` lists the profiles; `datamax-dpl capabilities <model>` shows one in full.
 Besides the 18 models there are `generic` (the default: only what every model can do) and
 `permissive` (no model checks). Tell datamax-dpl the firmware (`--firmware 2.01`) and installed
-options (`--option datamatrix`) where a feature depends on them.
+options (`--option datamatrix`) where a feature depends on them. Images download to the model's
+built-in memory module (`capabilities` shows it as `image_module`); `[printer] image_module`
+(`A` to `E`) names another, and a Prodigy or Prodigy Plus, which has none, refuses a job that
+downloads an image until it is set.
 
 The policy decides what happens when a label asks for something the model lacks:
 

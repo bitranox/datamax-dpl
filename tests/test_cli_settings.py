@@ -1,8 +1,9 @@
-"""The printer settings' calibration and stop-position keys, from the config file to the rendered job."""
+"""The printer settings' calibration, stop-position and image-module keys, from the config file to the rendered job."""
 
 from __future__ import annotations
 
 import json
+import re
 from importlib import resources
 from typing import TYPE_CHECKING, Any
 
@@ -12,6 +13,7 @@ from lib_layered_config import Config
 
 from datamax_dpl.adapters import cli as cli_mod
 from datamax_dpl.adapters.cli.settings import PrinterOverrides, printer_settings, render_options
+from datamax_dpl.domain.enums import ImageModule
 from datamax_dpl.domain.errors import ConfigurationError
 
 if TYPE_CHECKING:
@@ -24,6 +26,7 @@ if TYPE_CHECKING:
 
 _CALIBRATION_KEYS = ("scale_across", "scale_along", "offset_across", "offset_along")
 _LINE = {"elements": [{"type": "line", "x": 10, "y": 10, "x2": 10, "y2": 110, "thickness": 0.5}]}
+_LOGO = {"elements": [{"type": "image", "x": 1, "y": 1, "name": "LOGO", "bitmap": ["#......#"] * 8}]}
 
 
 def _options(config: dict[str, Any], printer: str | None = None) -> RenderOptions:
@@ -66,6 +69,38 @@ def test_the_shipped_printer_defaults_set_no_calibration_or_stop_value() -> None
 
     assert [getattr(options, key) for key in _CALIBRATION_KEYS] == [None] * 4
     assert (options.stop_position_mm, options.cutter_stop_position_mm) == (None, None)
+    # A shipped module would send every model's images to that one module, and on a DMX 600/800
+    # (built-in RAM is E) a shipped A would name a plug-in module the printer may not have.
+    assert options.image_module is None
+
+
+@pytest.mark.os_agnostic
+def test_a_configured_image_module_reaches_the_render_options() -> None:
+    assert _options({"printer": {"image_module": "E"}}).image_module is ImageModule.E
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printers_image_module_wins_over_the_printer_section() -> None:
+    config = {"printer": {"image_module": "A"}, "printers": {"x": {"image_module": "E"}}}
+
+    assert _options(config, printer="x").image_module is ImageModule.E
+    assert _options(config).image_module is ImageModule.A
+
+
+@pytest.mark.os_agnostic
+def test_an_unset_image_module_leaves_the_models_module_in_force() -> None:
+    assert _options({"printer": {"model": "dmx-600"}}).image_module is None
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("section", "printer"), [("printer", None), ("printers.x", "x")])
+def test_an_image_module_outside_a_to_e_is_refused_with_the_key_named(section: str, printer: str | None) -> None:
+    config = {"printer": {"image_module": "F"}} if printer is None else {"printers": {"x": {"image_module": "F"}}}
+
+    with pytest.raises(
+        ConfigurationError, match=rf"^{re.escape(section)}\.image_module: Input should be 'A', 'B', 'C', 'D' or 'E'$"
+    ):
+        _options(config, printer=printer)
 
 
 @pytest.mark.os_agnostic
@@ -88,10 +123,17 @@ def test_the_largest_stop_position_dpl_takes_is_accepted() -> None:
     assert _options({"printer": {"stop_position": 253.746}}).stop_position_mm == 253.746
 
 
-def _render(cli_runner: CliRunner, factory: Callable[[], Any], tmp_path: Path, *extra: str) -> str:
-    label = tmp_path / "line.json"
-    label.write_text(json.dumps(_LINE), encoding="utf-8")
-    result = cli_runner.invoke(cli_mod.cli, [*extra, "--json", "render", str(label), "--model", "dmx-600"], obj=factory)
+def _render(
+    cli_runner: CliRunner,
+    factory: Callable[[], Any],
+    tmp_path: Path,
+    *extra: str,
+    label: dict[str, Any] = _LINE,
+    model: str = "dmx-600",
+) -> str:
+    path = tmp_path / "label.json"
+    path.write_text(json.dumps(label), encoding="utf-8")
+    result = cli_runner.invoke(cli_mod.cli, [*extra, "--json", "render", str(path), "--model", model], obj=factory)
     assert result.exit_code == 0, result.output
     return json.loads(result.stdout)["data"]["dpl"]
 
@@ -128,3 +170,42 @@ def test_the_config_command_shows_the_configured_stop_positions(
     assert result.exit_code == 0, result.output
     printer = json.loads(result.stdout)["printer"]
     assert (printer["stop_position"], printer["cutter_stop_position"]) == (67.4, 80)
+
+
+@pytest.mark.os_agnostic
+def test_a_configured_image_module_lets_a_prodigy_download_its_image(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    """The Prodigy has no built-in module, so only the configured one can take the download."""
+    factory = config_cli_context({"printer": {"image_module": "B"}})
+
+    dpl = _render(cli_runner, factory, tmp_path, label=_LOGO, model="prodigy")
+
+    assert "<STX>IBAFLOGO" in dpl
+
+
+@pytest.mark.os_agnostic
+def test_a_prodigy_without_a_configured_image_module_is_refused_naming_the_setting(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    path = tmp_path / "label.json"
+    path.write_text(json.dumps(_LOGO), encoding="utf-8")
+
+    result = cli_runner.invoke(
+        cli_mod.cli, ["--json", "render", str(path), "--model", "prodigy"], obj=config_cli_context({})
+    )
+
+    assert result.exit_code == 1, result.output
+    [finding] = [f for f in json.loads(result.stdout)["data"]["findings"] if f["code"] == "image_module_unknown"]
+    assert "image_module" in finding["message"]
+
+
+@pytest.mark.os_agnostic
+def test_a_set_override_of_the_image_module_wins_over_the_models(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    plain = _render(cli_runner, config_cli_context({}), tmp_path, label=_LOGO)
+    moved = _render(cli_runner, config_cli_context({}), tmp_path, "--set", "printer.image_module=C", label=_LOGO)
+
+    assert "<STX>IEAFLOGO" in plain
+    assert "<STX>ICAFLOGO" in moved

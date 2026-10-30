@@ -96,6 +96,7 @@ long it was given (`no complete answer within 0.5 s`): raise `--timeout` (second
   it, `degrade` sends every image but a QR Code at half resolution and double magnification
   (`image_halved`; `preview` shows it). Refused (`image_memory_exceeded`): still past it after
   halving, any job past it under `strict`, a halved image at `magnification` 5 or more.
+- Image module: downloads go to the model's built-in module (`image_module` in `capabilities`); a Prodigy/Prodigy Plus has none and refuses them (`image_module_unknown`) until `[printer] image_module` (A-E) names the module fitted.
 - `datamax-dpl memory --kind all --printer tcp://HOST:9100` lists the names the printer stores
   and the free bytes of each memory module (read-only; tcp or serial). The `allegro-2` budget is
   the 48631 free bytes one printer reported, less a 4096-byte margin; set yours the same way.

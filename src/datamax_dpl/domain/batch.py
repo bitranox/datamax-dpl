@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from .enums import Attribute, FindingCode, Unit
 from .findings import Finding, FindingCollector
 from .profiles import Feature, get_profile, parse_firmware
-from .render_context import RenderContext, RenderOptions
+from .render_context import RenderContext, RenderOptions, resolved_image_module
 from .units import DplUnit
 
 if TYPE_CHECKING:
@@ -37,7 +37,7 @@ def _supports(options: RenderOptions, feature: Feature, findings: FindingCollect
         unit=Unit.MM,
         dpl_unit=DplUnit.INCH_HUNDREDTHS,
         findings=findings,
-        image_module=profile.image_module,
+        image_module=resolved_image_module(options, profile),
         default_attribute=Attribute.XOR,
     )
     return ctx.supports(feature), ctx.requirement(feature)

@@ -237,6 +237,9 @@ class CapabilitiesPayload(BaseModel):
     slew_speed: str
     backup_speed: str | None
     font9_points: list[int]
+    # The built-in module image downloads go to unless [printer] image_module names another;
+    # None on a model with no built-in module, which refuses downloads until one is configured.
+    image_module: str | None
     features: dict[Feature, str]
 
 
@@ -259,6 +262,7 @@ def capabilities_payload(profile: PrinterProfile) -> CapabilitiesPayload:
         slew_speed=_speed(profile.slew_speed),
         backup_speed=_speed(profile.backup_speed) if profile.backup_speed else None,
         font9_points=sorted(set(profile.a_series_points) | set(profile.old_series_points)),
+        image_module=profile.image_module,
         features={feature: profile.support(feature).describe() for feature in Feature},
     )
 
@@ -278,6 +282,7 @@ def _capabilities_text(payload: CapabilitiesPayload) -> str:
         ("slew_speed", payload.slew_speed),
         ("backup_speed", payload.backup_speed),
         ("font9_points", payload.font9_points),
+        ("image_module", payload.image_module),
     ]
     lines = [f"{key:18} {value}" for key, value in rows]
     lines += [f"  {feature.value:20} {state}" for feature, state in payload.features.items()]

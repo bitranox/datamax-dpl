@@ -103,10 +103,11 @@ Images download to the memory module the "Image module" column of the Limits tab
 model's built-in RAM (manual, Appendix L): module A on most models, E on the DMX 600/800 (where A
 and B are plug-in modules and D is non-volatile, so images there vanish at power-off as on the
 Allegro 2), and none on the Prodigy and Prodigy Plus, whose modules A and B are both plug-ins.
-`image_module` (`A` to `E`) names another module; `C` is the printer's default module on every
-model. On a model without a built-in module a job that downloads an image is refused
-(`image_module_unknown`) until `image_module` names the module fitted; a job that only places
-stored images is not. Only module A has been seen on a printer (an Allegro 2).
+`image_module` (`A` to `E`; `[printer] image_module` in the configuration) names another module;
+`C` is the printer's default module on every model, and `datamax-dpl capabilities MODEL` shows the
+model's own as `image_module`. On a model without a built-in module a job that downloads an image
+is refused (`image_module_unknown`) until `image_module` names the module fitted; a job that only
+places stored images is not. Only module A has been seen on a printer (an Allegro 2).
 
 The features `cutter_pulse`, `field_terminator`, `stored_formats` and `time_date` are listed for
 reference. The label format has no field that uses them, so they never cause a finding.

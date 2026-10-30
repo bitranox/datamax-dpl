@@ -472,6 +472,7 @@ nothing is contacted until one is set or passed with `--printer`.
 | `stop_position`        | float, > 0, at most 253.746 (mm) | unset       | `DATAMAX_DPL___PRINTER__STOP_POSITION`        | Tear-off stop position, sent as `<STX>f` exactly as set (no scale or offset) before every job that does not cut. A label's own `stop_position` wins, and so does a present distance a model without `<STX>Kf` sends as one. Unset: the model's default, else the printer's own setting. |
 | `cutter_stop_position` | float, > 0, at most 253.746 (mm) | unset       | `DATAMAX_DPL___PRINTER__CUTTER_STOP_POSITION` | Stop position for a job that cuts, sent exactly as set; such a job never uses `stop_position`. Unset: a job that cuts sends no stop position.                                                                                                                                           |
 | `image_memory_bytes`   | integer, > 0 (bytes)             | unset       | `DATAMAX_DPL___PRINTER__IMAGE_MEMORY_BYTES`   | Bytes of image dot data one job may download. Past it, `degrade` sends every image but a QR Code at half resolution and double magnification (`image_halved`), `strict` refuses (`image_memory_exceeded`). Unset: the model's budget (Allegro 2: 44535), else none.                     |
+| `image_module`         | `"A"` to `"E"`                   | unset       | `DATAMAX_DPL___PRINTER__IMAGE_MODULE`         | Memory module images are downloaded to. Unset: the model's built-in module (`datamax-dpl capabilities MODEL` shows it); a model without one (Prodigy, Prodigy Plus) refuses a job that downloads an image (`image_module_unknown`).                                                     |
 | `label_width`          | float, > 0 (mm)                  | unset       | `DATAMAX_DPL___PRINTER__LABEL_WIDTH`          | Width of the loaded labels; `calibrate print` sizes its labels from it.                                                                                                                                                                                                                 |
 | `label_height`         | float, > 0 (mm)                  | unset       | `DATAMAX_DPL___PRINTER__LABEL_HEIGHT`         | Height of the loaded labels, for the across calibration label.                                                                                                                                                                                                                          |
 
@@ -487,6 +488,14 @@ Allegro 2 (holding 11 stored graphics) reported for module A, less a 4096-byte m
 memory` shows what your printer has free. The figure counts the dot data of the job's downloads,
 rows times bytes per row; images the label only places cost nothing. Halving is unverified on
 paper.
+
+`image_module` ships unset as well, so each model's images go to its built-in RAM (manual,
+Appendix L): module A on most models, E on the DMX 600/800, where A and B are plug-in modules and
+D is non-volatile. The Prodigy and Prodigy Plus have no built-in module (A and B are both
+plug-ins), so a job that downloads an image there is refused (`image_module_unknown`) until
+`image_module` names the module fitted; a job that only places stored images is not. `C` means the
+printer's default module on every model. A `[printers.<name>]` section can set its own. Only
+module A has been seen on a printer.
 
 A configuration deployed by 0.3.0 (`datamax-dpl config-deploy`, usually `--target user`) still holds
 `scale_across = 1.0`, `scale_along = 1.0`, `offset_across = 0.0` and `offset_along = 0.0` in its

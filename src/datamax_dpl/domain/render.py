@@ -28,7 +28,7 @@ from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText,
 from .placeholders import label_placeholders
 from .preview import SentAs
 from .profiles import CalibrationDefaults, Feature, get_profile, parse_firmware
-from .render_context import RenderContext, RenderOptions
+from .render_context import RenderContext, RenderOptions, resolved_image_module
 from .transparency import Emulation, emulate_transparency
 from .units import Axis, Correction, DplUnit, to_inches
 
@@ -194,7 +194,7 @@ def _context(label: Label, options: RenderOptions, *, halve: bool) -> RenderCont
         unit=label.unit,
         dpl_unit=DplUnit.INCH_HUNDREDTHS,
         findings=findings,
-        image_module=profile.image_module if options.image_module is None else options.image_module.value,
+        image_module=resolved_image_module(options, profile),
         cutter_installed=options.cutter_installed,
         symbol_set=label.symbol_set,
         default_attribute=label.attribute or Attribute.XOR,

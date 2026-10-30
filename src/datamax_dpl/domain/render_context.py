@@ -124,6 +124,31 @@ class RenderOptions(BaseModel):
     image_module: ImageModule | None = None
 
 
+def resolved_image_module(options: RenderOptions, profile: PrinterProfile) -> str | None:
+    """Return the letter of the memory module a job's image downloads go to.
+
+    The configured module wins over the model's built-in one. Every context built for a job reads
+    the module from here, so a probe context cannot name a different module than the render does.
+
+    Args:
+        options: The job's render options; ``image_module`` is the configured module, if any.
+        profile: The model profile; ``image_module`` is its built-in module, None when it has none.
+
+    Returns:
+        The module letter, or None when neither names one (the job then refuses downloads).
+
+    Example:
+        >>> from datamax_dpl.domain.profiles import get_profile
+        >>> resolved_image_module(RenderOptions(model="dmx-600"), get_profile("dmx-600"))
+        'E'
+        >>> resolved_image_module(RenderOptions(image_module=ImageModule.B), get_profile("prodigy"))
+        'B'
+        >>> resolved_image_module(RenderOptions(), get_profile("prodigy")) is None
+        True
+    """
+    return profile.image_module if options.image_module is None else options.image_module.value
+
+
 @dataclass(frozen=True)
 class ImageDownload:
     """One image sent to the printer before the format.
@@ -506,4 +531,5 @@ __all__ = [
     "RenderContext",
     "RenderOptions",
     "drawn_image_name",
+    "resolved_image_module",
 ]
