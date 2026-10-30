@@ -5,6 +5,8 @@ them, at NOMINAL geometry: no scale or offset calibration, and label lengths tur
 dots. A job whose DPL unit cannot hold a length exactly (millimetres on a model with inch formats
 only) can print a field a dot away from the picture. A horizontal or vertical line is the line
 record's rectangle, growing up or right from its lower-left end; a slanted one is a centred stroke.
+A patterned box fill is drawn up to its outline; on a model with polygons it prints one or two dots
+short of it, which keeps the fill off the outline's dots (``encode_box``).
 
 Text is drawn as one grey block per character cell, sized from the font tables in
 ``docs/dpl-reference.md`` section 6; barcodes as a hatched area of their estimated size. The

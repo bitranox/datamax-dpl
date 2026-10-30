@@ -62,7 +62,7 @@ def encode_line(element: Line, *, index: int, ctx: RenderContext) -> list[bytes]
     return rasterize(element, index=index, ctx=ctx, reason=f"slanted lines: {ctx.requirement(Feature.CIRCLE_POLYGON)}")
 
 
-def _box_outline(element: Box, *, index: int, ctx: RenderContext, solid: bool = False) -> bytes:
+def _box_record(element: Box, *, index: int, ctx: RenderContext, solid: bool = False) -> BoxRecord:
     width = ctx.distance(element.width, axis=Axis.ACROSS, element=index, what="box width")
     height = ctx.distance(element.height, axis=Axis.ALONG, element=index, what="box height")
     edge = ctx.distance(element.thickness, axis=Axis.ALONG, element=index, what="box edge") or 1
@@ -71,7 +71,7 @@ def _box_outline(element: Box, *, index: int, ctx: RenderContext, solid: bool = 
     )
     if solid:
         edge, side = math.ceil(height / 2), math.ceil(width / 2)
-    record = BoxRecord(
+    return BoxRecord(
         row=row_of(element.y, index=index, ctx=ctx),
         column=column_of(element.x, index=index, ctx=ctx),
         width=width,
@@ -79,7 +79,6 @@ def _box_outline(element: Box, *, index: int, ctx: RenderContext, solid: bool = 
         edge=edge,
         side=side,
     )
-    return line(record.encode())
 
 
 def _box_corners(element: Box) -> list[Point]:
@@ -92,16 +91,48 @@ def _box_corners(element: Box) -> list[Point]:
     ]
 
 
+def _units_of_dots(dots: int, ctx: RenderContext) -> int:
+    """The fewest DPL units that span at least ``dots`` printer dots."""
+    return math.ceil(dots / _dots_per_unit(ctx))
+
+
+def _inset_fill(outline: BoxRecord, *, pattern: FillPattern, ctx: RenderContext) -> list[bytes]:
+    """Return the polygon that fills the inside of ``outline`` without touching it, or nothing.
+
+    Most models print overlapping fields XOR, so a dot both records print would come out white.
+    The polygon keeps one dot clear of the edges and sides, since the printer turns the box's
+    position, size and thicknesses into dots one by one and each can round a dot either way; its
+    far corners keep a second dot clear, because a polygon's line (brush 1) is drawn on its
+    vertices while the box's width counts dots from its column. Sides or edges that meet leave
+    no inside, and no polygon is sent.
+    """
+    near, far = _units_of_dots(1, ctx), _units_of_dots(2, ctx)
+    bottom, left = outline.row + outline.edge + near, outline.column + outline.side + near
+    top = outline.row + outline.height - outline.edge - far
+    right = outline.column + outline.width - outline.side - far
+    if top < bottom or right < left:
+        return []
+    corners = [(bottom, left), (bottom, right), (top, right), (top, left)]
+    return [line(polygon_record(corners, fill=pattern))]
+
+
 def encode_box(element: Box, *, index: int, ctx: RenderContext) -> list[bytes]:
-    """Return a box record; fills use a polygon, thick edges (solid) or a raster fallback."""
+    """Return a box record; fills use a polygon, thick edges (solid) or a raster fallback.
+
+    A solid fill is one solid polygon over the whole box, which covers the outline too; a
+    patterned fill is a polygon inside the outline that shares no dot with it, since on most
+    models two fields' common dots print white (XOR).
+    """
     if element.fill is FillPattern.NONE:
-        return [_box_outline(element, index=index, ctx=ctx)]
+        return [line(_box_record(element, index=index, ctx=ctx).encode())]
+    if _polygons(ctx) and element.fill is FillPattern.SOLID:
+        return [line(polygon_record(_points(_box_corners(element), index=index, ctx=ctx), fill=FillPattern.SOLID))]
     if _polygons(ctx):
-        fill = line(polygon_record(_points(_box_corners(element), index=index, ctx=ctx), fill=element.fill))
-        return [fill, _box_outline(element, index=index, ctx=ctx)]
+        outline = _box_record(element, index=index, ctx=ctx)
+        return [*_inset_fill(outline, pattern=element.fill, ctx=ctx), line(outline.encode())]
     if element.fill is FillPattern.SOLID:
         ctx.findings.info(FindingCode.SOLID_FILL_AS_EDGES, "solid box drawn as a box whose edges meet", element=index)
-        return [_box_outline(element, index=index, ctx=ctx, solid=True)]
+        return [line(_box_record(element, index=index, ctx=ctx, solid=True).encode())]
     return rasterize(
         element, index=index, ctx=ctx, reason=f"patterned fills: {ctx.requirement(Feature.CIRCLE_POLYGON)}"
     )

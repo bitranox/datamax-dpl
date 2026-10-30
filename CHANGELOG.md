@@ -132,6 +132,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A filled box on a model with polygons (DMX 400 from firmware 2.01, DMX
+  430/600/800, Prodigy Max, PE42/PE43, Ovation, Titan) was sent as a fill
+  polygon over the whole box plus its outline record. Those models print
+  overlapping fields XOR unless the label sets another `attribute`, so the
+  outline band printed white. A solid fill is now one solid polygon, which
+  covers the outline; a patterned fill is a polygon inside the outline that
+  keeps one dot clear of the edges and sides and two at its far corners (a
+  polygon's line is drawn on its vertices), so the two records share no dot.
+  Sides or edges that meet leave no room for the fill, and only the outline
+  is sent. Unverified on paper.
 - `preview` turned a rotated text field or barcode by swapping its width and
   height and letting it still run right and up from the reference point, and
   Pillow's lettering was never turned. It now follows the manual (record
