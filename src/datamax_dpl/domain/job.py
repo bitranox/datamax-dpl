@@ -109,7 +109,7 @@ def _configured_stop(label: Label, ctx: RenderContext) -> list[bytes]:
 
     A configured stop position (an option, the config file, or the model's default) is a distance
     found by trying stop values on the printer, so it is sent exactly as configured, without the
-    printer's scale or offset: the Allegro 2's 67.4 mm is what ``<STX>f265`` stopped at, and a
+    printer's scale or offset: the Allegro 2's 66.8 mm is what ``<STX>f263`` stopped at, and a
     scaled conversion would move that stop. It is set once for every job, not asked for by this
     label, so a model without the command only reports that it was not sent.
     """

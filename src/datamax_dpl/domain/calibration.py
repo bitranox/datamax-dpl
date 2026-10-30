@@ -36,13 +36,15 @@ __all__ = [
     "across_label",
     "along_label",
     "calibration_labels",
+    "default_along_length",
     "longest_along_length",
     "offset_from_borders",
     "scale_from_measurement",
 ]
 
 ALONG_LENGTH_MM = 200.0
-"""Default and maximum length of the along bar: the Allegro 2 cut a format off at ~201.5 mm."""
+"""Longest along bar: a ruler's reach. The default is the longest that one format also holds
+(:func:`default_along_length`)."""
 
 TICK_SPACING_MM = 10.0
 MIN_LABEL_MM = 20.0
@@ -209,6 +211,33 @@ def longest_along_length(*, width: float, title: str, options: RenderOptions, be
             return length
         length -= step
     return None
+
+
+def default_along_length(*, width: float, title: str, options: RenderOptions) -> float:
+    """Return the along bar length to print and to measure against when none is given.
+
+    It is the longest bar in whole 10 mm, at most :data:`ALONG_LENGTH_MM`, that one format holds
+    for ``options`` (:func:`longest_along_length`), so printing it is not refused and the same
+    length is the nominal one its measurement is compared with.
+
+    Args:
+        width: Label width in mm, as the along label is built.
+        title: First text line, as the along label is built.
+        options: Render options of the printer the label is for.
+
+    Returns:
+        The length in mm; :data:`ALONG_LENGTH_MM` when not even 20 mm fits, so the job is refused
+        and its refusal says so.
+
+    Example:
+        >>> from datamax_dpl.domain.render_context import RenderOptions
+        >>> default_along_length(width=100, title="X", options=RenderOptions(model="allegro-2"))
+        190.0
+        >>> default_along_length(width=100, title="X", options=RenderOptions(model="dmx-600"))
+        200.0
+    """
+    fits = longest_along_length(width=width, title=title, options=options, below=ALONG_LENGTH_MM + _ALONG_STEP_MM)
+    return ALONG_LENGTH_MM if fits is None else fits
 
 
 def calibration_labels(

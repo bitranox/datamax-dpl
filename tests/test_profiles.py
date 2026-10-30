@@ -20,8 +20,13 @@ def _values(calibration: CalibrationDefaults) -> tuple[float, float, float, floa
 @pytest.mark.os_agnostic
 def test_allegro_2_ships_the_measured_calibration_defaults() -> None:
     calibration = get_profile("allegro-2").calibration
-    assert _values(calibration) == (1.0, 0.976, 0.0, -0.25, 67.4)
+    assert _values(calibration) == (1.0, 0.976, 0.0, -0.25, 66.8)
     assert calibration.provenance
+
+
+@pytest.mark.os_agnostic
+def test_allegro_2_holds_the_format_length_its_ladder_printed() -> None:
+    assert get_profile("allegro-2").max_format_rows == 1640
 
 
 @pytest.mark.os_agnostic

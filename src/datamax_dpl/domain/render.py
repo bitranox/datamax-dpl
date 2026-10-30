@@ -35,6 +35,7 @@ from .units import MM_PER_INCH, Axis, Correction, DplUnit, to_inches
 
 if TYPE_CHECKING:
     from .label import Element, Label, PrinterStop
+    from .profiles import PrinterProfile
 
 _RECORD_PREFIXES = tuple("1234")
 _Given = TypeVar("_Given")
@@ -292,6 +293,27 @@ def _reach(element: Element, ctx: RenderContext) -> int | None:
     return area.bottom if isinstance(element, Image) else area.top
 
 
+def format_row_limit(options: RenderOptions) -> int | None:
+    """Return the dot rows one format reaches for ``options``, at dot height 1, or None for no limit.
+
+    A configured ``max_format_rows`` wins; else the model's limit, which most models do not have.
+
+    Raises:
+        UnknownModelError: No profile has the options' model id.
+
+    Example:
+        >>> format_row_limit(RenderOptions(model="allegro-2"))
+        1640
+        >>> format_row_limit(RenderOptions(model="dmx-600")) is None
+        True
+    """
+    return _row_limit(options, get_profile(options.model))
+
+
+def _row_limit(options: RenderOptions, profile: PrinterProfile) -> int | None:
+    return profile.max_format_rows if options.max_format_rows is None else options.max_format_rows
+
+
 def _check_format_length(label: Label, ctx: RenderContext, *, max_rows: int | None) -> None:
     """Refuse a label whose highest field passes the rows one format reaches, under either policy.
 
@@ -391,8 +413,7 @@ def _encode(label: Label, options: RenderOptions, *, filled: bool, halve: bool) 
             FindingCode.TOO_MANY_FIELDS,
             f"{record_count} fields; {ctx.profile.name} takes at most {ctx.profile.max_fields}",
         )
-    max_rows = ctx.profile.max_format_rows if options.max_format_rows is None else options.max_format_rows
-    _check_format_length(label, ctx, max_rows=max_rows)
+    _check_format_length(label, ctx, max_rows=_row_limit(options, ctx.profile))
     return _Job(ctx=ctx, prefix=prefix, body=body, record_count=record_count)
 
 
@@ -490,4 +511,4 @@ def render(label: Label, options: RenderOptions | None = None) -> RenderResult:
     return result
 
 
-__all__ = ["RenderResult", "build_job", "effective_calibration", "job_context", "render"]
+__all__ = ["RenderResult", "build_job", "effective_calibration", "format_row_limit", "job_context", "render"]

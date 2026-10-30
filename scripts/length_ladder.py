@@ -69,7 +69,7 @@ __all__ = [
     "main",
 ]
 
-#: First and last printed row with a fine tick: around the Allegro 2's provisional 1654 rows.
+#: First and last printed row with a fine tick: around the Allegro 2's 1640 rows.
 DEFAULT_FIRST = 1600
 DEFAULT_LAST = 1760
 #: The format limit the ladder is built and printed with: far past any tick, so nothing refuses it.

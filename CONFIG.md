@@ -473,13 +473,13 @@ nothing is contacted until one is set or passed with `--printer`.
 | `cutter_stop_position` | float, > 0, at most 253.746 (mm)                 | unset       | `DATAMAX_DPL___PRINTER__CUTTER_STOP_POSITION` | Stop position for a job that cuts, sent exactly as set; such a job never uses `stop_position`. Unset: a job that cuts sends no stop position.                                                                                                                                                                                                                                     |
 | `image_memory_bytes`   | integer, > 0 (bytes)                             | unset       | `DATAMAX_DPL___PRINTER__IMAGE_MEMORY_BYTES`   | Bytes of image dot data one job may download. Past it, `degrade` sends every image but a QR Code at half resolution and double magnification (`image_halved`), `strict` refuses (`image_memory_exceeded`). Unset: the model's budget (Allegro 2: 44535), else none.                                                                                                               |
 | `image_module`         | `"A"` to `"E"`                                   | unset       | `DATAMAX_DPL___PRINTER__IMAGE_MODULE`         | Memory module images are downloaded to. Unset: the model's built-in module (`datamax-dpl capabilities MODEL` shows it); a model without one (Prodigy, Prodigy Plus) refuses a job that downloads an image (`image_module_unknown`).                                                                                                                                               |
-| `max_format_rows`      | integer, > 0 (dot rows)                          | unset       | `DATAMAX_DPL___PRINTER__MAX_FORMAT_ROWS`      | Highest dot row along the feed one format may reach, at dot height 1, as the job commands it (scale and offset included; an image only the printer holds counts by its reference row). A field past it is refused under both policies (`format_past_max_length`); a label `dot_size` of height 2 doubles it. Unset: the model's limit (Allegro 2: 1654, provisional), else none.  |
-| `label_width`          | float, > 0 (mm)                                  | unset       | `DATAMAX_DPL___PRINTER__LABEL_WIDTH`          | Width of the loaded labels; `calibrate print` sizes its labels from it.                                                                                                                                                                                                                                                                                                           |
+| `max_format_rows`      | integer, > 0 (dot rows)                          | unset       | `DATAMAX_DPL___PRINTER__MAX_FORMAT_ROWS`      | Highest dot row along the feed one format may reach, at dot height 1, as the job commands it (scale and offset included; an image only the printer holds counts by its reference row). A field past it is refused under both policies (`format_past_max_length`); a label `dot_size` of height 2 doubles it. Unset: the model's limit (Allegro 2: 1640), else none.               |
+| `label_width`          | float, > 0 (mm)                                  | unset       | `DATAMAX_DPL___PRINTER__LABEL_WIDTH`          | Width of the loaded labels; `calibrate print` sizes its labels from it, and `calibrate set` works out from it the along bar length print defaulted to.                                                                                                                                                                                                                            |
 | `label_height`         | float, > 0 (mm)                                  | unset       | `DATAMAX_DPL___PRINTER__LABEL_HEIGHT`         | Height of the loaded labels, for the across calibration label.                                                                                                                                                                                                                                                                                                                    |
 
 The calibration and stop-position keys ship unset, and unset means the model's default: the
 `allegro-2` profile carries values measured on one Allegro 2 (`scale_along` 0.976, `offset_along`
--0.25 mm, `stop_position` 67.4 mm), every other model prints nominal (scale 1.0, offset 0.0) and
+-0.25 mm, `stop_position` 66.8 mm), every other model prints nominal (scale 1.0, offset 0.0) and
 keeps the printer's own stop position. A value you set, even 1.0 or 0.0, wins over the model's,
 and the result of `render` and `print` names each model default it used. `calibrate print` prints
 with these effective values and `calibrate set` starts from them.
@@ -500,10 +500,10 @@ plug-ins), so a job that downloads an image there is refused (`image_module_unkn
 printer's default module on every model. A `[printers.<name>]` section can set its own. Only
 module A has been seen on a printer.
 
-`max_format_rows` ships unset too. The Allegro 2 cut a long format off, so its model limit is 1654
-dot rows, about 202 mm at its default `scale_along`; it is provisional, the longest bar seen to
-print whole, until a ladder of lengths on the printer measures the real limit. A larger value lets
-such a ladder (or a printer that holds more) through. No other model has a limit.
+`max_format_rows` ships unset too. The Allegro 2 cuts a long format off; its model limit is 1640
+dot rows, about 200 mm at its default `scale_along`, the last row a ladder of lengths
+(`scripts/length_ladder.py`) printed whole on one Allegro 2. A larger value lets such a ladder (or
+a printer that holds more) through. No other model has a limit.
 
 A configuration deployed by 0.3.0 (`datamax-dpl config-deploy`, usually `--target user`) still holds
 `scale_across = 1.0`, `scale_along = 1.0`, `offset_across = 0.0` and `offset_along = 0.0` in its

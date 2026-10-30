@@ -8,11 +8,12 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from datamax_dpl.domain.calibration import ALONG_LENGTH_MM, along_label
+from datamax_dpl.domain.calibration import along_label, default_along_length
 from datamax_dpl.domain.enums import FillPattern, FindingCode, ImageModule, MediaSensor, Rotation, Severity, Unit
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.label import Barcode, Box, Circle, DotSize, Element, Image, Label, Line, Point, Polygon, Text
-from datamax_dpl.domain.render import RenderResult, build_job, effective_calibration, render
+from datamax_dpl.domain.overlap import printed_dots
+from datamax_dpl.domain.render import RenderResult, build_job, effective_calibration, job_context, render
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.symbology import Symbology
 
@@ -453,7 +454,7 @@ def test_an_allegro_2_without_options_reports_the_model_defaults_it_applied() ->
     assert finding.message.startswith("model defaults (measured on one Allegro 2")
     assert "scale_along 0.976" in finding.message
     assert "offset_along -0.25 mm" in finding.message
-    assert "stop_position 67.4 mm" in finding.message
+    assert "stop_position 66.8 mm" in finding.message
     assert "scale_across" not in finding.message
     assert "offset_across" not in finding.message
 
@@ -472,7 +473,7 @@ def test_an_explicit_option_wins_over_the_model_default_and_is_not_reported() ->
 
 @pytest.mark.os_agnostic
 def test_explicit_options_for_every_model_default_leave_nothing_to_report() -> None:
-    options = RenderOptions(model="allegro-2", scale_along=0.976, offset_along=-0.25, stop_position_mm=67.4)
+    options = RenderOptions(model="allegro-2", scale_along=0.976, offset_along=-0.25, stop_position_mm=66.8)
     assert _model_defaults_findings(options) == []
 
 
@@ -553,9 +554,9 @@ def _names_the_model_stop(result: RenderResult) -> bool:
 
 @pytest.mark.os_agnostic
 def test_an_allegro_2_without_options_stops_where_the_user_measured_it() -> None:
-    """67.4 mm is what ``<STX>f265`` stopped at on the printer, so no scale or offset may move it."""
+    """66.8 mm is what ``<STX>f263`` stopped at on the printer, so no scale or offset may move it."""
     result = _stop_job()
-    assert result.data.startswith(STX + b"n" + STX + b"f265" + STX + b"L\r")
+    assert result.data.startswith(STX + b"n" + STX + b"f263" + STX + b"L\r")
     assert _names_the_model_stop(result)
 
 
@@ -588,7 +589,7 @@ def test_a_job_that_cuts_sends_the_cutter_stop_position() -> None:
 
 @pytest.mark.os_agnostic
 def test_a_job_that_does_not_cut_ignores_the_cutter_stop_position() -> None:
-    assert _stop_commands(_stop_job(cutter_stop_position_mm=80)) == [STX + b"f265"]
+    assert _stop_commands(_stop_job(cutter_stop_position_mm=80)) == [STX + b"f263"]
 
 
 @pytest.mark.os_agnostic
@@ -883,7 +884,7 @@ def test_the_effective_calibration_takes_the_models_measured_default_where_nothi
     calibration = effective_calibration(RenderOptions(model="allegro-2"))
     assert (calibration.scale_across, calibration.scale_along) == (1.0, 0.976)
     assert (calibration.offset_across, calibration.offset_along) == (0.0, -0.25)
-    assert calibration.stop_position_mm == 67.4
+    assert calibration.stop_position_mm == 66.8
 
 
 @pytest.mark.os_agnostic
@@ -1322,16 +1323,43 @@ def test_max_format_rows_must_be_positive() -> None:
 
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("width", [50.0, 104.0])
-def test_the_along_calibration_label_still_renders_on_an_allegro_2(width: float) -> None:
-    label = along_label(width=width, length=ALONG_LENGTH_MM, title="ALLEGRO 2 SCALE 0.9760")
-    result = build_job(label, RenderOptions(model="allegro-2"))
+def test_the_along_calibration_label_at_its_default_length_renders_on_an_allegro_2(width: float) -> None:
+    options = RenderOptions(model="allegro-2")
+    title = "ALLEGRO 2 SCALE 0.9760"
+    label = along_label(
+        width=width, length=default_along_length(width=width, title=title, options=options), title=title
+    )
+    result = build_job(label, options)
     assert _format_length_findings(result) == []
     assert result.ok, [f.message for f in result.errors]
 
 
+def _image_reaching(row: int, options: RenderOptions) -> Label:
+    """A downloaded image whose top the encoder commands on dot ``row``: an image prints whole dots."""
+
+    def label(rows: int) -> Label:
+        image = {"type": "image", "x": 5, "y": 10, "name": "BAR", "bitmap": ["#" * 8] * rows}
+        return Label.model_validate({"elements": [image]})
+
+    def top(rows: int) -> int:
+        built = label(rows)
+        dots = printed_dots(built.elements[0], job_context(built, options))
+        assert dots is not None
+        return dots.area.top
+
+    rows = row - top(1) + 1
+    assert top(rows) == row
+    return label(rows)
+
+
 @pytest.mark.os_agnostic
-def test_the_v18_bar_from_2_to_202_mm_renders_at_the_allegro_2_defaults() -> None:
-    assert _format_length_findings(build_job(_vertical_line(202), RenderOptions(model="allegro-2"))) == []
+def test_an_allegro_2_format_reaches_row_1640_and_not_row_1641() -> None:
+    """The last length-ladder tick the printer printed whole was the one on row 1640."""
+    options = RenderOptions(model="allegro-2")
+    assert _format_length_findings(build_job(_image_reaching(1640, options), options)) == []
+    (refused,) = _format_length_findings(build_job(_image_reaching(1641, options), options))
+    assert "dot row 1641" in refused.message
+    assert "1640 rows" in refused.message
 
 
 def _stored_logo(y: float) -> Label:

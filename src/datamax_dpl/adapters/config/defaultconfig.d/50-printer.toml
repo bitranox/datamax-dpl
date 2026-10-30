@@ -87,7 +87,7 @@ options = []
 
 # The calibration and stop-position keys below ship unset (commented out): unset
 # means the model's default. The allegro-2 profile carries values measured on one
-# Allegro 2 (scale_along 0.976, offset_along -0.25 mm, stop_position 67.4 mm);
+# Allegro 2 (scale_along 0.976, offset_along -0.25 mm, stop_position 66.8 mm);
 # every other model prints nominal (scale 1.0, offset 0.0) and keeps the printer's
 # own stop position. A value set here, even 1.0 or 0.0, wins over the model's.
 
@@ -135,8 +135,8 @@ options = []
 # Type: float, greater than 0, at most 253.746 (999/100 inch, the DPL limit), or
 #       "printer"
 # Default: unset (the model's default; for most models the printer's own setting)
-# Environment Variable: DATAMAX_DPL___PRINTER__STOP_POSITION=67.4
-# stop_position = 67.4
+# Environment Variable: DATAMAX_DPL___PRINTER__STOP_POSITION=66.8
+# stop_position = 66.8
 
 # Purpose: Stop position in mm for a job that cuts, where the cutter needs the
 #          label. A job that cuts never uses stop_position: it sends this one, or no
@@ -174,13 +174,13 @@ options = []
 #          height 1, counted as the job commands it (scale_along and offset_along
 #          included). A label whose field passes it is refused under either policy
 #          (format_past_max_length); a label dot_size of height 2 doubles it.
-#          Unset takes the model's limit: 1654 on the Allegro 2 (about 202 mm at
-#          its default scale_along, provisional until measured on the printer),
-#          none on every other model.
+#          Unset takes the model's limit: 1640 on the Allegro 2 (about 200 mm at
+#          its default scale_along, measured on the printer), none on every other
+#          model.
 # Type: integer, > 0 (dot rows)
 # Default: unset (the model's limit)
 # Environment Variable: DATAMAX_DPL___PRINTER__MAX_FORMAT_ROWS=1700
-# max_format_rows = 1654
+# max_format_rows = 1640
 
 # ------------------------------------------------------------------------------
 # Named printers - one section per printer, chosen with --printer NAME

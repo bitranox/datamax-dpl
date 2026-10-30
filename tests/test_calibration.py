@@ -10,6 +10,7 @@ from datamax_dpl.domain.calibration import (
     across_frame_width,
     across_label,
     along_label,
+    default_along_length,
     offset_from_borders,
     scale_from_measurement,
 )
@@ -181,6 +182,30 @@ def test_an_across_label_narrower_than_its_frame_and_text_need_is_refused(
 def test_an_along_length_over_two_hundred_millimetres_is_refused() -> None:
     with pytest.raises(ValueError, match="200 mm"):
         along_label(width=100, length=201, title="X")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        (RenderOptions(model="allegro-2"), 190.0),
+        (RenderOptions(model="allegro-2", scale_along=0.9), 180.0),
+        (RenderOptions(model="dmx-600"), ALONG_LENGTH_MM),
+        (RenderOptions(model="allegro-2", max_format_rows=10_000), ALONG_LENGTH_MM),
+    ],
+    ids=["allegro-2", "allegro-2-short-feed", "no-limit", "raised-limit"],
+)
+def test_the_default_along_length_is_the_longest_whole_ten_millimetres_that_fits(
+    options: RenderOptions, expected: float
+) -> None:
+    assert default_along_length(width=100, title="LAGER", options=options) == expected
+
+
+@pytest.mark.os_agnostic
+def test_the_default_along_length_is_the_ceiling_when_not_even_the_shortest_bar_fits() -> None:
+    """Then the job is refused at the ceiling, and its refusal says that nothing fits."""
+    options = RenderOptions(model="allegro-2", max_format_rows=50)
+    assert default_along_length(width=100, title="LAGER", options=options) == ALONG_LENGTH_MM
 
 
 @pytest.mark.os_agnostic

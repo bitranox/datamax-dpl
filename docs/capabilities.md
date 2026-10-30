@@ -111,16 +111,16 @@ model's own as `image_module`. On a model without a built-in module a job that d
 is refused (`image_module_unknown`) until `image_module` names the module fitted; a job that only
 places stored images is not. Only module A has been seen on a printer (an Allegro 2).
 
-A format holds only so many dot rows along the feed: the Allegro 2 cut a longer one off. The
+A format holds only so many dot rows along the feed: the Allegro 2 cuts a longer one off. The
 "Max format rows" column of the Limits table gives that limit where one is known, counted as the
 job commands the rows at dot height 1 (the printer's scale_along and offset_along included, so
-1654 rows are about 202 mm on an Allegro 2 at its default scale). A label whose highest field
+1640 rows are about 200 mm on an Allegro 2 at its default scale). A label whose highest field
 passes it is refused under both policies (`format_past_max_length`); text and barcodes count by
 the rectangle the preview draws for them, and an image only the printer holds by its reference row
 alone, since its size is unknown. A label `dot_size` of height 2 doubles the limit, and
 `max_format_rows` (`[printer] max_format_rows` in the configuration) sets another one. The
-Allegro 2 value is provisional: it is the longest bar seen to print whole, until a ladder of
-lengths on the printer measures the real limit. No other model has one.
+Allegro 2 value is the last row a ladder of lengths (`scripts/length_ladder.py`) printed whole on
+one Allegro 2. No other model has one.
 
 The features `cutter_pulse`, `field_terminator`, `stored_formats` and `time_date` are listed for
 reference. The label format has no field that uses them, so they never cause a finding.
@@ -229,7 +229,7 @@ DPL letters, A = 1.0 inch per second up to S = 10.0, in steps of 0.5.
 | `generic`          | Any model (common subset) | 203    | 3.98             | 398                 | 100        | 3000        | 0-20 | A            | none            |
 | `permissive`       | No model checks           | 203    | 99.99            | 9999                | 9999       | 10000       | 0-30 | A            | none            |
 | `allegro`          | Allegro                   | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | A            | none            |
-| `allegro-2`        | Allegro 2                 | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | A            | 1654            |
+| `allegro-2`        | Allegro 2                 | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | A            | 1640            |
 | `prodigy`          | Prodigy                   | 203    | 4.1              | 410                 | 100        | 3000        | 0-20 | none         | none            |
 | `prodigy-152`      | Prodigy 152               | 152    | 4.15             | 410                 | 100        | 3000        | 0-20 | none         | none            |
 | `prodigy-plus`     | Prodigy Plus              | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | none         | none            |
@@ -349,9 +349,9 @@ DPL letters, A = 1.0 inch per second up to S = 10.0, in steps of 0.5.
 
 ### Calibration defaults
 
-| Model       | `scale_across` | `scale_along` | `offset_across` (mm) | `offset_along` (mm) | Stop (mm) | Source                                                     |
-|-------------|----------------|---------------|----------------------|---------------------|-----------|------------------------------------------------------------|
-| `allegro-2` | 1              | 0.976         | 0                    | -0.25               | 67.4      | measured on one Allegro 2, firmware CA02 03.04, 2026-10-29 |
+| Model       | `scale_across` | `scale_along` | `offset_across` (mm) | `offset_along` (mm) | Stop (mm) | Source                                                                    |
+|-------------|----------------|---------------|----------------------|---------------------|-----------|---------------------------------------------------------------------------|
+| `allegro-2` | 1              | 0.976         | 0                    | -0.25               | 66.8      | measured on one Allegro 2, firmware CA02 03.04, 2026-10-29 and 2026-10-30 |
 
 ### Image memory budget
 

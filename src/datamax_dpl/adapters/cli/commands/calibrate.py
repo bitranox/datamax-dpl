@@ -14,6 +14,7 @@ from ....domain.calibration import (
     across_frame_width,
     across_label,
     along_label,
+    default_along_length,
     longest_along_length,
     offset_from_borders,
     scale_from_measurement,
@@ -21,7 +22,7 @@ from ....domain.calibration import (
 from ....domain.enums import FindingCode
 from ....domain.errors import ConfigurationError
 from ....domain.findings import Finding
-from ....domain.render import build_job, effective_calibration
+from ....domain.render import build_job, effective_calibration, format_row_limit
 from ....domain.units import Axis
 from ...transport.uri import is_printer_uri
 from .. import safe_console
@@ -129,12 +130,17 @@ def cli_calibrate() -> None:
 )
 @option("--width", type=float, default=None, help="Label width in mm; default the printer's label_width.")
 @option("--height", type=float, default=None, help="Label height in mm; default the printer's label_height.")
-@option("--along-length", type=float, default=ALONG_LENGTH_MM, help="Length of the along bar in mm, at most 200.")
+@option(
+    "--along-length",
+    type=float,
+    default=None,
+    help="Length of the along bar in mm, at most 200; default the longest whole 10 mm one format holds.",
+)
 @render_options_decorator
 @printer_options_decorator
 @click.pass_context
 def cli_calibrate_print(
-    ctx: click.Context, axis: str, width: float | None, height: float | None, along_length: float, **given: Any
+    ctx: click.Context, axis: str, width: float | None, height: float | None, along_length: float | None, **given: Any
 ) -> None:
     """Print the across and along calibration labels with the printer's current scale factors.
 
@@ -146,17 +152,14 @@ def cli_calibrate_print(
         settings = resolve_settings(cli_ctx, **given)
         axes = AxisChoice(axis).axes
         options = render_options(settings)
-        calibration = effective_calibration(options)
-        labels = {
-            part: _label(settings, part, calibration=calibration, width=width, height=height, along_length=along_length)
-            for part in axes
-        }
+        sizes = _Sizes(width=width, height=height, along_length=along_length)
+        labels, bar = _labels(settings, axes, options=options, sizes=sizes)
         results = {part: build_job(label, options) for part, label in labels.items()}
-        payload = _print_payload(settings, calibration, axes=axes, results=list(results.values()))
+        payload = _print_payload(settings, effective_calibration(options), axes=axes, results=list(results.values()))
         if not all(result.ok for result in results.values()):
             if _only_the_along_bar_too_long(results):
                 along = labels[Axis.ALONG]
-                payload = _with_length_hint(payload, along, settings=settings, options=options, below=along_length)
+                payload = _with_length_hint(payload, along, settings=settings, options=options, below=bar)
             human = "REFUSED: nothing sent" if payload.hint is None else f"REFUSED: nothing sent\n{payload.hint}"
             return CommandResult(ok=False, payload=payload, human=human)
         uri = require_uri(settings)
@@ -226,20 +229,36 @@ def _print_payload(
     )
 
 
-def _label(
-    settings: PrinterSettings,
-    axis: Axis,
-    *,
-    calibration: CalibrationDefaults,
-    width: float | None,
-    height: float | None,
-    along_length: float,
-) -> Label:
-    label_width = _size("width", width, settings.label_width, settings)
-    if axis is Axis.ALONG:
-        return along_label(width=label_width, length=along_length, title=_title(settings, calibration.scale_along))
-    label_height = _size("height", height, settings.label_height, settings)
-    return across_label(width=label_width, height=label_height, title=_across_title(settings, calibration))
+class _Sizes(BaseModel):
+    """The label sizes and along bar length given on the command line; None takes the default."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    width: float | None
+    height: float | None
+    along_length: float | None
+
+
+def _labels(
+    settings: PrinterSettings, axes: tuple[Axis, ...], *, options: RenderOptions, sizes: _Sizes
+) -> tuple[dict[Axis, Label], float]:
+    """Build the labels in ``axes`` order, and return them with the along bar's length in mm.
+
+    The across label is built first, so a label too small for it is refused for that before the
+    along length is worked out; the length is :data:`ALONG_LENGTH_MM` when no along label is built.
+    """
+    calibration = effective_calibration(options)
+    labels: dict[Axis, Label] = {}
+    bar = ALONG_LENGTH_MM
+    for axis in axes:
+        label_width = _size("width", sizes.width, settings.label_width, settings)
+        if axis is Axis.ALONG:
+            bar = _along_bar_length(sizes.along_length, settings=settings, width=label_width, options=options)
+            labels[axis] = along_label(width=label_width, length=bar, title=_title(settings, calibration.scale_along))
+            continue
+        label_height = _size("height", sizes.height, settings.label_height, settings)
+        labels[axis] = across_label(width=label_width, height=label_height, title=_across_title(settings, calibration))
+    return labels, bar
 
 
 def _size(side: str, given: float | None, configured: float | None, settings: PrinterSettings) -> float:
@@ -255,8 +274,13 @@ def _size(side: str, given: float | None, configured: float | None, settings: Pr
 @cli_calibrate.command("set", context_settings=CLICK_CONTEXT_SETTINGS)
 @option("--across", type=float, default=None, help="Measured outside width of the across label's frame, in mm.")
 @option("--along", type=float, default=None, help="Measured length of the along label's bar, in mm.")
-@option("--width", type=float, default=None, help="Width the across label was printed at; default label_width.")
-@option("--along-length", type=float, default=ALONG_LENGTH_MM, help="Length the along bar was printed at, in mm.")
+@option("--width", type=float, default=None, help="Width the labels were printed at; default label_width.")
+@option(
+    "--along-length",
+    type=float,
+    default=None,
+    help="Length the along bar was printed at, in mm; default the length 'calibrate print' defaults to.",
+)
 @option("--top", type=float, default=None, help="Measured border above the across label's frame, in mm.")
 @option("--bottom", type=float, default=None, help="Measured border below the across label's frame, in mm.")
 @option("--left", type=float, default=None, help="Measured border left of the across label's frame, in mm.")
@@ -269,7 +293,7 @@ def cli_calibrate_set(
     across: float | None,
     along: float | None,
     width: float | None,
-    along_length: float,
+    along_length: float | None,
     top: float | None,
     bottom: float | None,
     left: float | None,
@@ -280,10 +304,12 @@ def cli_calibrate_set(
 
     Each new factor is the one the label printed with (the model's measured default where
     none is configured) times measured over nominal length; the across nominal is the frame's
-    width, the label width less 2 mm on each side. The borders around the frame come in pairs
-    (--top with --bottom, --left with --right); each pair moves the print half their
-    difference toward the wider border, from the offset in force. Everything is written into the
-    printer's section of the user configuration, in the file that already holds that section.
+    width, the label width less 2 mm on each side, and the along nominal is the bar length
+    'calibrate print' printed by default, unless --along-length names the one printed. The
+    borders around the frame come in pairs (--top with --bottom, --left with --right); each pair
+    moves the print half their difference toward the wider border, from the offset in force.
+    Everything is written into the printer's section of the user configuration, in the file that
+    already holds that section.
     """
 
     def body(cli_ctx: CLIContext) -> CommandResult:
@@ -291,11 +317,12 @@ def cli_calibrate_set(
         settings = resolve_settings(cli_ctx, printer=name or None)
         # The labels printed with the effective values, the model's default where none is set,
         # so each new value starts from those.
-        calibration = effective_calibration(render_options(settings))
+        options = render_options(settings)
+        calibration = effective_calibration(options)
         measured = {Axis.ACROSS: across, Axis.ALONG: along}
         nominal = {
             Axis.ACROSS: lambda: across_frame_width(_size("width", width, settings.label_width, settings)),
-            Axis.ALONG: lambda: along_length,
+            Axis.ALONG: lambda: _along_bar_length(along_length, settings=settings, width=width, options=options),
         }
         changes = [
             _change(axis, calibration, measured=value, nominal=nominal[axis]())
@@ -323,6 +350,30 @@ def cli_calibrate_set(
         return CommandResult(ok=True, payload=payload, human="\n".join([*human, f"written to {written}"]))
 
     run_command(ctx, command="calibrate set", body=body)
+
+
+def _along_bar_length(
+    given: float | None, *, settings: PrinterSettings, width: float | None, options: RenderOptions
+) -> float:
+    """The along bar length as given, else the one 'calibrate print' prints and 'calibrate set' measures against.
+
+    That default is the longest bar one format holds, worked out on the along label as print
+    builds it, so it needs the label width wherever a format limit applies; 200 mm without one.
+    """
+    if given is not None:
+        return given
+    if format_row_limit(options) is None:
+        return ALONG_LENGTH_MM
+    label_width = width if width is not None else settings.label_width
+    if label_width is None:
+        where = f"[printers.{settings.name}]" if settings.name else "[printer]"
+        msg = (
+            "the along bar's default length depends on the label width: pass --along-length MM (the "
+            f"length printed on the label), or --width MM, or set label_width in {where}"
+        )
+        raise ConfigurationError(msg)
+    title = _title(settings, effective_calibration(options).scale_along)
+    return default_along_length(width=label_width, title=title, options=options)
 
 
 def _printer_name(given: str | None) -> str:

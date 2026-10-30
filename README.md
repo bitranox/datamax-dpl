@@ -218,7 +218,7 @@ Printed lengths differ a little from nominal, per printer: an Allegro 2 printed 
 along the feed before calibration (its model default, after one calibration round, is 0.976). Two calibration labels measure it:
 
 ```bash
-datamax-dpl calibrate print --printer lager          # frame across, 200 mm bar along the feed
+datamax-dpl calibrate print --printer lager          # frame across, bar along the feed
 datamax-dpl calibrate set --printer lager --across 95.6 --along 195.4
 datamax-dpl calibrate set --printer lager --top 1.8 --bottom 2.3   # borders around the frame
 ```
@@ -233,13 +233,16 @@ the borders on opposite sides and pass them in pairs (`--top`/`--bottom`, `--lef
 print sits centred, independent of the tear-off position. Print again to confirm. Fonts and images
 sized in printer dots are not scaled.
 
-On an Allegro 2 whose `scale_along` is below its 0.976 default, the 200 mm bar needs more dot rows
-than one format holds, so `calibrate print` refuses it (`format_past_max_length`) and names the
-longest `--along-length` that fits, in whole 10 mm. Print with that length and pass the same
-`--along-length` to `calibrate set`, so the new factor is computed against the length printed.
+The along bar is the longest one format holds at the printer's current calibration, in whole
+10 mm and at most 200 mm (190 mm on an Allegro 2 at its 0.976 default), and `calibrate set`
+measures against that same length, so the new factor is computed against the length printed;
+where a format limit applies, `calibrate set` works that length out from `label_width` or
+`--width`, as `calibrate print` built the label. `--along-length` sets another; one longer than a
+format holds is refused (`format_past_max_length`) with the longest that fits named. Pass the
+length you printed to `calibrate set` as well.
 
 Where nothing is configured, a model's measured defaults apply: the `allegro-2` profile prints with
-`scale_along` 0.976, `offset_along` -0.25 mm and a 67.4 mm tear-off stop, every other model nominal.
+`scale_along` 0.976, `offset_along` -0.25 mm and a 66.8 mm tear-off stop, every other model nominal.
 The result names each default it used (`model_defaults_applied`); `calibrate print` prints with
 them and `calibrate set` starts from them. Any key you set, even `scale_along = 1.0`, wins.
 
@@ -264,7 +267,7 @@ these that applies:
 3. A configured stop: `[printer] cutter_stop_position` for a job that cuts (the label has `cut`),
    `[printer] stop_position` for every other job. Both are sent exactly as configured, without
    scale or offset. An unset `stop_position` takes the model's default, which only `allegro-2`
-   has (67.4 mm, sent as `<STX>f265`); `stop_position = "printer"` sends none, the model's default
+   has (66.8 mm, sent as `<STX>f263`); `stop_position = "printer"` sends none, the model's default
    included. An unset `cutter_stop_position` has none, so a cutting job then sends no stop.
 4. Nothing: the printer keeps its own setting.
 
@@ -371,9 +374,9 @@ datamax-dpl. Inside Claude Code:
   commands that came later are not supported. QR codes are printed as downloaded images
   (unverified on paper).
 - Only an Allegro 2 has been checked on a real printer; no camera has been attached yet.
-- An Allegro 2 format prints about 202 mm along the feed; a label reaching further is refused
-  (`format_past_max_length`). That limit (1654 dot rows, `[printer] max_format_rows`) is
-  provisional until it is measured on the printer.
+- An Allegro 2 format prints about 200 mm along the feed; a label reaching further is refused
+  (`format_past_max_length`). That limit (1640 dot rows, `[printer] max_format_rows`) was measured
+  on one Allegro 2.
 - The manual contradicts itself in places; [docs/dpl-reference.md](docs/dpl-reference.md) lists
   each case and the reading taken.
 - The manual is copyrighted and not included or redistributed here. Get it from the vendor.

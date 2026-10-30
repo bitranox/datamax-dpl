@@ -125,7 +125,7 @@ The stop position (`<STX>f`) comes from the first of these that applies:
    present distance second (which one the printer keeps is unverified);
 3. `[printer] cutter_stop_position` for a label with `cut`, else `[printer] stop_position` (mm, at
    most 253.746), both sent unscaled; unset `stop_position` takes the model default, which only
-   allegro-2 has (67.4 mm, `<STX>f265`);
+   allegro-2 has (66.8 mm, `<STX>f263`);
 4. otherwise the printer's own setting.
 
 A model with `<STX>Kf` (PE42, PE43, the Ovations, `permissive`) also sends `present_distance` as
@@ -158,7 +158,7 @@ configured stop only the info `configured_stop_position_unsupported` (prints und
 - Lengths print slightly off nominal, and differently per printer (a scale is printed / nominal
   length). The `allegro-2` model ships values
   calibrated on one Allegro 2 (`scale_along` 0.976, `offset_along` -0.25 mm, tear-off
-  `stop_position` 67.4 mm), named in the info finding `model_defaults_applied`; every other model
+  `stop_position` 66.8 mm), named in the info finding `model_defaults_applied`; every other model
   starts neutral. A value set in the config or with `--set printer.KEY=VALUE` (`scale_across`,
   `scale_along`, `offset_across`, `offset_along`, `stop_position`) wins, even scale 1.0 or offset
   0.0; `stop_position = "printer"` (in the label too) sends no `<STX>f`: the printer's own stop
@@ -167,8 +167,9 @@ configured stop only the info `configured_stop_position_unsupported` (prints und
   1. `datamax-dpl calibrate print --printer NAME` prints two labels with the printer's current
      factors: the ACROSS label (a thin frame 2 mm in from every edge, so 96 mm on a 100 mm
      label, with a bar inside it) and the
-     ALONG label (a 200 mm bar running over several labels; measure it on the liner). Each title
-     shows the factor it was printed with. Without `label_width`/`label_height` configured, pass
+     ALONG label (a bar running over several labels, the longest whole 10 mm one format holds,
+     at most 200 mm: 190 mm on an Allegro 2 at 0.976; measure it on the liner; the label names
+     its length). Each title shows the factor it was printed with. Without `label_width`/`label_height` configured, pass
      `--width` and `--height`.
   2. Measure the frame from outside edge to outside edge (not to the last tick), and the bar end
      to end. `calibrate set` takes the frame width as nominal for `--across`. If the print sits
@@ -176,11 +177,13 @@ configured stop only the info `configured_stop_position_unsupported` (prints und
      `BORDERS: 2 MM`).
   3. `datamax-dpl calibrate set --printer NAME --across MM --along MM` stores
      `scale_across`/`scale_along` (old factor x measured / nominal) in the user config, in the
-     file that already holds that printer's section, keeping comments. It warns on stderr when a
-     `.env` file, an environment variable or `--set` still overrides the value. Borders go in
-     pairs: `--top T --bottom B` stores `offset_along` (old + (T - B) / 2 mm, positive moves the
-     print up) and `--left L --right R` stores `offset_across` (old + (R - L) / 2, positive moves
-     right). The offset moves every field, independent of the tear-off position; a field it
+     file that already holds that printer's section, keeping comments. The along nominal is the
+     bar length print defaulted to (worked out from `label_width` or `--width` on a model with a
+     format limit); after `print --along-length N` pass the same `--along-length N` to `set`.
+     It warns on stderr when a `.env` file, an environment variable or `--set` still overrides
+     the value. Borders go in pairs: `--top T --bottom B` stores `offset_along` (old + (T - B) /
+     2 mm, positive moves the print up) and `--left L --right R` stores `offset_across` (old +
+     (R - L) / 2, positive moves right). The offset moves every field, independent of the tear-off position; a field it
      pushes past the left or bottom label edge is refused (`offset_past_label_edge`).
   4. Print again: both should now measure nominal.
 - Fonts and images sized in printer dots are NOT scaled: on a printer whose feed prints short they

@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `allegro-2` model values measured on the printer: `max_format_rows` is
+  1640 (the last row a ladder of lengths printed whole, about 200 mm at
+  `scale_along` 0.976), and the tear-off `stop_position` is 66.8 mm, sent
+  as `<STX>f263`.
+- `calibrate print` and `calibrate set` default `--along-length` to the
+  longest bar in whole 10 mm, at most 200 mm, that one format holds at the
+  printer's current calibration (190 mm on an Allegro 2 at 0.976), so the
+  default bar prints and `set` measures against the length printed. Where a
+  format limit applies, `set` works the length out from `label_width` or
+  `--width` and refuses without either (pass `--along-length`). An
+  `--along-length` that does not fit is still refused with the longest that
+  fits named. `domain.calibration.default_along_length` and
+  `domain.render.format_row_limit` expose the two rules.
+
 ### Fixed
 
 - `status` and `verify` skip a whole line that is not a status answer

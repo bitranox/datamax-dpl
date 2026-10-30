@@ -493,8 +493,8 @@ _CALIBRATION: dict[str, CalibrationDefaults] = {
     "allegro-2": CalibrationDefaults(
         scale_along=0.976,
         offset_along=-0.25,
-        stop_position_mm=67.4,
-        provenance="measured on one Allegro 2, firmware CA02 03.04, 2026-10-29",
+        stop_position_mm=66.8,
+        provenance="measured on one Allegro 2, firmware CA02 03.04, 2026-10-29 and 2026-10-30",
         # The free bytes <STX>W reported for module A, less a margin for what the printer adds per
         # stored image and for graphics stored later: the module was not empty when it was read.
         image_memory_bytes=48631 - 4096,
@@ -534,11 +534,10 @@ _IMAGE_MODULE: dict[str, str | None] = {
 
 
 #: The highest dot row along the feed one format reaches, at dot height 1, counted as the encoder
-#: commands it. Provisional for the Allegro 2: a test bar up to 202 mm at its default scale_along
-#: 0.976 (about 1654 commanded rows) printed whole and the printer cut a longer one off at about
-#: 201.5 mm printed, so 1654 is the measured-good floor until a ladder of lengths on the printer
-#: finds the real limit. No other model has one: their manuals give none and none was measured.
-_MAX_FORMAT_ROWS: dict[str, int] = {"allegro-2": 1654}
+#: commands it. Measured for the Allegro 2 with scripts/length_ladder.py (one Allegro 2, firmware
+#: CA02 03.04, 2026-10-30): the last tick printed whole was the one numbered row 1640. No other
+#: model has one: their manuals give none and none was measured.
+_MAX_FORMAT_ROWS: dict[str, int] = {"allegro-2": 1640}
 
 
 def _build(row: _Row) -> PrinterProfile:

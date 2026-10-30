@@ -228,7 +228,7 @@ def test_a_configured_stop_position_of_printer_keeps_the_allegro_2s_own_stop(
     tmp_path: Path,
     printer_section: dict[str, Any],
 ) -> None:
-    """Without the config value the Allegro 2 sends its measured 67.4 mm; with it, no stop at all."""
+    """Without the config value the Allegro 2 sends its measured 66.8 mm; with it, no stop at all."""
     dpl = _render(cli_runner, config_cli_context({"printer": printer_section}), tmp_path, model="allegro-2")
 
     assert ("<STX>f" in dpl) is (printer_section == {})
