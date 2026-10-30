@@ -148,4 +148,6 @@ def test_a_silent_printer_fails_status_within_the_given_timeout(
 
     assert result.exit_code == 2, result.output
     assert f"no complete answer within {timeout:g} s" in result.stderr
-    assert timeout <= elapsed < timeout + STARTUP_SLACK_SECONDS, f"{elapsed=:.2f}"
+    # The lower margin: on Windows (Python 3.10-3.12) the monotonic clock ticks every 15.6 ms and a
+    # socket wait can return a tick early, as the transport tests also allow.
+    assert timeout - 0.1 <= elapsed < timeout + STARTUP_SLACK_SECONDS, f"{elapsed=:.2f}"

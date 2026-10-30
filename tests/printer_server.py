@@ -65,14 +65,19 @@ class PrinterServer:
         except OSError:
             # No client came within JOIN_SECONDS, or join() closed the listener first.
             return
+        # Bounded too: a client that never closes would otherwise hold read_to_end, and the thread, forever.
+        connection.settimeout(JOIN_SECONDS)
         with connection:
             self._play(self, connection)
 
     def read_exactly(self, connection: socket.socket, count: int) -> bytes:
-        """Receive ``count`` bytes, fewer when the client hangs up first, and record them."""
+        """Receive ``count`` bytes, fewer when the client hangs up or falls silent first, and record them."""
         data = bytearray()
         while len(data) < count:
-            chunk = connection.recv(count - len(data))
+            try:
+                chunk = connection.recv(count - len(data))
+            except TimeoutError:
+                break
             if not chunk:
                 break
             data += chunk
@@ -80,9 +85,10 @@ class PrinterServer:
         return bytes(data)
 
     def read_to_end(self, connection: socket.socket) -> None:
-        """Record everything the client sends until it closes the connection."""
+        """Record everything the client sends until it closes the connection or falls silent."""
         # A client that closes with our answer still unread resets the connection: that is its end.
-        with contextlib.suppress(ConnectionResetError):
+        # One silent for JOIN_SECONDS is treated the same, so the thread still ends.
+        with contextlib.suppress(ConnectionResetError, TimeoutError):
             while chunk := connection.recv(65536):
                 self.received += chunk
 
