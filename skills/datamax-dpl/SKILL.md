@@ -92,7 +92,8 @@ long it was given (`no complete answer within 0.5 s`): raise `--timeout` (second
 - Typical fallbacks: circles and polygons on old models become downloaded images; a missing font 9
   size becomes the nearest one; out-of-range speed and heat are clamped.
 - Image memory: a job's downloaded images (given bitmaps, raster fallbacks, QR Codes) must fit
-  `[printer] image_memory_bytes` (`allegro-2` default 44535; other models have no budget). Past
+  `[printer] image_memory_bytes` (`allegro-2` default 44535, read from one printer's module A
+  cartridge: on another one, set it from `memory --kind graphic`; other models have no budget). Past
   it, `degrade` sends every image but a QR Code at half resolution and double magnification
   (`image_halved`; `preview` shows it). Refused (`image_memory_exceeded`): still past it after
   halving, any job past it under `strict`, a halved image at `magnification` 5 or more.

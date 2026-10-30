@@ -484,10 +484,12 @@ and the result of `render` and `print` names each model default it used. `calibr
 with these effective values and `calibrate set` starts from them.
 
 `image_memory_bytes` ships unset too. The Allegro 2's 44535 bytes are the 48631 free bytes one
-Allegro 2 (holding 11 stored graphics) reported for module A, less a 4096-byte margin; `datamax-dpl
-memory` shows what your printer has free. The figure counts the dot data of the job's downloads,
-rows times bytes per row; images the label only places cost nothing. Halving is unverified on
-paper.
+Allegro 2 (holding 11 stored graphics) reported for module A, less a 4096-byte margin. Module A is
+the upper module slot, so that figure most likely belongs to the RAM cartridge fitted in that one
+printer (unverified): an Allegro 2 equipped differently should read `datamax-dpl memory --kind
+graphic` and set `image_memory_bytes` to what it reports free. The figure counts the dot data of
+the job's downloads, rows times bytes per row; images the label only places cost nothing. Halving
+is unverified on paper.
 
 `image_module` ships unset as well, so each model's images go to its built-in RAM (manual,
 Appendix L): module A on most models, E on the DMX 600/800, where A and B are plug-in modules and
