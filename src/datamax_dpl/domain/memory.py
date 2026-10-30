@@ -23,8 +23,13 @@ MemoryKind: TypeAlias = Literal["font", "graphic", "format"]
 _LINE_BREAK = re.compile(r"\r\n|\r|\n")
 _MODULE = re.compile(r"MODULE:\s*(\S+)", re.IGNORECASE)
 # The manual prints the number on the line after the header but marks no <CR> there, so the
-# number may follow on the same line or on the next one.
-_AVAILABLE = re.compile(r"AVAILABLE BYTES IN MODULE:\s*(\S*)", re.IGNORECASE)
+# number may follow on the same line or on the next one. An Allegro 2 puts a space before the
+# colon ("MODULE : 00048631"), which the manual's sample does not show, so blanks are allowed
+# around every word and the colon.
+_AVAILABLE = re.compile(r"AVAILABLE\s+BYTES\s+IN\s+MODULE\s*:\s*(\S*)", re.IGNORECASE)
+# A line that starts like the free-bytes header is never a stored name, even when the rest of it
+# cannot be read: taking it as a name would report a module with a made-up item and no free bytes.
+_AVAILABLE_START = re.compile(r"AVAILABLE\s+BYTES\b", re.IGNORECASE)
 _NO_MODULES = re.compile(r"NO MODULES AVAILABLE", re.IGNORECASE)
 _NUMBER = re.compile(r"[0-9]{1,9}")
 # XON/XOFF never belong to a text answer; they are flow control the printer may interleave.
@@ -50,7 +55,9 @@ class MemoryDirectory(BaseModel, frozen=True, extra="forbid"):
 
     Attributes:
         kind: The kind of data that was asked for.
-        parsed: False when the answer was neither a module list nor "No Modules Available".
+        parsed: False when the answer was neither a module list nor "No Modules Available", or
+            when a module's free bytes could not be read (missing, or a header line that is not
+            the manual's).
         modules: The modules found; empty for "No Modules Available" and for an unparsed answer.
         raw: The whole answer as text, for a reader to judge what the printer sent.
     """
@@ -65,8 +72,12 @@ def parse_module_directory(raw: bytes, *, kind: MemoryKind) -> MemoryDirectory:
     """Parse the answer to ``<STX>W`` for ``kind``.
 
     Lines end in CR, LF or CRLF. Each module starts with ``MODULE: x``; the lines after it are the
-    names, up to ``AVAILABLE BYTES IN MODULE:`` and its number (on the same line or the next).
-    Lines before the first module and after a module's number are ignored.
+    names, up to ``AVAILABLE BYTES IN MODULE:`` and its number (on the same line or the next;
+    blanks around the colon and any letter case are accepted). Lines before the first module and
+    after a module's number are ignored.
+
+    A line that starts like the free-bytes header ends the names even when it cannot be read; the
+    module then has no free-bytes figure, and a module without one makes the directory unparsed.
 
     Args:
         raw: The bytes the printer sent.
@@ -80,13 +91,18 @@ def parse_module_directory(raw: bytes, *, kind: MemoryKind) -> MemoryDirectory:
         >>> directory = parse_module_directory(answer, kind="graphic")
         >>> directory.parsed, directory.modules[0].names, directory.modules[0].available_bytes
         (True, ('LOGO',), 257919)
+        >>> parse_module_directory(b"MODULE: A\\rAVAILABLE BYTES IN MODULE : 00048631\\r", kind="font").parsed
+        True
+        >>> parse_module_directory(b"MODULE: A\\rLOGO\\r", kind="graphic").parsed
+        False
         >>> parse_module_directory(b"No Modules Available\\r", kind="font").modules
         ()
     """
     text = raw.decode("ascii", errors="backslashreplace")
     lines = _lines(text)
     modules = tuple(_module(block) for block in _blocks(lines))
-    parsed = bool(modules) or any(_NO_MODULES.fullmatch(line) for line in lines)
+    found = bool(modules) or any(_NO_MODULES.fullmatch(line) for line in lines)
+    parsed = found and all(module.available_bytes is not None for module in modules)
     return MemoryDirectory(kind=kind, parsed=parsed, modules=modules, raw=text)
 
 
@@ -113,11 +129,18 @@ def _module(block: list[str]) -> MemoryModule:
     letter = header.group(1) if header else block[0]
     rest = block[1:]
     for index, line in enumerate(rest):
-        available = _AVAILABLE.fullmatch(line)
-        if available:
-            value = available.group(1) or (rest[index + 1] if index + 1 < len(rest) else "")
-            return MemoryModule(module=letter, names=tuple(rest[:index]), available_bytes=_number(value))
+        if _AVAILABLE_START.match(line):
+            following = rest[index + 1] if index + 1 < len(rest) else ""
+            return MemoryModule(module=letter, names=tuple(rest[:index]), available_bytes=_free_bytes(line, following))
     return MemoryModule(module=letter, names=tuple(rest), available_bytes=None)
+
+
+def _free_bytes(line: str, following: str) -> int | None:
+    """The number of a free-bytes header ``line`` (or of the ``following`` line), or None if unreadable."""
+    available = _AVAILABLE.fullmatch(line)
+    if available is None:
+        return None
+    return _number(available.group(1) or following)
 
 
 def _number(text: str) -> int | None:

@@ -13,3 +13,6 @@ Makefile     text eol=lf
 *.json       text eol=lf
 *.yml        text eol=lf
 *.yaml       text eol=lf
+
+# Printer answers captured byte for byte: CR line ends and flow-control bytes are the data.
+tests/fixtures/memory_*.txt -text

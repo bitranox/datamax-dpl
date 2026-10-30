@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
 from datamax_dpl.application.use_cases import read_memory_directory
 from datamax_dpl.domain.errors import PrinterTimeoutError, UnsupportedOperationError
-from datamax_dpl.domain.memory import MemoryModule, parse_module_directory
+from datamax_dpl.domain.memory import MemoryKind, MemoryModule, parse_module_directory
 from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS
 
 #: The manual's sample answer to ``<STX>WG`` (DPL Programmer's Manual, page 43-44) as printed:
@@ -20,6 +22,9 @@ MANUAL_MODULES = (
     MemoryModule(module="B", names=("LOGO", "CAM"), available_bytes=257919),
 )
 PRINTER = "tcp://192.0.2.60:9100"
+FIXTURES = Path(__file__).parent / "fixtures"
+#: What one Allegro 2 (firmware CA02 03.04) holds in graphic memory, in the order it listed them.
+ALLEGRO2_GRAPHICS = ("M7F", "M7R", "M7B", "M9F", "M9R", "M9B", "M10F", "M10R", "M10B", "CK2IMG", "CK3IMG")
 
 
 @pytest.mark.os_agnostic
@@ -63,14 +68,71 @@ def test_garbage_after_the_last_module_and_flow_control_bytes_are_ignored() -> N
 
 
 @pytest.mark.os_agnostic
-def test_a_module_without_its_available_bytes_line_reports_none() -> None:
-    directory = parse_module_directory(b"MODULE: C\rSHIP\r", kind="format")
-    assert directory.modules == (MemoryModule(module="C", names=("SHIP",), available_bytes=None),)
+@pytest.mark.parametrize(
+    ("kind", "names"), [("graphic", ALLEGRO2_GRAPHICS), ("font", ()), ("format", ())], ids=["graphic", "font", "format"]
+)
+def test_a_real_allegro2_answer_parses_with_its_free_bytes(kind: MemoryKind, names: tuple[str, ...]) -> None:
+    """The answers one Allegro 2 (firmware CA02 03.04) sent to <STX>WG, <STX>WF and <STX>WL on 2026-10-30.
+
+    Kept byte for byte: a space before the colon of the free-bytes header, CR line ends, and an
+    XON (0x11) in front of the font answer. Every kind reports module A's same free bytes.
+    """
+    raw = (FIXTURES / f"memory_allegro2_{kind}.txt").read_bytes()
+    directory = parse_module_directory(raw, kind=kind)
+    assert directory.parsed
+    assert directory.modules == (MemoryModule(module="A", names=names, available_bytes=48631),)
 
 
 @pytest.mark.os_agnostic
-def test_an_available_bytes_value_that_is_not_a_number_reports_none() -> None:
-    directory = parse_module_directory(b"MODULE: A\rAVAILABLE BYTES IN MODULE:\r????\r", kind="graphic")
+def test_the_fixtures_keep_the_printers_bytes() -> None:
+    assert (FIXTURES / "memory_allegro2_font.txt").read_bytes() == (
+        b"\x11MODULE: A\rAVAILABLE BYTES IN MODULE : 00048631\r"
+    )
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "header",
+    [
+        b"AVAILABLE BYTES IN MODULE : ",
+        b"AVAILABLE BYTES IN MODULE  :  ",
+        b"available bytes in module:",
+        b"AVAILABLE  BYTES IN MODULE\t:",
+    ],
+)
+def test_the_free_bytes_header_allows_blanks_around_the_colon_and_any_case(header: bytes) -> None:
+    directory = parse_module_directory(b"MODULE: A\rLOGO\r" + header + b"00048631\r", kind="graphic")
+    assert directory.parsed
+    assert directory.modules == (MemoryModule(module="A", names=("LOGO",), available_bytes=48631),)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "line",
+    [
+        b"AVAILABLE BYTES IN MODULE = 00048631",
+        b"AVAILABLE BYTES IN MODULE: 00048631 KB",
+        b"AVAILABLE BYTES: 00048631",
+        b"AVAILABLE BYTES IN MODULE: ????",
+    ],
+)
+def test_a_free_bytes_line_that_cannot_be_read_unparses_the_directory_and_is_no_name(line: bytes) -> None:
+    directory = parse_module_directory(b"MODULE: A\rLOGO\r" + line + b"\r", kind="graphic")
+    assert not directory.parsed
+    assert directory.modules == (MemoryModule(module="A", names=("LOGO",), available_bytes=None),)
+
+
+@pytest.mark.os_agnostic
+def test_a_module_without_its_free_bytes_unparses_the_directory() -> None:
+    directory = parse_module_directory(MANUAL_SAMPLE + b"MODULE: C\rSHIP\r", kind="format")
+    assert not directory.parsed
+    assert directory.modules[-1] == MemoryModule(module="C", names=("SHIP",), available_bytes=None)
+
+
+@pytest.mark.os_agnostic
+def test_a_free_bytes_header_with_no_number_after_it_unparses_the_directory() -> None:
+    directory = parse_module_directory(b"MODULE: A\rAVAILABLE BYTES IN MODULE:\r", kind="graphic")
+    assert not directory.parsed
     assert directory.modules == (MemoryModule(module="A", names=(), available_bytes=None),)
 
 

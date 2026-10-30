@@ -261,11 +261,39 @@ and has 257919 bytes free. The module letters are `A` to `E` (Appendix L), and a
 most 16 characters. A corrupt module answers `No Modules Available` (the `<STX>q` Clear Module
 entry, page 34).
 
+What one Allegro 2 (firmware CA02 03.04) sent on 2026-10-30, read through a print server, differs
+from the sample in three ways. It puts a space before the colon of the free-bytes header and the
+number on the same line. Every line, the last one included, ends in `<CR>`. The font answer starts
+with an XON byte (0x11). Its answer to `<STX>WG`:
+
+```text
+MODULE: A<CR>
+M7F<CR>
+M7R<CR>
+M7B<CR>
+M9F<CR>
+M9R<CR>
+M9B<CR>
+M10F<CR>
+M10R<CR>
+M10B<CR>
+CK2IMG<CR>
+CK3IMG<CR>
+AVAILABLE BYTES IN MODULE : 00048631<CR>
+```
+
+`<STX>WF` and `<STX>WL` listed module A with no names and the same 00048631 free bytes: the figure
+is the module's free space, not a per-kind count. The three answers are kept byte for byte in
+`tests/fixtures/memory_allegro2_*.txt`.
+
 The answer has no terminator and no fixed length: it ends when the printer stops sending, so it is
-read until a pause (1 s by default, `--idle`). The sample marks no `<CR>` after `AVAILABLE BYTES IN
-MODULE:`, so the number is accepted on the same line and on the next; CR, LF and CRLF all end a
-line. An answer that is neither a module list nor `No Modules Available` is reported unparsed with
-its raw text. The manual does not bound how many names a module lists; the read stops at 1 MiB.
+read until a pause (1 s by default, `--idle`; the Allegro 2 above answered completely with it). The
+number after the free-bytes header is accepted on the same line and on the next, with blanks
+around the colon and in any letter case; CR, LF and CRLF all end a line, and XON/XOFF bytes are
+dropped. A line that starts like the free-bytes header but cannot be read as one is never taken as
+a name. The directory is reported unparsed, with its raw text, when it is neither a module list nor
+`No Modules Available`, or when a module's free bytes could not be read. The manual does not bound
+how many names a module lists; the read stops at 1 MiB.
 
 The manual has no command that returns the model name. `detect` therefore reports evidence
 (which queries answered, the firmware string, the label width from `<STX>KQ`) and the profiles that
