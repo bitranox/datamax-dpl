@@ -158,7 +158,10 @@ Image placement: `1Y11000rrrrccccNAME` (rotation 1 only, name up to 8 characters
 An image the library draws (a raster fallback, a QR Code) is named `D` plus 7 upper-case hex
 digits of a sha256 of its size and bits: the printer keeps an image in its module across jobs and
 answers BELL when a job loads a name it already holds (Appendix D), without saying the new image
-replaces the old, so a per-job counter could let the next job print the previous job's image.
+replaces the old, so a per-job counter could let the next job print the previous job's image. When
+that name is already taken in the job (another drawn image with the same hash, or a user `image`
+of that name), the hash is salted until it is free; a user-named `image` always keeps its own name.
+Across separate jobs two different bitmaps share a name only on a hash collision, about 1 in 2**28.
 
 Measured on an Allegro 2 (firmware CA02 03.04), not stated in the manual: the printer draws the
 FIRST row record at the BOTTOM of the image, and images holding `0000FFnn` repeat records print

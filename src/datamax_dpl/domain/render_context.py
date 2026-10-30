@@ -49,8 +49,9 @@ def drawn_image_name(bitmap: Bitmap, *, salt: int = 0) -> str:
     job loads a name it already holds (manual, Appendix D), which does not say the new image
     replaces the old. A name that follows the content keeps one image's name off another's bits:
     the same bitmap gets the same name in every job and process (sha256, unlike the per-process
-    salted ``hash()``), and a different bitmap a different one, except with a chance of about
-    1 in 2**28 per pair (within one job :meth:`RenderContext.download_drawn_image` rules that out).
+    salted ``hash()``). Within one job :meth:`RenderContext.download_drawn_image` salts past a
+    name already taken, so two different images never share one there; across separate jobs two
+    different bitmaps share a name only on a hash collision, about 1 in 2**28 per pair.
 
     Args:
         bitmap: The image; its width and height count, since the packed rows pad to whole bytes.
@@ -151,6 +152,8 @@ class RenderContext:
             caller set; a field that offset pushes past the label edge is clamped, not refused.
         stop_position_mm: Tear-off stop position in mm on this printer, or None for its own setting.
         cutter_stop_position_mm: Stop position in mm when cutting, or None for its own setting.
+        reserved_image_names: Names of the label's own ``image`` elements, with or without a
+            bitmap; a drawn image never takes one, whichever element comes first.
     """
 
     profile: PrinterProfile
@@ -171,6 +174,7 @@ class RenderContext:
     model_offset_axes: frozenset[Axis] = frozenset[Axis]()
     stop_position_mm: float | None = None
     cutter_stop_position_mm: float | None = None
+    reserved_image_names: frozenset[str] = frozenset[str]()
 
     def correction(self, axis: Axis) -> Correction:
         """Return how this printer prints lengths on ``axis``."""
@@ -253,12 +257,17 @@ class RenderContext:
     def download_drawn_image(self, bitmap: Bitmap) -> str:
         """Queue an image the library drew under its content name, once per job, and return the name.
 
-        A bitmap already queued is not queued again. Two different bitmaps of one job that hash
-        to the same name are told apart by the next salt, so a job never names two images alike.
+        A bitmap already queued is not queued again. When the content name is taken in this job,
+        by a different drawn bitmap (a hash collision) or by a user ``image`` of that name (a
+        reserved name, whether or not it is downloaded), the next salt is tried, so a job never
+        sends or places two different images under one name, whatever the element order.
         """
         salt = 0
         while True:
             name = drawn_image_name(bitmap, salt=salt)
+            if name in self.reserved_image_names:
+                salt += 1
+                continue
             command = download_command(name, bitmap)
             held = next((download.command for download in self.downloads if download.name == name), None)
             if held is None:

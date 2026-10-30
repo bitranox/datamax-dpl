@@ -379,6 +379,89 @@ def test_two_different_images_whose_names_collide_in_one_job_get_different_names
     assert [download.name for download in ctx.downloads] == [taken, name]
 
 
+HELLO_NAME = "D869223B"
+
+
+def _user_image(*, bitmap: list[str] | None) -> dict[str, object]:
+    image: dict[str, object] = {"type": "image", "x": 40, "y": 40, "name": HELLO_NAME}
+    if bitmap is not None:
+        image["bitmap"] = bitmap
+    return image
+
+
+def _names_and_bits(result: RenderResult) -> dict[str, set[bytes]]:
+    """Every name the job downloads or places, with each distinct download sent under it."""
+    sent: dict[str, set[bytes]] = {}
+    for name in result.downloads:
+        records = download_records(result.data, name)
+        sent.setdefault(name, set()).add(b"\r".join(records))
+    return sent
+
+
+@pytest.mark.os_agnostic
+def test_the_qr_content_name_is_the_one_the_user_image_tests_use() -> None:
+    """Premise of the collision tests below: the HELLO symbol hashes to HELLO_NAME."""
+    assert drawn_image_name(qr_bitmap("HELLO", error=QrError.M)) == HELLO_NAME
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("qr_first", [True, False])
+def test_a_drawn_image_never_takes_the_name_of_a_user_image_with_a_bitmap(qr_first: bool) -> None:
+    qr = {"type": "qr", "x": 5, "y": 5, "data": "HELLO"}
+    image = _user_image(bitmap=["#.#.", ".#.#"])
+    label = Label.model_validate({"elements": [qr, image] if qr_first else [image, qr]})
+    result = build_job(label, RenderOptions(model="dmx-600"))
+    assert result.ok, result.findings
+    assert sorted(result.downloads) == sorted(
+        [HELLO_NAME, drawn_image_name(qr_bitmap("HELLO", error=QrError.M), salt=1)]
+    )
+    assert all(len(bits) == 1 for bits in _names_and_bits(result).values())
+    qr_index = 0 if qr_first else 1
+    placed = image_records_of(result.data)[qr_index]
+    assert not placed.endswith(HELLO_NAME.encode("ascii"))
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("qr_first", [True, False])
+def test_a_drawn_image_never_takes_the_name_of_a_stored_user_image(qr_first: bool) -> None:
+    qr = {"type": "qr", "x": 5, "y": 5, "data": "HELLO"}
+    image = _user_image(bitmap=None)
+    label = Label.model_validate({"elements": [qr, image] if qr_first else [image, qr]})
+    result = build_job(label, RenderOptions(model="dmx-600"))
+    assert result.downloads == (drawn_image_name(qr_bitmap("HELLO", error=QrError.M), salt=1),)
+    names = [record[15:] for record in image_records_of(result.data)]
+    assert sorted(names) == sorted([HELLO_NAME.encode("ascii"), result.downloads[0].encode("ascii")])
+
+
+@pytest.mark.os_agnostic
+@given(reserved=st.booleans(), taken_by_other=st.booleans(), queued_twice=st.booleans())
+def test_download_drawn_image_never_names_two_different_images_alike(
+    reserved: bool, taken_by_other: bool, queued_twice: bool
+) -> None:
+    """The docstring's claim: whatever already holds or reserves the content name, a job never
+    sends two different images under one name, and the same bitmap keeps one name."""
+    bitmap = Bitmap.from_rows(["#."])
+    first = drawn_image_name(bitmap)
+    ctx = RenderContext(
+        profile=get_profile("generic"),
+        firmware=None,
+        options=frozenset(),
+        unit=Unit.MM,
+        dpl_unit=DplUnit.INCH_HUNDREDTHS,
+        findings=FindingCollector(FallbackPolicy.DEGRADE),
+        reserved_image_names=frozenset({first}) if reserved else frozenset(),
+    )
+    if taken_by_other:
+        ctx.download_image(drawn_image_name(bitmap, salt=1), Bitmap.from_rows([".#"]))
+    name = ctx.download_drawn_image(bitmap)
+    if queued_twice:
+        assert ctx.download_drawn_image(bitmap) == name
+    assert name not in ctx.reserved_image_names
+    commands = [download.command for download in ctx.downloads if download.name == name]
+    assert len(commands) == 1
+    assert len({download.name for download in ctx.downloads}) == len(ctx.downloads)
+
+
 # ======================== dot size, edge consistency ========================
 
 

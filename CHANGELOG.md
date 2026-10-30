@@ -57,7 +57,11 @@ All notable changes to this project are documented here. The format follows
   per job: the printer keeps images across jobs and answers BELL to a name
   it already holds, so a counter let a later job, or the next record of a
   batch, reuse a name for different bits. An image drawn twice in one job
-  is downloaded once.
+  is downloaded once. When the name is already taken in the job (another
+  drawn image with the same hash, or a user `image` of that name), the hash
+  is salted until it is free; a user-named `image` keeps its own name.
+  Across separate jobs two different images share a name only on a hash
+  collision, about 1 in 2**28.
 - Unset `scale_across`, `scale_along`, `offset_across` and `offset_along` now
   mean the model's default, and the shipped `config.d/50-printer.toml` no
   longer sets them. An `allegro-2` therefore prints with scale 0.976 along,

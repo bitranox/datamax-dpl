@@ -242,14 +242,22 @@ datamax-dpl --json validate examples/product-label.json --model allegro --policy
     "bytes": 2355,
     "downloads": ["D5D49655"],
     "findings": [
-      {"code": "circle_rasterized", "severity": "error", "message": "circle cannot be drawn natively: circles: Allegro does not have it", "element": 4, "fallback": "drawn as downloaded image D5D49655 (81x81 dots)", "record": null}
-    ]
+      {"code": "inch_units", "severity": "info", "message": "Allegro formats take inches; millimetres are rounded to 1/100 in", "element": null, "fallback": null, "record": null},
+      {"code": "check_digit_added", "severity": "info", "message": "the printer adds check digit 1", "element": 3, "fallback": null, "record": null},
+      {"code": "circle_rasterized", "severity": "error", "message": "circle cannot be drawn natively: circles: Allegro does not have it", "element": 4, "fallback": "drawn as downloaded image D5D49655 (81x81 dots)", "record": null},
+      {"code": "cutter_assumed", "severity": "info", "message": "cut commands assume the printer's cutter is installed and enabled", "element": null, "fallback": null, "record": null}
+    ],
+    "dpl": null,
+    "dpl_base64": null,
+    "output": null,
+    "printer": null,
+    "bytes_sent": null
   },
   "skipped": []
 }
 ```
 
-(Shortened: the real answer also lists the info findings and a few empty fields.) When the
+The real answer is indented one value per line; each finding is shown on one line here. When the
 command cannot run at all, the envelope carries `error` (the exception type) and `message`
 instead of `data`.
 

@@ -171,6 +171,7 @@ def _context(label: Label, options: RenderOptions) -> RenderContext:
         model_offset_axes=frozenset(axis for axis in Axis if f"offset_{axis.value}" in from_model),
         stop_position_mm=calibration.stop_position_mm,
         cutter_stop_position_mm=options.cutter_stop_position_mm,
+        reserved_image_names=frozenset(e.name for e in label.elements if isinstance(e, Image)),
     )
     _report_model_defaults(label, probe, provenance=calibration.provenance, from_model=from_model)
     if label.unit is Unit.MM and probe.supports(Feature.FORMAT_METRIC):
