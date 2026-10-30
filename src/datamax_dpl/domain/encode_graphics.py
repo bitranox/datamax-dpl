@@ -210,6 +210,24 @@ def _check_right_edge(element: Qr, *, start_column: int, extent_dots: int, index
         )
 
 
+def qr_symbol_position(element: Qr, *, column: int, row: int, ctx: RenderContext) -> tuple[int, int]:
+    """Return the DPL ``(column, row)`` a QR Code's symbol starts at, from its field's own column and row.
+
+    The quiet zone is added in DPL units to the position the field is written at; rounding the
+    sum of the two lengths instead can land a unit away. Shared with the overlap detection, which
+    must place the symbol exactly where this record puts it. A quiet zone is at most 90 dots, far
+    below the 9999 a field holds, so it needs no check of its own.
+
+    Args:
+        element: The QR element.
+        column: The field's column, as ``column_of`` (or ``position_units``) gives it.
+        row: The field's row, likewise.
+        ctx: The render context.
+    """
+    quiet = ctx.length_of_dots(element.quiet_zone * element.module_dots)
+    return column + ctx.dpl_units(quiet, axis=Axis.ACROSS), row + ctx.dpl_units(quiet, axis=Axis.ALONG)
+
+
 def encode_qr(element: Qr, *, index: int, ctx: RenderContext) -> list[bytes]:
     """Queue the QR Code's module matrix as an image and return its magnified placing record.
 
@@ -223,15 +241,11 @@ def encode_qr(element: Qr, *, index: int, ctx: RenderContext) -> list[bytes]:
     except QrDataTooLongError as exc:
         ctx.findings.refuse(FindingCode.QR_DATA_TOO_LONG, str(exc), element=index)
         return []
-    quiet_dots = element.quiet_zone * element.module_dots
-    quiet = ctx.length_of_dots(quiet_dots)
-    row = row_of(element.y, index=index, ctx=ctx) + ctx.distance(
-        quiet, axis=Axis.ALONG, element=index, what="quiet zone"
-    )
+    field_row = row_of(element.y, index=index, ctx=ctx)
     field_column = column_of(element.x, index=index, ctx=ctx)
-    column = field_column + ctx.distance(quiet, axis=Axis.ACROSS, element=index, what="quiet zone")
+    column, row = qr_symbol_position(element, column=field_column, row=field_row, ctx=ctx)
     if field_column <= last_column(ctx):
-        extent = symbol.width * element.module_dots + quiet_dots
+        extent = symbol.width * element.module_dots + element.quiet_zone * element.module_dots
         _check_right_edge(element, start_column=column, extent_dots=extent, index=index, ctx=ctx)
     # Never halved: the image holds one dot per module, so halving it would merge modules.
     placed = ctx.download_drawn_image(symbol, element=index, magnification=element.module_dots, halvable=False)
@@ -240,4 +254,12 @@ def encode_qr(element: Qr, *, index: int, ctx: RenderContext) -> list[bytes]:
     return [line(image_record(row=row, column=column, name=placed.name, magnification=placed.dots))]
 
 
-__all__ = ["encode_box", "encode_circle", "encode_image", "encode_line", "encode_polygon", "encode_qr"]
+__all__ = [
+    "encode_box",
+    "encode_circle",
+    "encode_image",
+    "encode_line",
+    "encode_polygon",
+    "encode_qr",
+    "qr_symbol_position",
+]

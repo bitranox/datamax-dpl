@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import assume, example, given, settings
 from hypothesis import strategies as st
 
 from datamax_dpl.application.use_cases import render_batch
@@ -395,28 +395,30 @@ def test_a_merged_image_at_magnification_9_is_halved_with_its_group_not_refused(
 #: The Allegro 2 with every model default, its -0.25 mm along offset included.
 ALLEGRO_2_DEFAULTS = RenderOptions(model="allegro-2")
 #: Dots the Allegro 2 prints for one 1/100 in, the unit of every record of its jobs.
-_UNIT_DOTS = 2
+_ALLEGRO_2_UNIT_DOTS = 2.0
 
 
-def _dots_of(length: float) -> int:
-    """Dots an Allegro 2 record length (decoded in inches) prints as."""
-    return round(length * 100) * _UNIT_DOTS
+def _dots_of(length: float, unit_dots: float) -> int:
+    """Dots a record length or position (decoded in inches, so 1/100 in units) prints as."""
+    return round(round(length * 100) * unit_dots)
 
 
-def _record_dots(record: Element, data: bytes) -> set[tuple[int, int]]:
-    """The absolute dots (column, row up from the bottom) one decoded Allegro 2 record prints."""
+def _record_dots(record: Element, data: bytes, unit_dots: float) -> set[tuple[int, int]]:
+    """The absolute dots (column, row up from the bottom) one decoded inch-mode record prints."""
     if isinstance(record, Image):
         picture = magnify(downloaded(data, record.name), record.magnification)
-        column, row = _dots_of(record.x), _dots_of(record.y)
+        column, row = _dots_of(record.x, unit_dots), _dots_of(record.y, unit_dots)
         return {(column + x, row + picture.height - 1 - y) for x, y in black_set(picture)}
     if isinstance(record, Line):
-        width = _dots_of(record.x2 - record.x) or _dots_of(record.thickness)
-        height = _dots_of(record.y2 - record.y) or _dots_of(record.thickness)
-        return _rectangle(_dots_of(record.x), _dots_of(record.y), width, height)
+        thickness = _dots_of(record.thickness, unit_dots)
+        width = _dots_of(record.x2 - record.x, unit_dots) or thickness
+        height = _dots_of(record.y2 - record.y, unit_dots) or thickness
+        return _rectangle(_dots_of(record.x, unit_dots), _dots_of(record.y, unit_dots), width, height)
     assert isinstance(record, Box)
-    column, row = _dots_of(record.x), _dots_of(record.y)
-    width, height = _dots_of(record.width), _dots_of(record.height)
-    edge, side = _dots_of(record.thickness), _dots_of(record.side_thickness or record.thickness)
+    column, row = _dots_of(record.x, unit_dots), _dots_of(record.y, unit_dots)
+    width, height = _dots_of(record.width, unit_dots), _dots_of(record.height, unit_dots)
+    edge = _dots_of(record.thickness, unit_dots)
+    side = _dots_of(record.side_thickness or record.thickness, unit_dots)
     whole = _rectangle(column, row, width, height)
     return whole - _rectangle(column + side, row + edge, width - 2 * side, height - 2 * edge)
 
@@ -425,13 +427,16 @@ def _rectangle(left: int, bottom: int, width: int, height: int) -> set[tuple[int
     return {(x, y) for x in range(left, left + width) for y in range(bottom, bottom + height)}
 
 
-def printed_by(result: RenderResult) -> set[tuple[int, int]]:
-    """Every dot the job's records print, OR-ed, with each image decoded from its own download."""
+def printed_by(result: RenderResult, unit_dots: float = _ALLEGRO_2_UNIT_DOTS) -> set[tuple[int, int]]:
+    """Every dot the job's records print, OR-ed, with each image decoded from its own download.
+
+    ``unit_dots`` is how many dots the model prints for one 1/100 in; the job must be in inch mode.
+    """
     decoded = explain(result.data).label
     assert decoded is not None
     dots: set[tuple[int, int]] = set()
     for record in decoded.elements:
-        dots |= _record_dots(record, result.data)
+        dots |= _record_dots(record, result.data, unit_dots)
     return dots
 
 
@@ -458,15 +463,40 @@ def test_a_merged_line_prints_where_it_prints_alone_under_the_default_along_offs
     assert printed_by(merged) == printed_by(apart)
 
 
+#: Models without the ``A`` command whose 1/100 in prints as 2 whole dots (Allegro 2, with its
+#: along offset) and as a fraction of a dot (Prodigy 152 dpi, 1.52 dots).
+_QR_MODELS = ("allegro-2", "prodigy-152")
+
+
 @pytest.mark.os_agnostic
-def test_a_merged_qr_code_prints_where_it_prints_alone() -> None:
-    """The encoder adds the quiet zone in DPL units to the QR Code's offset row; so must the merge."""
-    qr = {"type": "qr", "x": 11.3, "y": 0.6, "data": "HELLO", "module_dots": 2, "quiet_zone": 2}
-    box = {"type": "box", "x": 9, "y": 1.6, "width": 15, "height": 8, "thickness": 0.5}
-    apart = build_job(mm_label(qr, box, attribute=None), ALLEGRO_2_DEFAULTS)
-    merged = build_job(mm_label(qr, box, attribute=2), ALLEGRO_2_DEFAULTS)
+@settings(max_examples=120, deadline=None)
+@example(model="allegro-2", x=11.3, y=0.6, quiet_zone=2, module_dots=2)
+@given(
+    model=st.sampled_from(_QR_MODELS),
+    x=st.integers(min_value=0, max_value=3000).map(lambda value: value / 100),
+    y=st.integers(min_value=0, max_value=3000).map(lambda value: value / 100),
+    quiet_zone=st.integers(min_value=0, max_value=4),
+    module_dots=st.integers(min_value=1, max_value=3),
+)
+def test_a_merged_qr_code_prints_where_it_prints_alone(
+    model: str, x: float, y: float, quiet_zone: int, module_dots: int
+) -> None:
+    """The encoder adds the quiet zone in DPL units to the QR Code's own position; so must the merge.
+
+    A line crosses the middle of the symbol, so the two always share dots.
+    """
+    options = RenderOptions(model=model)
+    qr = {"type": "qr", "x": x, "y": y, "data": "HELLO", "module_dots": module_dots, "quiet_zone": quiet_zone}
+    probe = mm_label(qr, attribute=None)
+    unit_dots = job_context(probe, options).dots_per_unit
+    dpi = get_profile(model).dpi
+    middle = y + (quiet_zone + 10.5) * module_dots / dpi * 25.4
+    line = {"type": "line", "x": x, "y": middle, "x2": x + 40, "y2": middle, "thickness": 0.5}
+    apart = build_job(mm_label(qr, line, attribute=None), options)
+    merged = build_job(mm_label(qr, line, attribute=2), options)
+    assert merged.ok, [f.message for f in merged.errors]
     assert merged.emulated_groups == ((0, 1),)
-    assert printed_by(merged) == printed_by(apart)
+    assert printed_by(merged, unit_dots) == printed_by(apart, unit_dots)
 
 
 @pytest.mark.os_agnostic

@@ -30,9 +30,14 @@ rectangle are compared.
 
 The geometry is that of a model WITHOUT circle and polygon records, the only models whose
 transparency is emulated: there circles, polygons, slanted lines and patterned boxes are sent as
-the raster fallback draws them. Halving is not part of it: a job past its image memory budget
-sends the merged image halved, and halving can join a dot of one member with a dot of another
-at an odd edge, which detection does not see.
+the raster fallback draws them. Halving is not part of it. A job past its image memory budget
+sends its images halved (a merged one or one standing alone), and a halved image prints each
+black dot as its whole 2x2 block: up to one dot further than detection saw it, and one dot past
+the right or top edge of an image whose width or height is odd. That dot can land on a
+neighbouring field OUTSIDE the group, which then shares it, and XOR prints it white. Inside one
+merged image this does not matter, since its members are OR-ed anyway. For example, on an
+Allegro 2 past its budget, an image 3 dots wide whose last column is black and a box starting
+3 dots to its right only touch here, yet the halved image prints 4 dots wide, onto the box.
 """
 
 from __future__ import annotations
@@ -42,6 +47,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .encode_common import position_units
+from .encode_graphics import qr_symbol_position
 from .enums import FillPattern
 from .image_budget import magnify
 from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText, Text
@@ -193,15 +199,18 @@ def _fallback_dots(element: Line | Box | Circle | Polygon, ctx: RenderContext) -
 def _qr_dots(element: Qr, ctx: RenderContext) -> PrintedDots | None:
     """The QR Code's modules, magnified, the quiet zone in from ``(x, y)``; None when no version holds it.
 
-    As ``encode_qr`` writes it: the quiet zone is added in DPL units to the field's own position.
+    Placed by ``encode_qr``'s own :func:`~datamax_dpl.domain.encode_graphics.qr_symbol_position`.
     """
     try:
         symbol = qr_bitmap(element.data, error=element.error)
     except QrDataTooLongError:
         return None
-    quiet = ctx.length_of_dots(element.quiet_zone * element.module_dots)
-    column = position_units(element.x, axis=Axis.ACROSS, ctx=ctx) + ctx.dpl_units(quiet, axis=Axis.ACROSS)
-    row = position_units(element.y, axis=Axis.ALONG, ctx=ctx) + ctx.dpl_units(quiet, axis=Axis.ALONG)
+    column, row = qr_symbol_position(
+        element,
+        column=position_units(element.x, axis=Axis.ACROSS, ctx=ctx),
+        row=position_units(element.y, axis=Axis.ALONG, ctx=ctx),
+        ctx=ctx,
+    )
     return _at_units(magnify(symbol, element.module_dots), column=column, row=row, ctx=ctx)
 
 
