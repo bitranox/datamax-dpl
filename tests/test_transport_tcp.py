@@ -7,6 +7,7 @@ import select
 import socket
 import threading
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -302,6 +303,35 @@ def _free_port() -> int:
         return int(probe.getsockname()[1])
 
 
+#: Where Windows and macOS start the ports they hand out for a bind to port 0 (the IANA dynamic range).
+_DYNAMIC_PORTS_START = 49152
+#: The lowest port tried for one nothing may listen on: clear of the well-known and most registered ones.
+_QUIET_PORTS_START = 20000
+
+
+def _port_no_other_test_takes() -> int:
+    """Return a free port below every range a bind to port 0 draws from.
+
+    A port from ``_free_port`` goes back to the pool the next bind to port 0 draws from, and the
+    xdist workers start fake printers that way all the time: in CI one landed on it inside the
+    3 s retry window, and a connect meant to be refused for good succeeded. Below the dynamic
+    range only an explicit bind can take the port, and no test binds one.
+    """
+    for port in range(_QUIET_PORTS_START, min(_linux_dynamic_ports_start(), _DYNAMIC_PORTS_START)):
+        with contextlib.suppress(OSError), socket.create_server(("127.0.0.1", port)):
+            return port
+    # A host whose dynamic range starts below 20000 leaves no such port; the race is rare there.
+    return _free_port()
+
+
+def _linux_dynamic_ports_start() -> int:
+    """The first port Linux hands out for a bind to port 0 (32768 by default), else the IANA start."""
+    try:
+        return int(Path("/proc/sys/net/ipv4/ip_local_port_range").read_text(encoding="ascii").split()[0])
+    except (OSError, ValueError, IndexError):
+        return _DYNAMIC_PORTS_START
+
+
 @pytest.mark.os_agnostic
 def test_a_connection_refused_for_a_moment_is_retried() -> None:
     """A print server refuses a new connection for a moment after closing the last one.
@@ -340,7 +370,7 @@ def test_a_connection_refused_for_good_fails_within_the_retry_window() -> None:
     attempt. An attempt is not instant everywhere: Windows retransmits the SYN and reports a refusal
     only after about 2 s, so the bound is measured here rather than assumed.
     """
-    port = _free_port()
+    port = _port_no_other_test_takes()
     one_attempt = _seconds_for_one_refused_connect(port)
     started = time.monotonic()
     with pytest.raises(TransportError, match=rf"^cannot connect to tcp 127\.0\.0\.1:{port}: ") as caught:
