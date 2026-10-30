@@ -75,8 +75,8 @@ class TcpTransport(ClosingTransport):
             The connected transport.
 
         A refused connection is retried for up to :data:`REFUSED_RETRY_SECONDS` (never longer than
-        ``timeout``) before it is reported. A refusal and a connect timeout are ``unanswered``: no
-        request went out.
+        ``timeout``) before it is reported. A refusal, a connect timeout and a reset while
+        connecting are ``unanswered``: no request went out.
 
         Raises:
             PrinterTimeoutError: The connection was not made in time.
@@ -87,10 +87,12 @@ class TcpTransport(ClosingTransport):
             sock = _connect_retrying_refusals(uri, timeout=timeout)
         except OSError as exc:
             # Windows reports a refusal only after about 2 s of SYN retries, so under a short
-            # timeout a refusing print server times out instead; neither took a request. An
-            # unknown or unreachable host is not worth asking again.
-            timed_out = isinstance(exc, TimeoutError)
-            raise transport_error(uri, action="connect to", error=exc, unanswered=timed_out) from exc
+            # timeout a refusing print server times out instead; neither took a request. A server
+            # that resets on accept can do so before the connect has finished: with a timeout,
+            # the connect waits for the handshake and then reads the socket's error, which by then
+            # is the reset. An unknown or unreachable host is not worth asking again.
+            no_request = isinstance(exc, TimeoutError) or _is_hang_up(exc)
+            raise transport_error(uri, action="connect to", error=exc, unanswered=no_request) from exc
         return cls(sock, uri=uri, timeout=timeout)
 
     @property

@@ -293,9 +293,20 @@ def test_a_job_is_written_in_pieces_no_larger_than_the_send_chunk() -> None:
 
 @pytest.mark.os_agnostic
 def test_a_reset_that_arrived_before_the_request_went_out_is_unanswered(serve: Callable[..., PrinterServer]) -> None:
-    """The reset is already waiting when the query drops stale bytes, so that read reports it."""
-    server = serve(resetting)
+    """The reset is already waiting when the query drops stale bytes, so that read reports it.
+
+    The server resets only once the connect has returned: a reset racing the connect makes the
+    connect itself fail (see the reset-while-connecting test), and that is not this path.
+    """
+    connected = threading.Event()
+
+    def reset_once_connected(server: PrinterServer, connection: socket.socket) -> None:
+        connected.wait(JOIN_SECONDS)
+        resetting(server, connection)
+
+    server = serve(reset_once_connected)
     sock = socket.create_connection(("127.0.0.1", server.port), timeout=2.0)
+    connected.set()
     readable, _, _ = select.select([sock], [], [], 2.0)
     assert readable, "the reset never arrived"
 
@@ -342,6 +353,35 @@ def test_a_hang_up_while_writing_a_request_is_unanswered_and_one_while_sending_a
             printer.send(b"job")
 
     assert (request.value.unanswered, job.value.unanswered) == (request_unanswered, False)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("error", "unanswered"),
+    [
+        # A server resetting on accept can beat the connect: with a timeout, the connect reads the
+        # socket's error once the handshake is done, and that is then the reset (measured on
+        # Linux, unloaded: 3 and 4 connects in 3000).
+        (ConnectionResetError(errno.ECONNRESET, "Connection reset by peer"), True),
+        (OSError(errno.EHOSTUNREACH, "No route to host"), False),
+    ],
+    ids=["reset", "unreachable"],
+)
+def test_a_reset_while_connecting_is_unanswered_and_an_unreachable_host_is_not(
+    monkeypatch: pytest.MonkeyPatch, error: OSError, unanswered: bool
+) -> None:
+    def failing_connect(address: tuple[str, int], timeout: float) -> socket.socket:
+        del address, timeout
+        raise error
+
+    # The socket library is the network edge, and the reset's timing cannot be forced through a
+    # real server, so its connect is the one thing replaced.
+    monkeypatch.setattr(socket, "create_connection", failing_connect)
+
+    with pytest.raises(TransportError, match="cannot connect to") as caught:
+        TcpTransport.connect(TcpUri(host="192.0.2.60", port=9100), timeout=1.0)
+
+    assert caught.value.unanswered is unanswered
 
 
 @pytest.mark.os_agnostic
