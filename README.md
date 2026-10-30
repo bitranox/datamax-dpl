@@ -235,11 +235,14 @@ sized in printer dots are not scaled.
 
 The along bar is the longest one format holds at the printer's current calibration, in whole
 10 mm and at most 200 mm (190 mm on an Allegro 2 at its 0.976 default, where a 200 mm bar needs
-row 1653 of the 1648 one format holds), and `calibrate set` measures against that same length, so
-the new factor is computed against the length printed; where a format limit applies, `calibrate
-set` works that length out from `label_width` or `--width`, as `calibrate print` built the label. `--along-length` sets another; one longer than a
-format holds is refused (`format_past_max_length`) with the longest that fits named. Pass the
-length you printed to `calibrate set` as well.
+row 1653 of the 1648 one format holds), and `calibrate set` measures against that same length,
+so the new factor is computed against the length printed; where a format limit applies,
+`calibrate set` works that length out from `label_width` or `--width`, as `calibrate print`
+built the label. `--along-length` sets another; one longer than a format holds is refused
+(`format_past_max_length`) with the longest that fits named. Pass the length you printed to
+`calibrate set` as well. `calibrate print` names the bar length it drew (`along_length_mm` in
+`--json`), and when `calibrate set` would measure against another length (a `--model` or other
+render option changed it), its output says which `--along-length` to pass.
 
 Where nothing is configured, a model's measured defaults apply: the `allegro-2` profile prints with
 `scale_along` 0.976, `offset_along` -0.25 mm and a 66.8 mm tear-off stop, every other model nominal.

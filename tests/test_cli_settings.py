@@ -35,7 +35,7 @@ def _options(config: dict[str, Any], printer: str | None = None) -> RenderOption
 
 @pytest.mark.os_agnostic
 def test_a_configured_stop_position_reaches_the_render_options() -> None:
-    assert _options({"printer": {"stop_position": 67.4}}).stop_position_mm == 67.4
+    assert _options({"printer": {"stop_position": 70.0}}).stop_position_mm == 70.0
 
 
 @pytest.mark.os_agnostic
@@ -273,13 +273,13 @@ def test_a_labels_printer_wins_over_a_configured_stop_position(
 def test_the_config_command_shows_the_configured_stop_positions(
     cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]]
 ) -> None:
-    factory = config_cli_context({"printer": {"stop_position": 67.4, "cutter_stop_position": 80}})
+    factory = config_cli_context({"printer": {"stop_position": 70.0, "cutter_stop_position": 80}})
 
     result = cli_runner.invoke(cli_mod.cli, ["config", "--format", "json", "--section", "printer"], obj=factory)
 
     assert result.exit_code == 0, result.output
     printer = json.loads(result.stdout)["printer"]
-    assert (printer["stop_position"], printer["cutter_stop_position"]) == (67.4, 80)
+    assert (printer["stop_position"], printer["cutter_stop_position"]) == (70.0, 80)
 
 
 @pytest.mark.os_agnostic

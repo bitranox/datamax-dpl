@@ -152,6 +152,53 @@ def test_an_explicit_along_length_that_does_not_fit_is_still_refused_naming_the_
 
 
 @pytest.mark.os_agnostic
+def test_print_reports_the_along_bar_it_drew_and_needs_no_hint_when_set_defaults_to_it(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    factory = config_cli_context(_lager(tmp_path / "out.dpl", scale_along=0.976))
+    args = ("--printer", "lager", "--axis", "along")
+
+    data = json.loads(_calibrate(cli_runner, factory, *args).stdout)["data"]
+    human = cli_runner.invoke(cli_mod.cli, ["calibrate", "print", *args], obj=factory)
+
+    assert (data["along_length_mm"], data["hint"]) == (190.0, None)
+    assert human.exit_code == 0, human.output
+    assert "along bar 190 mm" in human.stdout
+    assert "--along-length" not in human.stdout
+
+
+@pytest.mark.os_agnostic
+def test_print_with_another_model_names_the_along_length_set_must_be_given(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    """--model dmx-600 draws 200 mm where 'calibrate set --printer lager' would measure against 190."""
+    target = tmp_path / "out.dpl"
+    config = {"printers": {"lager": {"model": "allegro-2", "uri": f"file:{target}", "label_width": 100}}}
+    args = ("--printer", "lager", "--axis", "along", "--model", "dmx-600")
+
+    result = _calibrate(cli_runner, config_cli_context(config), *args)
+    human = cli_runner.invoke(cli_mod.cli, ["calibrate", "print", *args], obj=config_cli_context(config))
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)["data"]
+    assert data["along_length_mm"] == 200.0
+    assert "--along-length 200 to 'calibrate set'" in data["hint"]
+    assert "--along-length 200 to 'calibrate set'" in human.stdout
+
+
+@pytest.mark.os_agnostic
+def test_print_reports_no_along_bar_for_the_across_label_alone(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    factory = config_cli_context(_lager(tmp_path / "out.dpl"))
+
+    result = _calibrate(cli_runner, factory, "--printer", "lager", "--axis", "across")
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["data"]["along_length_mm"] is None
+
+
+@pytest.mark.os_agnostic
 def test_the_refusal_says_plainly_when_not_even_the_shortest_along_bar_fits(
     cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
 ) -> None:
@@ -518,6 +565,40 @@ def test_an_along_measurement_with_a_format_limit_and_no_known_width_is_refused(
     assert "--along-length" in message
     assert "--width" in message
     assert base.read_text(encoding="utf-8") == '[printers.lager]\nmodel = "allegro-2"\n'
+
+
+@pytest.mark.os_agnostic
+def test_a_given_width_stands_in_for_a_missing_label_width_when_measuring_the_along_bar(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    base = tmp_path / "config.toml"
+    base.write_text('[printers.lager]\nmodel = "allegro-2"\n', encoding="utf-8")
+
+    result = _set(cli_runner, _user_layer(base), "--printer", "lager", "--along", "190", "--width", "100")
+
+    assert result.exit_code == 0, result.output
+    (change,) = json.loads(result.stdout)["data"]["changes"]
+    assert (change["nominal"], change["new"]) == (190.0, 0.976)
+
+
+@pytest.mark.os_agnostic
+def test_set_measures_against_the_along_bar_print_drew_on_the_same_configuration(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    base, target = tmp_path / "config.toml", tmp_path / "out.dpl"
+    printer = {"model": "allegro-2", "uri": f"file:{target}", "label_width": 100}
+    base.write_text(tomlkit.dumps({"printers": {"lager": printer}}), encoding="utf-8")
+
+    printed = cli_runner.invoke(
+        cli_mod.cli, ["--json", "calibrate", "print", "--printer", "lager", "--axis", "along"], obj=_user_layer(base)
+    )
+    drawn = json.loads(printed.stdout)["data"]["along_length_mm"]
+    measured = _set(cli_runner, _user_layer(base), "--printer", "lager", "--along", str(drawn))
+
+    assert printed.exit_code == 0, printed.output
+    assert measured.exit_code == 0, measured.output
+    (change,) = json.loads(measured.stdout)["data"]["changes"]
+    assert change["nominal"] == drawn
 
 
 @pytest.mark.os_agnostic

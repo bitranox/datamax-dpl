@@ -181,6 +181,8 @@ configured stop only the info `configured_stop_position_unsupported` (prints und
      file that already holds that printer's section, keeping comments. The along nominal is the
      bar length print defaulted to (worked out from `label_width` or `--width` on a model with a
      format limit); after `print --along-length N` pass the same `--along-length N` to `set`.
+     `print` names the bar it drew (`along_length_mm`) and, when `set` would measure against
+     another length (a `--model` override on print), the `--along-length` to pass to `set`.
      It warns on stderr when a `.env` file, an environment variable or `--set` still overrides
      the value. Borders go in pairs: `--top T --bottom B` stores `offset_along` (old + (T - B) /
      2 mm, positive moves the print up) and `--left L --right R` stores `offset_across` (old +

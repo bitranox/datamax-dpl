@@ -298,6 +298,12 @@ def format_row_limit(options: RenderOptions) -> int | None:
 
     A configured ``max_format_rows`` wins; else the model's limit, which most models do not have.
 
+    Args:
+        options: Render options of the job; their model and ``max_format_rows`` decide the limit.
+
+    Returns:
+        The highest dot row along the feed one format may reach, or None when nothing limits it.
+
     Raises:
         UnknownModelError: No profile has the options' model id.
 

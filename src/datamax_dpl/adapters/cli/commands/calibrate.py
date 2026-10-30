@@ -70,9 +70,13 @@ class CalibratePrintPayload(BaseModel):
     offset_along: float
     bytes_sent: int
     findings: list[Finding]
+    # The along bar's length in the job, in mm; None when no along label was built.
+    along_length_mm: float | None = None
     # Set only when the along bar is refused for passing the format length: the longest
     # --along-length (whole 10 mm) that fits at this calibration, None when not even 20 mm does.
     along_length_that_fits: float | None = None
+    # The next step: the --along-length to print with (a refused bar), or the one to pass to
+    # 'calibrate set' (a sent bar 'calibrate set' would not default to).
     hint: str | None = None
 
 
@@ -156,6 +160,8 @@ def cli_calibrate_print(
         labels, bar = _labels(settings, axes, options=options, sizes=sizes)
         results = {part: build_job(label, options) for part, label in labels.items()}
         payload = _print_payload(settings, effective_calibration(options), axes=axes, results=list(results.values()))
+        if Axis.ALONG in labels:
+            payload = payload.model_copy(update={"along_length_mm": bar})
         if not all(result.ok for result in results.values()):
             if _only_the_along_bar_too_long(results):
                 along = labels[Axis.ALONG]
@@ -171,9 +177,42 @@ def cli_calibrate_print(
             open_printer=cli_ctx.services.open_printer,
         )
         payload = payload.model_copy(update={"printer": uri, "bytes_sent": report.bytes_sent})
-        return CommandResult(ok=True, payload=payload, human=f"sent {', '.join(axes)} to {uri}")
+        if payload.along_length_mm is not None:
+            measured_against = _set_default_along_length(cli_ctx, given.get("printer"), width=width)
+            payload = _with_set_hint(payload, bar=payload.along_length_mm, measured_against=measured_against)
+        human = [f"sent {', '.join(axes)} to {uri}"]
+        if payload.along_length_mm is not None:
+            human.append(payload.hint or f"along bar {payload.along_length_mm:g} mm")
+        return CommandResult(ok=True, payload=payload, human="\n".join(human))
 
     run_command(ctx, command="calibrate print", body=body)
+
+
+def _set_default_along_length(cli_ctx: CLIContext, printer: str | None, *, width: float | None) -> float | None:
+    """The along length 'calibrate set' measures against for this printer without --along-length.
+
+    'calibrate set' resolves the configured printer alone, without this command's render options,
+    and with the same --width; None when it cannot (an address, or no width where one is needed).
+    """
+    if printer is not None and is_printer_uri(printer):
+        return None
+    try:
+        settings = resolve_settings(cli_ctx, printer=printer)
+        return _along_bar_length(None, settings=settings, width=width, options=render_options(settings))
+    except ConfigurationError:
+        return None
+
+
+def _with_set_hint(
+    payload: CalibratePrintPayload, *, bar: float, measured_against: float | None
+) -> CalibratePrintPayload:
+    """Name the --along-length 'calibrate set' needs when it would not default to the bar drawn."""
+    if measured_against == bar:
+        return payload
+    hint = f"along bar {bar:g} mm: pass --along-length {bar:g} to 'calibrate set'"
+    if measured_against is not None:
+        hint += f", which otherwise measures against {measured_against:g} mm"
+    return payload.model_copy(update={"hint": hint})
 
 
 def _only_the_along_bar_too_long(results: dict[Axis, RenderResult]) -> bool:
