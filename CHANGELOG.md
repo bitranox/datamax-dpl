@@ -8,31 +8,22 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- Transparent labels on models without the `A` command (Allegro, Allegro 2,
-  Prodigy, Prodigy Plus, `generic`), which print every field XOR. A label
-  with `attribute` 2 there has the fields that share printed dots drawn OR
-  into one downloaded image per group, placed at the group's lower-left
-  corner instead of the fields' own records: lines, boxes, circles,
-  polygons, QR Codes and images with a bitmap. One `transparency_emulated`
-  warning (error under `strict`) per group names its elements, the image's
-  size and its bytes; the image counts against the image memory budget and
-  is halved past it, unless it holds a QR Code. A text, barcode or stored
-  image that overlaps another field cannot be merged and prints XOR
-  (`transparency_not_emulated`, also a deviation). A label without overlaps
-  prints exactly as before, with the info `transparency_not_needed`; none
-  of these reports `attribute_unsupported`. `RenderResult` gains
-  `emulated_groups` and `sent_as`, which `preview` and `verify` draw from
-  (merged groups OR); `preview_bitmap` and `render_preview_png` take
-  `sent_as=` in place of `halved=`; `SentAs` is exported. Each member
-  prints where its own record would put it, the printer's offset included.
-  Merging adds image bytes, about a second per kilobyte at 9600 baud.
-  Unverified on paper.
-- `find_overlaps` (`domain/overlap.py`): which fields of a label share
-  printed dots, at the job's calibration and at the DPL positions the
-  encoder writes (printer offset included), as groups of exact fields and
-  the text, barcodes and stored images whose rectangle meets another field.
-  It takes graphics as a model without circle and polygon records sends
-  them (raster fallbacks), the only models whose transparency is emulated.
+- `qr` element: a QR Code from `data` (with `{name}` placeholders), error
+  level `L`/`M`/`Q`/`H` (default `M`), `module_dots` 1-9 printer dots per
+  module (default 3) and a `quiet_zone` of 0-10 modules kept free on every
+  side (default 4). It is drawn with segno, downloaded as an image of one dot
+  per module and placed magnified, so it prints on every model. Refusals
+  `qr_data_too_long` (no QR Code version holds the data at that level) and
+  `qr_past_print_width` (the area, quiet zone included, ends past the
+  printable width). Warning `qr_dot_size_not_one` when the label's
+  `dot_size` is not 1x1, which prints the modules larger. `Qr` and
+  `QrError` are exported from `datamax_dpl`, and segno (pure Python) is a
+  new dependency. Unverified on paper.
+- `image` element: `magnification` 1-9 (default 1), printer dots per image
+  dot across and along, written as the image record's dot width and height.
+  `preview` draws it, and `explain` rebuilds it from a square dot width and
+  height (a non-square one stays named in the meaning, `image, magnified
+  2x3`; a square one reads `image at magnification 3`). Unverified on paper.
 - Image memory budget: the bytes of dot data one job's image downloads may
   hold (rows times bytes per row; an image the label only places costs
   nothing). The `allegro-2` profile ships 44535 (48631 free bytes of module A
@@ -45,18 +36,15 @@ All notable changes to this project are documented here. The format follows
   halved image, a label's own included, is sent under the name of its halved
   content, never under the label's `name`, so that name always holds the full
   bitmap on the printer; an `image` without `bitmap` naming the same image in
-  that job is placed as the halved one, at double its own magnification. A QR Code is never halved. A job
-  still past the budget after one halving, any job past it under `strict`,
-  and an image whose doubled magnification would pass 9 are refused with
-  `image_memory_exceeded`. `preview` and `verify` draw halved images at their
-  printed size (a halved raster fallback can sit one dot off: the preview
-  halves its own nominal drawing, the printer the calibrated one). `RenderResult` gains `image_bytes` and `halved_elements`.
-  `scripts/image_ladder.py` writes labels of growing image size around a
-  budget, for the test on paper. Unverified on paper.
-- `image` element: `magnification` 1-9 (default 1), printer dots per image
-  dot across and along; `preview` draws it, and `explain` rebuilds it from a
-  square dot width and height (a non-square one stays named in the meaning,
-  `image, magnified 2x3`; a square one reads `image at magnification 3`).
+  that job is placed as the halved one, at double its own magnification. A
+  QR Code is never halved. A job still past the budget after one halving,
+  any job past it under `strict`, and an image whose doubled magnification
+  would pass 9 are refused with `image_memory_exceeded`. `preview` and
+  `verify` draw halved images at their printed size (a halved raster
+  fallback can sit one dot off: the preview halves its own nominal drawing,
+  the printer the calibrated one). `RenderResult` gains `image_bytes` and
+  `halved_elements`. `scripts/image_ladder.py` writes labels of growing
+  image size around a budget, for the test on paper. Unverified on paper.
 - `memory` command: lists the printer's memory modules with the stored
   names and free bytes of each (`<STX>W`), for `--kind graphic` (default),
   `font`, `format` or `all`, in the usual JSON envelope or as text. The
@@ -69,58 +57,73 @@ All notable changes to this project are documented here. The format follows
   Available", which the manual gives as a corrupt or worn-out module, is
   reported as `no_modules_available`. Both colons are read with blanks
   around them, as an Allegro 2 (firmware CA02 03.04) sends the free-bytes
-  header.
-  `PrinterTransport.read_answer(request, timeout=, idle=)` is the new read
-  behind it (tcp, serial and `RecordingPrinter`; one-way channels refuse
-  it), bounded at 1 MiB and at 120 s for the whole answer
-  (`MAX_ANSWER_SECONDS`, its `total` argument); XON/XOFF alone do not
-  start it. Read on one Allegro 2 over a print server; the
-  other models are unverified.
-- `qr` element: a QR Code from `data` (with `{name}` placeholders), error
-  level `L`/`M`/`Q`/`H` (default `M`), `module_dots` 1-9 printer dots per
-  module (default 3) and a `quiet_zone` of 0-10 modules kept free on every
-  side (default 4). It is drawn with segno, downloaded as an image of one dot
-  per module and placed magnified, so it prints on every model. Refusals
-  `qr_data_too_long` (no QR Code version holds the data at that level) and
-  `qr_past_print_width` (the area, quiet zone included, ends past the
-  printable width). Warning `qr_dot_size_not_one` when the label's
-  `dot_size` is not 1x1, which prints the modules larger. `Qr` and
-  `QrError` are exported from `datamax_dpl`, and segno (pure Python) is a
-  new dependency. Unverified on paper.
-- Image placement records carry a magnification: `image_record(...,
-  magnification=(across, along))` writes the dot width and height digits
-  1-9 (the manual's image fields), and `explain` names a magnified image.
-  Unverified on paper.
+  header. The printer `open_printer` returns gains
+  `read_answer(request, timeout=, idle=)` behind it (tcp, serial and
+  `RecordingPrinter`; one-way channels refuse it), bounded at 1 MiB and at
+  120 s for the whole answer (its `total` argument); XON/XOFF alone do not
+  start it. Read on one Allegro 2 over a print server; the other models are
+  unverified.
+- Transparent labels on models without the `A` command (Allegro, Allegro 2,
+  Prodigy, Prodigy Plus, `generic`), which print every field XOR. A label
+  with `attribute` 2 there has the fields that share printed dots drawn OR
+  into one downloaded image per group, placed at the group's lower-left
+  corner instead of the fields' own records: lines, boxes, circles,
+  polygons, QR Codes and images with a bitmap. One `transparency_emulated`
+  warning (error under `strict`) per group names its elements, the image's
+  size and its bytes; the image counts against the image memory budget and
+  is halved past it, unless it holds a QR Code. A text, barcode or stored
+  image that overlaps another field cannot be merged and prints XOR
+  (`transparency_not_emulated`, also a deviation). A label without overlaps
+  prints exactly as before, with the info `transparency_not_needed`; none
+  of these reports `attribute_unsupported`. Each member prints where its own
+  record would put it, the printer's offset included. Merging adds image
+  bytes, about a second per kilobyte at 9600 baud. `RenderResult` gains
+  `emulated_groups` and `sent_as`, which `preview` and `verify` draw from
+  (merged groups OR); `render_preview_png` takes `sent_as=`, and `SentAs`
+  is exported. Unverified on paper.
 - Per-model calibration defaults (`PrinterProfile.calibration`), used where
-  neither the options nor the configuration set a value. The `allegro-2`
-  profile carries the values measured on one Allegro 2 (firmware CA02 03.04,
-  2026-10-29): `scale_along` 0.976, `offset_along` -0.25 mm and a tear-off
-  stop position of 67.4 mm; every other model stays nominal (scale 1.0,
-  offset 0.0, the printer's own stop position). `effective_calibration`
-  returns the values a job renders with.
-- Info finding `model_defaults_applied`, naming each model default a job used
-  and where it was measured.
+  neither the options nor the configuration set a value. The `allegro-2` profile carries the values
+  measured on one Allegro 2 (firmware CA02 03.04, 2026-10-29): `scale_along`
+  0.976, `offset_along` -0.25 mm and a tear-off stop position of 67.4 mm;
+  every other model stays nominal (scale 1.0, offset 0.0, the printer's own
+  stop position). The info finding `model_defaults_applied` names each model
+  default a job used and where it was measured.
 - Deviation `model_offset_clamped`: a field that only the model's default
   offset pushes past the label edge is placed on the edge (where the printer
   put it without the correction) instead of being refused; `strict` refuses
   it. An offset the caller set still refuses such a field.
-- Stop positions, in this order: the label's own `stop_position` (a
-  `present_distance` the model can only send as a stop position counts as
-  the label's stop); for a job that cuts, `cutter_stop_position` or no stop
-  command at all, never the tear-off value; otherwise the configured
-  tear-off `stop_position`, then the model's default. Configured and model
-  stop positions are distances found on the printer, so they are sent
-  unscaled, rounded to 1/100 in.
-- `[printer]` (and `[printers.<name>]`) keys `stop_position` and
-  `cutter_stop_position`, in mm, greater than 0 and at most 253.746 mm (the
-  999/100 in a three-digit `<STX>f` takes); a value outside is refused with
-  its key named.
-- Info finding `configured_stop_position_unsupported`: a configured or model
-  stop position on a model without a stop-position command is not sent, and
-  the job still prints, under `strict` too.
+- Configured stop positions: `[printer]` (and `[printers.<name>]`) keys
+  `stop_position` (tear-off) and `cutter_stop_position` (a job that cuts),
+  in mm, greater than 0 and at most 253.746 mm (the 999/100 in a three-digit
+  `<STX>f` takes); a value outside is refused with its key named. They are
+  distances found on the printer, so they are sent unscaled, rounded to
+  1/100 in. The stop a job sends is the first of: the label's own
+  `stop_position`; a `present_distance` the model can only send as a stop
+  position; for a job that cuts, `cutter_stop_position` (never the tear-off
+  value), otherwise `stop_position`, then the model's default; otherwise
+  none. A model with `<STX>Kf` sends a label's `present_distance` as
+  `<STX>Kf` beside that stop. On a model without a stop-position command a
+  configured or model stop is not sent and the job still prints, under
+  `strict` too, with the info `configured_stop_position_unsupported`. The
+  README section "Where the label stops" explains the order, what each
+  model sends, and what is unverified on hardware; docs/label-spec.md and
+  CONFIG.md link to it.
 
 ### Changed
 
+- Unset `scale_across`, `scale_along`, `offset_across` and `offset_along` now
+  mean the model's default, and the shipped `config.d/50-printer.toml` no
+  longer sets them. An `allegro-2` therefore prints with scale 0.976 along,
+  offset -0.25 mm along and a 67.4 mm stop position unless configured
+  otherwise, and `calibrate print` / `calibrate set` report and start from
+  those values. A value you set, even 1.0 or 0.0, still wins.
+- Migration: a configuration deployed by 0.3.0 (`config-deploy`, usually
+  `--target user`) still holds `scale_across = 1.0`, `scale_along = 1.0`,
+  `offset_across = 0.0` and `offset_along = 0.0` in its
+  `config.d/50-printer.toml`, and those explicit values win over the model's.
+  Comment the four keys out, or redeploy with `config-deploy --force` (the
+  old file is kept as `.bak`), to get the model defaults. Earlier releases
+  did not ship these keys.
 - `preview` (and the expected picture of `verify`) combines overlapping
   fields the way they print instead of always showing both black: each
   element is drawn on its own layer and combined in the mode its attribute
@@ -141,44 +144,29 @@ All notable changes to this project are documented here. The format follows
   is salted until it is free; a user-named `image` keeps its own name.
   Across separate jobs two different images share a name only on a hash
   collision, about 1 in 2**28.
-- Unset `scale_across`, `scale_along`, `offset_across` and `offset_along` now
-  mean the model's default, and the shipped `config.d/50-printer.toml` no
-  longer sets them. An `allegro-2` therefore prints with scale 0.976 along,
-  offset -0.25 mm along and a 67.4 mm stop position unless configured
-  otherwise, and `calibrate print` / `calibrate set` report and start from
-  those values. A value you set, even 1.0 or 0.0, still wins.
-- Migration: a configuration deployed by 0.3.0 (`config-deploy`, usually
-  `--target user`) still holds `scale_across = 1.0`, `scale_along = 1.0`,
-  `offset_across = 0.0` and `offset_along = 0.0` in its
-  `config.d/50-printer.toml`, and those explicit values win over the model's.
-  Comment the four keys out, or redeploy with `config-deploy --force` (the
-  old file is kept as `.bak`), to get the model defaults. Earlier releases
-  did not ship these keys.
 - A printer that sends no complete answer in time now reports the wait it
   was given, over tcp and serial alike: `no complete answer within 0.5 s
   (0 bytes read)` instead of `no complete answer in time`, so the message
   names the `--timeout` (or `[printer] timeout`) to raise.
+- The skill (`skills/datamax-dpl/SKILL.md`) covers QR Codes, image
+  magnification and the image memory budget, the `memory` command, the
+  model calibration defaults, where the label stops, and transparency on
+  models without the `A` command.
 - The test suite now runs `print`, `status` and `memory` with the production
   wiring against a file and a printer server on 127.0.0.1, so the hand-over
   of `--printer`, the model's defaults and `--timeout` to the transport is
   tested, not only the commands against an in-memory printer.
-- README: a new section, "Where the label stops", gives the order in which
-  a job's stop is decided (the label's `stop_position`, its
-  `present_distance`, the configured `cutter_stop_position` or
-  `stop_position`, the model's default, the printer's own setting), what a
-  model with `<STX>Kf` sends beside that stop, and what the models without
-  `<STX>f` do; docs/label-spec.md and CONFIG.md link to it. CONFIG.md no
-  longer says a present distance always replaces the configured stop: a
-  model with `<STX>Kf` sends it beside that stop.
 
 ### Fixed
 
 - A `present_distance` on a model with `<STX>Kf` (PE42, PE43, the Ovation
   models, `permissive`) had no upper bound: 2540 mm sent `<STX>Kf10000`
   and 3000 mm `<STX>Kf11811`, five digits where the command takes four
-  (manual page 53), without a finding. Past 9999/100 inch (2539.746 mm) it
-  is now the error `present_distance_too_large`, so `print` refuses the
-  label, as `stop_position_too_large` does for `<STX>f`.
+  (manual page 53), without a finding. Past 9999/100 inch (about
+  2539.75 mm at scale 1; the check is on the rounded hundredths) it is now
+  the error `present_distance_too_large`, so `print` refuses the label, as
+  `stop_position_too_large` does for `<STX>f`.
+
 - A filled box on a model with polygons (DMX 400 from firmware 2.01, DMX
   430/600/800, Prodigy Max, PE42/PE43, Ovation, Titan) was sent as a fill
   polygon over the whole box plus its outline record. Those models print

@@ -1,6 +1,6 @@
 ---
 name: datamax-dpl
-description: Use when printing on a Datamax label printer or producing DPL (Datamax Programming Language) - labels with text, lines, boxes, circles or barcodes (Code 128, EAN, UPC, Code 39, PDF417, DataMatrix, MaxiCode), one label per row of a CSV or JSON file, cutter or present settings - for an Allegro, Prodigy, DMX 400/430/600/800, Prodigy Max, PE42/PE43, Ovation or Titan 6200; or when about to hand-write DPL bytes or a raw port 9100 script for one.
+description: Use when printing on a Datamax label printer or producing DPL (Datamax Programming Language) - labels with text, lines, boxes, circles, images, QR codes or barcodes (Code 128, EAN, UPC, Code 39, PDF417, DataMatrix, MaxiCode), one label per row of a CSV or JSON file, cutter, stop or present settings, the printer's image memory - for an Allegro, Prodigy, DMX 400/430/600/800, Prodigy Max, PE42/PE43, Ovation or Titan 6200; or when about to hand-write DPL bytes or a raw port 9100 script for one.
 ---
 
 # datamax-dpl
@@ -19,7 +19,9 @@ Only `--json` / `--json-bare` (and `--set SECTION.KEY=VALUE`) go BEFORE the comm
 other option goes after it. Machine-readable output: `datamax-dpl --json validate label.json`. stdout is then one envelope
 `{"ok", "command", "data", "skipped"}`; errors are `{"ok": false, "error", "message"}`.
 Exit codes: 0 done, 1 refused (an error finding), 2 could not run (bad JSON, unknown model,
-printer unreachable, broken config).
+printer unreachable or silent, broken config). A printer that does not answer in time says how
+long it was given (`no complete answer within 0.5 s`): raise `--timeout` (seconds) or
+`[printer] timeout`.
 
 ## The loop - labels cost money, so do every step
 
@@ -31,6 +33,9 @@ printer unreachable, broken config).
 3. `datamax-dpl preview label.json -o preview.png --model MODEL [--data rows.csv]` and LOOK at
    the PNG. It shows the FIRST record only, so also preview a one-row data file holding the
    longest values. There is no automatic text wrapping or shrinking: long text runs off the edge.
+   It draws overlapping fields as they print (see "Overlapping fields"), rotation, and line
+   records exactly; text is grey cells, or Pillow's font (not the printer's) with the `preview`
+   extra (`uvx --from "datamax-dpl[preview]" datamax-dpl`, Python 3.11+).
 4. Print ONE label first: a data file with the header and one row, `datamax-dpl print label.json
    --data one.csv --model MODEL --printer tcp://HOST:9100`. Scan the barcode. Then print the
    remaining rows (leave out the one already printed).
@@ -61,7 +66,12 @@ printer unreachable, broken config).
   JSON lines; UTF-8, a BOM is fine), one label per record. `{{` and `}}` are literal braces.
 - Fonts 0-8 are fixed bitmaps scaled by `width_multiplier`/`height_multiplier`; 3-6 print
   capitals only. Font 9 needs `points`. Umlauts work in fonts 1, 2 and 9; the euro sign in none.
-- Element types: `text`, `scalable_text`, `line`, `box`, `circle`, `polygon`, `barcode`, `image`.
+- Element types: `text`, `scalable_text`, `line`, `box`, `circle`, `polygon`, `barcode`, `image`,
+  `qr`. An `image` takes `magnification` 1-9 (printer dots per image dot).
+- `{"type": "qr", "x": 3, "y": 3, "data": "{url}", "error": "M", "module_dots": 3, "quiet_zone": 4}`
+  (defaults shown; `x`/`y` is the quiet zone's lower-left corner; no rotation). No model has a QR
+  record, so it is downloaded as an image and prints on every model. Refused: `qr_data_too_long`,
+  `qr_past_print_width`; warning `qr_dot_size_not_one` (a `dot_size` other than 1x1).
 
 ## Models and fallbacks
 
@@ -80,6 +90,14 @@ printer unreachable, broken config).
   past the print width, an unsupported symbology, a bad check digit).
 - Typical fallbacks: circles and polygons on old models become downloaded images; a missing font 9
   size becomes the nearest one; out-of-range speed and heat are clamped.
+- Image memory: a job's downloaded images (given bitmaps, raster fallbacks, QR Codes) must fit
+  `[printer] image_memory_bytes` (`allegro-2` default 44535; other models have no budget). Past
+  it, `degrade` sends every image but a QR Code at half resolution and double magnification
+  (`image_halved`; `preview` shows it). Refused (`image_memory_exceeded`): still past it after
+  halving, any job past it under `strict`, a halved image at `magnification` 5 or more.
+- `datamax-dpl memory --kind all --printer tcp://HOST:9100` lists the names the printer stores
+  and the free bytes of each memory module (read-only; tcp or serial). The `allegro-2` budget is
+  the 48631 free bytes one printer reported, less a 4096-byte margin; set yours the same way.
 
 ## Cutting
 
@@ -94,6 +112,25 @@ printer unreachable, broken config).
   that warning is an error and nothing prints. The printer then cuts as its own
   cutter switch (DIP or front panel) is set; the manual's default is a cut after every label. To get groups of N there,
   ask the user: one job per N records, or cut by hand.
+
+## Where the label stops
+
+The stop position (`<STX>f`) comes from the first of these that applies:
+1. the label's `stop_position` (corrected by `scale_along`), even in a job that cuts;
+2. on a model with `<STX>f` but no `<STX>Kf`: the label's `present_distance`
+   (`present_distance_unsupported`); with `stop_position` also set, both go out as `<STX>f`,
+   present distance second (which one the printer keeps is unverified);
+3. `[printer] cutter_stop_position` for a label with `cut`, else `[printer] stop_position` (mm, at
+   most 253.746), both sent unscaled; unset `stop_position` takes the model default, which only
+   allegro-2 has (67.4 mm, `<STX>f265`);
+4. otherwise the printer's own setting.
+
+A model with `<STX>Kf` (PE42, PE43, the Ovations, `permissive`) also sends `present_distance` as
+`<STX>Kf` beside that stop; which one the printer follows is unverified. Past 9999/100 in it is
+refused (`present_distance_too_large`). Models without `<STX>f` (`generic`, `prodigy`,
+`prodigy-152`) send neither: a label's own `stop_position` or `present_distance` is a deviation
+(`stop_position_unsupported`, `present_distance_unsupported`; an error under `strict`), a
+configured stop only the info `configured_stop_position_unsupported` (prints under `strict` too).
 
 ## Reading a DPL file, and the printer's own controls
 
@@ -116,7 +153,12 @@ printer unreachable, broken config).
   `--printer NAME` picks its model, address, size and scale factors; `--printer` also still takes
   a URI. `render` and `validate` take it too.
 - Lengths print slightly off nominal, and differently per printer (an Allegro 2 printed 0.977 of
-  nominal along the feed). Calibrate once per printer:
+  nominal along the feed; a scale is printed / nominal length). The `allegro-2` model ships values
+  calibrated on one Allegro 2 (`scale_along` 0.976, `offset_along` -0.25 mm, tear-off
+  `stop_position` 67.4 mm), named in the info finding `model_defaults_applied`; every other model
+  starts neutral. A value set in the config or with `--set printer.KEY=VALUE` (`scale_across`,
+  `scale_along`, `offset_across`, `offset_along`, `stop_position`) wins, even a neutral one.
+  Calibrate once per printer:
   1. `datamax-dpl calibrate print --printer NAME` prints two labels with the printer's current
      factors: the ACROSS label (a thin frame 2 mm in from every edge, so 96 mm on a 100 mm
      label, with a bar inside it) and the
@@ -139,9 +181,19 @@ printer unreachable, broken config).
 - Fonts and images sized in printer dots are NOT scaled: on a printer whose feed prints short they
   stay the size the dots give. Positions, lines, boxes, barcode heights and shapes drawn as images
   are corrected.
-- Fields must not overlap on models without field attributes (the Allegro 2 among them): the
-  printer XORs overlapping fields, so dots two fields share print WHITE. A box over an image of the
-  same size shows only what differs.
+
+## Overlapping fields
+
+- Overlapping fields combine by the label's `attribute` (1 XOR, 2 transparent, 3 opaque; a text
+  field's own `attribute` overrides it; XOR when unset). Models without the `A` command
+  (`allegro`, `allegro-2`, `prodigy`, `prodigy-152`, `prodigy-plus`, `prodigy-plus-152`,
+  `generic`) always XOR: dots two fields share print WHITE, so a box over an image of the same
+  size shows only what differs. `preview` draws whichever applies.
+- There, `"attribute": 2` merges overlapping lines, boxes, circles, polygons, QR Codes and images
+  with a `bitmap` into one downloaded image (`transparency_emulated`; it counts against the image
+  memory budget). Text, barcodes and stored images (an `image` without `bitmap`) cannot be merged
+  and still XOR (`transparency_not_emulated`). `strict` refuses both.
+  Unverified on paper; otherwise keep fields apart.
 
 ## Library
 
@@ -164,12 +216,15 @@ Settings live in a layered config: `datamax-dpl config` shows the merged result,
 
 `list_profiles()` and `get_profile("dmx-600")` return the model profiles (a profile holds what
 `capabilities` shows); `fill_label(label, record)` fills the placeholders for one record;
-`render_preview_png(label, get_profile(model))` returns the preview PNG bytes; `explain(data)`
+`render_preview_png(label, get_profile(model), sent_as=build_job(label, options).sent_as)`
+returns the preview PNG bytes (without `sent_as` it draws no halving or merging); `explain(data)`
 reads DPL bytes back (`.commands`, `.label`, `.problems`). Every name on this page imports from
 `datamax_dpl`.
 
 ## What it cannot tell you
 
 Everything comes from the 1998 Datamax DPL manual, and only an Allegro 2 has been checked on
-paper (text, lines, boxes, images, rotation, four barcode types, lengths). No QR codes. The
-preview shows the design at nominal size; if a printed label differs from it, believe the label.
+paper (text, lines, boxes, images, rotation, four barcode types, lengths). Not yet printed: QR
+Codes, magnified and halved images, merged transparent fields, box fills on models with polygons,
+and which stop wins when `<STX>f` and `<STX>Kf` are both sent. The preview shows the design at
+nominal size; if a printed label differs from it, believe the label.

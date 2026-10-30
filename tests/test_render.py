@@ -718,6 +718,22 @@ def test_a_present_distance_past_four_digits_is_refused(model: str, unit: str, d
     assert error.message == "present distance takes at most 9999/100 in"
 
 
+# The bound applies to the rounded hundredths, not to the millimetres: 2539.87 mm is 9999.49/100 in
+# and still rounds to 9999, while 2539.88 mm (9999.53) rounds to 10000.
+@pytest.mark.os_agnostic
+def test_a_present_distance_that_rounds_to_four_digits_is_sent() -> None:
+    result = _present_job("pe42", "mm", 2539.87)
+    assert _present_commands(result) == [STX + b"Kf9999"]
+    assert result.errors == ()
+
+
+@pytest.mark.os_agnostic
+def test_a_present_distance_that_rounds_past_four_digits_is_refused() -> None:
+    result = _present_job("pe42", "mm", 2539.88)
+    assert _present_commands(result) == []
+    assert [error.code for error in result.errors] == [FindingCode.PRESENT_DISTANCE_TOO_LARGE]
+
+
 # ======================== the effective calibration, shared with the CLI ========================
 
 
