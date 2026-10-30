@@ -122,8 +122,10 @@ def test_a_cycle_prints_asks_status_three_times_and_connects_bare(
     assert server.connections == [job, STATUS_REQUEST, STATUS_REQUEST, STATUS_REQUEST, b"", b"", b""]
     assert rows[0]["bytes"] == len(job)
     assert all(row["answer"]["idle"] is True for row in rows[1:4])
-    connects = [row["elapsed"] for row in rows[4:]]
-    assert all(later - earlier >= _INTERVAL * 0.9 for earlier, later in itertools.pairwise(connects))
+    # The interval runs from one connect's START to the next; a row is stamped when its connect
+    # ends, so a slow connect followed by a fast one puts the stamps closer than the interval.
+    starts = [row["elapsed"] - row["answer"]["seconds"] for row in rows[4:]]
+    assert all(later - earlier >= _INTERVAL * 0.9 for earlier, later in itertools.pairwise(starts))
     assert capsys.readouterr().out.splitlines() == (tmp_path / "cycles.jsonl").read_text(encoding="utf-8").splitlines()
 
 
