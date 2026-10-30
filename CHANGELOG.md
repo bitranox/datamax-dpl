@@ -165,11 +165,11 @@ All notable changes to this project are documented here. The format follows
 - README: a new section, "Where the label stops", gives the order in which
   a job's stop is decided (the label's `stop_position`, its
   `present_distance`, the configured `cutter_stop_position` or
-  `stop_position`, the model's default, the printer's own setting) and what
-  PE42/PE43/Ovation and the models without `<STX>f` do differently;
-  docs/label-spec.md and CONFIG.md link to it. CONFIG.md no longer says a
-  present distance always replaces the configured stop: PE42, PE43 and the
-  Ovation models send it as `<STX>Kf` beside that stop.
+  `stop_position`, the model's default, the printer's own setting), what a
+  model with `<STX>Kf` sends beside that stop, and what the models without
+  `<STX>f` do; docs/label-spec.md and CONFIG.md link to it. CONFIG.md no
+  longer says a present distance always replaces the configured stop: a
+  model with `<STX>Kf` sends it beside that stop.
 
 ### Fixed
 

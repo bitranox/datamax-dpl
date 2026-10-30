@@ -501,8 +501,8 @@ is sent: the job still prints and reports the info finding `configured_stop_posi
 There is no lower bound beyond 0: `stop_position = 0.1` sends `<STX>f000`, which the manual allows,
 but a stop has an effect only past the start-of-print position set on the printer. A label's own
 `stop_position`, or a `present_distance` a model without `<STX>Kf` sends as one, replaces the
-configured stop; on PE42, PE43 and the Ovation models a `present_distance` goes out as `<STX>Kf`
-beside it. The whole order is in the README under
+configured stop; on a model with `<STX>Kf` (see [docs/capabilities.md](docs/capabilities.md)) a
+`present_distance` goes out as `<STX>Kf` beside it. The whole order is in the README under
 [Where the label stops](README.md#where-the-label-stops).
 
 The URI forms and what each channel can do are in the README; the models, features and fallbacks

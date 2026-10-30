@@ -236,16 +236,15 @@ The stop positions are configured beside the calibration; which one a job sends 
 ## Where the label stops
 
 After printing, the printer feeds the label to a stop position: the tear-off edge, the cutter, or
-where it is presented for removal. The first of these that applies decides it:
+where it is presented for removal. The job's stop position (`<STX>f`) comes from the first of
+these that applies:
 
 1. The label's `stop_position`, in the label's unit, sent as `<STX>f` and corrected by the
    printer's `scale_along` like every length on the label. It wins over every configured stop,
    in a job that cuts too.
-2. The label's `present_distance`. PE42, PE43 and the Ovation models send it as `<STX>Kf`, beside
-   the stop the job sends anyway (steps 1 and 3). Every other model with `<STX>f` sends it as the
-   label's stop position instead, measured from the sensor rather than from the next label, and
-   reports `present_distance_unsupported`; with `stop_position` also set, both go out and the
-   present distance, sent second, is the one in force.
+2. On a model with `<STX>f` but no `<STX>Kf`, the label's `present_distance`, sent as the label's
+   stop position (`present_distance_unsupported`: it is then measured from the sensor rather than
+   from the next label).
 3. A configured stop: `[printer] cutter_stop_position` for a job that cuts (the label has `cut`),
    `[printer] stop_position` for every other job. Both are sent exactly as configured, without
    scale or offset. An unset `stop_position` takes the model's default, which only `allegro-2`
@@ -253,7 +252,20 @@ where it is presented for removal. The first of these that applies decides it:
    then sends no stop.
 4. Nothing: the printer keeps its own setting.
 
-`generic`, `prodigy` and `prodigy-152` have no `<STX>f`. There a label's `stop_position` is not
+A `present_distance` can also go out beside that stop:
+
+- On a model with `<STX>Kf` (the `present_distance` column in
+  [docs/capabilities.md](docs/capabilities.md): PE42, PE43, the Ovation models and `permissive`),
+  it is sent as `<STX>Kf` in addition to the stop from the list. The manual (page 53) says
+  `<STX>Kf` has the same effect as `<STX>f`; which of the two takes effect when both are sent is
+  not checked on hardware. Past 9999/100 inch it is refused (`present_distance_too_large`).
+- On a model with `<STX>f` but no `<STX>Kf`, a label that sets both `stop_position` and
+  `present_distance` sends two `<STX>f`: `stop_position` first, the present distance second
+  (`present_distance_unsupported`). A printer that applies the last `<STX>f` it receives stops at
+  the present distance; not checked on hardware.
+
+`generic`, `prodigy` and `prodigy-152` have no `<STX>f` (the `stop_position` column in
+[docs/capabilities.md](docs/capabilities.md)). There a label's `stop_position` is not
 sent (`stop_position_unsupported`), a `present_distance` is ignored (`present_distance_unsupported`),
 and a configured stop is not sent either (the info `configured_stop_position_unsupported`; the
 job still prints, under `strict` too). A stop past 999/100 inch is refused

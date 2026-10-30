@@ -655,6 +655,24 @@ def test_a_model_with_a_present_distance_command_sends_it_beside_the_configured_
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("label_fields", "options", "stop"),
+    [
+        ({"stop_position": 60}, {}, b"f236"),
+        ({"cut": {"every": 1}}, {"cutter_installed": True, "cutter_stop_position_mm": 80}, b"f315"),
+    ],
+    ids=["label-stop", "cutter-stop"],
+)
+def test_a_present_distance_command_goes_out_beside_whichever_stop_the_job_sends(
+    label_fields: dict[str, object], options: dict[str, object], stop: bytes
+) -> None:
+    """<STX>Kf is added to the stop, never chosen instead of it: the label's own and the cutter's too."""
+    result = _stop_job({"present_distance": 30, **label_fields}, model="pe42", **options)
+    assert result.data.startswith(STX + b"n" + STX + stop + STX + b"Kf0118" + STX + b"L\r")
+    assert result.findings == ()
+
+
+@pytest.mark.os_agnostic
 def test_a_present_distance_on_a_model_with_neither_command_is_ignored() -> None:
     """The Prodigy has no ``<STX>Kf`` and no ``<STX>f``, so there is nothing to send it as."""
     result = _stop_job({"present_distance": 30}, model="prodigy")
