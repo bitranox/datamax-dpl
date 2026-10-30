@@ -11,6 +11,13 @@ from .uri import ClosingTransport, TcpUri, check_timeout, transport_error
 
 #: Longest answer read before the printer is judged to be sending something other than an answer.
 MAX_ANSWER_BYTES = 64 * 1024
+#: Longest answer :meth:`TcpTransport.read_answer` collects. That answer (the ``<STX>W`` module
+#: directory) has no terminator: per module about 46 bytes of header lines plus one line of at most
+#: 16 characters and ``<CR>`` per stored name, for up to five modules (A-E). The manual does not
+#: bound the number of names, so 1 MiB (about 60,000 full-length names) is the margin over any
+#: listing a 256K or 512K module can hold, while a printer streaming something endless is still
+#: cut off.
+MAX_IDLE_ANSWER_BYTES = 1024 * 1024
 #: Largest piece handed to one send call. Windows takes a single send of any size whole while its
 #: buffer is not full (a 64 MB job "sent" to a printer reading nothing, in 0.02 s), so a job sent
 #: in one call never times out there; pieces no larger than its default 64 KiB send buffer block
@@ -109,6 +116,44 @@ class TcpTransport(ClosingTransport):
         finally:
             self._sock.settimeout(self._timeout)
 
+    def read_answer(self, request: bytes, *, timeout: float, idle: float) -> bytes:
+        """Send ``request`` and return every byte until ``idle`` seconds pass without a new one.
+
+        Bytes already waiting before the request are discarded, as in :meth:`query`. A printer
+        that closes the connection after its first byte has ended its answer, so what came is
+        returned.
+
+        Args:
+            request: The bytes to send.
+            timeout: Seconds to wait for the first byte.
+            idle: Seconds of silence that end the answer.
+
+        Returns:
+            The answer, at most :data:`MAX_IDLE_ANSWER_BYTES` long.
+
+        Raises:
+            PrinterTimeoutError: No byte within ``timeout`` seconds.
+            PrinterProtocolError: More than :data:`MAX_IDLE_ANSWER_BYTES` arrived.
+            TransportError: The connection failed, or the printer closed it before answering.
+            ValueError: ``timeout`` or ``idle`` is not a usable number of seconds.
+        """
+        deadline = time.monotonic() + check_timeout(timeout)
+        check_timeout(idle, name="idle")
+        self._ensure_open()
+        self._discard_waiting()
+        self.send(request)
+        try:
+            answer = bytearray(self._receive(deadline - time.monotonic(), received=0))
+            while chunk := self._receive_until_idle(idle, room=MAX_IDLE_ANSWER_BYTES + 1 - len(answer)):
+                answer += chunk
+                if len(answer) > MAX_IDLE_ANSWER_BYTES:
+                    raise PrinterProtocolError(
+                        f"tcp {self._uri.target}: answer longer than {MAX_IDLE_ANSWER_BYTES} bytes"
+                    )
+            return bytes(answer)
+        finally:
+            self._sock.settimeout(self._timeout)
+
     def close(self) -> None:
         """Close the socket; safe to call twice."""
         self._sock.close()
@@ -162,6 +207,16 @@ class TcpTransport(ClosingTransport):
             raise TransportError(f"tcp {self._uri.target}: the printer closed the connection ({received} bytes read)")
         return chunk
 
+    def _receive_until_idle(self, idle: float, *, room: int) -> bytes:
+        """Receive up to ``room`` bytes; empty once ``idle`` seconds pass silently or the printer hangs up."""
+        self._sock.settimeout(idle)
+        try:
+            return self._sock.recv(min(_RECV_CHUNK, room))
+        except TimeoutError:
+            return b""
+        except OSError as exc:
+            raise transport_error(self._uri, action="read from", error=exc) from exc
+
 
 def _connect_retrying_refusals(uri: TcpUri, *, timeout: float) -> socket.socket:
     """Connect, retrying a refused connection while the retry window is open.
@@ -191,4 +246,4 @@ def _nth(data: bytearray, needle: bytes, count: int) -> int:
     return index
 
 
-__all__ = ["MAX_ANSWER_BYTES", "REFUSED_RETRY_SECONDS", "TcpTransport"]
+__all__ = ["MAX_ANSWER_BYTES", "MAX_IDLE_ANSWER_BYTES", "REFUSED_RETRY_SECONDS", "TcpTransport"]

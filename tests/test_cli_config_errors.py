@@ -71,6 +71,7 @@ NEEDS_CONFIG_ENVELOPE: dict[str, list[str]] = {
         "preview": ["label.json", "-o", "out.png"],
         "status": [],
         "detect": [],
+        "memory": [],
         "cut": [],
         "feed": [],
         "reset": [],

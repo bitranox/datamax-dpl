@@ -166,6 +166,21 @@ def test_stdout_cannot_answer_a_query() -> None:
 
 
 @pytest.mark.os_agnostic
+def test_no_one_way_channel_can_read_an_answer_ended_by_silence(tmp_path: Path) -> None:
+    device = tmp_path / "lp0"
+    device.write_bytes(b"")
+    channels = (
+        DeviceTransport.open(DeviceUri(path=str(device))),
+        FileTransport.open(FileUri(path=str(tmp_path / "job.dpl"))),
+        StdoutTransport(io.BytesIO()),
+    )
+    for printer in channels:
+        with printer, pytest.raises(UnsupportedOperationError, match="is one-way: it cannot read the printer's answer"):
+            printer.read_answer(b"\x02WG", timeout=1.0, idle=0.5)
+    assert (tmp_path / "job.dpl").read_bytes() == b""
+
+
+@pytest.mark.os_agnostic
 def test_writing_to_a_closed_stdout_stream_is_a_transport_error() -> None:
     stream = io.BytesIO()
     printer = StdoutTransport(stream)

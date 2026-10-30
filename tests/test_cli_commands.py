@@ -7,10 +7,12 @@ composition wires, so the bytes a real printer would receive are asserted exactl
 from __future__ import annotations
 
 import base64
+import dataclasses
 import json
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from lib_layered_config import Config
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory import FakeCamera, RecordingPrinter
@@ -358,3 +360,113 @@ def test_escaped_braces_in_a_batch_are_not_reported_as_placeholders(cli_runner: 
     result = run(cli_runner, ["--json", "render", write_json(tmp_path / "l.json", label), "--data", str(data)])
     assert result.exit_code == 0, result.output
     assert "placeholders_unfilled" not in {f["code"] for f in envelope(result)["data"]["findings"]}
+
+
+#: The manual's sample answer to ``<STX>WG`` (see tests/test_memory.py).
+DIRECTORY = b"MODULE: A\rAVAILABLE BYTES IN MODULE:00049083\rMODULE: B\rLOGO\rCAM\rAVAILABLE BYTES IN MODULE:00257919\r"
+
+
+@pytest.mark.os_agnostic
+def test_memory_prints_the_parsed_directory_envelope(cli_runner: CliRunner) -> None:
+    printer = RecordingPrinter(answers={b"\x02WG": DIRECTORY})
+    result = run(cli_runner, ["--json", "memory", "--kind", "graphic", "--printer", PRINTER], factory(printer))
+    assert result.exit_code == 0, result.output
+    document = envelope(result)
+    assert (document["ok"], document["command"]) == (True, "memory")
+    assert document["data"] == {
+        "printer": PRINTER,
+        "directories": [
+            {
+                "kind": "graphic",
+                "parsed": True,
+                "modules": [
+                    {"module": "A", "names": [], "available_bytes": 49083},
+                    {"module": "B", "names": ["LOGO", "CAM"], "available_bytes": 257919},
+                ],
+                "raw": DIRECTORY.decode("ascii"),
+            }
+        ],
+    }
+    assert printer.queries == [b"\x02WG"]
+
+
+@pytest.mark.os_agnostic
+def test_memory_asks_for_graphics_by_default(cli_runner: CliRunner) -> None:
+    printer = RecordingPrinter(answers={b"\x02WG": DIRECTORY})
+    result = run(cli_runner, ["memory", "--printer", PRINTER], factory(printer))
+    assert result.exit_code == 0, result.output
+    assert printer.queries == [b"\x02WG"]
+
+
+@pytest.mark.os_agnostic
+def test_memory_kind_all_asks_fonts_graphics_and_formats(cli_runner: CliRunner) -> None:
+    answers = {b"\x02WF": b"No Modules Available\r", b"\x02WG": DIRECTORY, b"\x02WL": b"MODULE: C\rSHIP\r"}
+    printer = RecordingPrinter(answers=answers)
+    result = run(cli_runner, ["--json", "memory", "--kind", "all", "--printer", PRINTER], factory(printer))
+    assert result.exit_code == 0, result.output
+    assert [d["kind"] for d in envelope(result)["data"]["directories"]] == ["font", "graphic", "format"]
+    assert printer.queries == [b"\x02WF", b"\x02WG", b"\x02WL"]
+
+
+@pytest.mark.os_agnostic
+def test_memory_human_view_lists_modules_names_and_free_bytes(cli_runner: CliRunner) -> None:
+    answers = {b"\x02WF": b"No Modules Available\r", b"\x02WG": DIRECTORY, b"\x02WL": b"?"}
+    result = run(
+        cli_runner, ["memory", "--kind", "all", "--printer", PRINTER], factory(RecordingPrinter(answers=answers))
+    )
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines() == [
+        "font:",
+        "  no modules",
+        "graphic:",
+        "  module A: 49083 bytes free",
+        "  module B: 257919 bytes free",
+        "    LOGO",
+        "    CAM",
+        "format:",
+        "  answer not understood: '?'",
+    ]
+
+
+@pytest.mark.os_agnostic
+def test_memory_reports_an_answer_it_cannot_parse_with_exit_0(cli_runner: CliRunner) -> None:
+    printer = RecordingPrinter(answers={b"\x02WG": b"VER DA - 01.01\r"})
+    result = run(cli_runner, ["--json", "memory", "--printer", PRINTER], factory(printer))
+    assert result.exit_code == 0, result.output
+    directory = envelope(result)["data"]["directories"][0]
+    assert (directory["parsed"], directory["modules"], directory["raw"]) == (False, [], "VER DA - 01.01\r")
+
+
+@pytest.mark.os_agnostic
+def test_memory_without_an_answer_is_a_timeout_with_exit_2(cli_runner: CliRunner) -> None:
+    result = run(cli_runner, ["--json", "memory", "--printer", PRINTER], factory(RecordingPrinter()))
+    assert result.exit_code == 2
+    assert envelope(result)["error"] == "PrinterTimeoutError"
+
+
+@pytest.mark.os_agnostic
+def test_memory_on_a_one_way_channel_is_an_error(cli_runner: CliRunner) -> None:
+    result = run(cli_runner, ["--json", "memory", "--printer", PRINTER], factory(RecordingPrinter(bidirectional=False)))
+    assert result.exit_code == 2
+    assert envelope(result)["error"] == "UnsupportedOperationError"
+
+
+@pytest.mark.os_agnostic
+def test_memory_refuses_an_unknown_kind_listing_the_choices(cli_runner: CliRunner) -> None:
+    result = run(cli_runner, ["memory", "--kind", "logo", "--printer", PRINTER])
+    assert result.exit_code == 2
+    assert "'all', 'font', 'format', 'graphic'" in result.output
+
+
+@pytest.mark.os_agnostic
+def test_memory_reaches_a_printer_named_in_the_configuration(cli_runner: CliRunner) -> None:
+    printer = RecordingPrinter(answers={b"\x02WG": DIRECTORY})
+    config = Config({"printers": {"lager": {"model": "allegro-2", "uri": PRINTER, "timeout": 4.0}}}, {})
+
+    def get_config(**_kwargs: object) -> Config:
+        return config
+
+    services = dataclasses.replace(build_testing(printer=printer), get_config=get_config)
+    result = run(cli_runner, ["memory", "--printer", "lager"], lambda: services)
+    assert result.exit_code == 0, result.output
+    assert printer.opened == [(PRINTER, 4.0)]

@@ -1,21 +1,31 @@
-"""Printer commands: print, status, detect, single commands, preview, capture and verify."""
+"""Printer commands: print, status, detect, memory, single commands, preview, capture and verify."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 import rich_click as click
 from pydantic import BaseModel, ConfigDict
 
-from ....application.use_cases import PrinterCommand, detect_printer, print_result, query_status, send_command
+from ....application.use_cases import (
+    DIRECTORY_IDLE_SECONDS,
+    PrinterCommand,
+    detect_printer,
+    print_result,
+    query_status,
+    read_memory_directory,
+    send_command,
+)
 from ....application.verify import verify_print
 from ....domain.enums import StatusProblem
+from ....domain.memory import MemoryDirectory, MemoryKind
 from ....domain.preview import canvas_for
 from ....domain.profiles import get_profile
 from ....domain.render import RenderResult
-from ....domain.status import PrinterStatus
+from ....domain.status import MEMORY_DIRECTORY_REQUESTS, PrinterStatus
 from ...preview import pillow_available, render_preview_png
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..label_io import load_label, load_records
@@ -27,6 +37,8 @@ from .labels import render_loaded
 from .model_options import loaded_config, printer_options_decorator, render_options_decorator, resolve_settings
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from ..context import CLIContext
 
 _DATA_HELP = "Data records (CSV, JSON array or JSON lines) filling {name} placeholders, one label each."
@@ -98,6 +110,75 @@ def cli_detect(ctx: click.Context, **given: Any) -> None:
         return CommandResult(ok=bool(report.detection.candidates), payload=report, human=human)
 
     run_command(ctx, command="detect", body=body)
+
+
+class MemoryPayload(BaseModel):
+    """Result of ``memory``: one directory per kind asked."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    printer: str
+    directories: list[MemoryDirectory]
+
+
+#: ``--kind`` value that lists fonts, graphics and formats, in that order.
+ALL_KINDS = "all"
+#: Each ``--kind`` value with the kinds it asks for.
+_KIND_CHOICES: Mapping[str, tuple[MemoryKind, ...]] = MappingProxyType(
+    {**{str(k): (k,) for k in MEMORY_DIRECTORY_REQUESTS}, ALL_KINDS: tuple(MEMORY_DIRECTORY_REQUESTS)}
+)
+
+
+@click.command("memory", context_settings=CLICK_CONTEXT_SETTINGS)
+@option(
+    "--kind",
+    type=click.Choice(sorted(str(k) for k in _KIND_CHOICES)),
+    default="graphic",
+    show_default=True,
+    help="Which stored data to list: fonts, graphics, label formats, or all three.",
+)
+@option(
+    "--idle",
+    type=float,
+    default=DIRECTORY_IDLE_SECONDS,
+    show_default=True,
+    help="Seconds of silence that end the printer's answer.",
+)
+@printer_options_decorator
+@click.pass_context
+def cli_memory(ctx: click.Context, kind: str, idle: float, **given: Any) -> None:
+    """List the printer's memory modules (<STX>W): stored names and free bytes per module."""
+
+    def body(cli_ctx: CLIContext) -> CommandResult:
+        settings = resolve_settings(cli_ctx, **given)
+        uri = require_uri(settings)
+        directories = read_memory_directory(
+            kinds=_KIND_CHOICES[kind],
+            uri=uri,
+            timeout=settings.timeout,
+            idle=idle,
+            open_printer=cli_ctx.services.open_printer,
+        )
+        payload = MemoryPayload(printer=uri, directories=list(directories))
+        return CommandResult(ok=True, payload=payload, human="\n".join(_directory_lines(directories)))
+
+    run_command(ctx, command="memory", body=body)
+
+
+def _directory_lines(directories: tuple[MemoryDirectory, ...]) -> list[str]:
+    """The human view: per kind, each module with its free bytes and the names it holds."""
+    lines: list[str] = []
+    for directory in directories:
+        lines.append(f"{directory.kind}:")
+        if not directory.parsed:
+            lines.append(f"  answer not understood: {directory.raw!r}")
+        elif not directory.modules:
+            lines.append("  no modules")
+        for module in directory.modules:
+            free = "unknown" if module.available_bytes is None else str(module.available_bytes)
+            lines.append(f"  module {module.module}: {free} bytes free")
+            lines.extend(f"    {name}" for name in module.names)
+    return lines
 
 
 class SentPayload(BaseModel):
@@ -257,6 +338,7 @@ __all__ = [
     "cli_cut",
     "cli_detect",
     "cli_feed",
+    "cli_memory",
     "cli_pause",
     "cli_preview",
     "cli_print",

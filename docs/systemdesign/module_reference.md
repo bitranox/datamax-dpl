@@ -86,6 +86,7 @@ turn the outcome into output and an exit code.
 - `png.py` - minimal PNG writer.
 - `decoder.py` - reads DPL back: explains commands, rebuilds labels.
 - `status.py` - status requests and parsing of the answers.
+- `memory.py` - the memory module directory (`<STX>W`) and its lenient parser.
 - `detect.py` - suggests model profiles from printer answers.
 - `camera.py` - camera settings and captured images.
 - `errors.py` - domain exception types.
@@ -93,7 +94,7 @@ turn the outcome into output and an exit code.
 ### Application (`src/datamax_dpl/application/`)
 
 - `ports.py` - Protocols the adapters implement (printer, camera, clock, configuration, logging).
-- `use_cases.py` - render one label or a batch, print, send commands, query status, detect.
+- `use_cases.py` - render one label or a batch, print, send commands, query status, detect, read the memory directory.
 - `verify.py` - print, wait for the printer, photograph, return photo and expected preview.
 
 ### Adapters (`src/datamax_dpl/adapters/`)
@@ -101,7 +102,7 @@ turn the outcome into output and an exit code.
 - `cli/main.py` - entry point and execution wrapper.
 - `cli/root.py` - root command group and global options (`--json`, `--set`, `--profile` ...).
 - `cli/commands/labels.py` - render, validate, explain, schema, models, capabilities.
-- `cli/commands/printer.py` - print, status, detect, reset/cancel/pause/feed/cut, preview, capture, verify.
+- `cli/commands/printer.py` - print, status, detect, memory, reset/cancel/pause/feed/cut, preview, capture, verify.
 - `cli/commands/model_options.py` - options shared by rendering and printer commands.
 - `cli/commands/config.py` - config, config-deploy, config-generate-examples.
 - `cli/commands/info.py` - info.

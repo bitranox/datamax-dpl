@@ -18,12 +18,14 @@ from ..domain.enums import Severity
 from ..domain.errors import LabelRejectedError, PrinterProtocolError, PrinterTimeoutError
 from ..domain.findings import Finding
 from ..domain.label import Cut
+from ..domain.memory import MemoryDirectory, parse_module_directory
 from ..domain.placeholders import fill_label
 from ..domain.render import RenderResult, build_job
 from ..domain.status import (
     CANCEL,
     CUT_NOW,
     FORM_FEED,
+    MEMORY_DIRECTORY_REQUESTS,
     MEMORY_REQUEST,
     RESET,
     SERIAL_TEST_REQUEST,
@@ -37,9 +39,10 @@ from ..domain.status import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Iterable, Mapping, Sequence
 
     from ..domain.label import Label
+    from ..domain.memory import MemoryKind
     from ..domain.render_context import RenderOptions
     from .ports import OpenPrinter, PrinterTransport
 
@@ -164,6 +167,50 @@ def query_status(*, uri: str, timeout: float, open_printer: OpenPrinter) -> Prin
         return parse_ascii_status(printer.query(STATUS_REQUEST, timeout=timeout))
 
 
+#: Seconds of silence that end a ``<STX>W`` directory answer, which has no terminator. A printer
+#: sends the listing in one go, so a pause this long means it is done; a serial line at 9600 baud
+#: moves about a thousand bytes in that time.
+DIRECTORY_IDLE_SECONDS = 1.0
+
+
+def read_memory_directory(
+    *,
+    kinds: Sequence[MemoryKind],
+    uri: str,
+    timeout: float,
+    open_printer: OpenPrinter,
+    idle: float = DIRECTORY_IDLE_SECONDS,
+) -> tuple[MemoryDirectory, ...]:
+    """Ask the printer for the memory module directory of each kind (``<STX>W``), in order.
+
+    An answer the parser cannot read is returned with ``parsed`` False and its raw text, never
+    raised: the printer did answer, and the text is what a reader needs to judge it.
+
+    Args:
+        kinds: The kinds to list, each asked separately over one connection.
+        uri: The printer.
+        timeout: Seconds for the connection and for the first byte of each answer.
+        open_printer: Opens the channel.
+        idle: Seconds of silence that end an answer.
+
+    Returns:
+        One directory per kind, in the order of ``kinds``.
+
+    Raises:
+        UnsupportedOperationError: The channel cannot read answers (file, stdout, device file).
+        PrinterTimeoutError: The printer sent nothing in time.
+        PrinterProtocolError: The answer ran past the transport's size bound.
+        TransportError: The printer could not be reached.
+    """
+    with closing(open_printer(uri, timeout=timeout)) as printer:
+        return tuple(
+            parse_module_directory(
+                printer.read_answer(MEMORY_DIRECTORY_REQUESTS[kind], timeout=timeout, idle=idle), kind=kind
+            )
+            for kind in kinds
+        )
+
+
 #: Lines in the ``<STX>KQ`` memory report (docs/dpl-reference.md section 8).
 MEMORY_REPORT_LINES = 8
 
@@ -204,6 +251,7 @@ def detect_printer(*, uri: str, timeout: float, open_printer: OpenPrinter) -> De
 
 
 __all__ = [
+    "DIRECTORY_IDLE_SECONDS",
     "BatchResult",
     "DetectReport",
     "PrintReport",
@@ -211,6 +259,7 @@ __all__ = [
     "detect_printer",
     "print_result",
     "query_status",
+    "read_memory_directory",
     "render_batch",
     "render_label",
     "send_bytes",

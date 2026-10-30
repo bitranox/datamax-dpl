@@ -13,7 +13,7 @@ import pytest
 
 from datamax_dpl.adapters.transport import open_printer
 from datamax_dpl.adapters.transport.serial import SerialTransport
-from datamax_dpl.adapters.transport.tcp import MAX_ANSWER_BYTES
+from datamax_dpl.adapters.transport.tcp import MAX_ANSWER_BYTES, MAX_IDLE_ANSWER_BYTES
 from datamax_dpl.adapters.transport.uri import SerialUri
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
 
@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 
 LOOP = SerialUri(path="loop://")
 JOIN_SECONDS = 5.0
+#: The manual's sample answer to ``<STX>WG`` (see tests/test_memory.py).
+DIRECTORY = b"MODULE: A\rAVAILABLE BYTES IN MODULE:00049083\rMODULE: B\rLOGO\rCAM\rAVAILABLE BYTES IN MODULE:00257919\r"
 
 
 # --- loop:// (every platform) -----------------------------------------------------------------
@@ -71,6 +73,34 @@ def test_query_arguments_are_checked() -> None:
 
 
 @pytest.mark.os_agnostic
+def test_read_answer_on_a_loop_port_returns_the_echo_after_the_silence() -> None:
+    with SerialTransport.open(LOOP, timeout=1.0) as printer:
+        printer.send(b"stale answer\r")
+        assert printer.read_answer(DIRECTORY, timeout=1.0, idle=0.3) == DIRECTORY
+
+
+@pytest.mark.os_agnostic
+def test_read_answer_with_no_byte_at_all_times_out_within_the_timeout() -> None:
+    with SerialTransport.open(LOOP, timeout=1.0) as printer:
+        started = time.monotonic()
+        with pytest.raises(PrinterTimeoutError, match="no complete answer in time"):
+            printer.read_answer(b"", timeout=0.3, idle=0.2)
+        assert 0.25 <= time.monotonic() - started < 1.5
+
+
+@pytest.mark.os_agnostic
+def test_read_answer_arguments_are_checked_and_a_closed_port_refuses() -> None:
+    printer = SerialTransport.open(LOOP, timeout=1.0)
+    with pytest.raises(ValueError, match="idle must be above 0"):
+        printer.read_answer(b"x", timeout=1.0, idle=-1.0)
+    with pytest.raises(ValueError, match="timeout must be above 0"):
+        printer.read_answer(b"x", timeout=0.0, idle=0.5)
+    printer.close()
+    with pytest.raises(TransportError, match="serial loop://"):
+        printer.read_answer(b"x", timeout=1.0, idle=0.5)
+
+
+@pytest.mark.os_agnostic
 @pytest.mark.parametrize("path", ["bogus://nowhere", "/nonexistent-dir/ttyS99"])
 def test_a_port_that_cannot_be_opened_is_a_transport_error(path: str) -> None:
     with pytest.raises(TransportError, match="cannot open serial"):
@@ -116,6 +146,13 @@ class DrainingPort:
 
     def read_until(self, expected: bytes = b"\n", size: int | None = None) -> bytes:
         return b""
+
+    def read(self, size: int = 1) -> bytes:
+        return b""
+
+    @property
+    def in_waiting(self) -> int:
+        return 0
 
     def reset_input_buffer(self) -> None:
         return None
@@ -254,3 +291,38 @@ def test_a_pty_answer_longer_than_the_bound_is_a_protocol_error(pty_printer: Pty
         thread.start()
         with pytest.raises(PrinterProtocolError, match="no answer terminator within"):
             printer.query(b"\x02KQ", timeout=1.5)
+
+
+@pytest.mark.os_posix
+@pytest.mark.skipif(sys.platform == "win32", reason="os.openpty is POSIX only")
+def test_a_pty_directory_in_pieces_is_joined_and_ends_at_the_silence(pty_printer: PtyPrinter) -> None:
+    def answer() -> None:
+        pty_printer.read(3, deadline=time.monotonic() + JOIN_SECONDS)
+        for line in DIRECTORY.split(b"\r")[:-1]:
+            os.write(pty_printer.master, line + b"\r")
+            time.sleep(0.02)
+        time.sleep(1.2)
+        os.write(pty_printer.master, b"LATE\r")
+
+    with SerialTransport.open(SerialUri(path=pty_printer.path, baud=115200), timeout=2.0) as printer:
+        thread = threading.Thread(target=answer, daemon=True)
+        thread.start()
+        assert printer.read_answer(b"\x02WG", timeout=2.0, idle=0.4) == DIRECTORY
+        thread.join(JOIN_SECONDS)
+    assert bytes(pty_printer.received) == b"\x02WG"
+
+
+@pytest.mark.os_posix
+@pytest.mark.skipif(sys.platform == "win32", reason="os.openpty is POSIX only")
+def test_a_pty_answer_longer_than_the_read_answer_bound_is_refused(pty_printer: PtyPrinter) -> None:
+    def flood() -> None:
+        pty_printer.read(3, deadline=time.monotonic() + JOIN_SECONDS)
+        rest = memoryview(b"x" * (MAX_IDLE_ANSWER_BYTES + 10))
+        while rest:
+            rest = rest[os.write(pty_printer.master, rest) :]
+
+    with SerialTransport.open(SerialUri(path=pty_printer.path, baud=115200), timeout=1.5) as printer:
+        thread = threading.Thread(target=flood, daemon=True)
+        thread.start()
+        with pytest.raises(PrinterProtocolError, match=f"answer longer than {MAX_IDLE_ANSWER_BYTES} bytes"):
+            printer.read_answer(b"\x02WG", timeout=1.5, idle=0.5)

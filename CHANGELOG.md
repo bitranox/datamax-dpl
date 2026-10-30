@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `memory` command: lists the printer's memory modules with the stored
+  names and free bytes of each (`<STX>W`), for `--kind graphic` (default),
+  `font`, `format` or `all`, in the usual JSON envelope or as text. The
+  answer has no terminator, so it is read until the printer is silent for
+  `--idle` seconds (default 1). An answer that is no directory is reported
+  with `parsed: false` and its raw text (exit 0); no answer at all is exit 2.
+  `PrinterTransport.read_answer(request, timeout=, idle=)` is the new read
+  behind it (tcp, serial and `RecordingPrinter`; one-way channels refuse
+  it), bounded at 1 MiB. Unverified on a printer.
 - `qr` element: a QR Code from `data` (with `{name}` placeholders), error
   level `L`/`M`/`Q`/`H` (default `M`), `module_dots` 1-9 printer dots per
   module (default 3) and a `quiet_zone` of 0-10 modules kept free on every

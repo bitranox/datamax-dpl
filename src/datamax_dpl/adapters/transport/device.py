@@ -57,6 +57,14 @@ class DescriptorTransport(ClosingTransport):
         """
         raise unsupported_query(self._uri)
 
+    def read_answer(self, request: bytes, *, timeout: float, idle: float) -> bytes:
+        """Refuse: the channel cannot read the printer's answer.
+
+        Raises:
+            UnsupportedOperationError: Always.
+        """
+        raise unsupported_query(self._uri)
+
     def close(self) -> None:
         """Close the descriptor; safe to call twice."""
         fd, self._fd = self._fd, None

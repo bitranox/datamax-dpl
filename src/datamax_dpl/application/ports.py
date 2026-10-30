@@ -96,9 +96,10 @@ class CheckLoggingConfig(Protocol):
 class PrinterTransport(Protocol):
     """An open byte channel to one printer (raw socket, serial port, device file, file, stdout).
 
-    ``query`` sends a request and reads the answer up to ``terminator``; a one-way channel (a
-    file, stdout, most device files) raises :class:`~datamax_dpl.domain.errors.TransportError`
-    there, and :attr:`bidirectional` says so in advance.
+    ``query`` sends a request and reads the answer up to ``terminator``; ``read_answer`` reads an
+    answer that has no terminator until the printer falls silent. A one-way channel (a file,
+    stdout, most device files) raises :class:`~datamax_dpl.domain.errors.TransportError` in both,
+    and :attr:`bidirectional` says so in advance.
     """
 
     @property
@@ -114,6 +115,15 @@ class PrinterTransport(Protocol):
         """Send ``request`` and return the answer through the ``lines``-th ``terminator``.
 
         Most answers are one line; the ``<STX>KQ`` memory report has eight.
+        """
+        ...
+
+    def read_answer(self, request: bytes, *, timeout: float, idle: float) -> bytes:
+        """Send ``request`` and return every byte until ``idle`` seconds pass without a new one.
+
+        For answers with no terminator and no fixed length, such as the ``<STX>W`` module
+        directory. ``timeout`` bounds the wait for the first byte; an answer longer than the
+        transport's size bound is refused rather than read without end.
         """
         ...
 

@@ -236,6 +236,37 @@ EAN-13 position 7 or 8) to have the printer compute a price check digit.
 Error characters the printer may send: `c` framing error, `v` input buffer overflow, `I` invalid
 command sequence, `R` power-on reset, `T` software reset, BEL (0x07) bad image download.
 
+### Memory module directory (`<STX>W`)
+
+`<STX>Wa` asks for the directory of the memory modules (manual, "STX W Request Memory Module
+information", printed pages 43-44). A module holds fonts, graphics and label formats together but
+lists one kind per request, so `a` picks it: `F` font data, `G` graphic data, `L` format data. The
+manual names no other letter. The `memory` command sends `<STX>WF`, `<STX>WG` and `<STX>WL`.
+
+The manual's sample answer to `<STX>WG`, as printed:
+
+```text
+MODULE: A<CR>
+AVAILABLE BYTES IN MODULE:
+00049083<CR>
+MODULE: B<CR>
+LOGO<CR>
+CAM<CR>
+AVAILABLE BYTES IN MODULE:
+00257919<CR>
+```
+
+Module A holds no graphic and has 49083 bytes free; module B holds the graphics `LOGO` and `CAM`
+and has 257919 bytes free. The module letters are `A` to `E` (Appendix L), and a stored name is at
+most 16 characters. A corrupt module answers `No Modules Available` (the `<STX>q` Clear Module
+entry, page 34).
+
+The answer has no terminator and no fixed length: it ends when the printer stops sending, so it is
+read until a pause (1 s by default, `--idle`). The sample marks no `<CR>` after `AVAILABLE BYTES IN
+MODULE:`, so the number is accepted on the same line and on the next; CR, LF and CRLF all end a
+line. An answer that is neither a module list nor `No Modules Available` is reported unparsed with
+its raw text. The manual does not bound how many names a module lists; the read stops at 1 MiB.
+
 The manual has no command that returns the model name. `detect` therefore reports evidence
 (which queries answered, the firmware string, the label width from `<STX>KQ`) and the profiles that
 fit it.

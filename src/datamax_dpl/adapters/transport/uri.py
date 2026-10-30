@@ -194,11 +194,12 @@ def parse_printer_uri(uri: str) -> PrinterUri:
         raise ValueError(f"printer URI {uri!r}: {exc}; accepted forms: {ACCEPTED_FORMS}") from exc
 
 
-def check_timeout(timeout: float) -> float:
+def check_timeout(timeout: float, *, name: str = "timeout") -> float:
     """Return ``timeout`` when it is a usable number of seconds.
 
     Args:
         timeout: Seconds.
+        name: What the seconds are, for the refusal message (``timeout``, ``idle``).
 
     Returns:
         ``timeout`` unchanged.
@@ -211,7 +212,7 @@ def check_timeout(timeout: float) -> float:
         2.5
     """
     if not (math.isfinite(timeout) and 0 < timeout <= MAX_TIMEOUT_SECONDS):
-        raise ValueError(f"timeout must be above 0 and at most {MAX_TIMEOUT_SECONDS:.0f} seconds, got {timeout!r}")
+        raise ValueError(f"{name} must be above 0 and at most {MAX_TIMEOUT_SECONDS:.0f} seconds, got {timeout!r}")
     return timeout
 
 

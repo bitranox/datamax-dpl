@@ -16,7 +16,7 @@ import serial
 
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
 
-from .tcp import MAX_ANSWER_BYTES
+from .tcp import MAX_ANSWER_BYTES, MAX_IDLE_ANSWER_BYTES
 from .uri import ClosingTransport, SerialUri, check_timeout
 
 _DRAIN_POLL_SECONDS = 0.01
@@ -57,6 +57,15 @@ class SerialPort(Protocol):
 
     def read_until(self, expected: bytes = ..., size: int | None = ...) -> bytes:
         """Read until ``expected``, ``size`` bytes or the read timeout."""
+        ...
+
+    def read(self, size: int = ...) -> bytes:
+        """Read ``size`` bytes or what arrived until the read timeout."""
+        ...
+
+    @property
+    def in_waiting(self) -> int:
+        """Bytes received and not read yet."""
         ...
 
     @property
@@ -167,10 +176,7 @@ class SerialTransport(ClosingTransport):
         check_timeout(timeout)
         if not terminator or lines < 1:
             raise ValueError("terminator must not be empty and lines at least 1")
-        try:
-            self._port.reset_input_buffer()
-        except OSError as exc:
-            raise TransportError(f"cannot read from serial {self._uri.path}: {exc}") from exc
+        self._drop_waiting_input()
         self.send(request)
         answer = self._read_lines(terminator, timeout=timeout, lines=lines)
         if answer.endswith(terminator):
@@ -178,6 +184,38 @@ class SerialTransport(ClosingTransport):
         if len(answer) >= MAX_ANSWER_BYTES:
             raise PrinterProtocolError(f"serial {self._uri.path}: no answer terminator within {MAX_ANSWER_BYTES} bytes")
         raise PrinterTimeoutError(f"serial {self._uri.path}: no complete answer in time ({len(answer)} bytes read)")
+
+    def read_answer(self, request: bytes, *, timeout: float, idle: float) -> bytes:
+        """Send ``request`` and return every byte until ``idle`` seconds pass without a new one.
+
+        Bytes received before the request belong to an earlier exchange and are dropped first.
+
+        Args:
+            request: The bytes to send.
+            timeout: Seconds to wait for the first byte.
+            idle: Seconds of silence that end the answer.
+
+        Returns:
+            The answer, at most ``MAX_IDLE_ANSWER_BYTES`` long.
+
+        Raises:
+            PrinterTimeoutError: No byte within ``timeout`` seconds.
+            PrinterProtocolError: More than ``MAX_IDLE_ANSWER_BYTES`` arrived.
+            TransportError: The port failed or is closed.
+            ValueError: ``timeout`` or ``idle`` is not a usable number of seconds.
+        """
+        check_timeout(timeout)
+        check_timeout(idle, name="idle")
+        self._drop_waiting_input()
+        self.send(request)
+        answer = self._read_available(wait=timeout, room=MAX_IDLE_ANSWER_BYTES + 1)
+        if not answer:
+            raise PrinterTimeoutError(f"serial {self._uri.path}: no complete answer in time (0 bytes read)")
+        while chunk := self._read_available(wait=idle, room=MAX_IDLE_ANSWER_BYTES + 1 - len(answer)):
+            answer += chunk
+            if len(answer) > MAX_IDLE_ANSWER_BYTES:
+                raise PrinterProtocolError(f"serial {self._uri.path}: answer longer than {MAX_IDLE_ANSWER_BYTES} bytes")
+        return answer
 
     def close(self) -> None:
         """Close the port; safe to call twice."""
@@ -214,6 +252,28 @@ class SerialTransport(ClosingTransport):
         """Discard what the port has not sent yet; a port that refuses has nothing to discard."""
         with contextlib.suppress(OSError):
             self._port.reset_output_buffer()
+
+    def _drop_waiting_input(self) -> None:
+        """Discard what arrived before a request, which belongs to an earlier exchange."""
+        try:
+            self._port.reset_input_buffer()
+        except OSError as exc:
+            raise TransportError(f"cannot read from serial {self._uri.path}: {exc}") from exc
+
+    def _read_available(self, *, wait: float, room: int) -> bytes:
+        """Wait up to ``wait`` seconds for a byte, then take what else has arrived, at most ``room`` bytes.
+
+        Empty when nothing came in ``wait`` seconds. Reading one byte first makes the wait end at
+        the first byte rather than after the whole ``wait``, so a silence is measured from it.
+        """
+        try:
+            self._port.timeout = wait
+            first = self._port.read(1)
+            if not first:
+                return b""
+            return first + self._port.read(min(self._port.in_waiting, room - 1))
+        except OSError as exc:
+            raise TransportError(f"cannot read from serial {self._uri.path}: {exc}") from exc
 
     def _read_lines(self, terminator: bytes, *, timeout: float, lines: int) -> bytes:
         """Read ``lines`` terminated chunks within one overall ``timeout``."""

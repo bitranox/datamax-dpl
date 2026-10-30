@@ -26,6 +26,8 @@ from .errors import PrinterProtocolError
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from .memory import MemoryKind
+
 #: ``<SOH>A``: status as eight ``Y``/``N`` characters.
 STATUS_REQUEST = b"\x01A"
 #: ``<SOH>F``: status as one bit field byte.
@@ -38,6 +40,11 @@ VERSION_REQUEST = b"\x02v"
 MEMORY_REQUEST = b"\x02KQ"
 #: ``<STX>k``: serial port test, answered with ``Y``.
 SERIAL_TEST_REQUEST = b"\x02k"
+#: ``<STX>Wa``: the memory module directory for one kind of data, ``a`` = ``F`` fonts, ``G``
+#: graphics, ``L`` label formats. The answer has no terminator; see :mod:`.memory`.
+MEMORY_DIRECTORY_REQUESTS: Mapping[MemoryKind, bytes] = MappingProxyType(
+    {"font": b"\x02WF", "graphic": b"\x02WG", "format": b"\x02WL"}
+)
 
 #: ``<SOH>#``: reset the printer.
 RESET = b"\x01#"
@@ -386,6 +393,7 @@ __all__ = [
     "CUT_NOW",
     "ERROR_CHARACTERS",
     "FORM_FEED",
+    "MEMORY_DIRECTORY_REQUESTS",
     "MEMORY_REQUEST",
     "RESERVED_STATUS_BIT",
     "RESET",

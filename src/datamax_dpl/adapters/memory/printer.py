@@ -23,7 +23,7 @@ class RecordingPrinter:
     Attributes:
         sent: Every chunk written, in order: each :meth:`send` payload and each query request,
             as the bytes would have appeared on the wire.
-        queries: The request of each :meth:`query`, in order.
+        queries: The request of each :meth:`query` and :meth:`read_answer`, in order.
         opened: ``(uri, timeout)`` of every open through :func:`open_recording_printer`.
         closed: True once :meth:`close` ran.
 
@@ -73,13 +73,17 @@ class RecordingPrinter:
                 stays silent.
             TransportError: The printer was closed.
         """
-        if not self._bidirectional:
-            raise UnsupportedOperationError("recording printer is one-way: it cannot read the printer's answer")
-        self.send(request)
-        self.queries.append(bytes(request))
-        if request not in self._answers:
-            raise PrinterTimeoutError(f"recording printer: no answer to {request!r} within {timeout} s")
-        return self._answers[request]
+        return self._answer(request, timeout=timeout)
+
+    def read_answer(self, request: bytes, *, timeout: float, idle: float) -> bytes:
+        """Record ``request`` and return its whole answer from the table, as a silence would end it.
+
+        Raises:
+            UnsupportedOperationError: The printer is configured one-way.
+            PrinterTimeoutError: The table has no answer for ``request``.
+            TransportError: The printer was closed.
+        """
+        return self._answer(request, timeout=timeout)
 
     def close(self) -> None:
         """Mark the printer closed; safe to call twice."""
@@ -92,6 +96,16 @@ class RecordingPrinter:
     def __exit__(self, *exc_info: object) -> None:
         """Close the printer."""
         self.close()
+
+    def _answer(self, request: bytes, *, timeout: float) -> bytes:
+        """Record ``request`` on the wire and in :attr:`queries`, and look up its answer."""
+        if not self._bidirectional:
+            raise UnsupportedOperationError("recording printer is one-way: it cannot read the printer's answer")
+        self.send(request)
+        self.queries.append(bytes(request))
+        if request not in self._answers:
+            raise PrinterTimeoutError(f"recording printer: no answer to {request!r} within {timeout} s")
+        return self._answers[request]
 
     def _ensure_open(self) -> None:
         """Refuse use after close."""

@@ -12,7 +12,13 @@ from typing import TYPE_CHECKING
 import pytest
 
 from datamax_dpl.adapters.transport import open_printer
-from datamax_dpl.adapters.transport.tcp import MAX_ANSWER_BYTES, REFUSED_RETRY_SECONDS, SEND_CHUNK_BYTES, TcpTransport
+from datamax_dpl.adapters.transport.tcp import (
+    MAX_ANSWER_BYTES,
+    MAX_IDLE_ANSWER_BYTES,
+    REFUSED_RETRY_SECONDS,
+    SEND_CHUNK_BYTES,
+    TcpTransport,
+)
 from datamax_dpl.adapters.transport.uri import TcpUri
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
 
@@ -355,3 +361,127 @@ def test_query_arguments_are_checked(serve: Callable[..., PrinterServer]) -> Non
             printer.query(b"x", timeout=0.0)
     with pytest.raises(ValueError, match="timeout must be above 0"):
         TcpTransport.connect(server.uri, timeout=-1.0)
+
+
+# --- read_answer: answers ended by silence (<STX>W module directory) ----------------------------
+
+#: The manual's sample answer to ``<STX>WG`` (see tests/test_memory.py).
+DIRECTORY = b"MODULE: A\rAVAILABLE BYTES IN MODULE:00049083\rMODULE: B\rLOGO\rCAM\rAVAILABLE BYTES IN MODULE:00257919\r"
+
+
+@pytest.mark.os_agnostic
+def test_read_answer_returns_the_whole_directory_after_the_printer_falls_silent(
+    serve: Callable[..., PrinterServer],
+) -> None:
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        server.read_exactly(connection, 3)
+        for line in DIRECTORY.split(b"\r")[:-1]:
+            connection.sendall(line + b"\r")
+            time.sleep(0.02)
+        server.read_to_end(connection)
+
+    server = serve(play)
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        assert printer.read_answer(b"\x02WG", timeout=2.0, idle=0.5) == DIRECTORY
+    server.join()
+    assert bytes(server.received) == b"\x02WG"
+
+
+@pytest.mark.os_agnostic
+def test_read_answer_ends_at_the_first_silence_of_idle_seconds(serve: Callable[..., PrinterServer]) -> None:
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        server.read_exactly(connection, 3)
+        connection.sendall(b"MODULE: A\r")
+        time.sleep(1.2)
+        # The client may already have closed: the late part has nowhere to go, which is the point.
+        with contextlib.suppress(OSError):
+            connection.sendall(b"LATE\r")
+            server.read_to_end(connection)
+
+    server = serve(play)
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        started = time.monotonic()
+        assert printer.read_answer(b"\x02WG", timeout=2.0, idle=0.3) == b"MODULE: A\r"
+        assert time.monotonic() - started < 1.0
+
+
+@pytest.mark.os_agnostic
+def test_read_answer_with_no_byte_at_all_times_out_within_the_timeout(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(_silent)
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        started = time.monotonic()
+        with pytest.raises(PrinterTimeoutError, match="no complete answer in time"):
+            printer.read_answer(b"\x02WG", timeout=0.3, idle=0.2)
+        elapsed = time.monotonic() - started
+    assert 0.25 <= elapsed < 1.5
+
+
+@pytest.mark.os_agnostic
+def test_read_answer_refuses_an_answer_longer_than_its_bound(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(_answer(b"\x02WG", b"x" * (MAX_IDLE_ANSWER_BYTES + 10)))
+    with (
+        TcpTransport.connect(server.uri, timeout=2.0) as printer,
+        pytest.raises(PrinterProtocolError, match=f"answer longer than {MAX_IDLE_ANSWER_BYTES} bytes"),
+    ):
+        printer.read_answer(b"\x02WG", timeout=2.0, idle=0.5)
+
+
+@pytest.mark.os_agnostic
+def test_read_answer_accepts_an_answer_exactly_at_its_bound(serve: Callable[..., PrinterServer]) -> None:
+    answer = b"x" * MAX_IDLE_ANSWER_BYTES
+    server = serve(_answer(b"\x02WG", answer))
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        assert printer.read_answer(b"\x02WG", timeout=2.0, idle=0.5) == answer
+
+
+@pytest.mark.os_agnostic
+def test_read_answer_returns_what_came_before_the_printer_hung_up(serve: Callable[..., PrinterServer]) -> None:
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        server.read_exactly(connection, 3)
+        connection.sendall(DIRECTORY)
+
+    server = serve(play)
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        assert printer.read_answer(b"\x02WG", timeout=2.0, idle=0.5) == DIRECTORY
+
+
+@pytest.mark.os_agnostic
+def test_read_answer_from_a_printer_hanging_up_before_any_byte_is_a_transport_error(
+    serve: Callable[..., PrinterServer],
+) -> None:
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        server.read_exactly(connection, 3)
+
+    server = serve(play)
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        with pytest.raises(TransportError, match="closed the connection") as caught:
+            printer.read_answer(b"\x02WG", timeout=2.0, idle=0.5)
+        assert not isinstance(caught.value, PrinterTimeoutError)
+
+
+@pytest.mark.os_agnostic
+def test_bytes_waiting_before_read_answer_are_not_read_as_its_answer(serve: Callable[..., PrinterServer]) -> None:
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        connection.sendall(b"stale\r")
+        server.read_exactly(connection, 3)
+        connection.sendall(b"No Modules Available\r")
+        server.read_to_end(connection)
+
+    server = serve(play)
+    sock = socket.create_connection(("127.0.0.1", server.port), timeout=2.0)
+    readable, _, _ = select.select([sock], [], [], 2.0)
+    assert readable, "the stale answer never arrived"
+    with TcpTransport(sock, uri=server.uri, timeout=2.0) as printer:
+        assert printer.read_answer(b"\x02WF", timeout=2.0, idle=0.3) == b"No Modules Available\r"
+
+
+@pytest.mark.os_agnostic
+def test_read_answer_arguments_are_checked(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(_silent)
+    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+        with pytest.raises(ValueError, match="idle must be above 0"):
+            printer.read_answer(b"x", timeout=1.0, idle=0.0)
+        with pytest.raises(ValueError, match="timeout must be above 0"):
+            printer.read_answer(b"x", timeout=-1.0, idle=0.5)
+    with pytest.raises(TransportError, match="the transport is closed"):
+        printer.read_answer(b"x", timeout=1.0, idle=0.5)

@@ -183,8 +183,23 @@ The model matrix, the limits and the full fallback table are in
 | `file:PATH` or `file:///abs/path`                                                 | Appends the job to a file.                                                                   |
 | `-`                                                                               | Writes the job to standard output.                                                           |
 
-`status` and `detect` need a channel that can read the printer's answer (tcp or serial). `reset`,
-`cancel`, `pause`, `feed` and `cut` send single printer commands.
+`status`, `detect` and `memory` need a channel that can read the printer's answer (tcp or serial).
+`reset`, `cancel`, `pause`, `feed` and `cut` send single printer commands.
+
+`memory` lists what the printer's memory modules hold and how many bytes each has free
+(`<STX>W`); `--kind` picks `graphic` (the default), `font`, `format` or `all`:
+
+```bash
+datamax-dpl memory --kind graphic --printer tcp://192.0.2.60:9100
+```
+
+```text
+graphic:
+  module A: 49083 bytes free
+  module B: 257919 bytes free
+    LOGO
+    CAM
+```
 
 `--printer` also takes the NAME of a printer configured in a `[printers.<name>]` section, which
 then supplies its model, address, label size and scale factors ([CONFIG.md](CONFIG.md)).

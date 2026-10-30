@@ -78,3 +78,21 @@ def test_the_opener_records_each_open_and_reopens_the_same_printer() -> None:
     assert first is second is printer
     assert printer.opened == [("tcp://printer:9100", 2.0), ("-", 3.0)]
     assert printer.data == b"onetwo"
+
+
+@pytest.mark.os_agnostic
+def test_read_answer_returns_the_whole_answer_for_the_exact_request() -> None:
+    printer = RecordingPrinter(answers={b"\x02WG": b"MODULE: A\rAVAILABLE BYTES IN MODULE:00049083\r"})
+    assert printer.read_answer(b"\x02WG", timeout=1.0, idle=0.2) == b"MODULE: A\rAVAILABLE BYTES IN MODULE:00049083\r"
+    assert printer.queries == [b"\x02WG"]
+    assert printer.sent == [b"\x02WG"]
+    with pytest.raises(PrinterTimeoutError, match="no answer to"):
+        printer.read_answer(b"\x02WF", timeout=1.0, idle=0.2)
+
+
+@pytest.mark.os_agnostic
+def test_a_one_way_recording_printer_refuses_read_answer() -> None:
+    printer = RecordingPrinter(answers={b"\x02WG": b"x"}, bidirectional=False)
+    with pytest.raises(UnsupportedOperationError, match="cannot read the printer's answer"):
+        printer.read_answer(b"\x02WG", timeout=1.0, idle=0.2)
+    assert printer.sent == []

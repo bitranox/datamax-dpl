@@ -70,6 +70,14 @@ class StdoutTransport(ClosingTransport):
         """
         raise unsupported_query(self._uri)
 
+    def read_answer(self, request: bytes, *, timeout: float, idle: float) -> bytes:
+        """Refuse: standard output cannot answer.
+
+        Raises:
+            UnsupportedOperationError: Always.
+        """
+        raise unsupported_query(self._uri)
+
     def close(self) -> None:
         """Flush; standard output itself stays open for the rest of the process."""
         try:
