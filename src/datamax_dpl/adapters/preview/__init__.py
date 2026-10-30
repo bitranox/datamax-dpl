@@ -3,7 +3,9 @@
 The domain preview draws text as grey character cells, which shows placement but not content. With
 Pillow available, each text field and each barcode's data is written into its area in Pillow's
 scalable default font, so a reader (or an LLM looking at the PNG) sees what the label says. The
-lettering is Pillow's font, not the printer's: shapes and widths differ from a real print.
+lettering is Pillow's font, not the printer's: shapes and widths differ from a real print. A turned
+field is lettered upright in a picture of its own and that picture is turned clockwise (exactly, a
+quarter turn being a transpose) into the field's turned box, by the rule in ``domain.preview``.
 
 Pillow is reached through :mod:`importlib` and the small Protocols below rather than a plain
 import: the extra exists only on Python 3.11 and later, and a static ``import PIL`` would make the
@@ -18,7 +20,7 @@ from typing import TYPE_CHECKING, Protocol, cast
 
 from ...domain.label import Barcode, ScalableText, Text
 from ...domain.png import encode_png
-from ...domain.preview import canvas_for, preview_bitmap, text_box
+from ...domain.preview import FieldArea, canvas_for, field_area, preview_bitmap
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -34,6 +36,8 @@ _BLACK = 0
 
 class _Image(Protocol):
     def putdata(self, data: Sequence[int]) -> None: ...
+    def rotate(self, angle: float, *, expand: bool) -> _Image: ...
+    def paste(self, im: _Image, box: tuple[int, int]) -> None: ...
     def save(self, fp: io.BytesIO, format: str) -> None: ...  # noqa: A002 - Pillow's own keyword
 
 
@@ -81,12 +85,18 @@ def pillow_available() -> bool:
     return _pillow() is not None
 
 
-def _letter(pillow: _Pillow, image: _Image, box: tuple[int, int, int, int], text: str) -> None:
-    left, top, width, height = box
-    draw = pillow.draw.Draw(image)
-    draw.rectangle((left, top, left + width - 1, top + height - 1), fill=_WHITE)
-    font = pillow.font.load_default(size=max(_MIN_FONT_PIXELS, height))
-    draw.text((left, top), text, fill=_BLACK, font=font)
+def _letter(pillow: _Pillow, image: _Image, area: FieldArea, *, text: str, band: int) -> None:
+    """Write ``text`` over the top ``band`` rows of the upright field, then turn it into place.
+
+    The band is whitened first, so the grey cells or hatching under the lettering do not show.
+    """
+    upright = pillow.image.new("L", (max(1, area.length), band), _WHITE)
+    font = pillow.font.load_default(size=max(_MIN_FONT_PIXELS, band))
+    pillow.draw.Draw(upright).text((0, 0), text, fill=_BLACK, font=font)
+    # Pillow turns counter-clockwise by positive angles; the manual's rotations turn clockwise.
+    turned = upright.rotate(-area.rotation.value, expand=True)
+    left, top, _, _ = area.part(up=(area.height - band, band))
+    image.paste(turned, (left, top))
 
 
 def render_preview_png(label: Label, profile: PrinterProfile, *, halved: frozenset[int] = frozenset()) -> bytes:
@@ -103,10 +113,11 @@ def render_preview_png(label: Label, profile: PrinterProfile, *, halved: frozens
     canvas = canvas_for(label, profile)
     for element in label.elements:
         if isinstance(element, (Text, ScalableText)):
-            _letter(pillow, image, text_box(element, canvas), element.text)
+            area = field_area(element, canvas)
+            _letter(pillow, image, area, text=element.text, band=max(1, area.height))
         elif isinstance(element, Barcode):
-            left, top, width, height = text_box(element, canvas)
-            _letter(pillow, image, (left, top, width, max(1, height // _BARCODE_TEXT_SHARE)), element.data)
+            area = field_area(element, canvas)
+            _letter(pillow, image, area, text=element.data, band=max(1, area.height // _BARCODE_TEXT_SHARE))
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()

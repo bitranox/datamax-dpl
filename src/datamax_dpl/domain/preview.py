@@ -12,8 +12,15 @@ picture answers "does everything sit where I meant and fit the label", not "what
 look like": the optional Pillow renderer in ``adapters/preview`` adds real lettering, and the
 camera photo of a real print is the final check.
 
-Rotation is approximated by turning each field's box about its reference point; the direction
-the manual's rotations turn is unverified until a test print.
+Rotation follows the manual's record header field ``a`` (printed page 94, PDF page 104), which lists
+1 (0 degrees), 2 (90), 3 (180) and 4 (270) and says: "Figure 6-2 shows the direction and amount of
+rotation clockwise, relative to the label feed direction." Figure 7-1 (page 92) prints ROTATION 1-4
+from one reference point (row 200, column 200 in Table 7-1, page 91), drawn with the home position
+at the lower left as this preview is. The rule read from it: a text field or barcode turns clockwise
+about its reference point, the lower-left corner of the upright field, which stays where the record
+puts it. Rotation 1 (0) runs right and grows up; 2 (90) runs down and grows right; 3 (180) runs left
+and grows down; 4 (270) runs up and grows left. Characters advance from the reference point along
+the running direction. Images are placed in rotation 1 only. Unverified until a test print.
 """
 
 from __future__ import annotations
@@ -114,11 +121,74 @@ def _text_size(element: Text, dpi: float) -> tuple[int, int, int]:
     return height * element.height_multiplier, width * element.width_multiplier, gap * element.width_multiplier
 
 
-def _rotated_box(x: int, y: int, width: int, height: int, rotation: Rotation) -> tuple[int, int, int, int]:
-    """Return (left, top, width, height) in pixels of a field whose bottom-left pixel is (x, y)."""
-    if rotation in (Rotation.DEG_90, Rotation.DEG_270):
-        width, height = height, width
-    return x, y - height + 1, width, height
+#: A rectangle in pixels: (left, top, width, height).
+Rect = tuple[int, int, int, int]
+
+
+@dataclass(frozen=True)
+class FieldArea:
+    """Where a text field or barcode lies: its reference point, its upright size and its turn.
+
+    The rule (module docstring) turns the upright field clockwise about the reference point, so
+    every part of it (one character cell, the band a barcode's lettering takes) turns with it.
+
+    Attributes:
+        x: Column of the reference point, the lower-left pixel of the upright field.
+        y: Row of the reference point.
+        length: Dots along the reading direction: the text line, the barcode's width.
+        height: Dots across it: the character cell, the bar height.
+        rotation: How far the field turns clockwise.
+    """
+
+    x: int
+    y: int
+    length: int
+    height: int
+    rotation: Rotation
+
+    def box(self) -> Rect:
+        """Return the whole field, turned.
+
+        Example:
+            >>> FieldArea(x=10, y=50, length=30, height=8, rotation=Rotation.DEG_90).box()
+            (10, 50, 8, 30)
+        """
+        return self.part()
+
+    def part(self, *, along: tuple[int, int] | None = None, up: tuple[int, int] | None = None) -> Rect:
+        """Return a part of the upright field, turned.
+
+        Args:
+            along: ``(start, length)`` of the part along the reading direction; all of it when None.
+            up: ``(lift, height)`` of the part above the upright field's bottom edge; all of it
+                when None.
+
+        Returns:
+            The part's (left, top, width, height) in pixels after the turn.
+
+        Example:
+            >>> area = FieldArea(x=10, y=50, length=30, height=8, rotation=Rotation.DEG_180)
+            >>> area.part(along=(0, 10))
+            (1, 50, 10, 8)
+        """
+        start, length = along if along is not None else (0, self.length)
+        lift, height = up if up is not None else (0, self.height)
+        x, y = self.x, self.y
+        if self.rotation is Rotation.DEG_90:
+            return x + lift, y + start, height, length
+        if self.rotation is Rotation.DEG_180:
+            return x - start - length + 1, y + lift, length, height
+        if self.rotation is Rotation.DEG_270:
+            return x - lift - height + 1, y - start - length + 1, height, length
+        return x + start, y - lift - height + 1, length, height
+
+    def rise(self) -> int:
+        """Return how many rows the turned field reaches up from its reference row, that row included."""
+        if self.rotation is Rotation.DEG_0:
+            return self.height
+        if self.rotation is Rotation.DEG_270:
+            return self.length
+        return 1
 
 
 def _barcode_size(element: Barcode, canvas: Canvas) -> tuple[int, int]:
@@ -128,26 +198,29 @@ def _barcode_size(element: Barcode, canvas: Canvas) -> tuple[int, int]:
     return width, height
 
 
-def text_box(element: Text | ScalableText | Barcode, canvas: Canvas) -> tuple[int, int, int, int]:
-    """Return (left, top, width, height) in pixels of a text field's whole line or a barcode's area."""
+def field_area(element: Text | ScalableText | Barcode, canvas: Canvas) -> FieldArea:
+    """Return the reference point, upright size and rotation of a text field's line or a barcode."""
     x, y = canvas.point(element.x, element.y)
     if isinstance(element, Barcode):
-        width, height = _barcode_size(element, canvas)
-        return _rotated_box(x, y, width, height, element.rotation)
+        length, height = _barcode_size(element, canvas)
+        return FieldArea(x=x, y=y, length=length, height=height, rotation=element.rotation)
     text = _as_text(element) if isinstance(element, ScalableText) else element
     height, cell, gap = _text_size(text, canvas.dpi)
-    return _rotated_box(x, y, len(text.text) * (cell + gap), height, text.rotation)
+    return FieldArea(x=x, y=y, length=len(text.text) * (cell + gap), height=height, rotation=text.rotation)
+
+
+def text_box(element: Text | ScalableText | Barcode, canvas: Canvas) -> Rect:
+    """Return (left, top, width, height) in pixels of a text field's whole line or a barcode's area."""
+    return field_area(element, canvas).box()
 
 
 def _draw_text(element: Text, bitmap: Bitmap, canvas: Canvas) -> None:
-    height, cell, gap = _text_size(element, canvas.dpi)
-    x, y = canvas.point(element.x, element.y)
-    step = cell + gap
+    """Draw one grey cell per character, advancing from the reference point the way the field turns."""
+    area = field_area(element, canvas)
+    _, cell, gap = _text_size(element, canvas.dpi)
     for index, char in enumerate(element.text):
-        if char.isspace():
-            continue
-        left, top, w, h = _rotated_box(x + index * step, y, cell, height, element.rotation)
-        bitmap.fill_rect(left, top, w, h, pattern=FillPattern.SHADE_50)
+        if not char.isspace():
+            bitmap.fill_rect(*area.part(along=(index * (cell + gap), cell)), pattern=FillPattern.SHADE_50)
 
 
 def _draw_barcode(element: Barcode, bitmap: Bitmap, canvas: Canvas) -> None:
@@ -302,14 +375,11 @@ def canvas_for(label: Label, profile: PrinterProfile) -> Canvas:
     return Canvas(width=round(width_in * dpi) + 1, height=round(height_in * dpi) + 1, dpi=dpi, unit=label.unit)
 
 
-def _text_top(element: Text | ScalableText, unit: Unit, dpi: float) -> float:
-    text = _as_text(element) if isinstance(element, ScalableText) else element
-    return to_inches(text.y, unit, dpi=dpi) + _text_size(text, dpi)[0] / dpi
-
-
-def _barcode_top(element: Barcode, unit: Unit, dpi: float) -> float:
-    height = to_inches(element.height, unit, dpi=dpi) if element.height else _DEFAULT_BARCODE_HEIGHT_IN
-    return to_inches(element.y, unit, dpi=dpi) + height
+def _field_top(element: Text | ScalableText | Barcode, unit: Unit, dpi: float) -> float:
+    """Highest point of a text field or barcode, turned, in inches."""
+    # Only the sizes are read here; a one-pixel canvas converts lengths like the real one.
+    area = field_area(element, Canvas(width=1, height=1, dpi=dpi, unit=unit))
+    return to_inches(element.y, unit, dpi=dpi) + area.rise() / dpi
 
 
 def _image_top(element: Image, unit: Unit, dpi: float) -> float:
@@ -338,10 +408,8 @@ def _graphic_top(element: Element) -> float:
 
 def _top_inches(element: Element, unit: Unit, dpi: float) -> float:
     """Highest point of ``element`` above the label bottom, in inches."""
-    if isinstance(element, (Text, ScalableText)):
-        return _text_top(element, unit, dpi)
-    if isinstance(element, Barcode):
-        return _barcode_top(element, unit, dpi)
+    if isinstance(element, (Text, ScalableText, Barcode)):
+        return _field_top(element, unit, dpi)
     if isinstance(element, Image):
         return _image_top(element, unit, dpi)
     if isinstance(element, Qr):
@@ -376,4 +444,14 @@ def preview_bitmap(label: Label, profile: PrinterProfile, *, halved: frozenset[i
     return bitmap
 
 
-__all__ = ["Canvas", "canvas_for", "draw_element", "preview_bitmap", "text_box", "widest_cell_mm"]
+__all__ = [
+    "Canvas",
+    "FieldArea",
+    "Rect",
+    "canvas_for",
+    "draw_element",
+    "field_area",
+    "preview_bitmap",
+    "text_box",
+    "widest_cell_mm",
+]

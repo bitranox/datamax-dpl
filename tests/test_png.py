@@ -11,8 +11,12 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from datamax_dpl.domain.enums import FillPattern
+from datamax_dpl.adapters.preview import render_preview_png
+from datamax_dpl.domain.enums import FillPattern, Rotation, Unit
+from datamax_dpl.domain.label import Label, Text
 from datamax_dpl.domain.png import PNG_SIGNATURE, encode_png, encode_png_rgb
+from datamax_dpl.domain.preview import canvas_for, text_box
+from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.raster import Bitmap
 
 
@@ -162,3 +166,47 @@ def test_pillow_reads_rgb_png() -> None:
         assert image.mode == "RGB"
         assert image.getpixel((0, 0)) == (255, 0, 0)
         assert image.getpixel((1, 1)) == (10, 20, 30)
+
+
+#: Grey level between the black lettering and the white paper.
+MID_GREY = 128
+
+
+def lettered_pixels(label: Label, model: str) -> set[tuple[int, int]]:
+    """Dark pixels of the lettered preview PNG, the one-dot frame along the edges left out."""
+    image_module = pytest.importorskip("PIL.Image")
+    with image_module.open(io.BytesIO(render_preview_png(label, get_profile(model)))) as image:
+        image.load()
+        width, height = image.size
+        return {(x, y) for y in range(1, height - 1) for x in range(1, width - 1) if image.getpixel((x, y)) < MID_GREY}
+
+
+def lettered_text(rotation: Rotation) -> tuple[set[tuple[int, int]], tuple[int, int, int, int]]:
+    """The lettering of one text field turned by ``rotation``, and the field's box."""
+    element = Text(x=100, y=100, text="ABCD", font=2, rotation=rotation)
+    label = Label(unit=Unit.DOTS, width=200, height=200, elements=[element])
+    return lettered_pixels(label, "dmx-400"), text_box(element, canvas_for(label, get_profile("dmx-400")))
+
+
+def turned_pixel(pixel: tuple[int, int], size: tuple[int, int], rotation: Rotation) -> tuple[int, int]:
+    """Where a pixel of an upright ``size`` (width, height) picture lands when it turns clockwise."""
+    (u, v), (width, height) = pixel, size
+    if rotation is Rotation.DEG_90:
+        return height - 1 - v, u
+    if rotation is Rotation.DEG_180:
+        return width - 1 - u, height - 1 - v
+    if rotation is Rotation.DEG_270:
+        return v, width - 1 - u
+    return u, v
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("rotation", list(Rotation))
+def test_pillow_lettering_is_the_upright_lettering_turned_clockwise(rotation: Rotation) -> None:
+    """The lettering stays inside the turned box and is the upright lettering turned with the field."""
+    upright, (left0, top0, width0, height0) = lettered_text(Rotation.DEG_0)
+    pixels, (left, top, width, height) = lettered_text(rotation)
+    assert upright
+    assert all(left <= x < left + width and top <= y < top + height for x, y in pixels)
+    relative = {(x - left0, y - top0) for x, y in upright}
+    assert {(x - left, y - top) for x, y in pixels} == {turned_pixel(p, (width0, height0), rotation) for p in relative}

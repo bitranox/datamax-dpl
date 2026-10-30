@@ -122,6 +122,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `preview` turned a rotated text field or barcode by swapping its width and
+  height and letting it still run right and up from the reference point, and
+  Pillow's lettering was never turned. It now follows the manual (record
+  header field `a`, page 94, and the sample label of Figure 7-1): the field
+  turns clockwise about its reference point, so 90 runs down, 180 left and
+  270 up from it, characters advance in that direction, and the lettering is
+  drawn upright and turned with the field. A label without `height` is now
+  tall enough for text or a barcode turned to 270. Unverified until a test
+  print.
 - `preview` drew a horizontal or vertical line with its thickness centred on
   the line and running past both ends. It now draws the line record's
   rectangle, as the printer does: from the lower or left end, growing up (a

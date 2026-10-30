@@ -94,6 +94,12 @@ A job with settings:
 Every element has a `type`. Rotated elements take `rotation` in degrees: 0, 90, 180 or 270,
 written as the DPL rotation digit 1-4 (see [dpl-reference.md](dpl-reference.md), section 5).
 
+A rotated field turns clockwise about its reference point, which stays where `x` and `y` put it,
+as the manual's sample label prints ROTATION 1 to 4 from one point (Figure 7-1): 0 runs right and
+grows up, 90 runs down and grows right, 180 runs left and grows down, 270 runs up and grows left.
+`preview` draws text, scalable text and barcodes that way, Pillow's lettering turned with them;
+the preview's reading of the figure is unverified until a test print.
+
 ### `text`: built-in fonts
 
 | Key                 | Type                | Default | Meaning                                                                              |
