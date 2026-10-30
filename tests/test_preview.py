@@ -150,6 +150,21 @@ def test_the_preview_follows_the_calibration_the_job_is_rendered_with() -> None:
 
 
 @pytest.mark.os_agnostic
+def test_a_dots_label_with_an_offset_previews_where_the_equal_mm_label_does() -> None:
+    """The offset is millimetres in either unit, so undoing it leaves both on the same nominal row.
+
+    203 dots and 25.4 mm are one inch on generic's 203-dpi printhead.
+    """
+    options = RenderOptions(model="generic", offset_across=10.0, offset_along=10.0)
+    in_dots = Label(unit=Unit.DOTS, width=406, height=406, elements=[Line(x=203, y=203, x2=406, y2=203, thickness=2)])
+    in_mm = Label(
+        unit=Unit.MM, width=50.8, height=50.8, elements=[Line(x=25.4, y=25.4, x2=50.8, y2=25.4, thickness=0.25)]
+    )
+    assert drawn(in_mm, "generic", options) == encoded_rectangle(in_mm, "generic", options)
+    assert drawn(in_dots, "generic", options) == drawn(in_mm, "generic", options)
+
+
+@pytest.mark.os_agnostic
 def test_options_for_another_model_than_the_profile_are_refused() -> None:
     with pytest.raises(ValueError, match=r"options are for dmx-400, not generic"):
         label = mm_label(Line(x=10, y=10, x2=30, y2=10, thickness=1))

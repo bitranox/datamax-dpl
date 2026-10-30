@@ -289,6 +289,30 @@ def test_an_offset_is_in_millimetres_whatever_unit_the_label_uses() -> None:
     assert _row_column(moved) == (100, 110)
 
 
+def _one_record(label: Label, options: RenderOptions) -> bytes:
+    result = build_job(label, options)
+    assert result.ok, result.errors
+    (record,) = [line for line in result.data.split(b"\r") if line[:1] in (b"1", b"2", b"3", b"4")]
+    return record
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("model", ["generic", "allegro-2"])
+@pytest.mark.parametrize("axis", ["along", "across"])
+def test_an_offset_moves_a_label_in_dots_by_the_same_millimetres_as_one_in_mm(model: str, axis: str) -> None:
+    """203 dots and 25.4 mm are the same inch on these 203-dpi models, so one offset moves both alike.
+
+    The Allegro 2's along scale is set to 1: a length in dots is sent unscaled, one in mm is not.
+    """
+    nominal = {"model": model, "scale_along": 1.0}
+    options = RenderOptions.model_validate({**nominal, f"offset_{axis}": 10.0})
+    in_dots = Label(unit=Unit.DOTS, elements=[Line(x=203, y=203, x2=406, y2=203, thickness=2)])
+    in_mm = Label(unit=Unit.MM, elements=[Line(x=25.4, y=25.4, x2=50.8, y2=25.4, thickness=0.25)])
+    unmoved = _row_column(_one_record(in_mm, RenderOptions.model_validate(nominal)))
+    assert _row_column(_one_record(in_mm, options)) != unmoved
+    assert _row_column(_one_record(in_dots, options)) == _row_column(_one_record(in_mm, options))
+
+
 @pytest.mark.os_agnostic
 def test_a_rasterised_circle_moves_with_the_offset() -> None:
     label = Label.model_validate({"elements": [{"type": "circle", "x": 20, "y": 20, "radius": 5}]})

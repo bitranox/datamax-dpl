@@ -297,9 +297,16 @@ class RenderContext:
         return self.offset_across if axis is Axis.ACROSS else self.offset_along
 
     def shifted(self, value: float, *, axis: Axis) -> float:
-        """Return the label position ``value`` moved by this printer's offset, in the label's unit."""
+        """Return the label position ``value`` moved by this printer's offset, in the label's unit.
+
+        The offset is a millimetre calibration whatever unit the label uses, so a label in dots
+        moves by those millimetres at this model's resolution, not by that many dots.
+        """
         offset = self.offset_mm(axis)
-        return value + (offset / MM_PER_INCH if self.unit is Unit.INCH else offset)
+        if self.unit is Unit.MM:
+            return value + offset
+        inches = offset / MM_PER_INCH
+        return value + (inches * self.profile.dpi if self.unit is Unit.DOTS else inches)
 
     def supports(self, feature: Feature) -> bool:
         """Return True when the model has ``feature`` at this firmware with these options."""

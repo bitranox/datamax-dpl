@@ -301,7 +301,8 @@ def test_explain_shows_the_download_and_the_magnified_placement() -> None:
 def test_the_preview_draws_the_modules_scaled_inside_the_quiet_zone() -> None:
     label = dots_label()
     profile = get_profile("allegro-2")
-    bitmap = preview_bitmap(label, profile)
+    # The model's default -0.25 mm along offset would lift the clamped field 2 dots; not this test's subject.
+    bitmap = preview_bitmap(label, profile, options=RenderOptions(model="allegro-2", offset_along=0.0))
     matrix = qr_bitmap("HELLO", error=QrError.M)
     size = 21 * 3
     left = 4 * 3
