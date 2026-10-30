@@ -17,7 +17,7 @@ import serial
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
 
 from .tcp import MAX_ANSWER_BYTES, MAX_ANSWER_SECONDS, MAX_IDLE_ANSWER_BYTES
-from .uri import ClosingTransport, SerialUri, answer_started, check_timeout
+from .uri import ClosingTransport, SerialUri, Wait, answer_started, check_timeout, no_answer
 
 _DRAIN_POLL_SECONDS = 0.01
 
@@ -178,12 +178,13 @@ class SerialTransport(ClosingTransport):
             raise ValueError("terminator must not be empty and lines at least 1")
         self._drop_waiting_input()
         self.send(request)
-        answer = self._read_lines(terminator, timeout=timeout, lines=lines)
+        wait = Wait.since(time.monotonic(), timeout)
+        answer = self._read_lines(terminator, wait=wait, lines=lines)
         if answer.endswith(terminator):
             return answer
         if len(answer) >= MAX_ANSWER_BYTES:
             raise PrinterProtocolError(f"serial {self._uri.path}: no answer terminator within {MAX_ANSWER_BYTES} bytes")
-        raise PrinterTimeoutError(f"serial {self._uri.path}: no complete answer in time ({len(answer)} bytes read)")
+        raise no_answer(f"serial {self._uri.path}", wait=wait, received=len(answer))
 
     def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = MAX_ANSWER_SECONDS) -> bytes:
         """Send ``request`` and return every byte until ``idle`` seconds pass without a new one.
@@ -214,7 +215,7 @@ class SerialTransport(ClosingTransport):
         check_timeout(total, name="total")
         self._drop_waiting_input()
         self.send(request)
-        answer = self._read_start(deadline=started + min(timeout, total))
+        answer = self._read_start(Wait.since(started, min(timeout, total)))
         return self._read_rest(answer, idle=idle, end=started + total, total=total)
 
     def close(self) -> None:
@@ -260,15 +261,13 @@ class SerialTransport(ClosingTransport):
         except OSError as exc:
             raise TransportError(f"cannot read from serial {self._uri.path}: {exc}") from exc
 
-    def _read_start(self, *, deadline: float) -> bytes:
-        """Read until a byte other than flow control has come, by ``deadline``."""
+    def _read_start(self, wait: Wait) -> bytes:
+        """Read until a byte other than flow control has come, before ``wait`` ends."""
         answer = b""
         while not answer_started(answer):
-            remaining = deadline - time.monotonic()
+            remaining = wait.remaining()
             if remaining <= 0:
-                raise PrinterTimeoutError(
-                    f"serial {self._uri.path}: no complete answer in time ({len(answer)} bytes read)"
-                )
+                raise no_answer(f"serial {self._uri.path}", wait=wait, received=len(answer))
             answer += self._read_available(wait=remaining, room=MAX_IDLE_ANSWER_BYTES + 1 - len(answer))
             self._check_answer_size(answer)
         return answer
@@ -307,12 +306,11 @@ class SerialTransport(ClosingTransport):
         except OSError as exc:
             raise TransportError(f"cannot read from serial {self._uri.path}: {exc}") from exc
 
-    def _read_lines(self, terminator: bytes, *, timeout: float, lines: int) -> bytes:
-        """Read ``lines`` terminated chunks within one overall ``timeout``."""
-        deadline = time.monotonic() + timeout
+    def _read_lines(self, terminator: bytes, *, wait: Wait, lines: int) -> bytes:
+        """Read ``lines`` terminated chunks before the one overall ``wait`` ends."""
         answer = b""
         for _ in range(lines):
-            remaining = deadline - time.monotonic()
+            remaining = wait.remaining()
             if remaining <= 0:
                 break
             chunk = self._read(terminator, timeout=remaining)

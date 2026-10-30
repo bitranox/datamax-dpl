@@ -10,16 +10,17 @@ Accepted forms (see :data:`ACCEPTED_FORMS`):
 * ``-`` - write the job to standard output.
 
 The module also holds what every transport shares: the timeout check (defined in
-:mod:`datamax_dpl.domain.timing`, re-exported here), the wording of a wrapped ``OSError``, the
-one-way refusal and the context-manager base class.
+:mod:`datamax_dpl.domain.timing`, re-exported here), the wording of a wrapped ``OSError`` and of a
+missing answer, the one-way refusal and the context-manager base class.
 """
 
 from __future__ import annotations
 
 import ipaddress
 import re
+import time
 from enum import Enum
-from typing import TYPE_CHECKING, Annotated, Literal, TypeVar
+from typing import TYPE_CHECKING, Annotated, Literal, NamedTuple, TypeVar
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 from pydantic import BaseModel, Field
@@ -236,6 +237,46 @@ def answer_started(data: bytes | bytearray) -> bool:
     return bool(data.translate(None, FLOW_CONTROL_BYTES))
 
 
+class Wait(NamedTuple):
+    """How long a transport waits for an answer, and the monotonic moment that wait ends.
+
+    The seconds travel with the deadline so that the timeout message names the wait the caller
+    asked for (``--timeout``), not just that time ran out.
+    """
+
+    seconds: float
+    deadline: float
+
+    @classmethod
+    def since(cls, started: float, seconds: float) -> Wait:
+        """The wait of ``seconds`` that began at monotonic time ``started``."""
+        return cls(seconds=seconds, deadline=started + seconds)
+
+    def remaining(self) -> float:
+        """Seconds left; zero or less once the deadline has passed."""
+        return self.deadline - time.monotonic()
+
+
+def no_answer(channel: str, *, wait: Wait, received: int) -> PrinterTimeoutError:
+    """Return the error for a printer that sent no complete answer within ``wait``.
+
+    Args:
+        channel: The channel as messages name it, e.g. ``tcp 192.0.2.60:9100``.
+        wait: The wait that ran out.
+        received: Bytes of the answer that did arrive.
+
+    Example:
+        >>> print(no_answer("tcp 192.0.2.60:9100", wait=Wait(seconds=0.5, deadline=0.0), received=4))
+        tcp 192.0.2.60:9100: no complete answer within 0.5 s (4 bytes read)
+
+        The seconds print as the sibling messages print theirs (``:g``), without float noise:
+
+        >>> print(no_answer("serial COM3", wait=Wait(seconds=0.1 + 0.2, deadline=0.0), received=0))
+        serial COM3: no complete answer within 0.3 s (0 bytes read)
+    """
+    return PrinterTimeoutError(f"{channel}: no complete answer within {wait.seconds:g} s ({received} bytes read)")
+
+
 class ClosingTransport:
     """Context-manager behaviour shared by every transport: leaving the block closes the channel."""
 
@@ -385,11 +426,13 @@ __all__ = [
     "SerialUri",
     "StdoutUri",
     "TcpUri",
+    "Wait",
     "answer_started",
     "channel_name",
     "check_timeout",
     "is_printer_name",
     "is_printer_uri",
+    "no_answer",
     "parse_printer_uri",
     "transport_error",
     "unsupported_query",

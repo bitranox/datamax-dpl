@@ -154,6 +154,10 @@ All notable changes to this project are documented here. The format follows
   Comment the four keys out, or redeploy with `config-deploy --force` (the
   old file is kept as `.bak`), to get the model defaults. Earlier releases
   did not ship these keys.
+- A printer that sends no complete answer in time now reports the wait it
+  was given, over tcp and serial alike: `no complete answer within 0.5 s
+  (0 bytes read)` instead of `no complete answer in time`, so the message
+  names the `--timeout` (or `[printer] timeout`) to raise.
 
 ### Fixed
 

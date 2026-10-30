@@ -8,7 +8,7 @@ import time
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS
 
-from .uri import ClosingTransport, TcpUri, answer_started, check_timeout, transport_error
+from .uri import ClosingTransport, TcpUri, Wait, answer_started, check_timeout, no_answer, transport_error
 
 #: Longest answer read before the printer is judged to be sending something other than an answer.
 MAX_ANSWER_BYTES = 64 * 1024
@@ -106,14 +106,14 @@ class TcpTransport(ClosingTransport):
             PrinterProtocolError: More than :data:`MAX_ANSWER_BYTES` arrived without a terminator.
             TransportError: The connection failed or the printer closed it.
         """
-        deadline = time.monotonic() + check_timeout(timeout)
+        wait = Wait.since(time.monotonic(), check_timeout(timeout))
         if not terminator or lines < 1:
             raise ValueError("terminator must not be empty and lines at least 1")
         self._ensure_open()
         self._discard_waiting()
         self.send(request)
         try:
-            return self._read_until(terminator, deadline=deadline, lines=lines)
+            return self._read_until(terminator, wait=wait, lines=lines)
         finally:
             self._sock.settimeout(self._timeout)
 
@@ -149,7 +149,7 @@ class TcpTransport(ClosingTransport):
         self._discard_waiting()
         self.send(request)
         try:
-            answer = self._receive_start(deadline=started + min(timeout, total))
+            answer = self._receive_start(Wait.since(started, min(timeout, total)))
             return self._receive_rest(answer, idle=idle, end=started + total, total=total)
         finally:
             self._sock.settimeout(self._timeout)
@@ -177,8 +177,8 @@ class TcpTransport(ClosingTransport):
         finally:
             self._sock.settimeout(self._timeout)
 
-    def _read_until(self, terminator: bytes, *, deadline: float, lines: int = 1) -> bytes:
-        """Collect bytes until the ``lines``-th ``terminator``, the deadline or the size bound."""
+    def _read_until(self, terminator: bytes, *, wait: Wait, lines: int = 1) -> bytes:
+        """Collect bytes until the ``lines``-th ``terminator``, the end of ``wait`` or the size bound."""
         answer = bytearray()
         while True:
             end = _nth(answer, terminator, lines)
@@ -188,30 +188,29 @@ class TcpTransport(ClosingTransport):
                 raise PrinterProtocolError(
                     f"tcp {self._uri.target}: no answer terminator within {MAX_ANSWER_BYTES} bytes"
                 )
-            answer += self._receive(deadline - time.monotonic(), received=len(answer))
+            answer += self._receive(wait, received=len(answer))
 
-    def _receive(self, remaining: float, *, received: int) -> bytes:
-        """Receive one chunk within ``remaining`` seconds; an empty read means the printer hung up."""
+    def _receive(self, wait: Wait, *, received: int) -> bytes:
+        """Receive one chunk before ``wait`` ends; an empty read means the printer hung up."""
+        remaining = wait.remaining()
         if remaining <= 0:
-            raise PrinterTimeoutError(f"tcp {self._uri.target}: no complete answer in time ({received} bytes read)")
+            raise no_answer(f"tcp {self._uri.target}", wait=wait, received=received)
         self._sock.settimeout(remaining)
         try:
             chunk = self._sock.recv(_RECV_CHUNK)
         except TimeoutError as exc:
-            raise PrinterTimeoutError(
-                f"tcp {self._uri.target}: no complete answer in time ({received} bytes read)"
-            ) from exc
+            raise no_answer(f"tcp {self._uri.target}", wait=wait, received=received) from exc
         except OSError as exc:
             raise transport_error(self._uri, action="read from", error=exc) from exc
         if not chunk:
             raise TransportError(f"tcp {self._uri.target}: the printer closed the connection ({received} bytes read)")
         return chunk
 
-    def _receive_start(self, *, deadline: float) -> bytearray:
-        """Receive until a byte other than flow control has come, by ``deadline``."""
+    def _receive_start(self, wait: Wait) -> bytearray:
+        """Receive until a byte other than flow control has come, before ``wait`` ends."""
         answer = bytearray()
         while not answer_started(answer):
-            answer += self._receive(deadline - time.monotonic(), received=len(answer))
+            answer += self._receive(wait, received=len(answer))
             self._check_answer_size(answer)
         return answer
 

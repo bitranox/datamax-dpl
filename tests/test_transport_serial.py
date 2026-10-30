@@ -47,7 +47,7 @@ def test_bytes_received_before_a_query_are_dropped() -> None:
 def test_an_answer_without_terminator_times_out_within_the_timeout() -> None:
     with SerialTransport.open(LOOP, timeout=1.0) as printer:
         started = time.monotonic()
-        with pytest.raises(PrinterTimeoutError, match="2 bytes read"):
+        with pytest.raises(PrinterTimeoutError, match=r"no complete answer within 0\.3 s \(2 bytes read\)"):
             printer.query(b"\x01A", timeout=0.3)
         assert 0.25 <= time.monotonic() - started < 1.5
 
@@ -83,7 +83,7 @@ def test_read_answer_on_a_loop_port_returns_the_echo_after_the_silence() -> None
 def test_read_answer_with_no_byte_at_all_times_out_within_the_timeout() -> None:
     with SerialTransport.open(LOOP, timeout=1.0) as printer:
         started = time.monotonic()
-        with pytest.raises(PrinterTimeoutError, match="no complete answer in time"):
+        with pytest.raises(PrinterTimeoutError, match="no complete answer within 1 s"):
             printer.read_answer(b"", timeout=1.0, idle=0.2)
         assert 0.7 <= time.monotonic() - started < 2.5
 
@@ -266,7 +266,7 @@ def test_a_pty_printer_answers_a_status_query(pty_printer: PtyPrinter) -> None:
 def test_a_silent_pty_printer_times_out(pty_printer: PtyPrinter) -> None:
     with SerialTransport.open(SerialUri(path=pty_printer.path), timeout=1.0) as printer:
         started = time.monotonic()
-        with pytest.raises(PrinterTimeoutError):
+        with pytest.raises(PrinterTimeoutError, match=r"no complete answer within 0\.3 s"):
             printer.query(b"\x01A", timeout=0.3)
         assert time.monotonic() - started < 1.5
 

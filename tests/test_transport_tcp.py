@@ -140,7 +140,7 @@ def test_a_printer_that_never_answers_times_out_within_the_timeout(serve: Callab
     server = serve(_silent)
     with TcpTransport.connect(server.uri, timeout=2.0) as printer:
         started = time.monotonic()
-        with pytest.raises(PrinterTimeoutError, match="no complete answer"):
+        with pytest.raises(PrinterTimeoutError, match=r"no complete answer within 0\.3 s \(0 bytes read\)"):
             printer.query(b"\x01A", timeout=0.3)
         elapsed = time.monotonic() - started
     assert 0.25 <= elapsed < 1.5
@@ -410,7 +410,7 @@ def test_read_answer_with_no_byte_at_all_times_out_within_the_timeout(serve: Cal
     server = serve(_silent)
     with TcpTransport.connect(server.uri, timeout=2.0) as printer:
         started = time.monotonic()
-        with pytest.raises(PrinterTimeoutError, match="no complete answer in time"):
+        with pytest.raises(PrinterTimeoutError, match="no complete answer within 1 s"):
             printer.read_answer(b"\x02WG", timeout=1.0, idle=0.2)
         elapsed = time.monotonic() - started
     assert 0.7 <= elapsed < 2.5
@@ -533,6 +533,6 @@ def test_read_answer_with_only_flow_control_bytes_is_no_answer(serve: Callable[.
     server = serve(_answer(b"\x02WG", b"\x11\x13"))
     with (
         TcpTransport.connect(server.uri, timeout=2.0) as printer,
-        pytest.raises(PrinterTimeoutError, match="no complete answer in time"),
+        pytest.raises(PrinterTimeoutError, match=r"no complete answer within 1 s \(2 bytes read\)"),
     ):
         printer.read_answer(b"\x02WG", timeout=1.0, idle=0.3)
