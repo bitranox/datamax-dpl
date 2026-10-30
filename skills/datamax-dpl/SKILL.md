@@ -222,10 +222,12 @@ Settings live in a layered config: `datamax-dpl config` shows the merged result,
 
 `list_profiles()` and `get_profile("dmx-600")` return the model profiles (a profile holds what
 `capabilities` shows); `fill_label(label, record)` fills the placeholders for one record;
-`render_preview_png(label, get_profile(model), sent_as=build_job(label, options).sent_as)`
-returns the preview PNG bytes (without `sent_as` it draws no halving or merging); `explain(data)`
-reads DPL bytes back (`.commands`, `.label`, `.problems`). Every name on this page imports from
-`datamax_dpl`.
+`render_preview_png(label, get_profile(model), sent_as=job.sent_as, options=options)`, with
+`job = build_job(label, options)`, returns the preview PNG bytes (without `sent_as` it draws no
+halving or merging; without `options` it places fields as a job with the model defaults would,
+not as your calibrated job does);
+`explain(data)` reads DPL bytes back (`.commands`, `.label`, `.problems`). Every name on this page
+imports from `datamax_dpl`.
 
 ## What it cannot tell you
 
