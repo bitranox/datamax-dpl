@@ -118,9 +118,9 @@ also has the `backup_speed` feature.
 
 ## Finding codes
 
-Every code a render can report, in alphabetical order. The severity column is the default: under
-`--policy strict` a "warning, error under strict" finding becomes an error. The codes are stable;
-`tests/test_capabilities_doc.py` keeps this table in step with `FindingCode`.
+Every code a render or `preview` can report, in alphabetical order. The severity column is the
+default: under `--policy strict` a "warning, error under strict" finding becomes an error. The codes
+are stable; `tests/test_capabilities_doc.py` keeps this table in step with `FindingCode`.
 
 | Code                                   | Severity                                                      | Reported when                                                                                                                                                                                             |
 |----------------------------------------|---------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -176,6 +176,7 @@ Every code a render can report, in alphabetical order. The severity column is th
 | `polygon_rasterized`                   | warning, error under strict                                   | A polygon is drawn as a downloaded image.                                                                                                                                                                 |
 | `present_distance_too_large`           | error                                                         | `present_distance` is above the most `<STX>Kf` takes (9999/100 in).                                                                                                                                       |
 | `present_distance_unsupported`         | warning, error under strict                                   | `present_distance` on a model without it; sent as a stop position or ignored.                                                                                                                             |
+| `preview_text_approximated`            | info                                                          | `preview` without Pillow (the `preview` extra): text is drawn as grey character cells, so a field crossing it combines with whole cells instead of the letters' dots. Only `preview` reports it.          |
 | `qr_data_too_long`                     | error                                                         | The `qr` data fits no QR Code version at its error level.                                                                                                                                                 |
 | `qr_dot_size_not_one`                  | warning                                                       | A `qr` on a label whose `dot_size` is not 1x1: modules print larger; non-square ones may not scan.                                                                                                        |
 | `qr_past_print_width`                  | error                                                         | A `qr` element, quiet zone included, ends past the model's printable width.                                                                                                                               |

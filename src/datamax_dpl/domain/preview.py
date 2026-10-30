@@ -16,8 +16,11 @@ short of it, which keeps the fill off the outline's dots (``encode_box``).
 Text is drawn as one grey block per character cell, sized from the font tables in
 ``docs/dpl-reference.md`` section 6; barcodes as a hatched area of their estimated size. The
 picture answers "does everything sit where I meant and fit the label", not "what does the text
-look like": the optional Pillow renderer in ``adapters/preview`` adds real lettering, and the
-camera photo of a real print is the final check.
+look like": the optional Pillow renderer in ``adapters/preview`` hands in each field's lettering
+as a mask (``preview_bitmap``'s ``masks``), and the camera photo of a real print is the final check.
+A mask takes the place of a text field's cells, so an overlapping field combines with the letters'
+dots: an Allegro 2 printed a line through text with gaps only under the strokes (2026-10-30). A
+barcode's mask is its data lettered in the top quarter of its hatched area (``mask_area``).
 
 Rotation follows the manual's record header field ``a`` (printed page 94, PDF page 104), which lists
 1 (0 degrees), 2 (90), 3 (180) and 4 (270) and says: "Figure 6-2 shows the direction and amount of
@@ -36,7 +39,8 @@ on one layer, then combines that layer like any other field.
 Overlapping fields combine the way the printer's attribute says (manual, ``A`` command, page 65;
 the DMX 600/800 default, page 66):
 1 XOR prints only dots an odd number of fields share, 2 transparent prints both, 3 opaque lets the
-later field whiten the rectangle its dots span (for text, the run of its character cells) first.
+later field whiten the rectangle its dots span (for text, the run of its character cells, or of
+its lettering's dots when a mask draws it) first.
 Inverse (5) prints white on black, which the preview does not draw; it shows as XOR. A model without
 the ``A`` command (``docs/capabilities.md``) always XORs, as an Allegro 2 did on paper. A label
 that sets no attribute shows XOR, each format's default; a DMX 600/800 takes its default from the
@@ -60,6 +64,8 @@ from .render_context import RenderOptions
 from .units import Axis, to_inches
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from .profiles import PrinterProfile
     from .render_context import RenderContext
 
@@ -86,6 +92,8 @@ _MODULES_PER_CHAR = 11
 _DEFAULT_BARCODE_HEIGHT_IN = 0.5
 _DEFAULT_MODULE_DOTS = 2
 _MARGIN_DOTS = 8
+#: A barcode's data is lettered in this share of its height, at the top of the upright field.
+_BARCODE_TEXT_SHARE = 4
 #: Side of the grid square drawn for an image only the printer holds (no element of the job
 #: downloads its name), at magnification 1: its real size is unknown.
 STORED_IMAGE_DOTS = 40
@@ -280,6 +288,24 @@ class FieldArea:
             return x - lift - height + 1, y - start - length + 1, height, length
         return x + start, y - lift - height + 1, length, height
 
+    def strip(self, *, lift: int, height: int) -> FieldArea:
+        """Return the part ``lift`` dots above the upright field's bottom edge, ``height`` tall, as a field.
+
+        It turns about its own lower-left corner exactly as the part does within this field.
+
+        Example:
+            >>> area = FieldArea(x=10, y=50, length=30, height=8, rotation=Rotation.DEG_90)
+            >>> area.strip(lift=6, height=2).box() == area.part(up=(6, 2))
+            True
+        """
+        x, y = {
+            Rotation.DEG_0: (self.x, self.y - lift),
+            Rotation.DEG_90: (self.x + lift, self.y),
+            Rotation.DEG_180: (self.x, self.y + lift),
+            Rotation.DEG_270: (self.x - lift, self.y),
+        }[self.rotation]
+        return FieldArea(x=x, y=y, length=self.length, height=height, rotation=self.rotation)
+
     def rise(self) -> int:
         """Return how many rows the turned field reaches up from its reference row, that row included."""
         if self.rotation is Rotation.DEG_0:
@@ -310,6 +336,19 @@ def field_area(element: Text | ScalableText | Barcode, canvas: Canvas) -> FieldA
     return FieldArea(x=x, y=y, length=len(text.text) * (cell + gap), height=height, rotation=text.rotation)
 
 
+def mask_area(element: Text | ScalableText | Barcode, canvas: Canvas) -> FieldArea:
+    """Return the area a lettering mask for ``element`` covers (``preview_bitmap``'s ``masks``).
+
+    For a text field that is the whole field; for a barcode the top quarter of the upright field
+    (at least one row), where its data is lettered over the hatching.
+    """
+    area = field_area(element, canvas)
+    if not isinstance(element, Barcode):
+        return area
+    band = max(1, area.height // _BARCODE_TEXT_SHARE)
+    return area.strip(lift=area.height - band, height=band)
+
+
 def text_box(element: Text | ScalableText | Barcode, canvas: Canvas) -> Rect:
     """Return (left, top, width, height) in pixels of a text field's whole line or a barcode's area."""
     return field_area(element, canvas).box()
@@ -328,6 +367,16 @@ def _draw_barcode(element: Barcode, bitmap: Bitmap, canvas: Canvas) -> None:
     left, top, w, h = text_box(element, canvas)
     bitmap.fill_rect(left, top, w, h, pattern=FillPattern.RIGHT_DIAGONAL)
     bitmap.draw_polygon([(left, top), (left + w - 1, top), (left + w - 1, top + h - 1), (left, top + h - 1)])
+
+
+def _draw_masked(element: Text | ScalableText | Barcode, mask: Bitmap, bitmap: Bitmap, canvas: Canvas) -> None:
+    """Draw a text field as its mask's dots, or a barcode hatched with its band whitened under its mask."""
+    left, top, _, _ = mask_area(element, canvas).box()
+    if isinstance(element, Barcode):
+        _draw_barcode(element, bitmap, canvas)
+        bitmap.combine(mask, left, top, mode=CombineMode.OPAQUE)
+    else:
+        bitmap.blit(mask, x=left, y=top)
 
 
 def _draw_box(element: Box, bitmap: Bitmap, canvas: Canvas) -> None:
@@ -582,9 +631,11 @@ def _combine_mode(element: Element, label: Label) -> CombineMode:
     return _ATTRIBUTE_MODES.get(attribute, CombineMode.XOR)
 
 
-def _draw_layer(element: Element, layer: Bitmap, canvas: Canvas, *, halved: bool) -> None:
-    """Draw one element on its own layer, in 2x2 blocks when the job halves it."""
-    if not halved:
+def _draw_layer(element: Element, layer: Bitmap, canvas: Canvas, *, halved: bool, mask: Bitmap | None) -> None:
+    """Draw one element on its own layer: by its mask when one is given, in 2x2 blocks when halved."""
+    if mask is not None and isinstance(element, (Text, ScalableText, Barcode)):
+        _draw_masked(element, mask, layer, canvas)
+    elif not halved:
         draw_element(element, layer, canvas)
     elif isinstance(element, Image):
         _draw_image(element, layer, canvas, halved=True)
@@ -633,8 +684,27 @@ def _draw_group(group: tuple[int, ...], label: Label, layer: Bitmap, canvas: Can
         _blit_halved(drawn, layer, canvas)
 
 
+def _check_masks(label: Label, canvas: Canvas, masks: Mapping[int, Bitmap]) -> None:
+    """Refuse a mask for an element that takes none, or of another size than the area it covers."""
+    fields = {i: e for i, e in enumerate(label.elements) if isinstance(e, (Text, ScalableText, Barcode))}
+    for index, mask in masks.items():
+        element = fields.get(index)
+        if element is None:
+            msg = f"element {index} is not a text field or barcode, so it takes no mask"
+            raise ValueError(msg)
+        _, _, width, height = mask_area(element, canvas).box()
+        if (mask.width, mask.height) != (width, height):
+            msg = f"mask for element {index} is {mask.width}x{mask.height}, its area {width}x{height}"
+            raise ValueError(msg)
+
+
 def preview_bitmap(
-    label: Label, profile: PrinterProfile, *, sent_as: SentAs | None = None, options: RenderOptions | None = None
+    label: Label,
+    profile: PrinterProfile,
+    *,
+    sent_as: SentAs | None = None,
+    options: RenderOptions | None = None,
+    masks: Mapping[int, Bitmap] | None = None,
 ) -> Bitmap:
     """Draw ``label`` for ``profile`` with a one-dot frame marking the label (or print) edge.
 
@@ -646,6 +716,10 @@ def preview_bitmap(
             as the label states it.
         options: The options the job is rendered with, so that the picture places each field at
             the row and column that job writes; None renders for ``profile`` alone.
+        masks: Lettering per element index, each the size of its ``mask_area`` box: a text
+            field is drawn as its mask's dots instead of grey cells, a barcode's mask letters
+            the top band of its hatched area. Combined like the field, so a field crossing the
+            lettering gaps only under its dots. None draws every text field as cells.
 
     Returns:
         The picture, one pixel per printer dot. Each element (or merged group, at its first
@@ -654,12 +728,15 @@ def preview_bitmap(
         attribute.
 
     Raises:
-        ValueError: ``options`` are for another model than ``profile``.
+        ValueError: ``options`` are for another model than ``profile``; a mask is for an element
+            that is neither a text field nor a barcode, or is not the size of its area.
     """
     sent = sent_as or SentAs()
     groups = {group[0]: group for group in sent.merged}
     merged = {index for group in sent.merged for index in group}
     canvas = canvas_for(label, profile, options=options)
+    lettering = masks or {}
+    _check_masks(label, canvas, lettering)
     bitmap = Bitmap(canvas.width, canvas.height)
     attributes = _has_attributes(profile)
     for index, element in enumerate(label.elements):
@@ -669,7 +746,7 @@ def preview_bitmap(
         if index in groups:
             _draw_group(groups[index], label, layer, canvas, halved=not sent.halved.isdisjoint(groups[index]))
         else:
-            _draw_layer(element, layer, canvas, halved=index in sent.halved)
+            _draw_layer(element, layer, canvas, halved=index in sent.halved, mask=lettering.get(index))
         mode = _combine_mode(element, label) if attributes else CombineMode.XOR
         _combine_layer(bitmap, layer, mode=mode)
     # The frame is not printed, so it goes on last and no field's XOR can erase it.
@@ -687,6 +764,7 @@ __all__ = [
     "canvas_for",
     "draw_element",
     "field_area",
+    "mask_area",
     "preview_bitmap",
     "text_box",
     "widest_cell_mm",

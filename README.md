@@ -47,7 +47,10 @@ pip install datamax-dpl
 ```
 
 `datamax-dpl preview` draws text as grey cells by default. With the `preview` extra (Pillow,
-Python 3.11 or newer) it writes the actual text into the picture:
+Python 3.11 or newer) it writes the actual text into the picture, and a field crossing the text
+combines with the letters' dots, as the printer does: a line through text on an Allegro 2 (which
+XORs) shows gaps only under the strokes. Without the extra the text combines as whole cells, and
+`preview` says so with the `preview_text_approximated` finding:
 
 ```bash
 uvx --from "datamax-dpl[preview]" datamax-dpl --help

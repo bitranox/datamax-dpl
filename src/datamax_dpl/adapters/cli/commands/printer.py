@@ -27,10 +27,10 @@ from ....domain.preview import canvas_for
 from ....domain.profiles import get_profile
 from ....domain.render import RenderResult
 from ....domain.status import MEMORY_DIRECTORY_REQUESTS, PrinterStatus
-from ...preview import pillow_available, render_preview_png
+from ...preview import pillow_available, preview_findings, render_preview_png
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..label_io import load_label, load_records
-from ..payloads import render_payload
+from ..payloads import FindingOut, findings_text, render_payload
 from ..runner import CommandResult, run_command
 from ..settings import camera_settings, render_options, require_uri
 from ..typed_click import argument, option
@@ -230,6 +230,7 @@ class PreviewPayload(BaseModel):
     height_dots: int
     dpi: float
     lettered: bool
+    findings: list[FindingOut]
 
 
 @click.command("preview", context_settings=CLICK_CONTEXT_SETTINGS)
@@ -239,7 +240,7 @@ class PreviewPayload(BaseModel):
 @option("--model", default=None, help="Printer model profile; decides the resolution and print width.")
 @click.pass_context
 def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | None, model: str | None) -> None:
-    """Draw the label at the printer's resolution as a PNG (text as grey cells, barcodes hatched)."""
+    """Draw the label at the printer's resolution as a PNG (text lettered with Pillow, else grey cells)."""
 
     def body(cli_ctx: CLIContext) -> CommandResult:
         settings = resolve_settings(cli_ctx, model=model)
@@ -260,8 +261,12 @@ def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | 
             height_dots=canvas.height,
             dpi=profile.dpi,
             lettered=pillow_available(),
+            findings=[FindingOut.of(finding) for finding in preview_findings(label)],
         )
-        return CommandResult(ok=True, payload=payload, human=f"wrote {output} ({canvas.width}x{canvas.height} dots)")
+        human = f"wrote {output} ({canvas.width}x{canvas.height} dots)"
+        if payload.findings:
+            human += "\n" + findings_text(payload.findings)
+        return CommandResult(ok=True, payload=payload, human=human)
 
     run_command(ctx, command="preview", body=body)
 

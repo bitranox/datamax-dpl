@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import dataclasses
+import importlib.util
 import json
 from typing import TYPE_CHECKING, Any
 
@@ -285,6 +286,40 @@ def test_preview_writes_a_png(cli_runner: CliRunner, tmp_path: Path) -> None:
     result = run(cli_runner, ["preview", write_json(tmp_path / "l.json", SIMPLE), "-o", str(out), "--model", "dmx-600"])
     assert result.exit_code == 0, result.output
     assert out.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+
+#: Pillow is the optional ``preview`` extra (Python 3.11+): an interpreter without it, such as the
+#: Python 3.10 cell, previews text as grey cells.
+PILLOW_MISSING = importlib.util.find_spec("PIL") is None
+LINE_ONLY = {"elements": [{"type": "line", "x": 5, "y": 5, "x2": 30, "y2": 5, "thickness": 0.5}]}
+
+
+def preview_envelope(cli_runner: CliRunner, tmp_path: Path, label: object, *mode: str) -> Result:
+    """Run ``preview`` on ``label`` for the Allegro 2 in the given output mode."""
+    source = write_json(tmp_path / "l.json", label)
+    return run(cli_runner, [*mode, "preview", source, "-o", str(tmp_path / "p.png"), "--model", "allegro-2"])
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.skipif(not PILLOW_MISSING, reason="needs an interpreter without Pillow, such as the Python 3.10 cell")
+def test_preview_without_pillow_says_its_text_is_approximated(cli_runner: CliRunner, tmp_path: Path) -> None:
+    data = envelope(preview_envelope(cli_runner, tmp_path, SIMPLE, "--json"))["data"]
+    assert data["lettered"] is False
+    assert [finding["code"] for finding in data["findings"]] == ["preview_text_approximated"]
+    assert "preview_text_approximated" in preview_envelope(cli_runner, tmp_path, SIMPLE).output
+
+
+@pytest.mark.os_agnostic
+def test_preview_with_pillow_reports_nothing_about_its_text(cli_runner: CliRunner, tmp_path: Path) -> None:
+    pytest.importorskip("PIL.Image")
+    data = envelope(preview_envelope(cli_runner, tmp_path, SIMPLE, "--json"))["data"]
+    assert data["lettered"] is True
+    assert data["findings"] == []
+
+
+@pytest.mark.os_agnostic
+def test_preview_of_a_label_without_text_reports_nothing_about_text(cli_runner: CliRunner, tmp_path: Path) -> None:
+    assert envelope(preview_envelope(cli_runner, tmp_path, LINE_ONLY, "--json"))["data"]["findings"] == []
 
 
 #: An offset whose rounding moves SIMPLE's text two dots on the paper of a generic job: 5.2 mm is

@@ -14,7 +14,7 @@ import pytest
 from datamax_dpl.domain.decoder import explain
 from datamax_dpl.domain.enums import Attribute, Rotation, Unit
 from datamax_dpl.domain.label import Barcode, Box, Element, Image, Label, Line, ScalableText, Text
-from datamax_dpl.domain.preview import canvas_for, preview_bitmap, text_box
+from datamax_dpl.domain.preview import canvas_for, mask_area, preview_bitmap, text_box
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.render import build_job, job_context
@@ -441,3 +441,71 @@ def test_a_label_without_height_is_as_tall_as_the_downloaded_image_a_stored_refe
     twin = label.model_copy(update={"elements": [downloaded, stored.model_copy(update={"bitmap": LOGO_ROWS})]})
     profile = get_profile(MODEL)
     assert canvas_for(label, profile).height == canvas_for(twin, profile).height
+
+
+# ======================== text combined by its glyph pixels ========================
+
+#: A two-letter text field and a 4-dot line crossing it beyond both ends, in dots on a 120-dot label.
+MASKED_TEXT = Text(x=20, y=40, text="AB", font=2)
+CROSSING = Line(x=10, y=45, x2=100, y2=45, thickness=4)
+MASKED_BARCODE = Barcode(x=10, y=30, symbology=Symbology.CODE128, data="AB", height=40)
+
+
+def stripes(width: int, height: int) -> Bitmap:
+    """A mask with every third column black: glyph-like dots that leave most of the field white."""
+    return Bitmap.from_rows(["".join("#" if x % 3 == 0 else "." for x in range(width))] * height)
+
+
+def mask_for(element: Text | Barcode, label: Label, model: str) -> tuple[Bitmap, set[tuple[int, int]]]:
+    """A stripe mask the size of the area a mask covers for ``element``, and where its dots land."""
+    left, top, width, height = mask_area(element, canvas_for(label, get_profile(model))).box()
+    mask = stripes(width, height)
+    return mask, {(left + x, top + y) for x, y in black_set(mask)}
+
+
+def drawn_masked(label: Label, model: str, masks: dict[int, Bitmap]) -> set[tuple[int, int]]:
+    picture = preview_bitmap(label, get_profile(model), masks=masks)
+    return black_set(picture) - black_set(framed(label, model))
+
+
+@pytest.mark.os_agnostic
+def test_without_masks_a_line_through_text_xors_the_whole_character_cells() -> None:
+    label = dots_label(MASKED_TEXT, CROSSING)
+    assert drawn(label, "allegro-2") == alone(MASKED_TEXT, "allegro-2") ^ alone(CROSSING, "allegro-2")
+
+
+@pytest.mark.os_agnostic
+def test_a_text_mask_takes_the_place_of_the_cells_so_a_line_gaps_only_under_its_dots() -> None:
+    label = dots_label(MASKED_TEXT, CROSSING)
+    mask, dots = mask_for(MASKED_TEXT, label, "allegro-2")
+    line = alone(CROSSING, "allegro-2")
+    assert dots & line
+    assert line - covered(dots)
+    assert drawn_masked(label, "allegro-2", {0: mask}) == line ^ dots
+
+
+@pytest.mark.os_agnostic
+def test_a_barcode_mask_letters_the_top_band_over_the_hatching() -> None:
+    label = dots_label(MASKED_BARCODE)
+    mask, dots = mask_for(MASKED_BARCODE, label, "allegro-2")
+    hatched = alone(MASKED_BARCODE, "allegro-2")
+    left, top, width, height = bounds(hatched)
+    # The top quarter of the 40-dot bars, read off the drawn hatching, not off mask_area.
+    band = {(x, y) for x in range(left, left + width) for y in range(top, top + height // 4)}
+    assert (width, height) == (44, 40)
+    assert {(left + x, top + y) for x, y in black_set(mask)} == dots
+    assert drawn_masked(label, "allegro-2", {0: mask}) == (hatched - band) | dots
+
+
+@pytest.mark.os_agnostic
+def test_a_mask_of_another_size_than_its_field_is_refused() -> None:
+    label = dots_label(MASKED_TEXT)
+    with pytest.raises(ValueError, match="mask for element 0 is 3x2"):
+        preview_bitmap(label, get_profile("allegro-2"), masks={0: stripes(3, 2)})
+
+
+@pytest.mark.os_agnostic
+def test_a_mask_for_an_element_that_is_neither_text_nor_barcode_is_refused() -> None:
+    label = dots_label(MASKED_TEXT, CROSSING)
+    with pytest.raises(ValueError, match="element 1 is not a text field or barcode"):
+        preview_bitmap(label, get_profile("allegro-2"), masks={1: stripes(3, 2)})

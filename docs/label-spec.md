@@ -76,7 +76,9 @@ does with them, is in the README under [Where the label stops](../README.md#wher
 Where fields overlap, the attribute decides what prints, and `preview` draws the same: 1 XOR
 prints only the dots an odd number of fields share, 2 transparent prints both, 3 opaque lets the
 later field whiten the rectangle it covers. Inverse (5) prints white on black, which the preview
-does not draw; it shows as XOR there. A text or scalable text field's own `attribute` overrides
+does not draw; it shows as XOR there. With Pillow (the `preview` extra) text combines by its
+letters' dots, as an Allegro 2 printed a line through text with gaps only under the strokes;
+without it by its whole character cells (`preview_text_approximated`). A text or scalable text field's own `attribute` overrides
 the label's. Models without the `An` command (see [capabilities.md](capabilities.md)) always XOR:
 an Allegro 2 printed a box over an image of the same size as only their difference. There a label's
 `attribute` 2 is emulated: lines, boxes, circles, polygons, QR Codes and images with a bitmap that

@@ -289,6 +289,7 @@ class FindingCode(str, Enum):
     PLACEHOLDERS_UNFILLED = "placeholders_unfilled"
     PRESENT_DISTANCE_TOO_LARGE = "present_distance_too_large"
     PRESENT_DISTANCE_UNSUPPORTED = "present_distance_unsupported"
+    PREVIEW_TEXT_APPROXIMATED = "preview_text_approximated"
     QR_DATA_TOO_LONG = "qr_data_too_long"
     QR_DOT_SIZE_NOT_ONE = "qr_dot_size_not_one"
     QR_PAST_PRINT_WIDTH = "qr_past_print_width"

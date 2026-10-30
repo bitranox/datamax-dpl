@@ -1,11 +1,15 @@
 """Preview PNG with real lettering, when Pillow (the ``preview`` extra) is installed.
 
 The domain preview draws text as grey character cells, which shows placement but not content. With
-Pillow available, each text field and each barcode's data is written into its area in Pillow's
-scalable default font, so a reader (or an LLM looking at the PNG) sees what the label says. The
-lettering is Pillow's font, not the printer's: shapes and widths differ from a real print. A turned
-field is lettered upright in a picture of its own and that picture is turned clockwise (exactly, a
-quarter turn being a transpose) into the field's turned box, by the rule in ``domain.preview``.
+Pillow available, each text field and each barcode's data is lettered in Pillow's scalable default
+font, so a reader (or an LLM looking at the PNG) sees what the label says. The lettering goes to
+the domain as a mask of its glyph pixels (``preview_bitmap``'s ``masks``) and is combined with the
+other fields there, so a line crossing text gaps only under the strokes, as on paper. The lettering
+is Pillow's font, not the printer's: shapes and widths differ from a real print. A turned field is
+lettered upright in a picture of its own and that picture is turned clockwise (exactly, a quarter
+turn being a transpose) into the field's turned box, by the rule in ``domain.preview``.
+
+Without Pillow text stays grey cells that combine as whole cells; :func:`preview_findings` says so.
 
 Pillow is reached through :mod:`importlib` and the small Protocols below rather than a plain
 import: the extra exists only on Python 3.11 and later, and a static ``import PIL`` would make the
@@ -15,32 +19,32 @@ type check fail on 3.10, where it is not installed.
 from __future__ import annotations
 
 import importlib
-import io
 from typing import TYPE_CHECKING, Protocol, cast
 
+from ...domain.enums import FindingCode, Severity
+from ...domain.findings import Finding
 from ...domain.label import Barcode, ScalableText, Text
 from ...domain.png import encode_png
-from ...domain.preview import FieldArea, canvas_for, field_area, preview_bitmap
+from ...domain.preview import FieldArea, canvas_for, mask_area, preview_bitmap
+from ...domain.raster import Bitmap
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from ...domain.label import Label
     from ...domain.preview import SentAs
     from ...domain.profiles import PrinterProfile
     from ...domain.render_context import RenderOptions
 
 _MIN_FONT_PIXELS = 6
-_BARCODE_TEXT_SHARE = 4
-_WHITE = 255
-_BLACK = 0
+#: In a mode "1" image a set bit (255) is a glyph pixel; the background and a turn's corners stay 0.
+_INK = 255
+_NONE = 0
 
 
 class _Image(Protocol):
-    def putdata(self, data: Sequence[int]) -> None: ...
+    @property
+    def size(self) -> tuple[int, int]: ...
     def rotate(self, angle: float, *, expand: bool) -> _Image: ...
-    def paste(self, im: _Image, box: tuple[int, int]) -> None: ...
-    def save(self, fp: io.BytesIO, format: str) -> None: ...  # noqa: A002 - Pillow's own keyword
+    def tobytes(self) -> bytes: ...
 
 
 class _ImageModule(Protocol):
@@ -48,7 +52,8 @@ class _ImageModule(Protocol):
 
 
 class _Draw(Protocol):
-    def rectangle(self, xy: tuple[int, int, int, int], fill: int) -> None: ...
+    fontmode: str
+
     def text(self, xy: tuple[int, int], text: str, fill: int, font: object) -> None: ...
 
 
@@ -87,18 +92,33 @@ def pillow_available() -> bool:
     return _pillow() is not None
 
 
-def _letter(pillow: _Pillow, image: _Image, area: FieldArea, *, text: str, band: int) -> None:
-    """Write ``text`` over the top ``band`` rows of the upright field, then turn it into place.
+def _text_mask(pillow: _Pillow, area: FieldArea, text: str) -> Bitmap:
+    """Letter ``text`` upright over ``area``, turn it into place and return its glyph pixels.
 
-    The band is whitened first, so the grey cells or hatching under the lettering do not show.
+    The picture is a mode "1" image drawn without anti-aliasing, so each pixel is a glyph's dot or
+    not, and its packed rows are the bitmap's (most significant bit first, padded to whole bytes).
     """
-    upright = pillow.image.new("L", (max(1, area.length), band), _WHITE)
-    font = pillow.font.load_default(size=max(_MIN_FONT_PIXELS, band))
-    pillow.draw.Draw(upright).text((0, 0), text, fill=_BLACK, font=font)
+    upright = pillow.image.new("1", (area.length, area.height), _NONE)
+    draw = pillow.draw.Draw(upright)
+    draw.fontmode = "1"
+    draw.text((0, 0), text, fill=_INK, font=pillow.font.load_default(size=max(_MIN_FONT_PIXELS, area.height)))
     # Pillow turns counter-clockwise by positive angles; the manual's rotations turn clockwise.
     turned = upright.rotate(-area.rotation.value, expand=True)
-    left, top, _, _ = area.part(up=(area.height - band, band))
-    image.paste(turned, (left, top))
+    width, height = turned.size
+    data, stride = turned.tobytes(), (width + 7) // 8
+    return Bitmap.from_packed_rows([data[row * stride : (row + 1) * stride] for row in range(height)], width=width)
+
+
+def _masks(pillow: _Pillow, label: Label, profile: PrinterProfile, options: RenderOptions | None) -> dict[int, Bitmap]:
+    """The lettering of each text field and barcode, by element index."""
+    canvas = canvas_for(label, profile, options=options)
+    masks: dict[int, Bitmap] = {}
+    for index, element in enumerate(label.elements):
+        if isinstance(element, (Text, ScalableText)):
+            masks[index] = _text_mask(pillow, mask_area(element, canvas), element.text)
+        elif isinstance(element, Barcode):
+            masks[index] = _text_mask(pillow, mask_area(element, canvas), element.data)
+    return masks
 
 
 def render_preview_png(
@@ -113,23 +133,29 @@ def render_preview_png(
     Raises:
         ValueError: ``options`` are for another model than ``profile``.
     """
-    bitmap = preview_bitmap(label, profile, sent_as=sent_as, options=options)
     pillow = _pillow()
-    if pillow is None:
-        return encode_png(bitmap)
-    image = pillow.image.new("L", (bitmap.width, bitmap.height), _WHITE)
-    image.putdata([_BLACK if bitmap.get(x, y) else _WHITE for y in range(bitmap.height) for x in range(bitmap.width)])
-    canvas = canvas_for(label, profile, options=options)
-    for element in label.elements:
-        if isinstance(element, (Text, ScalableText)):
-            area = field_area(element, canvas)
-            _letter(pillow, image, area, text=element.text, band=max(1, area.height))
-        elif isinstance(element, Barcode):
-            area = field_area(element, canvas)
-            _letter(pillow, image, area, text=element.data, band=max(1, area.height // _BARCODE_TEXT_SHARE))
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    return buffer.getvalue()
+    masks = None if pillow is None else _masks(pillow, label, profile, options)
+    return encode_png(preview_bitmap(label, profile, sent_as=sent_as, options=options, masks=masks))
 
 
-__all__ = ["pillow_available", "render_preview_png"]
+def preview_findings(label: Label) -> list[Finding]:
+    """What the preview PNG of ``label`` cannot show: text approximated as cells without Pillow.
+
+    Example:
+        >>> from datamax_dpl.domain.label import Label, Line
+        >>> preview_findings(Label(elements=[Line(x=0, y=0, x2=5, y2=0, thickness=1)]))
+        []
+    """
+    if pillow_available() or not any(isinstance(e, (Text, ScalableText)) for e in label.elements):
+        return []
+    message = (
+        "Pillow (the preview extra, Python 3.11+) is not installed, so a field crossing text combines "
+        "with its whole character cells, not with the letters' dots the printer prints"
+    )
+    fallback = "text drawn as grey character cells"
+    return [
+        Finding(code=FindingCode.PREVIEW_TEXT_APPROXIMATED, severity=Severity.INFO, message=message, fallback=fallback)
+    ]
+
+
+__all__ = ["pillow_available", "preview_findings", "render_preview_png"]

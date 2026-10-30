@@ -13,9 +13,9 @@ from hypothesis import strategies as st
 
 from datamax_dpl.adapters.preview import render_preview_png
 from datamax_dpl.domain.enums import FillPattern, Rotation, Unit
-from datamax_dpl.domain.label import Label, Text
+from datamax_dpl.domain.label import Label, Line, Text
 from datamax_dpl.domain.png import PNG_SIGNATURE, encode_png, encode_png_rgb
-from datamax_dpl.domain.preview import canvas_for, text_box
+from datamax_dpl.domain.preview import canvas_for, preview_bitmap, text_box
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.raster import Bitmap
 
@@ -210,3 +210,41 @@ def test_pillow_lettering_is_the_upright_lettering_turned_clockwise(rotation: Ro
     assert all(left <= x < left + width and top <= y < top + height for x, y in pixels)
     relative = {(x - left0, y - top0) for x, y in upright}
     assert {(x - left, y - top) for x, y in pixels} == {turned_pixel(p, (width0, height0), rotation) for p in relative}
+
+
+#: A 1 mm line through 24-point font-9 text on the Allegro 2, starting and ending beyond the field:
+#: the 2026-10-30 test print, where the line gapped only under the letters' strokes.
+GLYPH_TEXT = Text(x=10, y=10, text="HELLO", font=9, points=24)
+GLYPH_LINE = Line(x=5, y=12, x2=55, y2=12, thickness=1)
+
+
+def cell_pixels(label: Label, model: str) -> set[tuple[int, int]]:
+    """Dark pixels of the domain preview without lettering, the one-dot frame left out like ``lettered_pixels``."""
+    bitmap = preview_bitmap(label, get_profile(model))
+    return {(x, y) for y in range(1, bitmap.height - 1) for x in range(1, bitmap.width - 1) if bitmap.get(x, y)}
+
+
+def allegro_label(*elements: Text | Line) -> Label:
+    return Label(unit=Unit.MM, width=60, height=30, elements=list(elements))
+
+
+@pytest.mark.os_agnostic
+def test_pillow_a_line_through_text_gaps_only_where_a_glyph_pixel_lies() -> None:
+    glyphs = lettered_pixels(allegro_label(GLYPH_TEXT), "allegro-2")
+    line = lettered_pixels(allegro_label(GLYPH_LINE), "allegro-2")
+    both = lettered_pixels(allegro_label(GLYPH_TEXT, GLYPH_LINE), "allegro-2")
+    # The lettering, not the grey cells the domain draws without a mask.
+    assert glyphs
+    assert glyphs != cell_pixels(allegro_label(GLYPH_TEXT), "allegro-2")
+    left, top, width, height = text_box(GLYPH_TEXT, canvas_for(allegro_label(GLYPH_TEXT), get_profile("allegro-2")))
+    rows = sorted({y for _, y in line})
+    for row in rows:
+        on_line = {x for x, y in line if y == row}
+        white = {x for x in on_line if (x, row) not in both}
+        under_glyphs = {x for x in on_line if (x, row) in glyphs}
+        assert white == under_glyphs
+    assert any((x, y) in glyphs for x, y in line)
+    field_line = {(x, y) for x, y in line if left <= x < left + width and top <= y < top + height}
+    assert field_line - glyphs
+    assert field_line - glyphs <= both
+    assert both == line ^ glyphs
