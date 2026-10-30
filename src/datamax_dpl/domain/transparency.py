@@ -9,8 +9,10 @@ What is found is reported, each finding on the element indices of the label:
 
 * ``transparency_emulated`` (deviation) per merged group, naming its elements, the image's size and
   the bytes it sends; image data is slow over a serial link (about 1 KB/s at 9600 baud).
-* ``transparency_not_emulated`` (deviation) per text, barcode or stored image whose rectangle meets
-  another field: the library does not know the printer's glyphs or bars, so those still print XOR.
+* ``transparency_not_emulated`` (deviation) per text, barcode or printer-held image whose rectangle
+  meets another field: the library does not know the printer's glyphs, bars or stored images, so
+  those still print XOR. A stored image whose name another element downloads is merged as that
+  bitmap (:meth:`~datamax_dpl.domain.render_context.RenderContext.image_rows`).
 * ``transparency_not_needed`` (info) when nothing overlaps: the label prints the same either way.
 
 Only ``attribute`` 2 is emulated. XOR (1) is what such a model prints anyway, and opaque (3) and
@@ -146,8 +148,12 @@ def _merge(members: list[PrintedDots]) -> _Merged:
     return _Merged(bitmap=bitmap, column=column, row=row)
 
 
-def _keep_named_downloads(label: Label, group: tuple[int, ...], ctx: RenderContext) -> None:
-    """Still download a merged image under its own name when a field outside the group places that name."""
+def _keep_named_downloads(label: Label, group: tuple[int, ...], ctx: RenderContext, *, grouped: frozenset[int]) -> None:
+    """Still download a merged image under its own name when a field merged into no group places that name.
+
+    A field merged into another group places nothing by name: its dots are drawn into that
+    group's image, a stored-only reference too (as the image the job downloads under its name).
+    """
     for index in group:
         element = label.elements[index]
         if not isinstance(element, Image) or element.bitmap is None:
@@ -155,7 +161,7 @@ def _keep_named_downloads(label: Label, group: tuple[int, ...], ctx: RenderConte
         if any(
             isinstance(other, Image) and other.name == element.name
             for position, other in enumerate(label.elements)
-            if position not in group
+            if position not in grouped
         ):
             encode_image(element, index=index, ctx=ctx)
 
@@ -164,7 +170,7 @@ def _bytes_sent(placed: PlacedImage, ctx: RenderContext) -> int:
     return next(download.data_bytes for download in ctx.downloads if download.name == placed.name)
 
 
-def _emulate_group(label: Label, group: tuple[int, ...], ctx: RenderContext) -> list[bytes]:
+def _emulate_group(label: Label, group: tuple[int, ...], ctx: RenderContext, *, grouped: frozenset[int]) -> list[bytes]:
     """Draw ``group`` into one downloaded image and return its placing line; nothing when it is refused.
 
     The merged image is a drawn image like a raster fallback: one that ends past the print width
@@ -182,7 +188,7 @@ def _emulate_group(label: Label, group: tuple[int, ...], ctx: RenderContext) -> 
         what=f"merged image of elements {', '.join(map(str, group))}",
     )
     placed = ctx.download_drawn_image(merged.bitmap, element=first, edge=edge, halvable=halvable)
-    _keep_named_downloads(label, group, ctx)
+    _keep_named_downloads(label, group, ctx, grouped=grouped)
     if placed is None:
         return []
     if placed.magnification != 1:
@@ -234,9 +240,10 @@ def emulate_transparency(label: Label, ctx: RenderContext) -> Emulation:
             "no fields overlap, so the label prints the same",
         )
         return Emulation()
-    placed = {group[0]: _emulate_group(label, group, ctx) for group in report.groups}
+    grouped = frozenset(index for group in report.groups for index in group)
+    placed = {group[0]: _emulate_group(label, group, ctx, grouped=grouped) for group in report.groups}
     _report_inexact(label, report.inexact, ctx)
-    return Emulation(placed=placed, merged=frozenset(index for group in report.groups for index in group))
+    return Emulation(placed=placed, merged=grouped)
 
 
 __all__ = ["Emulation", "emulate_transparency", "emulates_transparency"]

@@ -34,9 +34,10 @@ from .units import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from .findings import FindingCollector
+    from .label import Image
     from .profiles import Feature, Firmware, PrinterProfile
 
 #: Largest value of a four-digit DPL distance field.
@@ -520,6 +521,18 @@ class RenderContext:
             )
         self.downloads.append(ImageDownload(name=name, command=download_command(name, sent, module=module)))
         return self._checked(PlacedImage(name=name, magnification=placed_at, size=size), edge=edge, element=element)
+
+    def image_rows(self, image: Image) -> Sequence[str] | None:
+        """Return the bitmap ``image`` prints: its own, else the one this job downloads under its name.
+
+        A stored-only reference to a name another element of the job downloads prints that
+        download, wherever it stands in the label (:meth:`place_stored_image`).
+
+        Returns:
+            The rows, top row first, or None for an image only the printer holds, whose dots the
+            library cannot know.
+        """
+        return image.bitmap if image.bitmap is not None else self.bitmap_rows.get(image.name)
 
     def place_stored_image(self, name: str, *, element: int, edge: ImageEdge, magnification: int) -> PlacedImage | None:
         """Say how to place an image the label names without a bitmap.

@@ -112,6 +112,25 @@ def test_a_stored_image_takes_part_by_the_preview_s_placeholder_square() -> None
     assert report == OverlapReport(inexact=(0,))
 
 
+#: A 40 x 40 ring, the placeholder square's size: only its dots can tell it from the square.
+RING_ROWS = ["#" * 40] + ["#" + "." * 38 + "#"] * 38 + ["#" * 40]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("stored_first", [False, True], ids=["download-first", "stored-first"])
+def test_a_stored_reference_to_a_name_the_job_downloads_takes_part_by_that_image_s_dots(stored_first: bool) -> None:
+    """The printer prints the downloaded RING there, so the reference is exact: a line inside the
+    ring's hollow meets the placeholder square but no dot, and one across its edge shares dots."""
+    download = Image(x=400, y=300, name="RING", bitmap=RING_ROWS)
+    stored = Image(x=0, y=0, name="RING")
+    inside = Line(x=10, y=20, x2=30, y2=20, thickness=2)
+    across = inside.model_copy(update={"x2": 60})
+    first, second = (stored, download) if stored_first else (download, stored)
+    at = 0 if stored_first else 1
+    assert overlaps(first, second, inside) == OverlapReport()
+    assert overlaps(first, second, across) == OverlapReport(groups=((at, 2),))
+
+
 @pytest.mark.os_agnostic
 def test_an_image_shares_dots_by_its_bitmap_not_its_rectangle() -> None:
     """A ring image around a dot-sized box: their rectangles meet, their dots do not."""
@@ -385,6 +404,20 @@ def test_a_merged_image_another_field_places_by_name_is_still_downloaded() -> No
     assert result.emulated_groups == ((0, 1),)
     assert "LOGO" in result.downloads
     assert format_records(result.data)[-1] == b"1Y1100000050150LOGO"
+
+
+@pytest.mark.os_agnostic
+def test_a_stored_reference_to_a_downloaded_name_merges_as_that_image() -> None:
+    """The stored LOGO over APART prints LOGO's dots, so it merges like LOGO over FRAME: the same
+    content-named image twice. Nothing places LOGO by name any more, so LOGO is not downloaded."""
+    stored = {"type": "image", "x": 200, "y": 10, "name": "LOGO"}
+    result = build_job(transparent(LOGO, FRAME, stored, APART), ALLEGRO_2)
+    assert result.emulated_groups == ((0, 1), (2, 3))
+    assert FindingCode.TRANSPARENCY_NOT_EMULATED not in codes(result)
+    records = format_records(result.data)
+    assert len(records) == 2
+    assert records[0][-8:] == records[1][-8:]
+    assert result.downloads == (records[0][-8:].decode(),)
 
 
 @pytest.mark.os_agnostic

@@ -197,8 +197,9 @@ configured stop only the info `configured_stop_position_unsupported` (prints und
   only for `"attribute": 2` on a model without `A` (below), so look at the preview.
 - There, `"attribute": 2` merges overlapping lines, boxes, circles, polygons, QR Codes and images
   with a `bitmap` into one downloaded image (`transparency_emulated`; it counts against the image
-  memory budget). Text, barcodes and stored images (an `image` without `bitmap`) cannot be merged
-  and still XOR (`transparency_not_emulated`). `strict` refuses both.
+  memory budget); so does a stored image (an `image` without `bitmap`) whose name another element
+  downloads, as that bitmap. Text, barcodes and other stored images cannot be merged and still XOR
+  (`transparency_not_emulated`). `strict` refuses both.
   Unverified on paper; otherwise keep fields apart.
 
 ## Library

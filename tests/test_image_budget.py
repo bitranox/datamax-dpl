@@ -411,6 +411,29 @@ def test_the_preview_draws_a_halved_image_at_half_resolution_twice_as_large() ->
     assert drawn_near(plain, left=left, bottom=bottom, size=4) == black_set(Bitmap.from_rows(small))
 
 
+#: 40 x 40 dots of a checkerboard: 200 bytes; halved, every 2x2 block is black (60 bytes).
+CHECKER_ROWS = ["#." * 20, ".#" * 20] * 20
+
+
+@pytest.mark.os_agnostic
+def test_the_preview_draws_a_halved_image_and_a_stored_reference_to_it_alike() -> None:
+    """Both places print the halved download at doubled magnification, so both draw it that way."""
+    image = {"type": "image", "x": 5, "y": 5, "name": "LOGO", "bitmap": CHECKER_ROWS}
+    stored = {"type": "image", "x": 40, "y": 5, "name": "LOGO"}
+    document = Label.model_validate({"width": 80, "height": 30, "elements": [image, stored]})
+    options = dmx(100)
+    result = build_job(document, options)
+    assert result.ok, result.findings
+    assert result.halved_elements == (0, 1)
+    profile = get_profile("dmx-600")
+    canvas = canvas_for(document, profile, options=options)
+    picture = preview_bitmap(document, profile, sent_as=result.sent_as, options=options)
+    expected = black_set(magnify(halve(Bitmap.from_rows(CHECKER_ROWS)), 2))
+    for x in (5, 40):
+        left, bottom = canvas.point(x, 5)
+        assert drawn_near(picture, left=left, bottom=bottom, size=40) == expected
+
+
 @pytest.mark.os_agnostic
 def test_the_preview_draws_an_image_at_its_magnification() -> None:
     image = {"type": "image", "x": 2, "y": 2, "name": "LOGO", "bitmap": ["#.", ".."], "magnification": 3}

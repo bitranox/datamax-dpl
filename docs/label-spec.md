@@ -81,8 +81,9 @@ the label's. Models without the `An` command (see [capabilities.md](capabilities
 an Allegro 2 printed a box over an image of the same size as only their difference. There a label's
 `attribute` 2 is emulated: lines, boxes, circles, polygons, QR Codes and images with a bitmap that
 share dots are drawn together into one downloaded image (`transparency_emulated`), and `preview`
-draws them OR. Text, barcodes and stored images cannot be merged; one that overlaps another field
-still prints XOR (`transparency_not_emulated`). Unverified on paper; see
+draws them OR. So is a stored image whose name another element of the label downloads, as the
+bitmap it prints. Text, barcodes and other stored images cannot be merged; one that overlaps another
+field still prints XOR (`transparency_not_emulated`). Unverified on paper; see
 [dpl-reference.md](dpl-reference.md) for the cost in image bytes. Without an `attribute` the
 preview shows XOR, each format's default; a DMX 600 or 800 takes its default from the operator
 panel instead.

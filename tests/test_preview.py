@@ -385,3 +385,59 @@ def test_two_hundred_small_fields_preview_quickly() -> None:
     started = time.perf_counter()
     preview_bitmap(label, get_profile("dmx-600"))
     assert time.perf_counter() - started < LOOSE_CEILING_S
+
+
+# ======================== a stored reference to an image the job downloads ========================
+
+#: An image no placeholder grid draws by chance: a frame with one corner filled.
+LOGO_ROWS = ["#" * 16] + ["#" + "#" * 4 + "." * 10 + "#"] * 4 + ["#" + "." * 14 + "#"] * 10 + ["#" * 16]
+
+
+def picture_at(picture: Bitmap, canvas_point: tuple[int, int], *, size: int) -> set[tuple[int, int]]:
+    """The black pixels of the ``size`` square whose lower-left corner is ``canvas_point``, from its top-left."""
+    left, bottom = canvas_point
+    top = bottom - size + 1
+    return {(x - left, y - top) for x in range(left, left + size) for y in range(top, bottom + 1) if picture.get(x, y)}
+
+
+def logo_label(stored_name: str = "LOGO") -> Label:
+    """LOGO downloaded at (2, 2) mm and a stored-only reference to ``stored_name`` at (40, 2) mm."""
+    downloaded = Image(x=2, y=2, name="LOGO", bitmap=LOGO_ROWS)
+    return Label(unit=Unit.MM, width=80, height=30, elements=[downloaded, Image(x=40, y=2, name=stored_name)])
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("stored_first", [False, True], ids=["download-first", "stored-first"])
+def test_a_stored_reference_to_a_name_the_job_downloads_draws_that_image(stored_first: bool) -> None:
+    """The printer prints the downloaded LOGO at both places, so the preview draws its pixels at both."""
+    label = logo_label()
+    if stored_first:
+        label = label.model_copy(update={"elements": list(reversed(label.elements))})
+    profile = get_profile(MODEL)
+    canvas = canvas_for(label, profile)
+    picture = preview_bitmap(label, profile)
+    expected = black_set(Bitmap.from_rows(LOGO_ROWS))
+    assert picture_at(picture, canvas.point(2, 2), size=16) == expected
+    assert picture_at(picture, canvas.point(40, 2), size=16) == expected
+
+
+@pytest.mark.os_agnostic
+def test_a_stored_name_no_element_downloads_still_draws_the_placeholder_grid() -> None:
+    label = logo_label("OTHER")
+    alone_label = Label(unit=Unit.MM, width=80, height=30, elements=[label.elements[1]])
+    profile = get_profile(MODEL)
+    point = canvas_for(label, profile).point(40, 2)
+    grid = picture_at(preview_bitmap(alone_label, profile), point, size=40)
+    assert grid
+    assert picture_at(preview_bitmap(label, profile), point, size=40) == grid
+
+
+@pytest.mark.os_agnostic
+def test_a_label_without_height_is_as_tall_as_the_downloaded_image_a_stored_reference_prints() -> None:
+    """The reference prints LOGO's 16 rows, not the 40-dot placeholder, so the canvas ends where LOGO would."""
+    downloaded = Image(x=2, y=2, name="LOGO", bitmap=LOGO_ROWS)
+    stored = Image(x=40, y=20, name="LOGO")
+    label = Label(unit=Unit.MM, width=80, elements=[downloaded, stored])
+    twin = label.model_copy(update={"elements": [downloaded, stored.model_copy(update={"bitmap": LOGO_ROWS})]})
+    profile = get_profile(MODEL)
+    assert canvas_for(label, profile).height == canvas_for(twin, profile).height

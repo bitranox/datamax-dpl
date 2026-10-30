@@ -12,14 +12,15 @@ offset into each position can move two fields a unit apart or together, so detec
 merged image both start from those units, never from the label lengths. Two kinds of field take
 part:
 
-* EXACT fields, whose dots the library knows: lines, boxes, circles, polygons, QR Codes and images
-  with a bitmap. A horizontal or vertical line and a box without a patterned fill are the
-  rectangles their line and box records print (each length converted to DPL units, then to dots,
-  as the printer is told); every other graphic is the raster fallback's drawing; an image or QR
-  Code is its bitmap magnified. Two exact fields overlap when they share a dot; groups chain
+* EXACT fields, whose dots the library knows: lines, boxes, circles, polygons, QR Codes, images
+  with a bitmap, and stored-only references to a name another element of the job downloads (the
+  printer prints that download there). A horizontal or vertical line and a box without a patterned
+  fill are the rectangles their line and box records print (each length converted to DPL units,
+  then to dots, as the printer is told); every other graphic is the raster fallback's drawing; an
+  image or QR Code is its bitmap magnified. Two exact fields overlap when they share a dot; groups chain
   (A meets B, B meets C).
 * INEXACT fields, whose dots the printer draws from its own fonts and symbologies: text, scalable
-  text, barcodes, and images stored on the printer. They take part by the rectangle the preview
+  text, barcodes, and images only the printer holds. They take part by the rectangle the preview
   draws for them, and one "overlaps" when that rectangle meets another field's dots or rectangle.
   This over-reports on purpose: a rectangle that only meets white space inside a letter still
   counts.
@@ -214,6 +215,14 @@ def _qr_dots(element: Qr, ctx: RenderContext) -> PrintedDots | None:
     return _at_units(magnify(symbol, element.module_dots), column=column, row=row, ctx=ctx)
 
 
+def _image_dots(element: Image, ctx: RenderContext) -> PrintedDots | None:
+    """The image's bitmap magnified, or None for an image only the printer holds."""
+    rows = ctx.image_rows(element)
+    if rows is None:
+        return None
+    return _placed(magnify(Bitmap.from_rows(rows), element.magnification), x=element.x, y=element.y, ctx=ctx)
+
+
 def printed_dots(element: Element, ctx: RenderContext) -> PrintedDots | None:
     """Return the dots an exact field prints, or None for an inexact one.
 
@@ -225,9 +234,8 @@ def printed_dots(element: Element, ctx: RenderContext) -> PrintedDots | None:
         return _box_dots(element, ctx)
     if isinstance(element, (Line, Box, Circle, Polygon)):
         return _fallback_dots(element, ctx)
-    if isinstance(element, Image) and element.bitmap is not None:
-        picture = magnify(Bitmap.from_rows(element.bitmap), element.magnification)
-        return _placed(picture, x=element.x, y=element.y, ctx=ctx)
+    if isinstance(element, Image):
+        return _image_dots(element, ctx)
     if isinstance(element, Qr):
         return _qr_dots(element, ctx)
     return None
@@ -250,7 +258,7 @@ def inexact_rectangle(element: Element, ctx: RenderContext) -> DotArea | None:
     """Return the rectangle an inexact field takes part by, or None for an exact one."""
     if isinstance(element, (Text, ScalableText, Barcode)):
         return _field_rectangle(element, ctx)
-    if isinstance(element, Image) and element.bitmap is None:
+    if isinstance(element, Image) and ctx.image_rows(element) is None:
         size = STORED_IMAGE_DOTS * element.magnification
         left, bottom = _dots_at(element.x, axis=Axis.ACROSS, ctx=ctx), _dots_at(element.y, axis=Axis.ALONG, ctx=ctx)
         return DotArea(left=left, bottom=bottom, width=size, height=size)

@@ -86,8 +86,8 @@ _MODULES_PER_CHAR = 11
 _DEFAULT_BARCODE_HEIGHT_IN = 0.5
 _DEFAULT_MODULE_DOTS = 2
 _MARGIN_DOTS = 8
-#: Side of the grid square drawn for an image that is stored on the printer, not in the label,
-#: at magnification 1: its real size is unknown.
+#: Side of the grid square drawn for an image only the printer holds (no element of the job
+#: downloads its name), at magnification 1: its real size is unknown.
 STORED_IMAGE_DOTS = 40
 _MIN_POINTS = 4
 _MAX_POINTS = 72
@@ -384,13 +384,18 @@ def _draw_graphic(element: Line | Circle | Polygon, bitmap: Bitmap, canvas: Canv
 
 
 def _draw_image(element: Image, bitmap: Bitmap, canvas: Canvas, *, halved: bool = False) -> None:
-    """Draw the image as the printer prints it: magnified, and at half resolution when halved."""
+    """Draw the image as the printer prints it: magnified, and at half resolution when halved.
+
+    A stored-only reference to a name the job downloads prints that download, so it is drawn as
+    that bitmap (``RenderContext.image_rows``); only an image the printer alone holds is a grid.
+    """
     x, y = canvas.point(element.x, element.y)
-    if element.bitmap is None:
+    rows = canvas.geometry.ctx.image_rows(element)
+    if rows is None:
         size = STORED_IMAGE_DOTS * element.magnification
         bitmap.fill_rect(x, y - size + 1, size, size, pattern=FillPattern.GRID)
         return
-    picture = Bitmap.from_rows(element.bitmap)
+    picture = Bitmap.from_rows(rows)
     factor = element.magnification
     if halved:
         picture, factor = halve(picture), factor * HALVING_FACTOR
@@ -520,8 +525,9 @@ def _field_top(element: Text | ScalableText | Barcode, geometry: PreviewGeometry
 
 
 def _image_top(element: Image, geometry: PreviewGeometry) -> int:
-    rows = len(element.bitmap) if element.bitmap else STORED_IMAGE_DOTS
-    return geometry.dots(element.y, axis=Axis.ALONG) + rows * element.magnification
+    rows = geometry.ctx.image_rows(element)
+    height = STORED_IMAGE_DOTS if rows is None else len(rows)
+    return geometry.dots(element.y, axis=Axis.ALONG) + height * element.magnification
 
 
 def _qr_top(element: Qr, geometry: PreviewGeometry) -> int:
