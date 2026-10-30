@@ -250,9 +250,9 @@ def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | 
             label = fill_label(label, load_records(data)[0])
         profile = get_profile(settings.model)
         canvas = canvas_for(label, profile)
-        # Rendered for the elements a job past its image memory budget halves: they preview halved.
-        halved = frozenset(render_label(label, render_options(settings)).halved_elements)
-        Path(output).write_bytes(render_preview_png(label, profile, halved=halved))
+        # Rendered for how the job sends its fields: halved images and merged groups preview as they print.
+        sent_as = render_label(label, render_options(settings)).sent_as
+        Path(output).write_bytes(render_preview_png(label, profile, sent_as=sent_as))
         payload = PreviewPayload(
             output=output,
             width_dots=canvas.width,

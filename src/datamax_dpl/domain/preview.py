@@ -24,6 +24,10 @@ puts it. Rotation 1 (0) runs right and grows up; 2 (90) runs down and grows righ
 and grows down; 4 (270) runs up and grows left. Characters advance from the reference point along
 the running direction. Images are placed in rotation 1 only. Unverified until a test print.
 
+A transparent label on a model without the ``A`` command prints the fields that share dots as one
+downloaded image (:mod:`~datamax_dpl.domain.transparency`); the preview draws each such group OR
+on one layer, then combines that layer like any other field.
+
 Overlapping fields combine the way the printer's attribute says (manual, ``A`` command, page 65;
 the DMX 600/800 default, page 66):
 1 XOR prints only dots an odd number of fields share, 2 transparent prints both, 3 opaque lets the
@@ -302,14 +306,19 @@ def _draw_image(element: Image, bitmap: Bitmap, canvas: Canvas, *, halved: bool 
 
 
 def _draw_halved_graphic(element: Element, bitmap: Bitmap, canvas: Canvas) -> None:
-    """Draw a graphic the printer gets as a halved image: its dots in 2x2 blocks.
-
-    The element is drawn alone, cut at its lowest row and leftmost column (where the encoder's
-    image starts), halved and doubled there. The blocks line up with the printed ones as far as
-    the preview's drawing matches the encoder's raster, to a dot or so.
-    """
+    """Draw a graphic the printer gets as a halved image: its dots in 2x2 blocks."""
     layer = Bitmap(canvas.width, canvas.height)
     draw_element(element, layer, canvas)
+    _blit_halved(layer, bitmap, canvas)
+
+
+def _blit_halved(layer: Bitmap, bitmap: Bitmap, canvas: Canvas) -> None:
+    """Put ``layer``'s dots onto ``bitmap`` in 2x2 blocks, as the printer prints them halved.
+
+    The layer is cut at its lowest row and leftmost column (where the encoder's image starts),
+    halved and doubled there. The blocks line up with the printed ones as far as the preview's
+    drawing matches the encoder's raster, to a dot or so.
+    """
     area = layer.bounds()
     if area is None:
         return
@@ -468,26 +477,62 @@ def _combine_layer(bitmap: Bitmap, layer: Bitmap, *, mode: CombineMode) -> None:
     bitmap.combine(cut, left, top, mode=mode)
 
 
-def preview_bitmap(label: Label, profile: PrinterProfile, *, halved: frozenset[int] = frozenset()) -> Bitmap:
+@dataclass(frozen=True)
+class SentAs:
+    """How a job sends fields where that changes what they print (``RenderResult.sent_as``).
+
+    Attributes:
+        halved: Elements sent at half resolution, which print in 2x2 blocks.
+        merged: Groups of elements drawn together OR into one image (an emulated transparent label).
+
+    Example:
+        >>> SentAs().halved, SentAs().merged
+        (frozenset(), ())
+    """
+
+    halved: frozenset[int] = frozenset()
+    merged: tuple[tuple[int, ...], ...] = ()
+
+
+def _draw_group(group: tuple[int, ...], label: Label, layer: Bitmap, canvas: Canvas, *, halved: bool) -> None:
+    """Draw a merged group OR onto ``layer``, in 2x2 blocks when its image is halved."""
+    drawn = Bitmap(canvas.width, canvas.height) if halved else layer
+    for index in group:
+        draw_element(label.elements[index], drawn, canvas)
+    if halved:
+        _blit_halved(drawn, layer, canvas)
+
+
+def preview_bitmap(label: Label, profile: PrinterProfile, *, sent_as: SentAs | None = None) -> Bitmap:
     """Draw ``label`` for ``profile`` with a one-dot frame marking the label (or print) edge.
 
     Args:
         label: The label.
         profile: The model; decides the resolution and the print width.
-        halved: Elements the job sends at half resolution (``RenderResult.halved_elements``):
-            they are drawn the way they print, in 2x2 blocks.
+        sent_as: How the job sends its fields (``RenderResult.sent_as``): halved elements are
+            drawn in 2x2 blocks, and each merged group OR on one layer. None draws every field
+            as the label states it.
 
     Returns:
-        The picture, one pixel per printer dot. Each element is drawn on its own layer and
-        combined in the mode it prints in (module docstring): XOR on a model without the ``A``
-        command, else the field's or the label's attribute.
+        The picture, one pixel per printer dot. Each element (or merged group, at its first
+        element) is drawn on its own layer and combined in the mode it prints in (module
+        docstring): XOR on a model without the ``A`` command, else the field's or the label's
+        attribute.
     """
+    sent = sent_as or SentAs()
+    groups = {group[0]: group for group in sent.merged}
+    merged = {index for group in sent.merged for index in group}
     canvas = canvas_for(label, profile)
     bitmap = Bitmap(canvas.width, canvas.height)
     attributes = _has_attributes(profile)
     for index, element in enumerate(label.elements):
+        if index in merged and index not in groups:
+            continue
         layer = Bitmap(canvas.width, canvas.height)
-        _draw_layer(element, layer, canvas, halved=index in halved)
+        if index in groups:
+            _draw_group(groups[index], label, layer, canvas, halved=not sent.halved.isdisjoint(groups[index]))
+        else:
+            _draw_layer(element, layer, canvas, halved=index in sent.halved)
         mode = _combine_mode(element, label) if attributes else CombineMode.XOR
         _combine_layer(bitmap, layer, mode=mode)
     # The frame is not printed, so it goes on last and no field's XOR can erase it.
@@ -500,6 +545,7 @@ __all__ = [
     "Canvas",
     "FieldArea",
     "Rect",
+    "SentAs",
     "canvas_for",
     "draw_element",
     "field_area",

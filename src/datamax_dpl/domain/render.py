@@ -26,8 +26,10 @@ from .image_budget import ImageBudget
 from .job import format_footer, format_header, stops_at_tear_off, system_prefix
 from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText, Text
 from .placeholders import label_placeholders
+from .preview import SentAs
 from .profiles import CalibrationDefaults, Feature, get_profile, parse_firmware
 from .render_context import RenderContext, RenderOptions
+from .transparency import Emulation, emulate_transparency
 from .units import Axis, Correction, DplUnit, to_inches
 
 if TYPE_CHECKING:
@@ -52,6 +54,9 @@ class RenderResult(BaseModel):
             (see :mod:`~datamax_dpl.domain.image_budget`).
         halved_elements: Elements whose image is sent at half resolution and placed at double
             magnification because the job was past its image memory budget.
+        emulated_groups: Groups of overlapping elements drawn together into one downloaded image,
+            because the label asks for transparency on a model without the attribute command
+            (see :mod:`~datamax_dpl.domain.transparency`).
 
     Example:
         >>> from datamax_dpl.domain.label import Label, Text
@@ -72,6 +77,12 @@ class RenderResult(BaseModel):
     downloads: tuple[str, ...]
     image_bytes: int
     halved_elements: tuple[int, ...]
+    emulated_groups: tuple[tuple[int, ...], ...]
+
+    @property
+    def sent_as(self) -> SentAs:
+        """How the job sends fields where that changes their picture, for the preview."""
+        return SentAs(halved=frozenset(self.halved_elements), merged=self.emulated_groups)
 
     @property
     def ok(self) -> bool:
@@ -282,10 +293,14 @@ def _encode_element(element: Element, *, index: int, ctx: RenderContext) -> list
     return lines
 
 
-def _encode_elements(elements: list[Element], ctx: RenderContext) -> list[bytes]:
+def _encode_elements(elements: list[Element], ctx: RenderContext, emulation: Emulation) -> list[bytes]:
+    """Encode each element, putting a merged group's image where its first element stands."""
     lines: list[bytes] = []
     for index, element in enumerate(elements):
-        lines.extend(_encode_element(element, index=index, ctx=ctx))
+        if index in emulation.placed:
+            lines.extend(emulation.placed[index])
+        elif index not in emulation.merged:
+            lines.extend(_encode_element(element, index=index, ctx=ctx))
     return lines
 
 
@@ -314,7 +329,7 @@ def _encode(label: Label, options: RenderOptions, *, filled: bool, halve: bool) 
     _check_label_level(label, ctx, filled=filled)
     _check_qr_dot_size(label, ctx)
     prefix = system_prefix(label, ctx)
-    body = _encode_elements(label.elements, ctx)
+    body = _encode_elements(label.elements, ctx, emulate_transparency(label, ctx))
     record_count = _count_records(body)
     if record_count > ctx.profile.max_fields:
         ctx.findings.refuse(
@@ -396,6 +411,7 @@ def build_job(label: Label, options: RenderOptions | None = None, *, filled: boo
         downloads=tuple(download.name for download in ctx.downloads),
         image_bytes=job.image_bytes,
         halved_elements=tuple(sorted(set(ctx.halved_elements))),
+        emulated_groups=tuple(ctx.emulated_groups),
     )
 
 

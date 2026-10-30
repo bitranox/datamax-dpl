@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from ...domain.label import Label
+    from ...domain.preview import SentAs
     from ...domain.profiles import PrinterProfile
 
 _MIN_FONT_PIXELS = 6
@@ -99,12 +100,13 @@ def _letter(pillow: _Pillow, image: _Image, area: FieldArea, *, text: str, band:
     image.paste(turned, (left, top))
 
 
-def render_preview_png(label: Label, profile: PrinterProfile, *, halved: frozenset[int] = frozenset()) -> bytes:
+def render_preview_png(label: Label, profile: PrinterProfile, *, sent_as: SentAs | None = None) -> bytes:
     """Return the preview PNG: lettered with Pillow when available, cell blocks otherwise.
 
-    ``halved`` names the elements the job sends at half resolution, drawn the way they print.
+    ``sent_as`` (``RenderResult.sent_as``) says how the job sends its fields: halved images and
+    merged groups are drawn the way they print.
     """
-    bitmap = preview_bitmap(label, profile, halved=halved)
+    bitmap = preview_bitmap(label, profile, sent_as=sent_as)
     pillow = _pillow()
     if pillow is None:
         return encode_png(bitmap)

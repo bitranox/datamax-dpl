@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from .enums import FindingCode, MediaSensor, SpeedCode
 from .profiles import Feature, SpeedRange
 from .records import STX, line
+from .transparency import emulates_transparency
 from .units import MM_PER_INCH, Axis, DplUnit
 
 if TYPE_CHECKING:
@@ -231,7 +232,8 @@ def _look_lines(label: Label, ctx: RenderContext) -> list[bytes]:
     lines: list[bytes] = []
     if label.attribute is not None and ctx.supports(Feature.ATTRIBUTE):
         lines.append(line(f"A{label.attribute.value}"))
-    elif label.attribute is not None:
+    # A transparent label is emulated where it can be, and reported per overlap instead.
+    elif label.attribute is not None and not emulates_transparency(label, ctx):
         ctx.findings.deviate(
             FindingCode.ATTRIBUTE_UNSUPPORTED,
             f"label attribute: {ctx.requirement(Feature.ATTRIBUTE)}",

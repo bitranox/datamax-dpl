@@ -8,6 +8,23 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Transparent labels on models without the `A` command (Allegro, Allegro 2,
+  Prodigy, Prodigy Plus, `generic`), which print every field XOR. A label
+  with `attribute` 2 there has the fields that share printed dots drawn OR
+  into one downloaded image per group, placed at the group's lower-left
+  corner instead of the fields' own records: lines, boxes, circles,
+  polygons, QR Codes and images with a bitmap. One `transparency_emulated`
+  warning (error under `strict`) per group names its elements, the image's
+  size and its bytes; the image counts against the image memory budget and
+  is halved past it, unless it holds a QR Code. A text, barcode or stored
+  image that overlaps another field cannot be merged and prints XOR
+  (`transparency_not_emulated`, also a deviation). A label without overlaps
+  prints exactly as before, with the info `transparency_not_needed`; none
+  of these reports `attribute_unsupported`. `RenderResult` gains
+  `emulated_groups` and `sent_as`, which `preview` and `verify` draw from
+  (merged groups OR); `preview_bitmap` and `render_preview_png` take
+  `sent_as=` in place of `halved=`. Merging adds image bytes, about a
+  second per kilobyte at 9600 baud. Unverified on paper.
 - `find_overlaps` (`domain/overlap.py`): which fields of a label share
   printed dots, at the job's calibration, as groups of exact fields and the
   text, barcodes and stored images whose rectangle meets another field.

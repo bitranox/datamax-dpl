@@ -341,6 +341,22 @@ measured exactly 200 mm.
 | 1/100 in in inch mode  | printed as 2 whole dots on both axes (0.250 mm, not 0.254 mm), so inch lengths came out 1.6 % short                                                                                                                                                                                   | the `allegro-2` profile converts with 2 dots per unit; other profiles keep the exact 0.254 mm                                  |
 | Length along the feed  | a dot row is 0.1221 mm: 0.977 of nominal, from the platen roller, so it differs per printer                                                                                                                                                                                           | `scale_along`, measured per printer with `calibrate print` / `calibrate set`; `scale_across` likewise                          |
 | Position on the label  | a frame meant to sit 2 mm in from every edge sat 0.25 mm high (1.8 mm from the top, 2.3 mm from the bottom), independent of the tear-off position; after `calibrate set --top 1.8 --bottom 2.3` stored `offset_along = -0.25`, all four borders and both lengths measured as intended | `offset_along` / `offset_across`, measured per printer from the across label's borders                                         |
-| Overlapping fields     | XOR: dots two fields share print white (a box over an image of the same size showed only their difference); no attribute command                                                                                                                                                      | calibration labels keep every field apart; label designers must too; `preview` shows the XOR                                   |
+| Overlapping fields     | XOR: dots two fields share print white (a box over an image of the same size showed only their difference); no attribute command                                                                                                                                                      | calibration labels keep every field apart; a label's `attribute` 2 is emulated (below); otherwise `preview` shows the XOR      |
 | Longest format         | a format longer than about 201.5 mm is cut off                                                                                                                                                                                                                                        | the along calibration bar is at most 200 mm                                                                                    |
 | Tear-off stop position | found on the printer by trial on 2026-10-29: `<STX>f265`, sent with scale 1.0, stopped the label where wanted; stored as 67.4 mm, which converts back to `<STX>f265`                                                                                                                  | `stop_position` (and the `allegro-2` default 67.4 mm) is sent unscaled: a scaled conversion would move the stop that was found |
+
+### Transparent labels on models without `A`
+
+The Allegro, Allegro 2, Prodigy and Prodigy Plus have no `A` command and print every field XOR.
+When a label asks for `attribute` 2 (transparent) on one of them, datamax-dpl finds the fields
+that share printed dots and draws each such group OR into one image, downloaded before the format
+and placed by one image record at the group's lower-left corner; the group's own records are not
+sent. Lines, boxes, circles, polygons, QR Codes and images with a bitmap are merged, drawn the way
+their records or raster fallbacks print. Text, barcodes and stored images come from the printer's
+own fonts, symbologies and memory, so they cannot be drawn into an image: one that overlaps
+another field still prints XOR and is reported as `transparency_not_emulated`. A label whose fields
+do not overlap prints exactly as without the attribute (`transparency_not_needed`).
+
+The cost is image bytes: a merged group sends its whole frame as dot rows, which at 9600 baud
+(about 1 KB/s) adds roughly a second per kilobyte, and counts against the image memory budget like
+any other image (halved past it, except a group holding a QR Code). Unverified on paper.

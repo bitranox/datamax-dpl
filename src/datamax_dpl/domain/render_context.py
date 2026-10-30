@@ -199,6 +199,8 @@ class RenderContext:
         halve_images: Download every image that may be halved at half resolution, placed at
             double magnification (the job is past its image memory budget).
         halved_elements: Elements whose image was halved, in the order they were encoded.
+        emulated_groups: Groups of overlapping elements drawn into one image, because the label
+            asks for transparency and the model has no attribute command.
     """
 
     profile: PrinterProfile
@@ -223,6 +225,7 @@ class RenderContext:
     bitmap_rows: Mapping[str, tuple[str, ...]] = field(default_factory=dict[str, tuple[str, ...]])
     halve_images: bool = False
     halved_elements: list[int] = field(default_factory=list[int])
+    emulated_groups: list[tuple[int, ...]] = field(default_factory=list[tuple[int, ...]])
 
     def correction(self, axis: Axis) -> Correction:
         """Return how this printer prints lengths on ``axis``."""

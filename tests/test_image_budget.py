@@ -20,7 +20,7 @@ from datamax_dpl.domain.errors import ConfigurationError
 from datamax_dpl.domain.image_budget import halve, image_data_bytes, magnify
 from datamax_dpl.domain.image_records import decode_image, encode_image
 from datamax_dpl.domain.label import Label
-from datamax_dpl.domain.preview import canvas_for, preview_bitmap
+from datamax_dpl.domain.preview import SentAs, canvas_for, preview_bitmap
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.qr import qr_bitmap
 from datamax_dpl.domain.raster import Bitmap
@@ -384,7 +384,7 @@ def test_the_preview_draws_a_halved_image_at_half_resolution_twice_as_large() ->
     document = Label.model_validate({"width": 10, "height": 10, "elements": [image]})
     profile = get_profile("allegro-2")
     left, bottom = canvas_for(document, profile).point(2, 2)
-    picture = preview_bitmap(document, profile, halved=frozenset({0}))
+    picture = preview_bitmap(document, profile, sent_as=SentAs(halved=frozenset({0})))
     expected = magnify(halve(Bitmap.from_rows(small)), 2)
     assert drawn_near(picture, left=left, bottom=bottom, size=4) == black_set(expected)
     plain = preview_bitmap(document, profile)
@@ -406,7 +406,7 @@ def test_the_preview_draws_a_halved_circle_in_2x2_blocks() -> None:
     document = Label.model_validate({"width": 60, "height": 60, "elements": [CIRCLE]})
     profile = get_profile("allegro-2")
     plain = preview_bitmap(document, profile)
-    halved = preview_bitmap(document, profile, halved=frozenset({0}))
+    halved = preview_bitmap(document, profile, sent_as=SentAs(halved=frozenset({0})))
     assert black_set(plain) < black_set(halved)
 
 
