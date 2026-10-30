@@ -15,8 +15,8 @@ model, applies or refuses fallbacks, renders the DPL and sends it. Every flag is
 uvx datamax-dpl --help   # or the main branch: uvx --from git+https://github.com/bitranox/datamax-dpl datamax-dpl
 ```
 
-Only `--json` / `--json-bare` (and `--set SECTION.KEY=VALUE`) go BEFORE the command; every
-other option goes after it. Machine-readable output: `datamax-dpl --json validate label.json`. stdout is then one envelope
+Global options (`--json` / `--json-bare`, `--set SECTION.KEY=VALUE`, `--profile`, `--env-file`,
+`--traceback`) go BEFORE the command; every other option goes after it. Machine-readable output: `datamax-dpl --json validate label.json`. stdout is then one envelope
 `{"ok", "command", "data", "skipped"}`; errors are `{"ok": false, "error", "message"}`.
 Exit codes: 0 done, 1 refused (an error finding), 2 could not run (bad JSON, unknown model,
 printer unreachable or silent, broken config). A printer that does not answer in time says how
@@ -82,7 +82,8 @@ long it was given (`no complete answer within 0.5 s`): raise `--timeout` (second
   `validate`, `render`, `print` and `verify` all take `--model`, `--firmware`, `--policy`,
   `--option` and `--cutter`; `preview` takes only `--model` and `--data`.
 - `datamax-dpl models` lists the profiles; `datamax-dpl capabilities MODEL` shows what one can do,
-  including features gated by firmware (`--firmware 2.01`) or an option (`--option datamatrix`).
+  including features gated by firmware or an option (pass those to `validate`/`render` as
+  `--firmware 2.01` / `--option datamatrix`).
 - Unknown model: `datamax-dpl --json detect --printer tcp://HOST:9100` (needs tcp or serial; it
   only reads status and sends no label) names candidates; otherwise use `generic`, the subset every model has (it has no cutting at all).
 - `--policy degrade` (default) applies fallbacks and reports them; `--policy strict` refuses
@@ -152,12 +153,13 @@ configured stop only the info `configured_stop_position_unsupported` (prints und
   (and inherits the ones it leaves out) plus `label_width` and `label_height` in mm. Then
   `--printer NAME` picks its model, address, size and scale factors; `--printer` also still takes
   a URI. `render` and `validate` take it too.
-- Lengths print slightly off nominal, and differently per printer (an Allegro 2 printed 0.977 of
-  nominal along the feed; a scale is printed / nominal length). The `allegro-2` model ships values
+- Lengths print slightly off nominal, and differently per printer (a scale is printed / nominal
+  length). The `allegro-2` model ships values
   calibrated on one Allegro 2 (`scale_along` 0.976, `offset_along` -0.25 mm, tear-off
   `stop_position` 67.4 mm), named in the info finding `model_defaults_applied`; every other model
   starts neutral. A value set in the config or with `--set printer.KEY=VALUE` (`scale_across`,
-  `scale_along`, `offset_across`, `offset_along`, `stop_position`) wins, even a neutral one.
+  `scale_along`, `offset_across`, `offset_along`, `stop_position`) wins, even scale 1.0 or offset
+  0.0; a stop position must be greater than 0, so an `allegro-2` always sends one for tear-off.
   Calibrate once per printer:
   1. `datamax-dpl calibrate print --printer NAME` prints two labels with the printer's current
      factors: the ACROSS label (a thin frame 2 mm in from every edge, so 96 mm on a 100 mm

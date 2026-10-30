@@ -58,13 +58,13 @@ All notable changes to this project are documented here. The format follows
   reported as `no_modules_available`. Both colons are read with blanks
   around them, as an Allegro 2 (firmware CA02 03.04) sends the free-bytes
   header. The printer `open_printer` returns gains
-  `read_answer(request, timeout=, idle=)` behind it (tcp, serial and
-  `RecordingPrinter`; one-way channels refuse it), bounded at 1 MiB and at
+  `read_answer(request, timeout=, idle=)` behind it (tcp and serial;
+  one-way channels refuse it), bounded at 1 MiB and at
   120 s for the whole answer (its `total` argument); XON/XOFF alone do not
   start it. Read on one Allegro 2 over a print server; the other models are
   unverified.
 - Transparent labels on models without the `A` command (Allegro, Allegro 2,
-  Prodigy, Prodigy Plus, `generic`), which print every field XOR. A label
+  Prodigy, Prodigy Plus and their 152 variants, `generic`), which print every field XOR. A label
   with `attribute` 2 there has the fields that share printed dots drawn OR
   into one downloaded image per group, placed at the group's lower-left
   corner instead of the fields' own records: lines, boxes, circles,
@@ -116,7 +116,11 @@ All notable changes to this project are documented here. The format follows
   longer sets them. An `allegro-2` therefore prints with scale 0.976 along,
   offset -0.25 mm along and a 67.4 mm stop position unless configured
   otherwise, and `calibrate print` / `calibrate set` report and start from
-  those values. A value you set, even 1.0 or 0.0, still wins.
+  those values. A value you set, even 1.0 or 0.0, still wins. In the library
+  the same four `RenderOptions` fields are now `float | None` and default to
+  `None` (the model's value), so `render(label, RenderOptions(model="allegro-2"))`
+  prints at scale 0.976 along where 0.3.0 printed at 1.0.
+- `lib_layered_config` floor raised from 7.4.1 to 7.6.0.
 - Migration: a configuration deployed by 0.3.0 (`config-deploy`, usually
   `--target user`) still holds `scale_across = 1.0`, `scale_along = 1.0`,
   `offset_across = 0.0` and `offset_along = 0.0` in its
@@ -166,7 +170,6 @@ All notable changes to this project are documented here. The format follows
   2539.75 mm at scale 1; the check is on the rounded hundredths) it is now
   the error `present_distance_too_large`, so `print` refuses the label, as
   `stop_position_too_large` does for `<STX>f`.
-
 - A filled box on a model with polygons (DMX 400 from firmware 2.01, DMX
   430/600/800, Prodigy Max, PE42/PE43, Ovation, Titan) was sent as a fill
   polygon over the whole box plus its outline record. Those models print
