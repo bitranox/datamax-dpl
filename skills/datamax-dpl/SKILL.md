@@ -188,7 +188,8 @@ configured stop only the info `configured_stop_position_unsupported` (prints und
   field's own `attribute` overrides it; XOR when unset). Models without the `A` command
   (`allegro`, `allegro-2`, `prodigy`, `prodigy-152`, `prodigy-plus`, `prodigy-plus-152`,
   `generic`) always XOR: dots two fields share print WHITE, so a box over an image of the same
-  size shows only what differs. `preview` draws whichever applies.
+  size shows only what differs. `preview` draws whichever applies; `validate` reports an overlap
+  only for `"attribute": 2` on a model without `A` (below), so look at the preview.
 - There, `"attribute": 2` merges overlapping lines, boxes, circles, polygons, QR Codes and images
   with a `bitmap` into one downloaded image (`transparency_emulated`; it counts against the image
   memory budget). Text, barcodes and stored images (an `image` without `bitmap`) cannot be merged
