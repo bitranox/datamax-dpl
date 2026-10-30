@@ -207,9 +207,10 @@ class PrinterProfile:
         image_module: Letter of the memory module image downloads go to, the model's built-in
             RAM (manual, Appendix L); None for a model with no built-in module, where the render
             options must name the plug-in module fitted.
-        max_format_rows: Dot rows along the feed one format can reach at dot height 1, counted as
-            the encoder commands them (calibration scale and offset included); a label dot_size
-            of height h multiplies it by h. None where no limit is known.
+        max_format_rows: Highest dot row along the feed a format may reach at dot height 1,
+            counted as the encoder commands it (calibration scale and offset included), past
+            which the printer may cut it; a label dot_size of height h multiplies it by h. None
+            where no limit is known.
     """
 
     id: str
@@ -533,11 +534,13 @@ _IMAGE_MODULE: dict[str, str | None] = {
 }
 
 
-#: The highest dot row along the feed one format reaches, at dot height 1, counted as the encoder
-#: commands it. Measured for the Allegro 2 (one Allegro 2, firmware CA02 03.04, 2026-10-30) with a
-#: zigzag ladder: an image with one 3 mm line per dot row, each shifted sideways from the one below
-#: so every row prints as its own line; the last line printed whole was row 1648, and row 1649 was
-#: cut off. No other model has one: their manuals give none and none was measured.
+#: The highest dot row along the feed a format may reach, at dot height 1, counted as the encoder
+#: commands it. For the Allegro 2 it is the lowest row any test format was cut at (one Allegro 2,
+#: firmware CA02 03.04, 2026-10-30; docs/dpl-reference.md lists the formats). Where the printer
+#: cuts depends on the format's content in a way that is not understood: a tall element running up
+#: from the bottom was cut at rows 1648 to 1652, a format with nothing tall printed to row 1675.
+#: So 1648 is conservative, and max_format_rows raises it. No other model has one: their manuals
+#: give none and none was measured.
 _MAX_FORMAT_ROWS: dict[str, int] = {"allegro-2": 1648}
 
 

@@ -174,9 +174,13 @@ options = []
 #          height 1, counted as the job commands it (scale_along and offset_along
 #          included). A label whose field passes it is refused under either policy
 #          (format_past_max_length); a label dot_size of height 2 doubles it.
-#          Unset takes the model's limit: 1648 on the Allegro 2 (about 201 mm at
-#          its default scale_along, measured on the printer), none on every other
-#          model.
+#          Unset takes the model's limit, none on every other model than the
+#          Allegro 2: 1648 there (about 201 mm at its default scale_along), the
+#          lowest row any test format was cut at. Where the printer cuts depends
+#          on the format's content in a way that is not understood (a tall
+#          element from the bottom was cut at 1648 to 1652, a format with nothing
+#          tall printed to 1675), so 1648 is conservative: raise it here for a
+#          format that prints further.
 # Type: integer, > 0 (dot rows)
 # Default: unset (the model's limit)
 # Environment Variable: DATAMAX_DPL___PRINTER__MAX_FORMAT_ROWS=1700

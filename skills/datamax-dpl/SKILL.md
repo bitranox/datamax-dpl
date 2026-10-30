@@ -166,12 +166,11 @@ configured stop only the info `configured_stop_position_unsupported` (prints und
   Calibrate once per printer:
   1. `datamax-dpl calibrate print --printer NAME` prints two labels with the printer's current
      factors: the ACROSS label (a thin frame 2 mm in from every edge, so 96 mm on a 100 mm
-     label, with a bar inside it) and the
-     ALONG label (a bar running over several labels, the longest whole 10 mm one format holds,
-     at most 200 mm: 190 mm on an Allegro 2 at 0.976, where 200 mm needs row 1653 of its 1648;
-     measure it on the liner; the label names its length). Each title shows the factor it was
-     printed with. Without `label_width`/`label_height` configured, pass `--width` and
-     `--height`.
+     label, with a bar inside it) and the ALONG label (a bar running over several labels, the
+     longest whole 10 mm one format holds, at most 200 mm: 190 mm on an Allegro 2 at 0.976,
+     where 200 mm needs row 1653, past its limit of 1648; measure it on the liner; the label
+     names its length). Each title shows the factor it was printed with. Without
+     `label_width`/`label_height` configured, pass `--width` and `--height`.
   2. Measure the frame from outside edge to outside edge (not to the last tick), and the bar end
      to end. `calibrate set` takes the frame width as nominal for `--across`. If the print sits
      off centre, also measure the borders between the frame and the label edges (the label says

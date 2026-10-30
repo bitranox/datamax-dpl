@@ -119,8 +119,11 @@ passes it is refused under both policies (`format_past_max_length`); text and ba
 the rectangle the preview draws for them, and an image only the printer holds by its reference row
 alone, since its size is unknown. A label `dot_size` of height 2 doubles the limit, and
 `max_format_rows` (`[printer] max_format_rows` in the configuration) sets another one. The
-Allegro 2 value is the last row a ladder of one line per dot row printed whole on one Allegro 2
-(row 1649 was cut off). No other model has one.
+Allegro 2 value is the lowest row any test format was cut at on one Allegro 2. Where the printer
+cuts depends on the format's content in a way that is not understood: a tall element running up
+from the bottom was cut at rows 1648 to 1652, a format with nothing tall printed to row 1675 (see
+[dpl-reference.md](dpl-reference.md)). So the limit is conservative: it refuses some sparse formats
+that would print, and `max_format_rows` raises it. No other model has one.
 
 The features `cutter_pulse`, `field_terminator`, `stored_formats` and `time_date` are listed for
 reference. The label format has no field that uses them, so they never cause a finding.

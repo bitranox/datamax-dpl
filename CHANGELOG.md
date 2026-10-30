@@ -9,9 +9,14 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - `allegro-2` model values measured on the printer: `max_format_rows` is
-  1648 (a ladder of one line per dot row printed row 1648 whole and cut
-  row 1649 off; about 201 mm at `scale_along` 0.976), and the tear-off `stop_position` is 66.8 mm, sent
-  as `<STX>f263`.
+  1648 (about 201 mm at `scale_along` 0.976), the lowest row any test
+  format was cut at; where the printer cuts depends on the format's
+  content (a tall element from the bottom was cut at 1648 to 1652, a
+  format with nothing tall printed to 1675), so the limit is conservative
+  and `max_format_rows` raises it. The tear-off `stop_position` is 66.8 mm,
+  sent as `<STX>f263`.
+- `format_past_max_length` says a format past the row may be cut, not
+  that it cannot hold it.
 - `calibrate print` and `calibrate set` default `--along-length` to the
   longest bar in whole 10 mm, at most 200 mm, that one format holds at the
   printer's current calibration (190 mm on an Allegro 2 at 0.976), so the
