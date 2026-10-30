@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from lib_layered_config import Config
 
+import datamax_dpl
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory import FakeCamera, RecordingPrinter
 from datamax_dpl.adapters.preview import render_preview_png
@@ -320,6 +321,26 @@ def test_preview_with_pillow_reports_nothing_about_its_text(cli_runner: CliRunne
 @pytest.mark.os_agnostic
 def test_preview_of_a_label_without_text_reports_nothing_about_text(cli_runner: CliRunner, tmp_path: Path) -> None:
     assert envelope(preview_envelope(cli_runner, tmp_path, LINE_ONLY, "--json"))["data"]["findings"] == []
+
+
+@pytest.mark.os_agnostic
+def test_the_package_root_says_whether_the_preview_is_lettered() -> None:
+    assert datamax_dpl.pillow_available() is not PILLOW_MISSING
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.skipif(not PILLOW_MISSING, reason="needs an interpreter without Pillow, such as the Python 3.10 cell")
+def test_the_package_root_reports_text_previewed_without_pillow_as_approximated() -> None:
+    findings = datamax_dpl.preview_findings(Label.model_validate(SIMPLE))
+    assert [(finding.code, finding.severity) for finding in findings] == [
+        (datamax_dpl.FindingCode.PREVIEW_TEXT_APPROXIMATED, datamax_dpl.Severity.INFO)
+    ]
+
+
+@pytest.mark.os_agnostic
+def test_the_package_root_reports_nothing_for_lettered_text() -> None:
+    pytest.importorskip("PIL.Image")
+    assert datamax_dpl.preview_findings(Label.model_validate(SIMPLE)) == []
 
 
 #: An offset whose rounding moves SIMPLE's text two dots on the paper of a generic job: 5.2 mm is

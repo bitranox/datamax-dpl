@@ -7,7 +7,8 @@ The library surface, in the order a caller usually needs it:
 * :func:`render_batch` and :func:`fill_label` for one label per data record;
 * :func:`open_printer` to send the bytes, :func:`explain` to read DPL back;
 * :func:`get_profile` / :func:`list_profiles` for the printer models;
-* :func:`render_preview_png` for a picture of the label.
+* :func:`render_preview_png` for a picture of the label, :func:`preview_findings` for what that
+  picture approximates (text without Pillow, see :func:`pillow_available`).
 
 Example:
     >>> from datamax_dpl import Label, RenderOptions, Text, render
@@ -19,7 +20,7 @@ Example:
 from __future__ import annotations
 
 from .__init__conf__ import print_info
-from .adapters.preview import render_preview_png
+from .adapters.preview import pillow_available, preview_findings, render_preview_png
 from .adapters.transport import open_printer
 from .application.use_cases import BatchResult, render_batch
 from .composition import get_config
@@ -132,6 +133,8 @@ __all__ = [
     "get_profile",
     "list_profiles",
     "open_printer",
+    "pillow_available",
+    "preview_findings",
     "print_info",
     "render",
     "render_batch",

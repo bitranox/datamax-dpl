@@ -226,7 +226,8 @@ Settings live in a layered config: `datamax-dpl config` shows the merged result,
 `render_preview_png(label, get_profile(model), sent_as=job.sent_as, options=options)`, with
 `job = build_job(label, options)`, returns the preview PNG bytes (without `sent_as` it draws no
 halving or merging; without `options` it places fields as a job with the model defaults would,
-not as your calibrated job does);
+not as your calibrated job does), and `preview_findings(label)` lists what that picture
+approximates (`preview_text_approximated` when Pillow is missing);
 `explain(data)` reads DPL bytes back (`.commands`, `.label`, `.problems`). Every name on this page
 imports from `datamax_dpl`.
 

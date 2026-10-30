@@ -240,7 +240,7 @@ class PreviewPayload(BaseModel):
 @option("--model", default=None, help="Printer model profile; decides the resolution and print width.")
 @click.pass_context
 def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | None, model: str | None) -> None:
-    """Draw the label at the printer's resolution as a PNG (text lettered with Pillow, else grey cells)."""
+    """Draw the label at the printer's resolution as a PNG (text lettered or grey cells, barcodes hatched)."""
 
     def body(cli_ctx: CLIContext) -> CommandResult:
         settings = resolve_settings(cli_ctx, model=model)

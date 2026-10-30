@@ -340,7 +340,9 @@ def mask_area(element: Text | ScalableText | Barcode, canvas: Canvas) -> FieldAr
     """Return the area a lettering mask for ``element`` covers (``preview_bitmap``'s ``masks``).
 
     For a text field that is the whole field; for a barcode the top quarter of the upright field
-    (at least one row), where its data is lettered over the hatching.
+    (at least one row), where its data is lettered over the hatching. That band is not
+    print-accurate: a field crossing it on an XOR model combines with the letters' dots there,
+    where the printer has bars.
     """
     area = field_area(element, canvas)
     if not isinstance(element, Barcode):
