@@ -120,7 +120,8 @@ def test_appendix_b_sample_program_renders_byte_for_byte() -> None:
     )
     result = render(label, RenderOptions(model="dmx-400"))
     # The format is the manual's; the printer state the job sets and its clears surround it.
-    assert system_commands(result.data) == [b"n", b"c0000", b"O0220", b"M1200", b"SK", b"qA"]
+    # No S: Appendix M gives the DMX 400 a slew default outside its own range.
+    assert system_commands(result.data) == [b"n", b"c0000", b"O0220", b"M1200", b"qA"]
     assert result.data[result.data.index(STX + b"L\r") : -len(result.closing)] == (
         STX + b"L\rn\rD11\rH07\r191100801000025" + b"10K OHM 1/4 WATT\r1a6210000000050590PCS\rQ0001\rE\r"
     )

@@ -710,6 +710,16 @@ _SOFTWARE_SWITCHES: dict[str, SoftwareSwitchBits | None] = {
 }
 
 
+def _feed_rate(slew: SpeedRange) -> SpeedCode | None:
+    """Return the slew default as the feed rate, or None where it lies outside the slew range.
+
+    Appendix M (p.194) lists the DMX 400's slew range as C-I with default K, outside that range:
+    the table contradicts itself, so no feed rate is sent rather than a value one column rules
+    out, and the job names ``feed_rate`` as the key to set.
+    """
+    return slew.default if slew.contains(slew.default) else None
+
+
 def _start_of_print_mm(model: str) -> float | None:
     hundredths = _START_OF_PRINT[model]
     return None if hundredths is None else hundredths_to_mm(hundredths)
@@ -741,7 +751,7 @@ def _build(row: _Row) -> PrinterProfile:
         max_label_length_mm=hundredths_to_mm(_MAX_LABEL_LENGTH[row.id]),
         # The manual gives no feed rate default; the feed button feeding at the slew speed the
         # printer uses anyway is the reading that changes nothing a user would notice.
-        feed_rate=_speeds(slew_speed).default,
+        feed_rate=_feed_rate(_speeds(slew_speed)),
         software_switches=_SOFTWARE_SWITCHES[row.id],
     )
 

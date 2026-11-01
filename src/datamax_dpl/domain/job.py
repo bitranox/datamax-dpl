@@ -11,11 +11,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
 
+from .charset import DEFAULT_SYMBOL_SET
 from .enums import FindingCode, MediaSensor, PrinterSetting, SpeedCode
 from .profiles import Feature, SpeedRange
 from .records import STX, line
 from .transparency import emulates_transparency
-from .units import Axis, DplUnit, hundredths_to_mm
+from .units import MM_PER_INCH, Axis, DplUnit, hundredths_to_mm, to_inches
 
 if TYPE_CHECKING:
     from .label import Label
@@ -62,68 +63,100 @@ def _media_commands(label: Label, ctx: RenderContext) -> list[bytes]:
     if media is None:
         return commands
     if not ctx.supports(Feature.SENSOR_SELECT):
-        ctx.findings.deviate(
-            FindingCode.SENSOR_SELECT_UNSUPPORTED,
-            f"choosing the media sensor: {ctx.requirement(Feature.SENSOR_SELECT)}",
-            fallback="the printer keeps its configured sensor",
-        )
+        _report_sensor_unsupported(media, ctx)
         return commands
     letter = "e" if media is MediaSensor.GAP else "r"
     return [*commands, _system(letter)]
 
 
-def _unsupported_setting(what: str, feature: Feature, ctx: RenderContext) -> list[bytes]:
-    """Report a printer setting this model has no command for; it is not sent.
+def _report_sensor_unsupported(media: MediaSensor, ctx: RenderContext) -> None:
+    """Report a media sensor this model cannot choose: a deviation for the label's own, else info.
 
-    Info, not a deviation: the setting belongs to the printer, not to what this label asks for,
-    so a strict job still prints (as a configured stop position does).
+    A configured sensor belongs to the printer, not to what this label asks for, so it is only
+    reported and a strict job still prints, as for a configured stop position.
     """
+    requirement = ctx.requirement(Feature.SENSOR_SELECT)
+    if ctx.printer_state.media_from_label:
+        ctx.findings.deviate(
+            FindingCode.SENSOR_SELECT_UNSUPPORTED,
+            f"choosing the media sensor: {requirement}",
+            fallback="the printer keeps its configured sensor",
+        )
+        return
     ctx.findings.info(
-        FindingCode.PRINTER_SETTING_UNSUPPORTED, f"{what} not sent: no command for it ({ctx.requirement(feature)})"
+        FindingCode.CONFIGURED_SENSOR_SELECT_UNSUPPORTED,
+        f"configured media {media.value} not selected: choosing the media sensor: {requirement}; "
+        "the printer keeps its configured sensor",
+    )
+
+
+def _start_of_print(ctx: RenderContext) -> list[bytes]:
+    """Return ``<STX>O``, sent exactly as configured, without the printer's scale.
+
+    The default is the manual's own inch figure, and a configured value is what a test on the
+    printer settled on.
+    """
+    mm = ctx.printer_state.start_of_print_mm
+    if not _sends(PrinterSetting.START_OF_PRINT, ctx) or mm is None:
+        return []
+    return [_system(f"O{ctx.nominal_inch_hundredths(mm):04d}")]
+
+
+#: How far below the maximum label length a label must end: within 0.1 in (2.54 mm) the printer
+#: declares a paper fault before it finds the next label edge (manual p.30).
+MAX_LABEL_LENGTH_MARGIN_MM = 2.54
+
+
+def _max_label_length(label: Label, ctx: RenderContext) -> list[bytes]:
+    """Return ``<STX>M``, sent as configured, unless the label is too long for it.
+
+    A label on gap or reflective media whose height reaches within the margin of the value would
+    paper-fault on every label, so the job sends none and the printer keeps its own value.
+    """
+    state = ctx.printer_state
+    mm = state.max_label_length_mm
+    if not _sends(PrinterSetting.MAX_LABEL_LENGTH, ctx) or mm is None:
+        return []
+    height = None if label.height is None else to_inches(label.height, label.unit, dpi=ctx.profile.dpi) * MM_PER_INCH
+    if state.media is MediaSensor.CONTINUOUS or height is None or height + MAX_LABEL_LENGTH_MARGIN_MM < mm:
+        return [_system(f"M{ctx.nominal_inch_hundredths(mm):04d}")]
+    source = (
+        "configured max_label_length_mm"
+        if PrinterSetting.MAX_LABEL_LENGTH in state.configured
+        else f"the {ctx.profile.name} model default"
+    )
+    ctx.findings.deviate(
+        FindingCode.MAX_LABEL_LENGTH_TOO_SHORT,
+        f"the label height {height:g} mm is not at least {MAX_LABEL_LENGTH_MARGIN_MM:g} mm below the maximum "
+        f"label length {mm:g} mm ({source}); the printer would declare a paper fault (manual p.30)",
+        fallback="no <STX>M sent; the printer keeps its own value",
     )
     return []
 
 
-#: Command letter, feature and name of each setting that is a distance.
-_DISTANCE_SETTINGS: dict[PrinterSetting, tuple[str, Feature, str]] = {
-    PrinterSetting.START_OF_PRINT: ("O", Feature.START_OF_PRINT, "start of print"),
-    PrinterSetting.MAX_LABEL_LENGTH: ("M", Feature.MAX_LABEL_LENGTH, "maximum label length"),
-}
-
-
-def _distance_setting(setting: PrinterSetting, mm: float | None, ctx: RenderContext) -> list[bytes]:
-    """Return ``<STX>O`` or ``<STX>M`` for ``mm``, or nothing when there is no value to send.
-
-    Sent exactly as configured, without the printer's scale: the defaults are the manual's own
-    inch figures, and a configured value is what a test on the printer settled on.
-    """
-    if not _sends(setting, ctx) or mm is None:
-        return []
-    letter, feature, what = _DISTANCE_SETTINGS[setting]
-    if not ctx.supports(feature):
-        return _unsupported_setting(f"{what} {mm:g} mm", feature, ctx)
-    return [_system(f"{letter}{ctx.nominal_inch_hundredths(mm):04d}")]
-
-
 def _feed_rate(ctx: RenderContext) -> list[bytes]:
-    """Return ``<STX>S``: the feed button's speed, kept within the model's slew range."""
+    """Return ``<STX>S``: the feed button's speed, kept within the model's slew range.
+
+    A value outside the range is reported as info and replaced by the model's default: the feed
+    rate belongs to the printer, not to what the label asks for, so a strict job still prints.
+    """
     wanted = ctx.printer_state.feed_rate
     if not _sends(PrinterSetting.FEED_RATE, ctx) or wanted is None:
         return []
-    if not ctx.supports(Feature.FEED_RATE):
-        return _unsupported_setting(f"feed rate {wanted.value}", Feature.FEED_RATE, ctx)
     allowed = ctx.profile.slew_speed
     if allowed.contains(wanted):
         return [_system(f"S{wanted.value}")]
     # The model's own default, not the nearest letter: the feed rate has no label-level meaning
     # to stay close to, and the default is what the printer would use with no setting at all.
     default = ctx.profile.feed_rate
-    ctx.findings.deviate(
-        FindingCode.SPEED_OUT_OF_RANGE,
-        f"feed rate {wanted.value} is outside {allowed.low.value}-{allowed.high.value} on {ctx.profile.name}",
-        fallback="the printer keeps its feed rate" if default is None else f"feed rate {default.value}",
+    sent = [_system(f"S{default.value}")] if default is not None and allowed.contains(default) else []
+    fallback = f"feed rate {default.value} sent" if default is not None and sent else "no feed rate sent"
+    ctx.findings.info(
+        FindingCode.FEED_RATE_OUT_OF_RANGE,
+        f"feed rate {wanted.value} is outside {allowed.low.value}-{allowed.high.value} on {ctx.profile.name}; "
+        f"{fallback}",
     )
-    return [] if default is None else [_system(f"S{default.value}")]
+    return sent
 
 
 def _switch_value(ctx: RenderContext) -> tuple[int | None, str]:
@@ -154,8 +187,6 @@ def _switch_value(ctx: RenderContext) -> tuple[int | None, str]:
 def _software_switches(ctx: RenderContext) -> list[bytes]:
     if not _sends(PrinterSetting.SOFTWARE_SWITCHES, ctx):
         return []
-    if not ctx.supports(Feature.SOFTWARE_SWITCHES):
-        return _unsupported_setting("software switches", Feature.SOFTWARE_SWITCHES, ctx)
     value, reason = _switch_value(ctx)
     if value is None:
         ctx.findings.info(FindingCode.SOFTWARE_SWITCHES_NOT_SENT, f"software switches (<STX>V) not sent: {reason}")
@@ -163,13 +194,62 @@ def _software_switches(ctx: RenderContext) -> list[bytes]:
     return [_system(f"V{value:X}")]
 
 
+#: The settings whose value can be unknown for a model, each with the option that sets it.
+_SETTING_KEYS: tuple[tuple[PrinterSetting, str, str], ...] = (
+    (PrinterSetting.START_OF_PRINT, "start of print", "start_of_print_mm"),
+    (PrinterSetting.MAX_LABEL_LENGTH, "maximum label length", "max_label_length_mm"),
+    (PrinterSetting.FEED_RATE, "feed rate", "feed_rate"),
+)
+
+
+def _report_unknown_values(ctx: RenderContext) -> None:
+    """Name, once, the settings the job would send but has no value for, and the key that sets each.
+
+    The model's default is unknown there (a DIP switch decides the Prodigy Max's start of print;
+    the synthetic models share none), so the printer keeps whatever another program left.
+    """
+    state = ctx.printer_state
+    values = {
+        PrinterSetting.START_OF_PRINT: state.start_of_print_mm,
+        PrinterSetting.MAX_LABEL_LENGTH: state.max_label_length_mm,
+        PrinterSetting.FEED_RATE: state.feed_rate,
+    }
+    unknown = [
+        f"{what} (set {key})"
+        for setting, what, key in _SETTING_KEYS
+        if _sends(setting, ctx) and values[setting] is None
+    ]
+    if unknown:
+        ctx.findings.info(
+            FindingCode.PRINTER_SETTINGS_UNKNOWN,
+            f"not sent, {ctx.profile.name} has no known value: {', '.join(unknown)}; the printer keeps its own",
+        )
+
+
+def _report_label_settings_left_out(label: Label, ctx: RenderContext) -> None:
+    """Report each setting the label asks for that ``send_settings`` keeps the job from sending."""
+    asked: list[tuple[PrinterSetting, str, object]] = [
+        (PrinterSetting.MEDIA, "media", label.media.value if label.media is not None else None),
+        (PrinterSetting.STOP, "stop_position", None if label.stop_position == PRINTER_STOP else label.stop_position),
+        (PrinterSetting.STOP, "present_distance", label.present_distance),
+    ]
+    for setting, name, value in asked:
+        if value is not None and not _sends(setting, ctx):
+            ctx.findings.info(
+                FindingCode.LABEL_SETTING_NOT_SENT,
+                f"the label's {name} {value} is not sent: send_settings leaves out {setting.value}",
+            )
+
+
 def _settings(label: Label, ctx: RenderContext) -> list[bytes]:
     """Return the persistent printer settings this label's job sends, each only where it is in ``send``."""
+    _report_label_settings_left_out(label, ctx)
+    _report_unknown_values(ctx)
     stop = _present_commands(label, ctx) if _sends(PrinterSetting.STOP, ctx) else []
     return (
         _media_commands(label, ctx)
-        + _distance_setting(PrinterSetting.START_OF_PRINT, ctx.printer_state.start_of_print_mm, ctx)
-        + _distance_setting(PrinterSetting.MAX_LABEL_LENGTH, ctx.printer_state.max_label_length_mm, ctx)
+        + _start_of_print(ctx)
+        + _max_label_length(label, ctx)
         + _feed_rate(ctx)
         + _software_switches(ctx)
         + stop
@@ -381,6 +461,15 @@ def _look_lines(label: Label, ctx: RenderContext) -> list[bytes]:
 
 
 def _symbol_set_line(label: Label, ctx: RenderContext) -> list[bytes]:
+    """Return the ``yS`` line: the label's symbol set, else the one its scalable text was encoded for.
+
+    A symbol set stays selected until another is (manual p.48), so scalable text encoded for the
+    assumed default (``PC``, see :mod:`~datamax_dpl.domain.charset`) states it: a set another
+    program left behind would otherwise print other characters for the same bytes.
+    """
+    if label.symbol_set is None and ctx.supports(Feature.SCALABLE_FONTS):
+        scalable = any(element.type == "scalable_text" for element in label.elements)
+        return [line(f"yS{DEFAULT_SYMBOL_SET}")] if scalable else []
     if label.symbol_set is None:
         return []
     if ctx.supports(Feature.SCALABLE_FONTS):
@@ -490,6 +579,30 @@ def _remove_image(name: str) -> bytes:
     return line(_system(f"R{name}"))
 
 
+#: Image names whose remove command is the ribbon saver's: ``<STX>RY`` / ``<STX>RN`` switch it on
+#: or off (manual p.36), and that page names no model the ribbon saver form skips.
+RIBBON_SAVER_NAMES = frozenset({"Y", "N"})
+
+
+def _removable_names(ctx: RenderContext) -> list[str]:
+    """Return the names this job downloads that a remove command may name, refusing the others.
+
+    Refused under either policy: ``<STX>RY`` would change a persistent printer setting instead of
+    removing an image. A name only starting with Y or N is kept: whether the firmware reads such
+    a name's first letter as the ribbon saver command is unverified, and refusing it on
+    speculation would break ordinary names.
+    """
+    names = list(dict.fromkeys(download.name for download in ctx.downloads))
+    for name in names:
+        if name in RIBBON_SAVER_NAMES:
+            ctx.findings.refuse(
+                FindingCode.IMAGE_NAME_RESERVED,
+                f"image name {name}: on {ctx.profile.name} <STX>R{name} switches the ribbon saver instead of "
+                "removing the image (manual p.36); choose another name",
+            )
+    return [name for name in names if name not in RIBBON_SAVER_NAMES]
+
+
 def _report_no_clear(ctx: RenderContext) -> None:
     """Say once that this model can clear no stored image, where that can matter.
 
@@ -501,8 +614,9 @@ def _report_no_clear(ctx: RenderContext) -> None:
         return
     ctx.findings.info(
         FindingCode.GRAPHICS_CLEAR_UNSUPPORTED,
-        f"stored images not cleared: {ctx.profile.name} has neither clear module (<STX>q) nor remove image "
-        "(<STX>R); a printer that already holds an image name this label downloads may not print it",
+        f"image module not cleared: {ctx.profile.name} has neither clear module (<STX>q, which removes every "
+        "file in the module: images, formats, fonts) nor remove image (<STX>R); a printer that already holds "
+        "an image name this label downloads may not print it",
     )
 
 
@@ -510,8 +624,9 @@ def image_downloads(ctx: RenderContext) -> list[bytes]:
     """Return the label's clear and its image downloads, in the order they go before ``<STX>L``.
 
     A model with ``<STX>q`` clears the whole module the images go to on every label, images or
-    not, so no image another program stored can be held under a name this job reuses. The plain
-    Prodigy has no ``<STX>q`` and removes each name it downloads right before that download.
+    not, so no image another program stored can be held under a name this job reuses; it removes
+    EVERY file in that module, formats and fonts included, not only images. The plain Prodigy has
+    no ``<STX>q`` and removes each name it downloads right before that download.
 
     Args:
         ctx: The job's context, after every field is encoded, so its downloads are complete.
@@ -527,16 +642,22 @@ def image_downloads(ctx: RenderContext) -> list[bytes]:
     if not ctx.supports(Feature.REMOVE_IMAGE):
         _report_no_clear(ctx)
         return downloads
+    removable = _removable_names(ctx) if before or ctx.printer_state.clear_graphics_after_label else []
     if not before:
         return downloads
-    return [part for download in ctx.downloads for part in (_remove_image(download.name), download.command)]
+    return [
+        part
+        for download in ctx.downloads
+        for part in ([_remove_image(download.name)] if download.name in removable else []) + [download.command]
+    ]
 
 
 def closing_clears(ctx: RenderContext) -> list[bytes]:
     """Return the clear after the label: the last of its bytes, after the format and any cut.
 
-    The next job then starts from an empty module whatever program sends it. The plain Prodigy
-    removes every name this label downloaded, and only those: it has no way to clear the rest.
+    The next job then starts from an empty module whatever program sends it: ``<STX>q`` removes
+    every file in it, images, formats and fonts alike. The plain Prodigy removes every name this
+    label downloaded, and only those: it has no way to clear the rest.
 
     Args:
         ctx: The job's context, after every field is encoded, so its downloads are complete.
@@ -551,16 +672,20 @@ def closing_clears(ctx: RenderContext) -> list[bytes]:
         return [clear]
     if not ctx.supports(Feature.REMOVE_IMAGE):
         return []
-    return [_remove_image(name) for name in dict.fromkeys(download.name for download in ctx.downloads)]
+    # image_downloads already refused a name the remove command cannot carry.
+    names = dict.fromkeys(download.name for download in ctx.downloads)
+    return [_remove_image(name) for name in names if name not in RIBBON_SAVER_NAMES]
 
 
 __all__ = [
     "CUT_NOW",
     "INCH_MODE",
+    "MAX_LABEL_LENGTH_MARGIN_MM",
     "MAX_PRESENT_DISTANCE",
     "MAX_STOP_POSITION",
     "MAX_STOP_POSITION_MM",
     "PRINTER_STOP",
+    "RIBBON_SAVER_NAMES",
     "closing_clears",
     "format_footer",
     "format_header",

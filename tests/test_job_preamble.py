@@ -26,7 +26,8 @@ from datamax_dpl.domain.enums import (
     Severity,
     SpeedCode,
 )
-from datamax_dpl.domain.label import Cut, Image, Label, Qr, Text
+from datamax_dpl.domain.label import Cut, Image, Label, Qr, ScalableText, Text
+from datamax_dpl.domain.profiles import PROFILES, get_profile
 from datamax_dpl.domain.render import RenderResult, build_job
 from datamax_dpl.domain.render_context import RenderOptions
 
@@ -61,6 +62,21 @@ def test_a_gap_label_on_the_allegro_2_ends_continuous_mode_and_selects_the_gap_s
     data = _job(_text_label(media=MediaSensor.GAP), model="allegro-2").data
     assert STX + b"c0000" in data
     assert STX + b"e" in data
+
+
+def test_a_configured_sensor_the_model_cannot_choose_is_info_and_strict_still_prints() -> None:
+    result = _job(_text_label(), model="generic", media=MediaSensor.GAP, policy=FallbackPolicy.STRICT)
+    assert STX + b"c0000" in result.data
+    assert STX + b"e" not in result.data
+    assert _finding(result, FindingCode.CONFIGURED_SENSOR_SELECT_UNSUPPORTED) == [Severity.INFO]
+    assert FindingCode.SENSOR_SELECT_UNSUPPORTED not in _codes(result)
+    assert result.ok
+
+
+def test_the_label_s_own_sensor_the_model_cannot_choose_still_deviates() -> None:
+    result = _job(_text_label(media=MediaSensor.GAP), model="generic", media=MediaSensor.GAP)
+    assert _finding(result, FindingCode.SENSOR_SELECT_UNSUPPORTED) == [Severity.WARNING]
+    assert FindingCode.CONFIGURED_SENSOR_SELECT_UNSUPPORTED not in _codes(result)
 
 
 def test_a_gap_label_where_the_sensor_cannot_be_chosen_still_ends_continuous_mode() -> None:
@@ -133,22 +149,132 @@ def test_a_feed_rate_outside_the_model_s_slew_range_falls_back_to_the_model_defa
     result = _job(_text_label(), model="allegro-2", feed_rate=SpeedCode("S"))
     assert STX + b"SC" in result.data
     assert STX + b"SS" not in result.data
-    assert _finding(result, FindingCode.SPEED_OUT_OF_RANGE) == [Severity.WARNING]
+    assert _finding(result, FindingCode.FEED_RATE_OUT_OF_RANGE) == [Severity.INFO]
 
 
-def test_strict_refuses_a_feed_rate_outside_the_model_s_slew_range() -> None:
+def test_strict_prints_with_a_configured_feed_rate_outside_the_slew_range() -> None:
+    """The feed rate is a printer setting, not what the label asks for (D51a)."""
     result = _job(_text_label(), model="allegro-2", feed_rate=SpeedCode("S"), policy=FallbackPolicy.STRICT)
-    assert _finding(result, FindingCode.SPEED_OUT_OF_RANGE) == [Severity.ERROR]
-    assert not result.ok
+    assert _finding(result, FindingCode.FEED_RATE_OUT_OF_RANGE) == [Severity.INFO]
+    assert result.ok
 
 
 def test_a_feed_rate_out_of_range_on_a_model_without_a_default_sends_none() -> None:
     result = _job(_text_label(), model="generic", feed_rate=SpeedCode("S"))
     assert STX + b"S" not in result.data
-    assert _finding(result, FindingCode.SPEED_OUT_OF_RANGE) == [Severity.WARNING]
+    assert _finding(result, FindingCode.FEED_RATE_OUT_OF_RANGE) == [Severity.INFO]
 
 
-# ======================== Software switches ========================
+@pytest.mark.parametrize("model", sorted(PROFILES))
+def test_every_model_s_default_feed_rate_lies_in_its_slew_range(model: str) -> None:
+    """So a feed rate out of range can only come from the options, never from the model."""
+    profile = get_profile(model)
+    assert profile.feed_rate is None or profile.slew_speed.contains(profile.feed_rate)
+
+
+def test_a_dmx_400_job_under_strict_is_not_refused_for_its_feed_rate() -> None:
+    """Appendix M p.194 gives the DMX 400 slew range C-I with default K: no S, the key is named."""
+    result = _job(_text_label(), model="dmx-400", policy=FallbackPolicy.STRICT)
+    assert result.ok
+    assert STX + b"S" not in result.data
+    assert FindingCode.FEED_RATE_OUT_OF_RANGE not in _codes(result)
+    unknown = [f.message for f in result.findings if f.code is FindingCode.PRINTER_SETTINGS_UNKNOWN]
+    assert len(unknown) == 1
+    assert "feed_rate" in unknown[0]
+
+
+def test_a_model_without_a_known_value_names_the_settings_it_does_not_send() -> None:
+    result = _job(_text_label(), model="generic")
+    unknown = [f for f in result.findings if f.code is FindingCode.PRINTER_SETTINGS_UNKNOWN]
+    assert [f.severity for f in unknown] == [Severity.INFO]
+    for key in ("start_of_print_mm", "max_label_length_mm", "feed_rate"):
+        assert key in unknown[0].message
+
+
+def test_the_prodigy_max_names_only_its_start_of_print() -> None:
+    result = _job(_text_label(), model="prodigy-max-203")
+    unknown = [f.message for f in result.findings if f.code is FindingCode.PRINTER_SETTINGS_UNKNOWN]
+    assert len(unknown) == 1
+    assert "start_of_print_mm" in unknown[0]
+    assert "max_label_length_mm" not in unknown[0]
+
+
+def test_settings_left_out_of_send_settings_are_not_named_as_unknown() -> None:
+    settings = frozenset(PrinterSetting) - {PrinterSetting.START_OF_PRINT}
+    result = _job(_text_label(), model="prodigy-max-203", send_settings=settings)
+    assert FindingCode.PRINTER_SETTINGS_UNKNOWN not in _codes(result)
+
+
+def test_a_model_with_every_value_known_names_nothing() -> None:
+    assert FindingCode.PRINTER_SETTINGS_UNKNOWN not in _codes(_job(_text_label(), model="allegro-2"))
+
+
+# ======================== Maximum label length against the label ========================
+
+
+def test_a_label_as_long_as_the_maximum_label_length_sends_no_m() -> None:
+    result = _job(_text_label(media=MediaSensor.GAP, height=420), model="dmx-600")
+    assert STX + b"M" not in result.data
+    found = [f for f in result.findings if f.code is FindingCode.MAX_LABEL_LENGTH_TOO_SHORT]
+    assert [f.severity for f in found] == [Severity.WARNING]
+    assert "420" in found[0].message
+    assert "406.4" in found[0].message
+    assert "model default" in found[0].message
+
+
+def test_strict_refuses_a_label_too_long_for_the_maximum_label_length() -> None:
+    label = _text_label(media=MediaSensor.GAP, height=420)
+    result = _job(label, model="dmx-600", policy=FallbackPolicy.STRICT)
+    assert _finding(result, FindingCode.MAX_LABEL_LENGTH_TOO_SHORT) == [Severity.ERROR]
+
+
+def test_the_message_says_when_the_maximum_label_length_was_configured() -> None:
+    result = _job(_text_label(height=200), model="dmx-600", max_label_length_mm=201)
+    found = [f.message for f in result.findings if f.code is FindingCode.MAX_LABEL_LENGTH_TOO_SHORT]
+    assert len(found) == 1
+    assert "configured" in found[0]
+
+
+@pytest.mark.parametrize(("height", "sent"), [(403.8, True), (403.9, False)])
+def test_the_label_needs_a_tenth_of_an_inch_below_the_maximum_label_length(height: float, sent: bool) -> None:
+    result = _job(_text_label(height=height), model="dmx-600")
+    assert (STX + b"M1600" in result.data) is sent
+
+
+def test_continuous_media_is_not_checked_against_the_maximum_label_length() -> None:
+    result = _job(_text_label(media=MediaSensor.CONTINUOUS, height=420), model="dmx-600")
+    assert FindingCode.MAX_LABEL_LENGTH_TOO_SHORT not in _codes(result)
+
+
+# ======================== Label settings send_settings leaves out ========================
+
+
+def test_a_label_s_own_media_left_out_of_send_settings_is_named() -> None:
+    settings = frozenset(PrinterSetting) - {PrinterSetting.MEDIA}
+    result = _job(_text_label(media=MediaSensor.CONTINUOUS, height=40), model="allegro-2", send_settings=settings)
+    found = [f for f in result.findings if f.code is FindingCode.LABEL_SETTING_NOT_SENT]
+    assert [f.severity for f in found] == [Severity.INFO]
+    assert "media" in found[0].message
+    assert "send_settings" in found[0].message
+
+
+def test_a_label_s_own_stop_and_present_distance_left_out_of_send_settings_are_named() -> None:
+    settings = frozenset(PrinterSetting) - {PrinterSetting.STOP}
+    label = _text_label(stop_position=10, present_distance=5)
+    result = _job(label, model="dmx-600", send_settings=settings)
+    found = [f.message for f in result.findings if f.code is FindingCode.LABEL_SETTING_NOT_SENT]
+    assert len(found) == 2
+    assert "stop_position" in found[0]
+    assert "present_distance" in found[1]
+
+
+def test_a_label_that_sets_nothing_left_out_gets_no_such_finding() -> None:
+    settings = frozenset(PrinterSetting) - {PrinterSetting.STOP, PrinterSetting.MEDIA}
+    result = _job(_text_label(), model="dmx-600", send_settings=settings)
+    assert FindingCode.LABEL_SETTING_NOT_SENT not in _codes(result)
+
+
+# ======================== Software switches# ======================== Software switches ========================
 
 
 @pytest.mark.parametrize(("cutter", "command"), [(True, b"V1"), (False, b"V0")])
@@ -174,6 +300,15 @@ def test_an_unknown_label_present_sends_no_software_switches_where_the_model_has
     result = _job(_text_label(), model="dmx-600", cutter_installed=True)
     assert STX + b"V" not in result.data
     assert _finding(result, FindingCode.SOFTWARE_SWITCHES_NOT_SENT) == [Severity.INFO]
+
+
+@pytest.mark.parametrize(
+    ("cutter", "present", "command"), [(True, True, b"V5"), (True, False, b"V1"), (False, True, b"V4")]
+)
+def test_the_max_pe_ovation_column_sets_cutter_and_label_present(cutter: bool, present: bool, command: bytes) -> None:
+    """Manual p.42: Prodigy Max, Ovation, Ovation 2, PE42 and PE43 have bit 0 cutter, bit 2 label present."""
+    data = _job(_text_label(), model="pe42", cutter_installed=cutter, label_present=present).data
+    assert STX + command in data
 
 
 @pytest.mark.parametrize("model", ["prodigy-plus", "prodigy", "dmx-430"])
@@ -221,6 +356,44 @@ def test_a_prodigy_removes_each_name_it_downloads_before_the_download_and_after_
     assert data.index(remove) < data.index(STX + b"IB")
     assert data.endswith(b"E\r" + remove)
     assert STX + b"q" not in data
+
+
+def test_a_prodigy_removes_each_of_two_names_before_its_download_and_both_after_the_format() -> None:
+    label = Label(elements=[Image(x=1, y=1, name="LOGO", bitmap=_BITMAP), Image(x=1, y=9, name="ICON", bitmap=_BITMAP)])
+    data = _job(label, model="prodigy", image_module=ImageModule.B).data
+    head = data[: data.index(STX + b"L\r")]
+    order = re.findall(rb"\x02R[A-Z]+\r|\x02IBAF[A-Z]+\r", head)
+    assert order == [STX + b"RLOGO\r", STX + b"IBAFLOGO\r", STX + b"RICON\r", STX + b"IBAFICON\r"]
+    assert data.endswith(b"E\r" + STX + b"RLOGO\r" + STX + b"RICON\r")
+
+
+@pytest.mark.parametrize("name", ["Y", "N"])
+@pytest.mark.parametrize("policy", list(FallbackPolicy))
+def test_a_prodigy_refuses_an_image_name_its_ribbon_saver_command_would_read(name: str, policy: FallbackPolicy) -> None:
+    label = Label(elements=[Image(x=1, y=1, name=name, bitmap=_BITMAP)])
+    result = _job(label, model="prodigy", image_module=ImageModule.B, policy=policy)
+    assert _finding(result, FindingCode.IMAGE_NAME_RESERVED) == [Severity.ERROR]
+    assert STX + b"R" + name.encode() + b"\r" not in result.data
+
+
+@pytest.mark.parametrize("name", ["NAME", "YARD"])
+def test_a_prodigy_keeps_a_name_that_only_starts_with_y_or_n(name: str) -> None:
+    label = Label(elements=[Image(x=1, y=1, name=name, bitmap=_BITMAP)])
+    result = _job(label, model="prodigy", image_module=ImageModule.B)
+    assert FindingCode.IMAGE_NAME_RESERVED not in _codes(result)
+
+
+def test_a_model_that_clears_its_module_keeps_an_image_named_n() -> None:
+    result = _job(Label(elements=[Image(x=1, y=1, name="N", bitmap=_BITMAP)]), model="allegro-2")
+    assert FindingCode.IMAGE_NAME_RESERVED not in _codes(result)
+
+
+def test_a_prodigy_plus_clears_the_module_its_images_go_to() -> None:
+    data = _job(_image_label(), model="prodigy-plus", image_module=ImageModule.B).data
+    assert data.count(STX + b"qB") == 2
+    assert data.index(STX + b"qB") < data.index(STX + b"IB")
+    assert data.endswith(STX + b"qB")
+    assert STX + b"RLOGO" not in data
 
 
 def test_a_prodigy_label_without_images_removes_nothing() -> None:
@@ -299,3 +472,35 @@ def test_a_batch_cut_goes_before_the_record_s_closing_clear() -> None:
     assert jobs[1].startswith(STX + b"qA")
     assert jobs[2] == STX + b"qA"
     assert batch.data.endswith(STX + b"o" + STX + b"qA")
+
+
+# ======================== Symbol set ========================
+
+
+def test_scalable_text_without_a_symbol_set_states_the_assumed_one() -> None:
+    """A symbol set persists (manual p.48), so the format names the PC set the text was encoded for."""
+    label = Label(elements=[ScalableText(x=5, y=5, text=chr(0xE4) + "x", height_points=12)])
+    # The DMX 600 has scalable fonts from firmware 2.01 on.
+    data = _job(label, model="dmx-600", firmware="2.01").data
+    assert b"\rySPC\r" in data
+    assert b"\x84x" in data
+
+
+def test_the_label_s_own_symbol_set_is_sent_as_before() -> None:
+    label = Label(symbol_set="W1", elements=[ScalableText(x=5, y=5, text="Ax", height_points=12)])
+    data = _job(label, model="dmx-600", firmware="2.01").data
+    assert b"\rySW1\r" in data
+    assert b"ySPC" not in data
+
+
+def test_a_label_without_scalable_text_names_no_symbol_set() -> None:
+    assert b"yS" not in _job(_text_label(), model="dmx-600", firmware="2.01").data
+
+
+@pytest.mark.parametrize(("model", "firmware"), [("allegro-2", ""), ("dmx-600", "")])
+def test_a_model_without_scalable_fonts_names_no_symbol_set(model: str, firmware: str) -> None:
+    """The text falls back to font 9 there, as before, with its scalable_font_unsupported finding."""
+    label = Label(elements=[ScalableText(x=5, y=5, text="Ax", height_points=12)])
+    result = _job(label, model=model, firmware=firmware)
+    assert b"yS" not in result.data
+    assert FindingCode.SCALABLE_FONT_UNSUPPORTED in _codes(result)

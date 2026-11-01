@@ -242,7 +242,14 @@ def generated_section(profiles: list[PrinterProfile] | None = None) -> str:
         ["### Font 9 point sizes", "", *_font_table(chosen)],
         ["### Features: job, media and printer settings", "", *_feature_table(chosen, _JOB_FEATURES)],
         ["### Features: format, graphics and barcodes", "", *_feature_table(chosen, _FORMAT_FEATURES)],
-        ["### Features: printer state and graphics memory", "", *_feature_table(chosen, _SETTING_FEATURES)],
+        [
+            "### Features: printer state and graphics memory",
+            "",
+            "`clear_module` is `<STX>q`, which removes every file in the module (images, formats and fonts), "
+            "not only images; `remove_image` is the plain Prodigy's `<STX>R<name>`, which removes one image.",
+            "",
+            *_feature_table(chosen, _SETTING_FEATURES),
+        ],
         ["### Printer setting defaults", "", *_printer_settings_table(chosen)],
         ["### Calibration defaults", "", *_calibration_table(chosen)],
         ["### Image memory budget", "", *_image_memory_table(chosen)],

@@ -139,10 +139,12 @@ class RenderOptions(BaseModel):
         feed_rate: Speed the feed button feeds at (``<STX>S``); None takes the model's default.
         label_present: Whether the label-present sensor is on, for the ``<STX>V`` value of a
             model with that bit; None when unknown, which sends no ``<STX>V`` there.
-        clear_graphics_before_label: Clear the printer's stored graphics before each label
-            downloads its images, so a name the printer already holds cannot drop the format.
-        clear_graphics_after_label: Clear them again after each label, so the next job starts
-            from an empty module whatever program sends it.
+        clear_graphics_before_label: Clear the memory module the label's images go to before
+            each label downloads them, so a name the printer already holds cannot drop the format.
+            ``<STX>q`` clears EVERY file in that module (images, formats, fonts), not only images;
+            the plain Prodigy, which has no ``<STX>q``, removes just the names the label downloads.
+        clear_graphics_after_label: Clear that module again after each label, so the next job
+            starts from an empty module whatever program sends it; it too removes every file.
 
     Example:
         >>> RenderOptions(model="dmx-600").policy
@@ -186,17 +188,24 @@ class PrinterState:
 
     Attributes:
         send: Settings the job sends; every one unless the options name fewer.
+        configured: Settings whose value the options set, rather than the model's default or
+            the label's own media, so a finding can say where a value came from.
         media: Media sensor to set: the label's own, else the option's; None sets none.
+        media_from_label: True when ``media`` is the label's own: a model that cannot choose it
+            deviates from what the label asks for, while a configured sensor is only reported.
         start_of_print_mm: Start of print in mm, or None to send none.
         max_label_length_mm: Maximum label length in mm, or None to send none.
         feed_rate: Feed button speed, or None to send none.
         label_present: Whether the label-present sensor is on; None when unknown.
-        clear_graphics_before_label: Clear stored graphics before the label's downloads.
-        clear_graphics_after_label: Clear stored graphics after the label.
+        clear_graphics_before_label: Clear the image module before the label's downloads; with
+            ``<STX>q`` that removes every file in it (images, formats, fonts).
+        clear_graphics_after_label: Clear the image module after the label, the same way.
     """
 
     send: frozenset[PrinterSetting]
+    configured: frozenset[PrinterSetting]
     media: MediaSensor | None
+    media_from_label: bool
     start_of_print_mm: float | None
     max_label_length_mm: float | None
     feed_rate: SpeedCode | None
@@ -226,9 +235,17 @@ def resolved_printer_state(
         >>> resolved_printer_state(options, get_profile("allegro-2"), label_media=None).start_of_print_mm
         40.0
     """
+    given = {
+        PrinterSetting.MEDIA: label_media is None and options.media is not None,
+        PrinterSetting.START_OF_PRINT: options.start_of_print_mm is not None,
+        PrinterSetting.MAX_LABEL_LENGTH: options.max_label_length_mm is not None,
+        PrinterSetting.FEED_RATE: options.feed_rate is not None,
+    }
     return PrinterState(
         send=frozenset(PrinterSetting) if options.send_settings is None else options.send_settings,
+        configured=frozenset(setting for setting, set_by_options in given.items() if set_by_options),
         media=options.media if label_media is None else label_media,
+        media_from_label=label_media is not None,
         start_of_print_mm=profile.start_of_print_mm if options.start_of_print_mm is None else options.start_of_print_mm,
         max_label_length_mm=(
             profile.max_label_length_mm if options.max_label_length_mm is None else options.max_label_length_mm

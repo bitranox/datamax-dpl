@@ -43,7 +43,8 @@ _DEFAULTS: dict[str, tuple[float | None, float | None, str | None]] = {
     "prodigy-152": (_O_0250, _M_12_IN, "G"),
     "prodigy-plus": (_O_0110, _M_12_IN, "K"),
     "prodigy-plus-152": (_O_0110, _M_12_IN, "K"),
-    "dmx-400": (_O_0220, _M_12_IN, "K"),
+    # Appendix M gives slew C-I with default K, outside its own range: no feed rate is sent.
+    "dmx-400": (_O_0220, _M_12_IN, None),
     "dmx-430": (_O_0220, _M_12_IN, "K"),
     "dmx-600": (_O_0220, _M_16_IN, "O"),
     "dmx-800": (_O_0220, _M_16_IN, "K"),
@@ -80,7 +81,9 @@ def test_each_model_ships_the_printer_setting_defaults_of_the_manual(
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("profile", list(MODEL_PROFILES.values()), ids=list(MODEL_PROFILES))
 def test_every_model_feeds_at_its_slew_default(profile: PrinterProfile) -> None:
-    assert profile.feed_rate is profile.slew_speed.default
+    """Except where Appendix M's slew default lies outside its own range (DMX 400): none then."""
+    slew = profile.slew_speed
+    assert profile.feed_rate is (slew.default if slew.contains(slew.default) else None)
 
 
 #: The STX V bit assignment table (p.42), one layout per column, written out from the manual.
@@ -253,7 +256,9 @@ def test_a_job_context_carries_the_model_defaults_when_no_option_is_set() -> Non
 
     assert state == PrinterState(
         send=frozenset(PrinterSetting),
+        configured=frozenset(),
         media=None,
+        media_from_label=False,
         start_of_print_mm=55.88,
         max_label_length_mm=304.8,
         feed_rate=SpeedCode.IPS_2_0,
@@ -281,7 +286,16 @@ def test_each_option_wins_over_the_model_default() -> None:
 
     assert state == PrinterState(
         send=frozenset({PrinterSetting.MEDIA}),
+        configured=frozenset(
+            {
+                PrinterSetting.MEDIA,
+                PrinterSetting.START_OF_PRINT,
+                PrinterSetting.MAX_LABEL_LENGTH,
+                PrinterSetting.FEED_RATE,
+            }
+        ),
         media=MediaSensor.REFLECTIVE,
+        media_from_label=False,
         start_of_print_mm=40.0,
         max_label_length_mm=500.0,
         feed_rate=SpeedCode.IPS_3_0,
@@ -298,6 +312,8 @@ def test_the_label_s_own_media_wins_over_the_option() -> None:
     state = job_context(label, RenderOptions(model="allegro-2", media=MediaSensor.REFLECTIVE)).printer_state
 
     assert state.media is MediaSensor.GAP
+    assert state.media_from_label
+    assert PrinterSetting.MEDIA not in state.configured
 
 
 @pytest.mark.os_agnostic
