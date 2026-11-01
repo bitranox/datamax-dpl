@@ -702,7 +702,9 @@ class RenderContext:
                 PlacedImage(name=drawn, magnification=placed_at, size=size), edge=edge, element=element
             )
         command = download_command(name, sent, module=module)
-        self.downloads.append(ImageDownload(name=name, command=command, element=element))
+        # A second element with the same name and bitmap places the image the first one queued.
+        if all(download.command != command for download in self.downloads):
+            self.downloads.append(ImageDownload(name=name, command=command, element=element))
         return self._checked(PlacedImage(name=name, magnification=placed_at, size=size), edge=edge, element=element)
 
     def image_rows(self, image: Image) -> Sequence[str] | None:

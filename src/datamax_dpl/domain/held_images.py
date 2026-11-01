@@ -17,6 +17,11 @@ if TYPE_CHECKING:
 
 #: Why the names are unknown when nobody asked the printer: an offline render, validate or preview.
 NOT_ASKED = "the printer was not asked"
+#: The module letter that stands for the printer's default module on every model (manual, ``<STX>X``).
+DEFAULT_MODULE = "C"
+#: Why the names of the default module are unknown: a directory lists real module letters only (one
+#: Allegro 2 listed just ``MODULE: A``), so which of them ``C`` is cannot be read from it.
+DEFAULT_MODULE_UNREAD = "C is the printer's default module; which letter it is was not read"
 
 
 @dataclass(frozen=True)
@@ -49,6 +54,21 @@ class HeldImages:
         """
         return name in self.sent or (self.listed is not None and name in self.listed)
 
+    def case_variants(self, name: str) -> tuple[str, ...]:
+        """Return the listed names that differ from ``name`` only in letter case, sorted.
+
+        Such a name is not taken for held (:meth:`holds`), but it may be: a printer that folds
+        the case of a stored name would print nothing for the download.
+
+        Example:
+            >>> HeldImages(listed=frozenset({"LOGO", "Logo", "ICON"})).case_variants("logo")
+            ('LOGO', 'Logo')
+        """
+        if self.listed is None:
+            return ()
+        folded = name.casefold()
+        return tuple(sorted(listed for listed in self.listed if listed != name and listed.casefold() == folded))
+
 
 #: The module is known to be empty: a clear just emptied it.
 EMPTY_MODULE = HeldImages(listed=frozenset())
@@ -58,7 +78,8 @@ def held_images_from(directory: MemoryDirectory, *, module: str) -> HeldImages:
     """Return what ``directory`` (a graphic ``<STX>W`` answer) says ``module`` holds.
 
     A module the answer does not list holds nothing the job could collide with. An answer the
-    parser could not read gives no names: every download is then kept, as when nothing was asked.
+    parser could not read gives no names, and so does the default module ``C``, which the answer
+    never lists by that letter: every download is then kept, as when nothing was asked.
 
     Args:
         directory: The printer's graphic directory.
@@ -75,11 +96,15 @@ def held_images_from(directory: MemoryDirectory, *, module: str) -> HeldImages:
         frozenset({'LOGO'})
         >>> held_images_from(answer, module="B").listed
         frozenset()
+        >>> held_images_from(answer, module="C").listed is None
+        True
     """
+    if module == DEFAULT_MODULE:
+        return HeldImages(unread_because=DEFAULT_MODULE_UNREAD)
     if not directory.parsed:
         return HeldImages(unread_because="the printer's directory answer could not be read")
     names = (entry.names for entry in directory.modules if entry.module == module)
     return HeldImages(listed=frozenset(name for listing in names for name in listing))
 
 
-__all__ = ["EMPTY_MODULE", "NOT_ASKED", "HeldImages", "held_images_from"]
+__all__ = ["DEFAULT_MODULE", "DEFAULT_MODULE_UNREAD", "EMPTY_MODULE", "NOT_ASKED", "HeldImages", "held_images_from"]

@@ -175,6 +175,26 @@ def test_a_plug_in_module_s_held_name_is_left_out_although_the_clear_keys_are_on
     assert _found(result, FindingCode.IMAGE_NAME_HELD) == [(Severity.WARNING, 0)]
 
 
+@pytest.mark.os_agnostic
+def test_two_images_of_one_name_and_one_bitmap_download_once_and_both_are_placed() -> None:
+    result = _job(Label(elements=[_LOGO, _LOGO.model_copy(update={"y": 9})]), model="allegro-2")
+    [name] = result.downloads
+    assert result.data.count(STX + b"IA") == 1
+    assert _format(result.data).count(name.encode("ascii")) == 2
+
+
+@pytest.mark.os_agnostic
+def test_a_name_held_only_up_to_letter_case_keeps_the_download_and_names_the_case_question() -> None:
+    logo = Image(x=1, y=1, name="logo", bitmap=_BITMAP)
+    result = _job(Label(elements=[logo]), _LOGO_HELD, **_NO_CLEAR)
+    assert STX + b"IAAFlogo\r" in result.data
+    assert FindingCode.IMAGE_NAME_HELD not in [f.code for f in result.findings]
+    [finding] = [f for f in result.findings if f.code is FindingCode.IMAGE_NAMES_UNREAD]
+    assert (finding.severity, finding.element) == (Severity.WARNING, 0)
+    assert "LOGO" in finding.message
+    assert "letter case" in finding.message
+
+
 # ======================== names that were not read ========================
 
 
@@ -254,6 +274,33 @@ def test_a_batch_whose_clear_after_empties_the_module_downloads_again() -> None:
     assert not batch.results[1].names_unread
 
 
+@pytest.mark.os_agnostic
+def test_a_prodigy_batch_downloads_again_after_the_remove_after_the_label() -> None:
+    label = Label.model_validate({"elements": [{"type": "image", "x": 1, "y": 1, "name": "LOGO", "bitmap": _BITMAP}]})
+    options = _options(model="prodigy", image_module=ImageModule.B, clear_graphics_before_label=False)
+    batch = render_batch(label, [{}, {}], options, held=_NOTHING_HELD)
+    assert [result.downloads for result in batch.results] == [("LOGO",), ("LOGO",)]
+    assert [result.data.endswith(STX + b"RLOGO\r") for result in batch.results] == [True, True]
+
+
+@pytest.mark.os_agnostic
+def test_the_prodigy_s_remove_after_takes_only_the_names_the_label_downloaded() -> None:
+    options = {"model": "prodigy", "image_module": ImageModule.B, "clear_graphics_before_label": False}
+    result = _job(Label(elements=[_ICON, _LOGO]), HeldImages(listed=frozenset({"ICON"})), **options)
+    assert result.downloads == ("LOGO",)
+    assert STX + b"RICON\r" not in result.data
+    assert result.closing == STX + b"RLOGO\r"
+
+
+@pytest.mark.os_agnostic
+def test_a_prodigy_batch_keeps_a_held_name_it_never_removed() -> None:
+    label = Label.model_validate({"elements": [{"type": "image", "x": 1, "y": 1, "name": "LOGO", "bitmap": _BITMAP}]})
+    options = _options(model="prodigy", image_module=ImageModule.B, clear_graphics_before_label=False)
+    batch = render_batch(label, [{}, {}], options, held=_LOGO_HELD)
+    assert [result.downloads for result in batch.results] == [(), ()]
+    assert STX + b"R" not in batch.data
+
+
 # ======================== a stored-only image ========================
 
 
@@ -310,6 +357,14 @@ def test_an_unreadable_directory_gives_no_names() -> None:
     held = held_images_from(directory, module="A")
     assert held.listed is None
     assert "could not be read" in held.unread_because
+
+
+@pytest.mark.os_agnostic
+def test_the_default_module_gives_no_names_whatever_the_directory_lists() -> None:
+    directory = parse_module_directory(_HOLDS_LOGO, kind="graphic")
+    held = held_images_from(directory, module="C")
+    assert held.listed is None
+    assert held.unread_because == "C is the printer's default module; which letter it is was not read"
 
 
 def _print(printer: RecordingPrinter, label: Label, options: RenderOptions) -> RenderResult:
@@ -372,11 +427,22 @@ def test_a_read_that_gets_no_answer_keeps_every_download_and_the_job_is_still_se
     assert "no answer" in finding.message
 
 
+@pytest.mark.os_agnostic
+def test_a_label_for_the_default_module_keeps_its_download_and_says_its_names_are_unread() -> None:
+    printer = RecordingPrinter(answers={_WG: b"MODULE: A\rLOGO\rAVAILABLE BYTES IN MODULE : 00048631\r"})
+    result = _print(printer, Label(elements=[_LOGO]), _options(model="allegro-2", image_module=ImageModule.C))
+    assert STX + b"IC" in printer.data
+    [finding] = [f for f in result.findings if f.code is FindingCode.IMAGE_NAMES_UNREAD]
+    assert "C is the printer's default module" in finding.message
+    # Nothing the directory could say would name the module, so it is not asked.
+    assert printer.queries == []
+
+
 # ======================== the CLI over a real channel ========================
 
 
-def _run(runner: CliRunner, args: list[str], **env: str) -> Any:
-    return runner.invoke(cli_mod.cli, args, obj=build_production, env=env)
+def _run(runner: CliRunner, args: list[str], *, stdin: str | None = None, **env: str) -> Any:
+    return runner.invoke(cli_mod.cli, args, obj=build_production, env=env, input=stdin)
 
 
 def _label_file(tmp_path: Path, *elements: Image) -> str:
@@ -424,3 +490,36 @@ def test_print_to_a_plug_in_module_reads_the_names_and_leaves_out_the_held_downl
     assert STX + b"q" not in job
     codes = [finding["code"] for finding in json.loads(result.stdout)["data"]["findings"]]
     assert "image_name_held" in codes
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.usefixtures("no_ambient_configuration")
+def test_print_with_data_on_stdin_and_no_clear_reads_the_records_once_and_sends_the_job(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    target = tmp_path / "job.dpl"
+    label = tmp_path / "label.json"
+    label.write_text(json.dumps({"elements": [{"type": "qr", "x": 5, "y": 5, "data": "{code}"}]}), encoding="utf-8")
+    args = ["print", str(label), "--data", "-", "--model", "allegro-2", "--printer", f"file:{target}"]
+
+    result = _run(cli_runner, args, stdin='[{"code": "A1"}, {"code": "B2"}]', DATAMAX_DPL___PRINTER__IMAGE_MODULE="B")
+
+    assert result.exit_code == 0, result.output
+    assert target.read_bytes().count(STX + b"IB") == 2
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.usefixtures("no_ambient_configuration")
+def test_a_refused_print_to_a_file_creates_no_file(cli_runner: CliRunner, tmp_path: Path) -> None:
+    target = tmp_path / "job.dpl"
+    args = ["print", _label_file(tmp_path, _LOGO), "--model", "allegro-2", "--printer", f"file:{target}"]
+
+    result = _run(
+        cli_runner,
+        args,
+        DATAMAX_DPL___PRINTER__IMAGE_MODULE="B",
+        DATAMAX_DPL___PRINTER__HELD_IMAGE_SEVERITY="error",
+    )
+
+    assert result.exit_code != 0, result.output
+    assert not target.exists()

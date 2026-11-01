@@ -583,7 +583,9 @@ def _build(label: Label, options: RenderOptions, *, filled: bool, held: HeldImag
         emulated_groups=tuple(ctx.emulated_groups),
         closing=b"".join(closing),
         image_module=ctx.image_module,
-        names_unread=any(finding.code is FindingCode.IMAGE_NAMES_UNREAD for finding in findings),
+        # A name listed in another letter case is unread too, but no second read would answer it.
+        names_unread=ctx.held_images.listed is None
+        and any(finding.code is FindingCode.IMAGE_NAMES_UNREAD for finding in findings),
     )
     return result, held_after(ctx)
 

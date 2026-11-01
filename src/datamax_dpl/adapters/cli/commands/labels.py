@@ -26,6 +26,8 @@ from ..typed_click import argument, option
 from .model_options import printer_choice_decorator, render_options_decorator, resolve_settings
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from ....domain.held_images import HeldImages
     from ....domain.render import RenderResult
     from ..context import CLIContext
@@ -40,30 +42,36 @@ def build(
 ) -> RenderResult | BatchResult:
     """Load the label (and records) and render it with the merged printer settings."""
     settings = resolve_settings(cli_ctx, **settings_given)
-    return render_loaded(load_label(label_source), data, settings)
+    label = load_label(label_source)
+    return render_loaded(label, None if data is None else load_records(data), settings)
 
 
 def render_loaded(
-    label: Label, data: str | None, settings: PrinterSettings, *, held: HeldImages | None = None
+    label: Label,
+    records: Sequence[Mapping[str, str]] | None,
+    settings: PrinterSettings,
+    *,
+    held: HeldImages | None = None,
 ) -> RenderResult | BatchResult:
-    """Render an already loaded label (one per record of ``data`` when given).
+    """Render an already loaded label (one per record when ``records`` are given).
 
-    A command that needs the label itself as well as its rendering loads it once and calls this:
-    loading again would read LABEL a second time, and stdin ('-') can be read only once.
+    A command that renders more than once, or needs the label itself as well as its rendering,
+    loads LABEL and its data once and calls this: loading again would read them a second time,
+    and stdin ('-') can be read only once.
 
     Args:
         label: The label to render.
-        data: Data records source filling the placeholders, or None for one label.
+        records: Data records filling the placeholders, or None for one label.
         settings: The merged printer settings.
         held: The image names the printer holds in the job's module; None when it was not asked.
 
     Returns:
-        The single render, or the batch when ``data`` is given.
+        The single render, or the batch when ``records`` are given.
     """
     options = render_options(settings)
-    if data is None:
+    if records is None:
         return render_label(label, options, held=held)
-    return render_batch(label, load_records(data), options, held=held)
+    return render_batch(label, records, options, held=held)
 
 
 def _human(payload: RenderPayload, *, show_dpl: bool) -> str:

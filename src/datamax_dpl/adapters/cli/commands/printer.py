@@ -31,6 +31,7 @@ from ....domain.profiles import get_profile
 from ....domain.render import RenderResult
 from ....domain.status import MEMORY_DIRECTORY_REQUESTS, PrinterStatus
 from ...preview import pillow_available, preview_findings, render_preview_png
+from ...transport.uri import is_one_way
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..label_io import load_label, load_records
 from ..payloads import FindingOut, findings_text, render_payload
@@ -116,18 +117,25 @@ def cli_status(ctx: click.Context, **given: Any) -> None:
 def _render_to_print(
     label: Label, data: str | None, settings: PrinterSettings, cli_ctx: CLIContext
 ) -> RenderResult | BatchResult:
-    """Render a job to be printed, reading the printer's stored image names where no clear precedes it."""
+    """Render a job to be printed, reading the printer's stored image names where no clear precedes it.
+
+    The records are loaded once and both renders use them: ``--data -`` is stdin, which cannot be
+    read a second time.
+    """
+    records = None if data is None else load_records(data)
 
     def read(module: str) -> HeldImages:
+        uri = require_uri(settings)
         return stored_image_names(
             module=module,
-            uri=require_uri(settings),
+            uri=uri,
             timeout=settings.timeout,
             open_printer=printer_opener(cli_ctx, settings),
             wait=_answer_wait(settings, cli_ctx),
+            one_way=is_one_way(uri),
         )
 
-    return with_stored_names(lambda held: render_loaded(label, data, settings, held=held), read=read)
+    return with_stored_names(lambda held: render_loaded(label, records, settings, held=held), read=read)
 
 
 #: How the CLI lengthens the wait ``status`` and ``memory`` keep trying for, named when it runs out.

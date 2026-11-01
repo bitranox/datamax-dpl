@@ -28,7 +28,7 @@ from ..domain.errors import (
     UnsupportedOperationError,
 )
 from ..domain.findings import Finding
-from ..domain.held_images import HeldImages, held_images_from
+from ..domain.held_images import DEFAULT_MODULE, DEFAULT_MODULE_UNREAD, HeldImages, held_images_from
 from ..domain.label import Cut
 from ..domain.memory import MemoryDirectory, parse_module_directory
 from ..domain.placeholders import fill_label
@@ -127,15 +127,28 @@ def _unread_module(result: RenderResult | BatchResult) -> str | None:
     return next((r.image_module for r in results if r.names_unread and r.image_module is not None), None)
 
 
+#: Why the stored names are unknown on a channel that cannot read the printer's answer.
+ONE_WAY_LINK = "the link to the printer is one-way"
+
+
 def stored_image_names(
-    *, module: str, uri: str, timeout: float, open_printer: OpenPrinter, wait: AnswerWait | None = None
+    *,
+    module: str,
+    uri: str,
+    timeout: float,
+    open_printer: OpenPrinter,
+    wait: AnswerWait | None = None,
+    one_way: bool = False,
 ) -> HeldImages:
     """Return the image names the printer holds in ``module``, read from its graphic directory (``<STX>W``).
 
     Never raises for a printer that cannot say: a one-way channel, no answer in time or an answer
     the parser cannot read gives unknown names with the reason, and the job is then rendered with
     every download kept and ``image_names_unread`` quoting that reason. A printer that cannot be
-    reached at all is left to the send that follows, which reports it.
+    reached at all is left to the send that follows, which reports it. Nothing is opened for the
+    default module, whose letter no directory lists, nor for a link the caller already knows to be
+    one-way: opening a file or a device to find that out would create it for a job that may yet be
+    refused.
 
     Args:
         module: The letter of the job's image module.
@@ -143,13 +156,19 @@ def stored_image_names(
         timeout: Seconds for each connect and write.
         open_printer: Opens the channel.
         wait: How long to keep trying for the answer, as ``memory`` does; None waits ``timeout``.
+        one_way: True when ``uri`` names a channel that cannot read answers (a file, stdout, a
+            device file), decided from the URI alone.
     """
+    if module == DEFAULT_MODULE:
+        return HeldImages(unread_because=DEFAULT_MODULE_UNREAD)
+    if one_way:
+        return HeldImages(unread_because=ONE_WAY_LINK)
     try:
         (directory,) = read_memory_directory(
             kinds=("graphic",), uri=uri, timeout=timeout, open_printer=open_printer, wait=wait
         )
     except UnsupportedOperationError:
-        return HeldImages(unread_because="the link to the printer is one-way")
+        return HeldImages(unread_because=ONE_WAY_LINK)
     except TransportError as exc:
         return HeldImages(unread_because=f"reading them failed: {exc}")
     return held_images_from(directory, module=module)
@@ -560,6 +579,7 @@ def detect_printer(*, uri: str, timeout: float, open_printer: OpenPrinter) -> De
 __all__ = [
     "BUSY_HINT",
     "DIRECTORY_IDLE_SECONDS",
+    "ONE_WAY_LINK",
     "RETRY_INTERVAL_SECONDS",
     "STATUS_WAIT_SECONDS",
     "AnswerWait",

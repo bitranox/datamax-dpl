@@ -514,9 +514,12 @@ again (one Allegro 2, 2026-11-01). So where no clear precedes a label's download
 `verify` first read the printer's stored graphic names (`<STX>W`, as `datamax-dpl memory --kind
 graphic` does) and leave out the download of each name it holds; the label then prints the stored
 image (`image_name_held`). Where the names cannot be read (`render`, `validate` and `preview`
-never ask; a one-way link cannot answer; the printer did not answer in time) every image is
-downloaded and `image_names_unread` says so. In a `--data` batch a name an earlier label
-downloaded is not downloaded again. `held_image_severity` sets the severity of both findings.
+never ask; a one-way link cannot answer, so a file, stdout or a device file is not opened to ask;
+`C` is the default module, whose real letter a directory does not show; the printer did not
+answer in time) every image is downloaded and `image_names_unread` says so. A name the printer
+lists only in another letter case is downloaded too, with `image_names_unread`: whether it tells
+such names apart is unverified. In a `--data` batch a name an earlier label downloaded is not
+downloaded again. `held_image_severity` sets the severity of both findings.
 
 `max_format_rows` ships unset too. The Allegro 2 cuts a long format off; its model limit is 1648
 dot rows, about 201 mm at its default `scale_along`, the lowest row any test format was cut at on

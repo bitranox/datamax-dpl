@@ -661,7 +661,9 @@ def _report_held_names(ctx: RenderContext) -> None:
     measured Allegro 2 prints (a second download of a held name prints nothing). A name an earlier
     label of the batch downloaded is left out silently: the job sent that image itself. With the
     printer's names unknown every other download is kept, and one ``image_names_unread`` says what
-    a held name would do. Both findings take the configured severity, which the policy leaves alone.
+    a held name would do. A name the printer lists only in another letter case is downloaded too,
+    with its own ``image_names_unread``: whether the printer tells the two apart is unverified.
+    Every finding takes the configured severity, which the policy leaves alone.
     """
     held = ctx.held_images
     severity = ctx.held_image_severity
@@ -681,6 +683,15 @@ def _report_held_names(ctx: RenderContext) -> None:
                 FindingCode.IMAGE_NAME_HELD,
                 f"image {download.name} is not downloaded: the printer already holds that name in module {module}, "
                 "and a second download of it prints nothing; the label prints the stored image, which may differ",
+                element=download.element,
+            )
+        elif variants := held.case_variants(download.name):
+            ctx.findings.at(
+                severity,
+                FindingCode.IMAGE_NAMES_UNREAD,
+                f"image {download.name} is downloaded, but module {module} holds {', '.join(variants)}, which differs "
+                "only in letter case; whether the printer tells names apart by letter case was not read, and if it "
+                "does not, that name is held and this label prints nothing",
                 element=download.element,
             )
     if unread:
@@ -753,8 +764,11 @@ def closing_clears(ctx: RenderContext) -> list[bytes]:
 
 
 def _removed_after(ctx: RenderContext) -> list[str]:
-    """The names the Prodigy's clear after removes: every one the label downloads, as the label names them."""
-    names = dict.fromkeys(download.name for download in ctx.downloads)
+    """The names the Prodigy's clear after removes: each one the label's job downloads, and only those.
+
+    A held name the job left out is the printer's own image, which this label did not put there.
+    """
+    names = dict.fromkeys(download.name for download in ctx.sent_downloads)
     return [name for name in names if name not in RIBBON_SAVER_NAMES]
 
 
@@ -762,8 +776,8 @@ def held_after(ctx: RenderContext) -> HeldImages:
     """Return what the printer holds in the image module once this label's job has run.
 
     For the next label of a batch: a clear (``<STX>q``) after the label empties the module; one
-    before it leaves exactly the label's downloads; the Prodigy's removes take the label's own
-    names out; with no clear the label's downloads join what was held.
+    before it leaves exactly the label's downloads; the Prodigy's removes take out the names the
+    label downloaded; with no clear the label's downloads join what was held.
 
     Args:
         ctx: The job's context, after :func:`image_downloads` and :func:`closing_clears`.
@@ -780,9 +794,10 @@ def held_after(ctx: RenderContext) -> HeldImages:
     held = ctx.held_images
     if not (ctx.supports(Feature.REMOVE_IMAGE) and state.clear_graphics_after_label):
         return HeldImages(listed=held.listed, unread_because=held.unread_because, sent=held.sent | sent)
+    # The removes name only what the job downloaded, and a listed name is never downloaded, so
+    # what the printer listed stays as it was.
     removed = frozenset(_removed_after(ctx))
-    listed = None if held.listed is None else held.listed - removed
-    return HeldImages(listed=listed, unread_because=held.unread_because, sent=(held.sent | sent) - removed)
+    return HeldImages(listed=held.listed, unread_because=held.unread_because, sent=(held.sent | sent) - removed)
 
 
 __all__ = [
