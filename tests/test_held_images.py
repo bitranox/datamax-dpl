@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -593,3 +594,33 @@ def test_a_refused_print_to_a_file_creates_no_file(cli_runner: CliRunner, tmp_pa
 
     assert result.exit_code != 0, result.output
     assert not target.exists()
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.usefixtures("no_ambient_configuration")
+def test_print_reads_the_stored_names_for_stored_names_wait_and_then_sends_the_job(
+    cli_runner: CliRunner, tmp_path: Path, serve: Callable[..., PrinterServer]
+) -> None:
+    """A printer silent to the read is waited for stored_names_wait (1 s here), not status_wait (20 s)."""
+    server = serve(silent, silent)
+    args = ["--json", "print", _label_file(tmp_path, _LOGO), "--model", "allegro-2", "--printer", server.address]
+
+    started = time.monotonic()
+    result = _run(
+        cli_runner,
+        args,
+        DATAMAX_DPL___PRINTER__IMAGE_MODULE="B",
+        DATAMAX_DPL___PRINTER__STORED_NAMES_WAIT="1",
+        DATAMAX_DPL___PRINTER__STATUS_WAIT="20",
+    )
+    waited = time.monotonic() - started
+    server.join()
+
+    assert result.exit_code == 0, result.output
+    assert 0.9 <= waited < 10, waited
+    directory, job = (bytes(connection) for connection in server.connections)
+    assert directory == _WG
+    assert STX + b"IBAF" + _L + b"\r" in job
+    [finding] = [f for f in json.loads(result.stdout)["data"]["findings"] if f["code"] == "image_names_unread"]
+    assert "reading them failed" in finding["message"]
+    assert "stored_names_wait" in finding["message"]

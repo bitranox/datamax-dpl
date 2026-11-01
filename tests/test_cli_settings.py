@@ -154,7 +154,33 @@ def test_a_timeout_given_on_the_command_line_is_the_whole_status_wait() -> None:
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("key", ["status_wait", "status_retry_interval"])
+def test_the_stored_names_read_waits_thirty_seconds_by_default() -> None:
+    assert _settings({}).stored_names_wait == 30.0
+
+
+@pytest.mark.os_agnostic
+def test_a_configured_stored_names_wait_reaches_the_settings_apart_from_status_wait() -> None:
+    settings = _settings({"printer": {"stored_names_wait": 5, "status_wait": 40}})
+
+    assert (settings.stored_names_wait, settings.status_wait) == (5.0, 40.0)
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printers_stored_names_wait_wins_over_the_printer_section() -> None:
+    config = {"printer": {"stored_names_wait": 5}, "printers": {"x": {"stored_names_wait": 12}}}
+
+    assert _settings(config, printer="x").stored_names_wait == 12.0
+    assert _settings(config).stored_names_wait == 5.0
+
+
+@pytest.mark.os_agnostic
+def test_a_timeout_given_on_the_command_line_leaves_the_stored_names_wait_alone() -> None:
+    """Only the key sets it: --timeout is the whole wait of status, memory and verify, not of this read."""
+    assert _settings({"printer": {"stored_names_wait": 7}}, timeout=2.0).stored_names_wait == 7.0
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("key", ["status_wait", "status_retry_interval", "stored_names_wait"])
 @pytest.mark.parametrize("value", [0, -1.0])
 @pytest.mark.parametrize(("section", "printer"), [("printer", None), ("printers.x", "x")])
 def test_a_status_wait_or_retry_interval_not_above_zero_is_refused_with_the_key_named(
@@ -167,7 +193,7 @@ def test_a_status_wait_or_retry_interval_not_above_zero_is_refused_with_the_key_
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("key", ["status_wait", "status_retry_interval"])
+@pytest.mark.parametrize("key", ["status_wait", "status_retry_interval", "stored_names_wait"])
 @pytest.mark.parametrize("value", [float("inf"), MAX_TIMEOUT_SECONDS + 1])
 def test_a_status_wait_or_retry_interval_past_the_socket_limit_is_refused_with_the_key_named(
     key: str, value: float
@@ -529,6 +555,7 @@ def test_a_transport_tuning_refuses_a_piece_above_64_kib_as_the_settings_do() ->
 _COMMENTED_OUT_DEFAULTS = (
     "status_wait",
     "status_retry_interval",
+    "stored_names_wait",
     "send_chunk_bytes",
     "verify_poll_interval",
     "one_way_settle",

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Annotated, Any, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
-from ...application.use_cases import RETRY_INTERVAL_SECONDS, STATUS_WAIT_SECONDS
+from ...application.use_cases import RETRY_INTERVAL_SECONDS, STATUS_WAIT_SECONDS, STORED_NAMES_WAIT_SECONDS
 from ...application.verify import ONE_WAY_SETTLE_SECONDS, POLL_SECONDS
 from ...domain.camera import CameraSettings
 from ...domain.enums import CutterPresence, FallbackPolicy, HardwareOption, ImageModule, Severity
@@ -59,6 +59,9 @@ class PrinterSettings(BaseModel):
     # than as a nameless "wait" when status runs.
     status_wait: float = Field(default=STATUS_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
     status_retry_interval: float = Field(default=RETRY_INTERVAL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
+    # How long print and verify keep trying to read the stored image names before a job no clear
+    # precedes; its own key, so a link that never answers can wait less without shortening status.
+    stored_names_wait: float = Field(default=STORED_NAMES_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
     # verify waits status_wait in all for the printer to finish its job, polling at this interval;
     # a one-way channel cannot poll, so verify waits one_way_settle instead (0 waits not at all).
     verify_poll_interval: float = Field(default=POLL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)

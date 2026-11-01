@@ -131,7 +131,7 @@ def _render_to_print(
             uri=uri,
             timeout=settings.timeout,
             open_printer=printer_opener(cli_ctx, settings),
-            wait=_answer_wait(settings, cli_ctx),
+            wait=_stored_names_wait(settings, cli_ctx),
             one_way=is_one_way(uri),
         )
 
@@ -148,6 +148,21 @@ def _answer_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> AnswerWait:
         seconds=settings.status_wait,
         retry_interval=settings.status_retry_interval,
         wait_longer=WAIT_LONGER,
+        clock=cli_ctx.services.clock,
+        sleep=cli_ctx.services.sleep,
+    )
+
+
+#: How the CLI lengthens the wait for the stored image names, named when it runs out.
+STORED_NAMES_WAIT_LONGER = "wait longer with [printer] stored_names_wait"
+
+
+def _stored_names_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> AnswerWait:
+    """How long ``print`` and ``verify`` keep trying to read the stored image names: ``stored_names_wait``."""
+    return AnswerWait(
+        seconds=settings.stored_names_wait,
+        retry_interval=settings.status_retry_interval,
+        wait_longer=STORED_NAMES_WAIT_LONGER,
         clock=cli_ctx.services.clock,
         sleep=cli_ctx.services.sleep,
     )

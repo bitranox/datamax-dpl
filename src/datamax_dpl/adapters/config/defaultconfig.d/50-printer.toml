@@ -93,6 +93,18 @@ timeout = 10.0
 # Environment Variable: DATAMAX_DPL___PRINTER__STATUS_RETRY_INTERVAL=0.5
 # status_retry_interval = 0.25
 
+# Purpose: Seconds 'print' and 'verify' keep trying to read the printer's stored
+#          image names (<STX>W) before a job no clear precedes, and only for that
+#          read; 'status', 'memory' and verify's wait for the printer use
+#          status_wait. A printer was measured silent for 10-20 s after an image
+#          job, so a repeat print right after one still reads the names. On a
+#          link that never answers, every such job waits this long before it is
+#          sent (with image_names_unread); lower it there. --timeout leaves it.
+# Type: float, greater than 0, at most 2147483
+# Default: 30.0
+# Environment Variable: DATAMAX_DPL___PRINTER__STORED_NAMES_WAIT=10
+# stored_names_wait = 30.0
+
 # Purpose: Largest piece of a job handed to one write, over tcp and serial. The
 #          timeout bounds each piece rather than the whole job, so it means the
 #          printer took no data for that long: at the about 1390 bytes/s of a
