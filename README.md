@@ -218,7 +218,7 @@ datamax-dpl memory --kind graphic --printer tcp://192.0.2.60:9100
 graphic:
   module A: 49083 bytes free
   module B: 257919 bytes free
-    D374A0AB
+    DtLbYG5m
     CAM
 ```
 
@@ -327,12 +327,13 @@ datamax-dpl --json validate examples/product-label.json --model allegro --policy
     "dpl_unit": "inch",
     "records": 1,
     "fields": 5,
-    "bytes": 2355,
-    "downloads": ["D5D49655"],
+    "bytes": 2382,
+    "downloads": ["DtLbYG5m"],
     "findings": [
       {"code": "inch_units", "severity": "info", "message": "Allegro formats take inches; millimetres are rounded to 1/100 in", "element": null, "fallback": null, "record": null},
+      {"code": "software_switches_not_sent", "severity": "info", "message": "software switches (<STX>V) not sent: whether the cutter is installed is unknown", "element": null, "fallback": null, "record": null},
       {"code": "check_digit_added", "severity": "info", "message": "the printer adds check digit 1", "element": 3, "fallback": null, "record": null},
-      {"code": "circle_rasterized", "severity": "error", "message": "circle cannot be drawn natively: circles: Allegro does not have it", "element": 4, "fallback": "drawn as downloaded image D5D49655 (81x81 dots)", "record": null},
+      {"code": "circle_rasterized", "severity": "error", "message": "circle cannot be drawn natively: circles: Allegro does not have it", "element": 4, "fallback": "drawn as downloaded image DtLbYG5m (81x81 dots)", "record": null},
       {"code": "cutter_assumed", "severity": "info", "message": "cut commands assume the printer's cutter is installed and enabled", "element": null, "fallback": null, "record": null}
     ],
     "dpl": null,

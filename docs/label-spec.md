@@ -357,7 +357,8 @@ described in the Datamax manual and is passed through as written.
 | `magnification` | integer 1-9, default 1    | Printer dots per image dot, across and along.                                                 |
 
 With `bitmap` the image is downloaded to the printer before the label under its content name, `D`
-plus 7 hex digits of a hash of its size and bits ([dpl-reference.md](dpl-reference.md), section 5),
+plus 7 characters from `0-9 A-Z a-z` taken from a hash of its size and bits
+([dpl-reference.md](dpl-reference.md), section 5),
 never under `name`: the same picture gets the same printer name in every job, so a name the
 printer already holds is that very picture, two elements with the same bitmap download it once,
 and two elements of one `name` with different bitmaps download both. `name` stays in findings,

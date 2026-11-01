@@ -90,8 +90,8 @@ def _format(data: bytes) -> bytes:
 
 #: The name of every image download in a job: ``<STX>I``, module, ``A``, ``F``, the name, ``<CR>``.
 _DOWNLOAD_NAME = re.compile(rb"\x02I[A-E]AF([^\r]*)\r")
-#: A content name: ``D`` and seven hex digits of the image's hash.
-_CONTENT_NAME = re.compile(rb"D[0-9A-F]{7}")
+#: A content name: ``D`` and seven base-62 digits of the image's hash.
+_CONTENT_NAME = re.compile(rb"D[0-9A-Za-z]{7}")
 
 
 # ======================== every bitmap goes under its content name ========================
@@ -260,7 +260,7 @@ def test_two_images_of_one_name_and_one_bitmap_download_once_and_both_are_placed
 @pytest.mark.os_agnostic
 def test_a_name_listed_only_in_another_letter_case_is_another_name() -> None:
     """One Allegro 2 kept a name as sent and printed no image for it in another case (2026-11-01)."""
-    result = _job(Label(elements=[_LOGO]), HeldImages(listed=frozenset({LOGO_SENT.lower()})), **_NO_CLEAR)
+    result = _job(Label(elements=[_LOGO]), HeldImages(listed=frozenset({LOGO_SENT.swapcase()})), **_NO_CLEAR)
     assert STX + b"IAAF" + _L + b"\r" in result.data
     assert not {FindingCode.IMAGE_NAME_HELD, FindingCode.IMAGE_NAMES_UNREAD} & {f.code for f in result.findings}
     assert not result.names_unread
@@ -335,8 +335,9 @@ def test_a_batch_with_no_clear_downloads_a_name_once() -> None:
     assert [f.code for f in batch.results[1].findings if f.code is FindingCode.IMAGE_NAMES_UNREAD] == []
 
 
-#: Two bitmaps whose content names collide, found by brute force over 2**20 bitmaps of 16x2 dots.
-_COLLIDING = (["................", ".##.#.#.#......#"], ["................", "#.#..#.##...#.#."])
+#: Two bitmaps whose content names collide, found by brute force over 2**24 bitmaps of 24x1 dots
+#: (rows 979256 and 3075105): a birthday search over the 62**7 names needs about 2**21 of them.
+_COLLIDING = (["....###.####...#..###..."], ["..#.###.###.##....#....#"])
 _COLLIDED = drawn_image_name(Bitmap.from_rows(_COLLIDING[0]))
 
 

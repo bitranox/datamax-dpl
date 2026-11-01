@@ -6,8 +6,10 @@ first row record is the BOTTOM row, measured on an Allegro 2) and the placing re
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+import string
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -34,6 +36,7 @@ from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.records import image_record
 from datamax_dpl.domain.render import RenderResult, build_job, render
 from datamax_dpl.domain.render_context import (
+    NAME_ALPHABET,
     ImageDownload,
     ImageEdge,
     RenderContext,
@@ -327,15 +330,36 @@ def test_the_preview_draws_the_modules_scaled_inside_the_quiet_zone() -> None:
 
 # ======================== content-derived image names ========================
 
-DRAWN_NAME = re.compile(r"D[0-9A-F]{7}")
+DRAWN_NAME = re.compile(r"D[0-9A-Za-z]{7}")
 
 
 @pytest.mark.os_agnostic
-def test_a_drawn_image_name_is_d_and_seven_hex_digits_of_a_stable_hash() -> None:
+def test_a_drawn_image_name_is_d_and_seven_base62_digits_of_a_stable_hash() -> None:
     """Pinned literal: Python's hash() is salted per process, hashlib is not."""
     name = drawn_image_name(Bitmap.from_rows(["#."]))
     assert DRAWN_NAME.fullmatch(name)
-    assert name == "DBBE51D5"
+    assert name == "DCoRmuuz"
+
+
+@pytest.mark.os_agnostic
+def test_a_content_name_is_the_digest_s_leading_8_bytes_in_base62_digits_0_9_then_a_z_upper_then_lower() -> None:
+    """Worked by hand: the 7 digits, read back in the documented order, are the leading 8 bytes mod 62**7."""
+    digest = hashlib.sha256(b"2x1:0:" + bytes([0b1000_0000])).digest()
+    value = int.from_bytes(digest[:8], "big")
+    digits = string.digits + string.ascii_uppercase + string.ascii_lowercase
+    name = drawn_image_name(Bitmap.from_rows(["#."]))
+    assert name[0] == "D"
+    assert sum(digits.index(char) * 62**power for power, char in enumerate(reversed(name[1:]))) == value % 62**7
+    assert digits == NAME_ALPHABET
+
+
+@pytest.mark.os_agnostic
+def test_content_names_use_lower_case_upper_case_and_digits() -> None:
+    """Lower case is a digit of its own: no name is folded to one case."""
+    names = "".join(drawn_image_name(Bitmap.from_rows([format(bits, "08b")]))[1:] for bits in range(1, 64))
+    assert any(char.islower() for char in names)
+    assert any(char.isupper() for char in names)
+    assert any(char.isdigit() for char in names)
 
 
 @pytest.mark.os_agnostic
@@ -414,7 +438,7 @@ def test_two_different_images_whose_names_collide_in_one_job_get_different_names
     assert [download.name for download in ctx.downloads] == [taken, name]
 
 
-HELLO_NAME = "D869223B"
+HELLO_NAME = "DXSJf4Pq"
 
 
 def _user_image(*, bitmap: list[str] | None) -> dict[str, object]:

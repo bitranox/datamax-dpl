@@ -163,16 +163,29 @@ Prodigy and Prodigy Plus, whose A and B are both plug-ins, so a job there that d
 is refused (`image_module_unknown`) until `image_module` names the module fitted. `generic` and
 `permissive` use A. Only module A has been seen on a printer (an Allegro 2).
 
-Every image a job downloads is named `D` plus 7 upper-case hex digits of a sha256 of its size and
-bits: an `image` element with a `bitmap` as well as one the library draws (a raster fallback, a
-QR Code, a merged transparency group). The printer keeps an image in its module across jobs and
-answers BELL when a job loads a name it already holds (Appendix D), without saying the new image
-replaces the old; one Allegro 2 printed nothing for a format that downloaded a name it held (0 of 3
-rounds). With the name following the content, a held name is the same picture. When that name is
-already taken in the job (another image with the same hash, or an `image` element without a
-`bitmap` that names it), the hash is salted until it is free. Across separate jobs two different
-bitmaps share a name only on a hash collision, about 1 in 2**28. Only an `image` element without
-a `bitmap` that no element of the label downloads names a printer image by its own `name`.
+Every image a job downloads is named `D` plus 7 characters from the 62 symbols `0-9 A-Z a-z` (a
+base-62 number) taken from a sha256 of its size and bits: an `image` element with a `bitmap` as
+well as one the library draws (a raster fallback, a QR Code, a merged transparency group). The 7
+characters are the leading 8 bytes of the sha256, read as one big-endian number and written in base
+62 with the digits in that order (`0` is 0, `A` is 10, `a` is 36, `z` is 61): its last 7 digits,
+most significant first. Names are compared with their letter case, never folded. That lower case in
+a name is kept and matched exactly was measured on one Allegro 2 (firmware CA02 03.04): it listed
+`lcase1` as sent and printed no image for a format naming `LCASE1`. The manual does not say, and no
+other model was checked; a model that folds case could take two names that differ only in case for
+one. The printer keeps an image in its module across jobs and answers BELL when a job loads a name
+it already holds (Appendix D), without saying the new image replaces the old; one Allegro 2 printed
+nothing for a format that downloaded a name it held (0 of 3 rounds). With the name following the
+content, a held name is the same picture. When that name is already taken in the job (another image
+with the same hash, or an `image` element without a `bitmap` that names it), the hash is salted
+until it is free. Across separate jobs two different bitmaps share a name only on a hash collision,
+about 1 in 62**7 (3.5e12, about 2**42) per pair. On a module no clear ever empties, where a job
+finds a name the printer lists and places it without downloading, the chance that any two of 10000
+different images ever sent there share a name is about 0.0014% (computed, k**2 / (2 * 62**7)), and
+such a pair prints the earlier picture. A name a job of 0.4.0 left on such a module (`D` and 7 hex
+digits for a drawn image, the element's own `name` for one with a `bitmap`) is not the name this
+version gives that image, so it is downloaded once more under its new name: it costs module memory,
+never a wrong picture. Only an `image` element without a `bitmap` that no element of the label
+downloads names a printer image by its own `name`.
 
 Measured on an Allegro 2 (firmware CA02 03.04), not stated in the manual: the printer draws the
 FIRST row record at the BOTTOM of the image, and images holding `0000FFnn` repeat records print

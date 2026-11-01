@@ -68,12 +68,20 @@ MAX_SYSTEM_DISTANCE_MM = hundredths_to_mm(MAX_FIELD_VALUE)
 #: First character of the printer name of every image a job downloads: a label ``image`` with a
 #: bitmap, a raster fallback, a QR Code, a merged transparency group.
 DRAWN_IMAGE_PREFIX = "D"
-#: Hex digits of the content hash after the prefix: an image name holds at most 8 characters.
-_NAME_HASH_DIGITS = 7
+#: The 62 symbols a content name is written in, in digit order: ``0`` is 0, ``A`` is 10, ``a`` is 36,
+#: ``z`` is 61 (the ASCII order). Lower case doubles what 7 characters hold over upper case and
+#: digits alone; one Allegro 2 (firmware CA02 03.04, 2026-11-01) kept a lower-case name as sent and
+#: matched it by exact case, which no other model was checked for.
+NAME_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+#: Characters of the content hash after the prefix: an image name holds at most 8 characters.
+_NAME_HASH_CHARS = 7
+#: Leading digest bytes the name is taken from: 64 bits, so reducing them to the 62**7 values seven
+#: characters hold skews no name by more than one part in five million.
+_NAME_DIGEST_BYTES = 8
 
 
 def drawn_image_name(bitmap: Bitmap, *, salt: int = 0) -> str:
-    """Return the printer name of a downloaded image: ``D`` and 7 hex digits of a hash of its content.
+    """Return the printer name of a downloaded image: ``D`` and 7 base-62 digits of a hash of its content.
 
     Every image a job downloads goes under this name, a label ``image`` with a bitmap as well as
     one the library draws. The printer keeps a downloaded image in its memory module across jobs
@@ -83,7 +91,11 @@ def drawn_image_name(bitmap: Bitmap, *, salt: int = 0) -> str:
     ``hash()``). Within one job :meth:`RenderContext.download_drawn_image` and
     :meth:`RenderContext.download_image` salt past a name already taken, so two different images
     never share one there; across separate jobs two different bitmaps share a name only on a hash
-    collision, about 1 in 2**28 per pair.
+    collision, about 1 in 62**7 (3.5e12, about 2**42) per pair.
+
+    The 7 digits are the leading 8 bytes of the sha256, read as one big-endian number, written in
+    base 62 with :data:`NAME_ALPHABET`: its last 7 digits, most significant first. Names are
+    compared with their letter case, never folded: ``Dab`` and ``DAB`` are two names.
 
     Args:
         bitmap: The image; its width and height count, since the packed rows pad to whole bytes.
@@ -93,11 +105,16 @@ def drawn_image_name(bitmap: Bitmap, *, salt: int = 0) -> str:
     Example:
         >>> from datamax_dpl.domain.raster import Bitmap
         >>> drawn_image_name(Bitmap.from_rows(["#."]))
-        'DBBE51D5'
+        'DCoRmuuz'
     """
     header = f"{bitmap.width}x{bitmap.height}:{salt}:".encode("ascii")
-    digest = hashlib.sha256(header + b"".join(bitmap.rows())).hexdigest().upper()
-    return DRAWN_IMAGE_PREFIX + digest[:_NAME_HASH_DIGITS]
+    digest = hashlib.sha256(header + b"".join(bitmap.rows())).digest()
+    value = int.from_bytes(digest[:_NAME_DIGEST_BYTES], "big")
+    digits: list[str] = []
+    for _ in range(_NAME_HASH_CHARS):
+        value, digit = divmod(value, len(NAME_ALPHABET))
+        digits.append(NAME_ALPHABET[digit])
+    return DRAWN_IMAGE_PREFIX + "".join(reversed(digits))
 
 
 class RenderOptions(BaseModel):
@@ -319,11 +336,11 @@ class ImageDownload:
 
     @property
     def described(self) -> str:
-        """Name the download in a finding: ``image LOGO (sent as D1A2B3C4)``, or ``image D1A2B3C4`` when drawn.
+        """Name the download in a finding: ``image LOGO (sent as D1a2B3c4)``, or ``image D1a2B3c4`` when drawn.
 
         Example:
-            >>> ImageDownload(name="D1A2B3C4", command=b"", element=0, label_name="LOGO").described
-            'image LOGO (sent as D1A2B3C4)'
+            >>> ImageDownload(name="D1a2B3c4", command=b"", element=0, label_name="LOGO").described
+            'image LOGO (sent as D1a2B3c4)'
         """
         if self.label_name is None:
             return f"image {self.name}"
@@ -604,7 +621,7 @@ class RenderContext:
         Args:
             described: Names the image in the message, ``element 3 (image LOGO)``; a drawn image
                 adds the name the job would queue it under, ``element 3 (polygon) drawn as image
-                D1A2B3C4``.
+                D1a2B3c4``.
             bitmap: The image as it would be sent.
             element: Position of the element in the label.
         """
@@ -847,6 +864,7 @@ __all__ = [
     "MAX_SYSTEM_DISTANCE_MM",
     "MIN_MAX_LABEL_LENGTH_MM",
     "MIN_START_OF_PRINT_MM",
+    "NAME_ALPHABET",
     "ImageDownload",
     "ImageEdge",
     "PlacedImage",

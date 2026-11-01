@@ -387,7 +387,7 @@ def test_a_prodigy_removes_each_of_two_names_before_its_download_and_both_after_
     )
     data = _job(label, model="prodigy", image_module=ImageModule.B).data
     head = data[: data.index(STX + b"L\r")]
-    order = re.findall(rb"\x02R[0-9A-Z]+\r|\x02IBAF[0-9A-Z]+\r", head)
+    order = re.findall(rb"\x02R[0-9A-Za-z]+\r|\x02IBAF[0-9A-Za-z]+\r", head)
     assert order == [
         STX + b"R" + _LOGO + b"\r",
         STX + b"IBAF" + _LOGO + b"\r",

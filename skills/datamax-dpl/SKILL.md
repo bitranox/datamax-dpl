@@ -106,9 +106,11 @@ cut off part way says to power-cycle the printer, which may be waiting for the r
   (`image_halved`; `preview` shows it). Refused (`image_memory_exceeded`): still past it after
   halving, any job past it under `strict`, a halved image at `magnification` 5 or more.
 - Image module: downloads go to the model's built-in module (`image_module` in `capabilities`); a Prodigy/Prodigy Plus has none and refuses them (`image_module_unknown`) until `[printer] image_module` (A-E) names the module fitted.
-- Every downloaded image goes under its content name (`D` + 7 hex of its hash), never the `image`
-  element's `name`; only an `image` without `bitmap` that no element of the label downloads names a
-  printer image by its `name`.
+- Every downloaded image goes under its content name (`D` + 7 characters from `0-9 A-Z a-z`, from
+  its hash; letter case counts, measured kept and matched exactly on an Allegro 2 CA02 03.04 only),
+  never the `image` element's `name`; only an `image` without `bitmap` that no element of the label
+  downloads names a printer image by its `name`. An image a 0.4.0 job left on a never-cleared
+  module (`D` + 7 hex) is downloaded once more under its new name.
 - `datamax-dpl memory --kind all --printer tcp://HOST:9100` lists the names the printer stores
   and the free bytes of each memory module (read-only; tcp or serial). The `allegro-2` budget is
   the 48631 free bytes one printer reported, less a 4096-byte margin; set yours the same way.

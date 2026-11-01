@@ -996,7 +996,7 @@ def test_a_raster_fallback_of_exactly_2040_dots_fits_and_2041_is_refused(box_dot
     assert len(image_placements(result.data)) == (1 if fits else 0)
 
 
-_DRAWN_NAME = re.compile(r"D[0-9A-F]{7}")
+_DRAWN_NAME = re.compile(r"D[0-9A-Za-z]{7}")
 
 
 def _too_wide_message(elements: Sequence[Mapping[str, object]]) -> str:

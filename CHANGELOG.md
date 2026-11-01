@@ -38,6 +38,15 @@ All notable changes to this project are documented here. The format follows
   `TransportError`. An unknown or unreachable host still fails at once.
 - `read_memory_directory` with no kinds returns at once without opening the
   printer.
+- Every downloaded image is named `D` plus 7 characters from the 62 symbols
+  `0-9 A-Z a-z` (the leading 8 bytes of its sha256 in base 62) in place of
+  7 hex digits: two different images share a name about 1 in 62**7
+  (3.5e12) per pair instead of 1 in 2**28. Names compare by exact letter
+  case; lower case was measured kept and matched exactly on one Allegro 2
+  (firmware CA02 03.04) only, unverified on other models. An image a 0.4.0
+  job left on a module no clear empties is not recognised by its old name
+  and is downloaded once more: it costs module memory, never a wrong
+  picture.
 - `allegro-2` model values measured on the printer: `max_format_rows` is
   1648 (about 201 mm at `scale_along` 0.976), the lowest row any test
   format was cut at; where the printer cuts depends on the format's

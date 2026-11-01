@@ -88,7 +88,7 @@ def test_circle_is_rasterized_and_downloaded_on_a_model_without_circles() -> Non
     )
     assert FindingCode.CIRCLE_RASTERIZED in {f.code for f in result.warnings}
     [name] = result.downloads
-    assert re.fullmatch(r"D[0-9A-F]{7}", name)
+    assert re.fullmatch(r"D[0-9A-Za-z]{7}", name)
     assert STX + b"IAAF" + name.encode("ascii") + b"\r" in result.data
     assert b"1Y11000" in result.data
     assert result.data.index(STX + b"IAAF") < result.data.index(STX + b"L\r")

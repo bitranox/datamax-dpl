@@ -608,7 +608,7 @@ def _report_skipped_clear(ctx: RenderContext) -> None:
 
 def _remove_image(name: str) -> bytes:
     # The one system command that ends in <CR>: the name is 1-8 characters (manual p.36). It is
-    # always a content name (D and seven hex digits), so it is never Y or N, whose <STX>RY and
+    # always a content name (D and seven base-62 digits), so it is never Y or N, whose <STX>RY and
     # <STX>RN switch the ribbon saver instead (same page).
     return line(_system(f"R{name}"))
 
