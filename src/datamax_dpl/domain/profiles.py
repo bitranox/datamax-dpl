@@ -51,10 +51,6 @@ class Feature(str, Enum):
     TIME_DATE = "time_date"
     CLEAR_MODULE = "clear_module"
     REMOVE_IMAGE = "remove_image"
-    START_OF_PRINT = "start_of_print"
-    MAX_LABEL_LENGTH = "max_label_length"
-    FEED_RATE = "feed_rate"
-    SOFTWARE_SWITCHES = "software_switches"
 
 
 Firmware = tuple[int, int]
@@ -307,7 +303,8 @@ class PrinterProfile:
 # Feature columns of docs/dpl-reference.md section 2, one set per model family. Removing one
 # image by name (<STX>R<name>) is "only available on the standard Prodigy" (manual p.36), which
 # instead has no clear module (<STX>q, p.35); the Prodigy 152 is its 152 dpi variant (Appendix K),
-# not a Prodigy Plus, so it shares both. <STX>O, M, S and V carry no "not available" note at all.
+# not a Prodigy Plus, so it shares both. <STX>O, M, S and V carry no "not available" note, so every
+# model is sent them and no Feature stands for them.
 _ALL_FEATURES_YES: dict[Feature, Support] = dict.fromkeys(Feature, YES) | {
     Feature.CUTTER_PULSE: NO,
     Feature.PRESENT_DISTANCE: NO,
@@ -335,10 +332,6 @@ _FAMILY_FEATURES: dict[ModelFamily, dict[Feature, Support]] = {
         Feature.PDF417: from_firmware(3, 20),
         Feature.DATAMATRIX: DATAMATRIX_OPTION,
         Feature.REMOVE_IMAGE: YES,
-        Feature.START_OF_PRINT: YES,
-        Feature.MAX_LABEL_LENGTH: YES,
-        Feature.FEED_RATE: YES,
-        Feature.SOFTWARE_SWITCHES: YES,
     },
     ModelFamily.PRODIGY_PLUS: _ALL_FEATURES_YES
     | {

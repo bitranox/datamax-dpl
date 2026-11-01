@@ -241,6 +241,23 @@ def test_the_label_needs_a_tenth_of_an_inch_below_the_maximum_label_length(heigh
     assert (STX + b"M1600" in result.data) is sent
 
 
+def test_the_height_is_checked_against_the_value_the_four_digits_send() -> None:
+    """200.004 mm goes out as M0787, 199.898 mm: within 2.54 mm of a 197.46 mm label."""
+    label = _text_label(media=MediaSensor.GAP, height=197.46)
+    result = _job(label, model="dmx-600", max_label_length_mm=200.004)
+    assert STX + b"M" not in result.data
+    found = [f.message for f in result.findings if f.code is FindingCode.MAX_LABEL_LENGTH_TOO_SHORT]
+    assert len(found) == 1
+    assert "199.898" in found[0]
+
+
+def test_a_label_exactly_the_margin_below_the_maximum_label_length_faults() -> None:
+    """Within 0.1 in of M includes 0.1 in itself: 406.4 - 2.54 = 403.86 mm on the DMX 600."""
+    result = _job(_text_label(media=MediaSensor.GAP, height=403.86), model="dmx-600")
+    assert STX + b"M" not in result.data
+    assert _finding(result, FindingCode.MAX_LABEL_LENGTH_TOO_SHORT) == [Severity.WARNING]
+
+
 def test_continuous_media_is_not_checked_against_the_maximum_label_length() -> None:
     result = _job(_text_label(media=MediaSensor.CONTINUOUS, height=420), model="dmx-600")
     assert FindingCode.MAX_LABEL_LENGTH_TOO_SHORT not in _codes(result)

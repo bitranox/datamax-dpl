@@ -68,10 +68,6 @@ _FORMAT_FEATURES = (
     Feature.DEFAULT_BAR_WIDTHS,
 )
 _SETTING_FEATURES = (
-    Feature.START_OF_PRINT,
-    Feature.MAX_LABEL_LENGTH,
-    Feature.FEED_RATE,
-    Feature.SOFTWARE_SWITCHES,
     Feature.CLEAR_MODULE,
     Feature.REMOVE_IMAGE,
 )
@@ -243,7 +239,7 @@ def generated_section(profiles: list[PrinterProfile] | None = None) -> str:
         ["### Features: job, media and printer settings", "", *_feature_table(chosen, _JOB_FEATURES)],
         ["### Features: format, graphics and barcodes", "", *_feature_table(chosen, _FORMAT_FEATURES)],
         [
-            "### Features: printer state and graphics memory",
+            "### Features: graphics memory",
             "",
             "`clear_module` is `<STX>q`, which removes every file in the module (images, formats and fonts), "
             "not only images; `remove_image` is the plain Prodigy's `<STX>R<name>`, which removes one image.",

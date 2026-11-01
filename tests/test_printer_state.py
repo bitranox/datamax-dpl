@@ -179,22 +179,12 @@ def test_only_the_prodigy_family_removes_one_image_and_every_other_model_clears_
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize(
-    "feature", [Feature.START_OF_PRINT, Feature.MAX_LABEL_LENGTH, Feature.FEED_RATE, Feature.SOFTWARE_SWITCHES]
-)
-def test_every_model_has_the_printer_setting_commands(feature: Feature) -> None:
-    lacking = [p.id for p in MODEL_PROFILES.values() if not p.support(feature).available]
-
-    assert lacking == []
-
-
-@pytest.mark.os_agnostic
 def test_generic_keeps_only_what_every_model_has_and_permissive_has_everything() -> None:
     generic = get_profile("generic")
     permissive = get_profile("permissive")
-    new = (Feature.CLEAR_MODULE, Feature.REMOVE_IMAGE, Feature.START_OF_PRINT, Feature.FEED_RATE)
+    new = (Feature.CLEAR_MODULE, Feature.REMOVE_IMAGE)
 
-    assert [generic.support(f).available for f in new] == [False, False, True, True]
+    assert [generic.support(f).available for f in new] == [False, False]
     assert all(permissive.support(f).available for f in new)
 
 

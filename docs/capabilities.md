@@ -358,32 +358,32 @@ DPL letters, A = 1.0 inch per second up to S = 10.0, in steps of 0.5.
 | `ovation-2`        | yes             | yes         | yes      | yes                | yes              | no               | yes                 | yes      | option datamatrix | yes                  |
 | `titan-6200`       | yes             | yes         | yes      | yes                | yes              | yes              | yes                 | yes      | option datamatrix | yes                  |
 
-### Features: printer state and graphics memory
+### Features: graphics memory
 
 `clear_module` is `<STX>q`, which removes every file in the module (images, formats and fonts), not only images; `remove_image` is the plain Prodigy's `<STX>R<name>`, which removes one image.
 
-| Model              | `start_of_print` | `max_label_length` | `feed_rate` | `software_switches` | `clear_module` | `remove_image` |
-|--------------------|------------------|--------------------|-------------|---------------------|----------------|----------------|
-| `generic`          | yes              | yes                | yes         | yes                 | no             | no             |
-| `permissive`       | yes              | yes                | yes         | yes                 | yes            | yes            |
-| `allegro`          | yes              | yes                | yes         | yes                 | yes            | no             |
-| `allegro-2`        | yes              | yes                | yes         | yes                 | yes            | no             |
-| `prodigy`          | yes              | yes                | yes         | yes                 | no             | yes            |
-| `prodigy-152`      | yes              | yes                | yes         | yes                 | no             | yes            |
-| `prodigy-plus`     | yes              | yes                | yes         | yes                 | yes            | no             |
-| `prodigy-plus-152` | yes              | yes                | yes         | yes                 | yes            | no             |
-| `dmx-400`          | yes              | yes                | yes         | yes                 | yes            | no             |
-| `dmx-430`          | yes              | yes                | yes         | yes                 | yes            | no             |
-| `dmx-600`          | yes              | yes                | yes         | yes                 | yes            | no             |
-| `dmx-800`          | yes              | yes                | yes         | yes                 | yes            | no             |
-| `prodigy-max-203`  | yes              | yes                | yes         | yes                 | yes            | no             |
-| `prodigy-max-300`  | yes              | yes                | yes         | yes                 | yes            | no             |
-| `pe42`             | yes              | yes                | yes         | yes                 | yes            | no             |
-| `pe43`             | yes              | yes                | yes         | yes                 | yes            | no             |
-| `ovation`          | yes              | yes                | yes         | yes                 | yes            | no             |
-| `ovation-300`      | yes              | yes                | yes         | yes                 | yes            | no             |
-| `ovation-2`        | yes              | yes                | yes         | yes                 | yes            | no             |
-| `titan-6200`       | yes              | yes                | yes         | yes                 | yes            | no             |
+| Model              | `clear_module` | `remove_image` |
+|--------------------|----------------|----------------|
+| `generic`          | no             | no             |
+| `permissive`       | yes            | yes            |
+| `allegro`          | yes            | no             |
+| `allegro-2`        | yes            | no             |
+| `prodigy`          | no             | yes            |
+| `prodigy-152`      | no             | yes            |
+| `prodigy-plus`     | yes            | no             |
+| `prodigy-plus-152` | yes            | no             |
+| `dmx-400`          | yes            | no             |
+| `dmx-430`          | yes            | no             |
+| `dmx-600`          | yes            | no             |
+| `dmx-800`          | yes            | no             |
+| `prodigy-max-203`  | yes            | no             |
+| `prodigy-max-300`  | yes            | no             |
+| `pe42`             | yes            | no             |
+| `pe43`             | yes            | no             |
+| `ovation`          | yes            | no             |
+| `ovation-300`      | yes            | no             |
+| `ovation-2`        | yes            | no             |
+| `titan-6200`       | yes            | no             |
 
 ### Printer setting defaults
 

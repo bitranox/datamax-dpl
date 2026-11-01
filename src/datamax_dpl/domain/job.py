@@ -111,15 +111,20 @@ def _max_label_length(label: Label, ctx: RenderContext) -> list[bytes]:
     """Return ``<STX>M``, sent as configured, unless the label is too long for it.
 
     A label on gap or reflective media whose height reaches within the margin of the value would
-    paper-fault on every label, so the job sends none and the printer keeps its own value.
+    paper-fault on every label, so the job sends none and the printer keeps its own value. The
+    height is compared with the length the four digits send, not the configured millimetres they
+    round from, and in thousandths of a millimetre, the precision the manual's figures carry, so a
+    label exactly the margin below faults as the manual says.
     """
     state = ctx.printer_state
     mm = state.max_label_length_mm
     if not _sends(PrinterSetting.MAX_LABEL_LENGTH, ctx) or mm is None:
         return []
+    hundredths = ctx.nominal_inch_hundredths(mm)
+    sent = hundredths_to_mm(hundredths)
     height = None if label.height is None else to_inches(label.height, label.unit, dpi=ctx.profile.dpi) * MM_PER_INCH
-    if state.media is MediaSensor.CONTINUOUS or height is None or height + MAX_LABEL_LENGTH_MARGIN_MM < mm:
-        return [_system(f"M{ctx.nominal_inch_hundredths(mm):04d}")]
+    if state.media is MediaSensor.CONTINUOUS or height is None or round(height + MAX_LABEL_LENGTH_MARGIN_MM, 3) < sent:
+        return [_system(f"M{hundredths:04d}")]
     source = (
         "configured max_label_length_mm"
         if PrinterSetting.MAX_LABEL_LENGTH in state.configured
@@ -128,7 +133,8 @@ def _max_label_length(label: Label, ctx: RenderContext) -> list[bytes]:
     ctx.findings.deviate(
         FindingCode.MAX_LABEL_LENGTH_TOO_SHORT,
         f"the label height {height:g} mm is not at least {MAX_LABEL_LENGTH_MARGIN_MM:g} mm below the maximum "
-        f"label length {mm:g} mm ({source}); the printer would declare a paper fault (manual p.30)",
+        f"label length {sent:g} mm (M{hundredths:04d}, {source}); the printer would declare a paper fault "
+        "(manual p.30)",
         fallback="no <STX>M sent; the printer keeps its own value",
     )
     return []
@@ -149,8 +155,9 @@ def _feed_rate(ctx: RenderContext) -> list[bytes]:
     # The model's own default, not the nearest letter: the feed rate has no label-level meaning
     # to stay close to, and the default is what the printer would use with no setting at all.
     default = ctx.profile.feed_rate
-    sent = [_system(f"S{default.value}")] if default is not None and allowed.contains(default) else []
-    fallback = f"feed rate {default.value} sent" if default is not None and sent else "no feed rate sent"
+    # profiles keeps a model's default inside its slew range, or None (the DMX 400).
+    sent = [] if default is None else [_system(f"S{default.value}")]
+    fallback = "no feed rate sent" if default is None else f"feed rate {default.value} sent"
     ctx.findings.info(
         FindingCode.FEED_RATE_OUT_OF_RANGE,
         f"feed rate {wanted.value} is outside {allowed.low.value}-{allowed.high.value} on {ctx.profile.name}; "
@@ -590,7 +597,8 @@ def _removable_names(ctx: RenderContext) -> list[str]:
     Refused under either policy: ``<STX>RY`` would change a persistent printer setting instead of
     removing an image. A name only starting with Y or N is kept: whether the firmware reads such
     a name's first letter as the ribbon saver command is unverified, and refusing it on
-    speculation would break ordinary names.
+    speculation would break ordinary names. Lowercase "y" and "n" are kept too: the manual shows
+    the ribbon saver only with uppercase Y and N, which is unverified as well.
     """
     names = list(dict.fromkeys(download.name for download in ctx.downloads))
     for name in names:
