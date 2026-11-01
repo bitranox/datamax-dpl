@@ -18,7 +18,7 @@ from enum import Enum
 from typing import TypeVar
 
 from .enums import HardwareOption, ImageModule, ModelFamily, SpeedCode
-from .units import MM_PER_INCH
+from .units import hundredths_to_mm
 
 
 class Feature(str, Enum):
@@ -188,7 +188,7 @@ class CalibrationDefaults:
 
 @dataclass(frozen=True)
 class SoftwareSwitchBits:
-    """Which bit of the ``<STX>V`` value sets which printer option on one model (manual p.41).
+    """Which bit of the ``<STX>V`` value sets which printer option on one model (manual p.42).
 
     ``<STX>V`` overrides every bit at once until the next power-up, so a value can only be built
     where datamax-dpl knows what each bit means: a bit no setting describes (a ribbon option)
@@ -618,18 +618,15 @@ _IMAGE_MODULE: dict[str, str | None] = {
 _MAX_FORMAT_ROWS: dict[str, int] = {"allegro-2": 1648}
 
 
-def _mm(hundredths: int) -> float:
-    """Return a distance the manual gives in hundredths of an inch as mm, to the thousandth."""
-    # Rounded so 0220 reads 55.88, not its float noise; the job sends it back in inch mode,
-    # where it converts to the manual's 0220 exactly.
-    return round(hundredths / 100 * MM_PER_INCH, 3)
-
-
-#: The default start of print, ``<STX>O``, from the manual's table (p.31), in hundredths of an
+#: The default start of print, ``<STX>O``, from the manual's table (p.32), in hundredths of an
 #: inch: Prodigy 0250; "Prodigy Plus, 6200" 0110; "All others" 0220. The table's "Prodigy Max" is
-#: "110/250, DIP switch selectable", so which a printer uses is not known: None sends none and
-#: keeps the printer's own. The Prodigy 152 and Prodigy Plus 152 are the 152 dpi variants of the
-#: Prodigy and Prodigy Plus (Appendix K), so they take those rows; Ovation! 300 takes "all others".
+#: "110/250, DIP switch selectable" (footnote 1), so which a printer uses is not known: None sends
+#: none and keeps the printer's own. Footnote 2, "Menu selectable, if equipped", marks the 6200 and
+#: "All others", the Allegro 2 among them: an operator may have set another value on the front
+#: panel, and a job sending O0220 overrides it, which is why sending O by default waits for a
+#: comparison print on a real printer. The Prodigy 152 and Prodigy Plus 152 are the 152 dpi
+#: variants of the Prodigy and Prodigy Plus (Appendix K), so they take those rows; Ovation! 300
+#: takes "All others".
 _START_OF_PRINT: dict[str, int | None] = {
     "allegro": 220,
     "allegro-2": 220,
@@ -678,7 +675,7 @@ _MAX_LABEL_LENGTH: dict[str, int] = {
     "titan-6200": _SIXTEEN_INCHES,
 }
 
-#: The ``<STX>V`` bit layouts of the manual's table (p.41), one per column.
+#: The ``<STX>V`` bit layouts of the manual's bit assignment table (p.42), one per column.
 _SWITCHES_400_600_800_6200 = SoftwareSwitchBits(cutter=0, internal_batch=1, label_present=2)
 _SWITCHES_PRODIGY_PLUS = SoftwareSwitchBits(cutter=0, label_present=2, undescribed=((1, "insert ribbon sense"),))
 _SWITCHES_PRODIGY = SoftwareSwitchBits(
@@ -698,7 +695,7 @@ _SOFTWARE_SWITCHES: dict[str, SoftwareSwitchBits | None] = {
     "prodigy-plus": _SWITCHES_PRODIGY_PLUS,
     "prodigy-plus-152": _SWITCHES_PRODIGY_PLUS,
     "dmx-400": _SWITCHES_400_600_800_6200,
-    # Manual p.41: the STX V bit table has no DMX 430 column; no bit is guessed for it.
+    # Manual p.42: the STX V bit table has no DMX 430 column; no bit is guessed for it.
     "dmx-430": None,
     "dmx-600": _SWITCHES_400_600_800_6200,
     "dmx-800": _SWITCHES_400_600_800_6200,
@@ -715,7 +712,7 @@ _SOFTWARE_SWITCHES: dict[str, SoftwareSwitchBits | None] = {
 
 def _start_of_print_mm(model: str) -> float | None:
     hundredths = _START_OF_PRINT[model]
-    return None if hundredths is None else _mm(hundredths)
+    return None if hundredths is None else hundredths_to_mm(hundredths)
 
 
 def _build(row: _Row) -> PrinterProfile:
@@ -741,7 +738,7 @@ def _build(row: _Row) -> PrinterProfile:
         image_module=_IMAGE_MODULE[row.id],
         max_format_rows=_MAX_FORMAT_ROWS.get(row.id),
         start_of_print_mm=_start_of_print_mm(row.id),
-        max_label_length_mm=_mm(_MAX_LABEL_LENGTH[row.id]),
+        max_label_length_mm=hundredths_to_mm(_MAX_LABEL_LENGTH[row.id]),
         # The manual gives no feed rate default; the feed button feeding at the slew speed the
         # printer uses anyway is the reading that changes nothing a user would notice.
         feed_rate=_speeds(slew_speed).default,

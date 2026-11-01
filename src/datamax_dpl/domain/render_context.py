@@ -39,6 +39,7 @@ from .units import (
     Correction,
     DplUnit,
     exact_dots,
+    hundredths_to_mm,
     to_dots,
     to_dpl,
 )
@@ -54,10 +55,13 @@ if TYPE_CHECKING:
 MAX_FIELD_VALUE = 9999
 #: Smallest start of print ``<STX>O`` keeps, in mm: "Settings below 50 are adjusted back to
 #: default" (manual p.32), and the job's system commands go out in inch mode, so 50/100 in.
-MIN_START_OF_PRINT_MM = round(50 / 100 * MM_PER_INCH, 3)
-#: Largest distance the four digits of ``<STX>O`` and ``<STX>M`` hold in inch mode, 9999/100 in,
-#: in mm, rounded to the thousandth so a refusal names 2539.746 rather than its float noise.
-MAX_SYSTEM_DISTANCE_MM = round(MAX_FIELD_VALUE / 100 * MM_PER_INCH, 3)
+MIN_START_OF_PRINT_MM = hundredths_to_mm(50)
+#: Smallest maximum label length ``<STX>M`` takes, in mm: the manual says it "should be at least
+#: 5 in (127mm)" (p.30), since a value near the label's own length makes the printer declare a
+#: paper fault before it finds the next edge.
+MIN_MAX_LABEL_LENGTH_MM = hundredths_to_mm(500)
+#: Largest distance the four digits of ``<STX>O`` and ``<STX>M`` hold in inch mode, 9999/100 in.
+MAX_SYSTEM_DISTANCE_MM = hundredths_to_mm(MAX_FIELD_VALUE)
 #: First character of the name of every image the library draws (raster fallbacks, QR Codes).
 DRAWN_IMAGE_PREFIX = "D"
 #: Hex digits of the content hash after the prefix: an image name holds at most 8 characters.
@@ -126,10 +130,12 @@ class RenderOptions(BaseModel):
             every one. A setting left out keeps whatever the printer holds.
         media: Media sensor a job sets when the label names none; the label's own ``media``
             wins. None leaves the sensor as the label says, or as the printer holds it.
-        start_of_print_mm: Start of print (``<STX>O``) in mm, sent as configured; at least
-            12.7 mm (the printer takes less as its default). None takes the model's default.
+        start_of_print_mm: Start of print (``<STX>O``) in mm, sent as configured; 12.7 mm to
+            2539.746 mm (the printer takes less as its default, more does not fit the command).
+            None takes the model's default.
         max_label_length_mm: How far the printer searches for a label edge (``<STX>M``) in mm,
-            sent as configured; None takes the model's default.
+            sent as configured; 127 mm to 2539.746 mm (less faults on labels near that length,
+            more does not fit the command). None takes the model's default.
         feed_rate: Speed the feed button feeds at (``<STX>S``); None takes the model's default.
         label_present: Whether the label-present sensor is on, for the ``<STX>V`` value of a
             model with that bit; None when unknown, which sends no ``<STX>V`` there.
@@ -164,7 +170,7 @@ class RenderOptions(BaseModel):
     send_settings: frozenset[PrinterSetting] | None = None
     media: MediaSensor | None = None
     start_of_print_mm: float | None = Field(default=None, ge=MIN_START_OF_PRINT_MM, le=MAX_SYSTEM_DISTANCE_MM)
-    max_label_length_mm: float | None = Field(default=None, ge=0, le=MAX_SYSTEM_DISTANCE_MM)
+    max_label_length_mm: float | None = Field(default=None, ge=MIN_MAX_LABEL_LENGTH_MM, le=MAX_SYSTEM_DISTANCE_MM)
     feed_rate: SpeedCode | None = None
     label_present: bool | None = None
     clear_graphics_before_label: bool = True
@@ -175,6 +181,9 @@ class RenderOptions(BaseModel):
 class PrinterState:
     """The persistent printer settings one label's job sets, each option resolved over the model.
 
+    Every field is required, so a state is either resolved from the options and the model
+    (:func:`resolved_printer_state`) or written out in full; none is half-filled by defaults.
+
     Attributes:
         send: Settings the job sends; every one unless the options name fewer.
         media: Media sensor to set: the label's own, else the option's; None sets none.
@@ -184,20 +193,16 @@ class PrinterState:
         label_present: Whether the label-present sensor is on; None when unknown.
         clear_graphics_before_label: Clear stored graphics before the label's downloads.
         clear_graphics_after_label: Clear stored graphics after the label.
-
-    Example:
-        >>> PrinterState().send == frozenset(PrinterSetting)
-        True
     """
 
-    send: frozenset[PrinterSetting] = frozenset(PrinterSetting)
-    media: MediaSensor | None = None
-    start_of_print_mm: float | None = None
-    max_label_length_mm: float | None = None
-    feed_rate: SpeedCode | None = None
-    label_present: bool | None = None
-    clear_graphics_before_label: bool = True
-    clear_graphics_after_label: bool = True
+    send: frozenset[PrinterSetting]
+    media: MediaSensor | None
+    start_of_print_mm: float | None
+    max_label_length_mm: float | None
+    feed_rate: SpeedCode | None
+    label_present: bool | None
+    clear_graphics_before_label: bool
+    clear_graphics_after_label: bool
 
 
 def resolved_printer_state(
@@ -346,6 +351,8 @@ class RenderContext:
         findings: Where every step records what it noticed.
         image_module: Letter of the memory module images are downloaded to, or None when the
             model has none and the options name none: a download then refuses the job.
+        printer_state: The persistent printer settings this label's job sets, from
+            :func:`resolved_printer_state`; required, so no context carries an unresolved one.
         cutter_installed: Whether the printer has a working cutter; None when unknown.
         symbol_set: Symbol set of the label's scalable text, or None for the printer default.
         default_attribute: Attribute the format is in when no element overrides it.
@@ -369,7 +376,6 @@ class RenderContext:
         halved_elements: Elements whose image was halved, in the order they were encoded.
         emulated_groups: Groups of overlapping elements drawn into one image, because the label
             asks for transparency and the model has no attribute command.
-        printer_state: The persistent printer settings this label's job sets.
     """
 
     profile: PrinterProfile
@@ -379,6 +385,7 @@ class RenderContext:
     dpl_unit: DplUnit
     findings: FindingCollector
     image_module: str | None
+    printer_state: PrinterState
     cutter_installed: bool | None = None
     symbol_set: str | None = None
     default_attribute: Attribute = Attribute.XOR
@@ -396,7 +403,6 @@ class RenderContext:
     halve_images: bool = False
     halved_elements: list[int] = field(default_factory=list[int])
     emulated_groups: list[tuple[int, ...]] = field(default_factory=list[tuple[int, ...]])
-    printer_state: PrinterState = PrinterState()
     module_refused: bool = field(default=False, init=False)
 
     def correction(self, axis: Axis) -> Correction:
@@ -755,6 +761,7 @@ __all__ = [
     "DRAWN_IMAGE_PREFIX",
     "MAX_FIELD_VALUE",
     "MAX_SYSTEM_DISTANCE_MM",
+    "MIN_MAX_LABEL_LENGTH_MM",
     "MIN_START_OF_PRINT_MM",
     "ImageDownload",
     "ImageEdge",

@@ -2,8 +2,8 @@
 
 Every job sets the printer state it relies on, since another program or the front panel may have
 changed the printer. These tests pin the per-model defaults the manual's tables give (start of
-print p.31, maximum label length p.30, slew speed as feed rate Appendix M, software switch bits
-p.41), which features each model has, how the render options validate the new settings, and that
+print p.32, maximum label length p.30, slew speed as feed rate Appendix M, software switch bits
+p.42), which features each model has, how the render options validate the new settings, and that
 an option wins over the model's default in the context a job encodes with.
 """
 
@@ -14,21 +14,47 @@ from pydantic import ValidationError
 
 from datamax_dpl.domain.enums import MediaSensor, PrinterSetting, SpeedCode
 from datamax_dpl.domain.label import Label, Text
-from datamax_dpl.domain.profiles import MODEL_PROFILES, Feature, PrinterProfile, SoftwareSwitchBits, get_profile
+from datamax_dpl.domain.profiles import (
+    MODEL_PROFILES,
+    Feature,
+    PrinterProfile,
+    SoftwareSwitchBits,
+    get_profile,
+    list_profiles,
+)
 from datamax_dpl.domain.render import job_context
 from datamax_dpl.domain.render_context import PrinterState, RenderOptions
 
 # ======================== Model defaults ========================
 
-#: (start of print mm, maximum label length mm, feed rate) per model, from the manual's tables.
-_DEFAULTS: dict[str, tuple[float | None, float | None, SpeedCode | None]] = {
-    "allegro-2": (55.88, 304.8, SpeedCode.IPS_2_0),
-    "prodigy": (63.5, 304.8, SpeedCode.IPS_4_0),
-    "prodigy-plus": (27.94, 304.8, SpeedCode.IPS_6_0),
-    "dmx-600": (55.88, 406.4, SpeedCode.IPS_8_0),
-    # The Prodigy Max's start of print is set by DIP switch (110 or 250): which one is unknown.
-    "prodigy-max-203": (None, 406.4, SpeedCode.IPS_8_0),
-    "titan-6200": (27.94, 406.4, SpeedCode.IPS_6_0),
+#: Values copied from the manual's tables, never from the code or the generated document, so a
+#: model moved to the other row or column fails here. Start of print (STX O, p.32), in hundredths
+#: of an inch: Prodigy 0250; Prodigy Plus and 6200 0110; Prodigy Max "110/250" by DIP switch, so
+#: unknown; all others 0220. Maximum label length (STX M, p.30): 12 in for Prodigy Plus, Prodigy,
+#: 400, 430, Allegro, Allegro 2, Ovation, Ovation 2; 16 in for Prodigy Max, PE42, PE43, 600, 800,
+#: 6200. Feed rate: the slew default of Appendix M. The 152 dpi variants follow their model.
+_O_0250, _O_0110, _O_0220 = 63.5, 27.94, 55.88
+_M_12_IN, _M_16_IN = 304.8, 406.4
+
+_DEFAULTS: dict[str, tuple[float | None, float | None, str | None]] = {
+    "allegro": (_O_0220, _M_12_IN, "C"),
+    "allegro-2": (_O_0220, _M_12_IN, "C"),
+    "prodigy": (_O_0250, _M_12_IN, "G"),
+    "prodigy-152": (_O_0250, _M_12_IN, "G"),
+    "prodigy-plus": (_O_0110, _M_12_IN, "K"),
+    "prodigy-plus-152": (_O_0110, _M_12_IN, "K"),
+    "dmx-400": (_O_0220, _M_12_IN, "K"),
+    "dmx-430": (_O_0220, _M_12_IN, "K"),
+    "dmx-600": (_O_0220, _M_16_IN, "O"),
+    "dmx-800": (_O_0220, _M_16_IN, "K"),
+    "prodigy-max-203": (None, _M_16_IN, "O"),
+    "prodigy-max-300": (None, _M_16_IN, "O"),
+    "pe42": (_O_0220, _M_16_IN, "O"),
+    "pe43": (_O_0220, _M_16_IN, "M"),
+    "ovation": (_O_0220, _M_12_IN, "C"),
+    "ovation-300": (_O_0220, _M_12_IN, "C"),
+    "ovation-2": (_O_0220, _M_12_IN, "C"),
+    "titan-6200": (_O_0110, _M_16_IN, "K"),
     # No common value exists across the models, so the synthetic profiles send none.
     "generic": (None, None, None),
     "permissive": (None, None, None),
@@ -36,13 +62,19 @@ _DEFAULTS: dict[str, tuple[float | None, float | None, SpeedCode | None]] = {
 
 
 @pytest.mark.os_agnostic
+def test_the_defaults_table_covers_every_profile() -> None:
+    assert set(_DEFAULTS) == {p.id for p in list_profiles()}
+
+
+@pytest.mark.os_agnostic
 @pytest.mark.parametrize(("model", "expected"), sorted(_DEFAULTS.items()))
 def test_each_model_ships_the_printer_setting_defaults_of_the_manual(
-    model: str, expected: tuple[float | None, float | None, SpeedCode | None]
+    model: str, expected: tuple[float | None, float | None, str | None]
 ) -> None:
     profile = get_profile(model)
+    feed_rate = None if profile.feed_rate is None else profile.feed_rate.value
 
-    assert (profile.start_of_print_mm, profile.max_label_length_mm, profile.feed_rate) == expected
+    assert (profile.start_of_print_mm, profile.max_label_length_mm, feed_rate) == expected
 
 
 @pytest.mark.os_agnostic
@@ -51,27 +83,43 @@ def test_every_model_feeds_at_its_slew_default(profile: PrinterProfile) -> None:
     assert profile.feed_rate is profile.slew_speed.default
 
 
-@pytest.mark.os_agnostic
-def test_every_model_has_a_maximum_label_length_from_the_manual_table() -> None:
-    lengths = {profile.max_label_length_mm for profile in MODEL_PROFILES.values()}
+#: The STX V bit assignment table (p.42), one layout per column, written out from the manual.
+_COLUMN_400_600_800_6200 = SoftwareSwitchBits(cutter=0, internal_batch=1, label_present=2)
+_COLUMN_PRODIGY_PLUS = SoftwareSwitchBits(cutter=0, label_present=2, undescribed=((1, "insert ribbon sense"),))
+_COLUMN_PRODIGY = SoftwareSwitchBits(
+    cutter=0, internal_batch=3, label_present=2, undescribed=((1, "invert ribbon saver"),)
+)
+_COLUMN_ALLEGRO = SoftwareSwitchBits(cutter=0, internal_batch=1)
+_COLUMN_MAX_OVATION_PE = SoftwareSwitchBits(cutter=0, label_present=2)
 
-    assert lengths == {304.8, 406.4}
-
-
-#: The bit layout of <STX>V per model, from the manual's p.41 table.
 _SWITCHES: dict[str, SoftwareSwitchBits | None] = {
-    "allegro-2": SoftwareSwitchBits(cutter=0, internal_batch=1),
-    "dmx-600": SoftwareSwitchBits(cutter=0, internal_batch=1, label_present=2),
-    "prodigy-max-203": SoftwareSwitchBits(cutter=0, label_present=2),
-    "prodigy": SoftwareSwitchBits(
-        cutter=0, internal_batch=3, label_present=2, undescribed=((1, "invert ribbon saver"),)
-    ),
-    "prodigy-plus": SoftwareSwitchBits(cutter=0, label_present=2, undescribed=((1, "insert ribbon sense"),)),
-    # The p.41 table has no DMX 430 column: no layout is guessed for it.
+    "allegro": _COLUMN_ALLEGRO,
+    "allegro-2": _COLUMN_ALLEGRO,
+    "prodigy": _COLUMN_PRODIGY,
+    "prodigy-152": _COLUMN_PRODIGY,
+    "prodigy-plus": _COLUMN_PRODIGY_PLUS,
+    "prodigy-plus-152": _COLUMN_PRODIGY_PLUS,
+    "dmx-400": _COLUMN_400_600_800_6200,
+    # The table has no DMX 430 column: no layout is guessed for it.
     "dmx-430": None,
+    "dmx-600": _COLUMN_400_600_800_6200,
+    "dmx-800": _COLUMN_400_600_800_6200,
+    "prodigy-max-203": _COLUMN_MAX_OVATION_PE,
+    "prodigy-max-300": _COLUMN_MAX_OVATION_PE,
+    "pe42": _COLUMN_MAX_OVATION_PE,
+    "pe43": _COLUMN_MAX_OVATION_PE,
+    "ovation": _COLUMN_MAX_OVATION_PE,
+    "ovation-300": _COLUMN_MAX_OVATION_PE,
+    "ovation-2": _COLUMN_MAX_OVATION_PE,
+    "titan-6200": _COLUMN_400_600_800_6200,
     "generic": None,
     "permissive": None,
 }
+
+
+@pytest.mark.os_agnostic
+def test_the_switch_table_covers_every_profile() -> None:
+    assert set(_SWITCHES) == {p.id for p in list_profiles()}
 
 
 @pytest.mark.os_agnostic
@@ -156,7 +204,7 @@ def test_generic_keeps_only_what_every_model_has_and_permissive_has_everything()
     [
         ("start_of_print_mm", 12.6, "greater than or equal to 12.7"),
         ("start_of_print_mm", 2540.0, "less than or equal to 2539.746"),
-        ("max_label_length_mm", -1.0, "greater than or equal to 0"),
+        ("max_label_length_mm", 126.9, "greater than or equal to 127"),
         ("max_label_length_mm", 2540.0, "less than or equal to 2539.746"),
     ],
 )
@@ -179,9 +227,11 @@ def test_an_unknown_printer_setting_is_refused_naming_its_field() -> None:
 
 @pytest.mark.os_agnostic
 def test_the_manual_bounds_themselves_are_accepted() -> None:
-    options = RenderOptions(start_of_print_mm=12.7, max_label_length_mm=2539.746)
+    low = RenderOptions(start_of_print_mm=12.7, max_label_length_mm=127.0)
+    high = RenderOptions(start_of_print_mm=2539.746, max_label_length_mm=2539.746)
 
-    assert (options.start_of_print_mm, options.max_label_length_mm) == (12.7, 2539.746)
+    assert (low.start_of_print_mm, low.max_label_length_mm) == (12.7, 127.0)
+    assert (high.start_of_print_mm, high.max_label_length_mm) == (2539.746, 2539.746)
 
 
 @pytest.mark.os_agnostic

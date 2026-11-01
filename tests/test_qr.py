@@ -33,7 +33,13 @@ from datamax_dpl.domain.qr import qr_bitmap
 from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.records import image_record
 from datamax_dpl.domain.render import RenderResult, build_job, render
-from datamax_dpl.domain.render_context import ImageEdge, RenderContext, RenderOptions, drawn_image_name
+from datamax_dpl.domain.render_context import (
+    ImageEdge,
+    RenderContext,
+    RenderOptions,
+    drawn_image_name,
+    resolved_printer_state,
+)
 from datamax_dpl.domain.units import DplUnit
 
 if TYPE_CHECKING:
@@ -390,6 +396,7 @@ def test_two_different_images_whose_names_collide_in_one_job_get_different_names
         dpl_unit=DplUnit.INCH_HUNDREDTHS,
         findings=FindingCollector(FallbackPolicy.DEGRADE),
         image_module="A",
+        printer_state=resolved_printer_state(RenderOptions(), get_profile("generic"), label_media=None),
     )
     bitmap = Bitmap.from_rows(["#."])
     taken = drawn_image_name(bitmap)
@@ -487,6 +494,7 @@ def test_download_drawn_image_never_names_two_different_images_alike(
         dpl_unit=DplUnit.INCH_HUNDREDTHS,
         findings=FindingCollector(FallbackPolicy.DEGRADE),
         image_module="A",
+        printer_state=resolved_printer_state(RenderOptions(), get_profile("generic"), label_media=None),
         reserved_image_names=frozenset({first}) if reserved else frozenset(),
     )
     if taken_by_other:

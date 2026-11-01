@@ -12,7 +12,7 @@ from .enums import FindingCode, MediaSensor, SpeedCode
 from .profiles import Feature, SpeedRange
 from .records import STX, line
 from .transparency import emulates_transparency
-from .units import MM_PER_INCH, Axis, DplUnit
+from .units import Axis, DplUnit, hundredths_to_mm
 
 if TYPE_CHECKING:
     from .label import Label
@@ -22,9 +22,8 @@ INCH_MODE = STX + b"n"
 CUT_NOW = STX + b"o"
 #: Largest stop position ``<STX>f`` takes: three digits of hundredths of an inch.
 MAX_STOP_POSITION = 999
-#: The same limit in millimetres (253.746), for a stop position configured in mm; rounded to the
-#: thousandth, which holds it exactly, so a refusal names 253.746 rather than its float noise.
-MAX_STOP_POSITION_MM = round(MAX_STOP_POSITION / 100 * MM_PER_INCH, 3)
+#: The same limit in millimetres (253.746), for a stop position configured in mm.
+MAX_STOP_POSITION_MM = hundredths_to_mm(MAX_STOP_POSITION)
 #: The stop position that sends no ``<STX>f`` and keeps the printer's own setting, in the label
 #: and in the configuration alike.
 PRINTER_STOP: Final = "printer"

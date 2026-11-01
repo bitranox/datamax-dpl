@@ -20,6 +20,24 @@ MIN_SCALE = 0.5
 MAX_SCALE = 1.5
 #: The largest position offset in mm, either way: a printer off by more is misloaded or misread.
 MAX_OFFSET_MM = 10.0
+#: Decimals a millimetre figure derived from hundredths of an inch keeps: enough to hold every
+#: such value exactly (0.254 mm per unit), so 0220 reads 55.88 and not its float noise.
+_MM_DECIMALS = 3
+
+
+def hundredths_to_mm(hundredths: int) -> float:
+    """Return a distance in hundredths of an inch as millimetres, rounded to the thousandth.
+
+    For limits and defaults the manual gives in inch-mode units, so a refusal or a table names the
+    figure a reader can check (2539.746) and the value converts back to the same units exactly.
+
+    Example:
+        >>> hundredths_to_mm(220)
+        55.88
+        >>> hundredths_to_mm(9999)
+        2539.746
+    """
+    return round(hundredths / 100 * MM_PER_INCH, _MM_DECIMALS)
 
 
 class DplUnit(str, Enum):
@@ -213,6 +231,7 @@ __all__ = [
     "DplUnit",
     "exact_dots",
     "from_dpl",
+    "hundredths_to_mm",
     "to_dots",
     "to_dpl",
     "to_inches",

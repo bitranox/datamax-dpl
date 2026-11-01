@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from .enums import Attribute, FindingCode, Unit
 from .findings import Finding, FindingCollector
 from .profiles import Feature, get_profile, parse_firmware
-from .render_context import RenderContext, RenderOptions, resolved_image_module
+from .render_context import RenderContext, RenderOptions, resolved_image_module, resolved_printer_state
 from .units import DplUnit
 
 if TYPE_CHECKING:
@@ -38,6 +38,8 @@ def _supports(options: RenderOptions, feature: Feature, findings: FindingCollect
         dpl_unit=DplUnit.INCH_HUNDREDTHS,
         findings=findings,
         image_module=resolved_image_module(options, profile),
+        # A batch has no label of its own, so no label media wins over the options' here.
+        printer_state=resolved_printer_state(options, profile, label_media=None),
         default_attribute=Attribute.XOR,
     )
     return ctx.supports(feature), ctx.requirement(feature)
