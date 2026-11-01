@@ -456,7 +456,7 @@ def test_a_drawn_image_never_takes_the_name_of_a_stored_user_image(qr_first: boo
     qr = {"type": "qr", "x": 5, "y": 5, "data": "HELLO"}
     image = _user_image(bitmap=None)
     label = Label.model_validate({"elements": [qr, image] if qr_first else [image, qr]})
-    result = build_job(label, RenderOptions(model="dmx-600"))
+    result = build_job(label, RenderOptions(model="dmx-600", clear_graphics_before_label=False))
     assert result.downloads == (drawn_image_name(qr_bitmap("HELLO", error=QrError.M), salt=1),)
     names = [record[15:] for record in image_records_of(result.data)]
     assert sorted(names) == sorted([HELLO_NAME.encode("ascii"), result.downloads[0].encode("ascii")])

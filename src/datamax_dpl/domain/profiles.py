@@ -255,6 +255,9 @@ class PrinterProfile:
         image_module: Letter of the memory module image downloads go to, the model's built-in
             RAM (manual, Appendix L); None for a model with no built-in module, where the render
             options must name the plug-in module fitted.
+        ram_modules: Letters of the model's built-in RAM modules (manual, Appendix L), the only
+            modules a job clears with ``<STX>q``: a plug-in module may be flash, which every
+            clear wears.
         max_format_rows: Highest dot row along the feed a format may reach at dot height 1,
             counted as the encoder commands it (calibration scale and offset included), past
             which the printer may cut it; a label dot_size of height h multiplies it by h. None
@@ -289,6 +292,7 @@ class PrinterProfile:
     inch_unit_dots: int | None = None
     calibration: CalibrationDefaults = CalibrationDefaults()
     image_module: str | None = "A"
+    ram_modules: frozenset[str] = frozenset({"A"})
     max_format_rows: int | None = None
     start_of_print_mm: float | None = None
     max_label_length_mm: float | None = None
@@ -601,6 +605,35 @@ _IMAGE_MODULE: dict[str, str | None] = {
 }
 
 
+#: The built-in RAM modules of each model, from the manual's Appendix L (p.189): "Internal RAM" A
+#: on the Allegro and DMX 400/430, RAM E on the DMX 600/800, RAM A on the Prodigy Max, PE42/PE43,
+#: Ovation, Ovation 2 and 6200. Every other module is a plug-in (B everywhere; A on the Prodigy,
+#: Prodigy Plus and DMX 600/800, where A is not listed as RAM), the internal non-volatile NVRAM D,
+#: or C, which stands for whichever module was made the default (manual, ``<STX>X``). A plug-in
+#: module may be flash, which each ``<STX>q`` wears (manual p.35), and NVRAM or C are not known to
+#: be RAM, so a job clears only the modules listed here. The Prodigy and Prodigy Plus have none.
+_RAM_MODULES: dict[str, frozenset[str]] = {
+    "allegro": frozenset({ImageModule.A.value}),
+    "allegro-2": frozenset({ImageModule.A.value}),
+    "dmx-400": frozenset({ImageModule.A.value}),
+    "dmx-430": frozenset({ImageModule.A.value}),
+    "prodigy-max-203": frozenset({ImageModule.A.value}),
+    "prodigy-max-300": frozenset({ImageModule.A.value}),
+    "pe42": frozenset({ImageModule.A.value}),
+    "pe43": frozenset({ImageModule.A.value}),
+    "ovation": frozenset({ImageModule.A.value}),
+    "ovation-300": frozenset({ImageModule.A.value}),
+    "ovation-2": frozenset({ImageModule.A.value}),
+    "titan-6200": frozenset({ImageModule.A.value}),
+    "dmx-600": frozenset({ImageModule.E.value}),
+    "dmx-800": frozenset({ImageModule.E.value}),
+    "prodigy": frozenset(),
+    "prodigy-152": frozenset(),
+    "prodigy-plus": frozenset(),
+    "prodigy-plus-152": frozenset(),
+}
+
+
 #: The highest dot row along the feed a format may reach, at dot height 1, counted as the encoder
 #: commands it. For the Allegro 2 it is the lowest row any test format was cut at (one Allegro 2,
 #: firmware CA02 03.04, 2026-10-30; docs/dpl-reference.md lists the formats). Where the printer
@@ -739,6 +772,7 @@ def _build(row: _Row) -> PrinterProfile:
         inch_unit_dots=_INCH_UNIT_DOTS.get(row.id),
         calibration=_CALIBRATION.get(row.id, CalibrationDefaults()),
         image_module=_IMAGE_MODULE[row.id],
+        ram_modules=_RAM_MODULES[row.id],
         max_format_rows=_MAX_FORMAT_ROWS.get(row.id),
         start_of_print_mm=_start_of_print_mm(row.id),
         max_label_length_mm=hundredths_to_mm(_MAX_LABEL_LENGTH[row.id]),
@@ -794,6 +828,8 @@ def _generic() -> PrinterProfile:
         # Not the common subset: the Prodigy family has no built-in module, so a strict subset
         # would refuse every image. A is the built-in module of most models.
         image_module=ImageModule.A.value,
+        # Generic has no clear module anyway; the modules every model has as RAM are none.
+        ram_modules=frozenset(m.value for m in ImageModule if all(m.value in p.ram_modules for p in models)),
         # A setting goes out only where every model shares the default: a job for an unknown
         # model must not move another model's start of print or feed rate off its own default.
         start_of_print_mm=_common_value([p.start_of_print_mm for p in models]),

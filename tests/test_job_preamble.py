@@ -360,10 +360,11 @@ def test_the_clears_follow_their_keys() -> None:
     assert after_only.endswith(STX + b"qA")
 
 
-def test_the_clear_goes_to_the_configured_module() -> None:
-    data = _job(_image_label(), model="allegro-2", image_module=ImageModule.B).data
-    assert STX + b"qB" in data
-    assert STX + b"qA" not in data
+def test_a_configured_plug_in_module_is_never_cleared_and_says_so_once() -> None:
+    """Module B is a plug-in on every model (Appendix L) and may be flash, which each clear wears."""
+    result = _job(_image_label(), model="allegro-2", image_module=ImageModule.B)
+    assert STX + b"q" not in result.data
+    assert _finding(result, FindingCode.GRAPHICS_CLEAR_SKIPPED) == [Severity.INFO]
 
 
 def test_a_prodigy_removes_each_name_it_downloads_before_the_download_and_after_the_format() -> None:
@@ -405,12 +406,11 @@ def test_a_model_that_clears_its_module_keeps_an_image_named_n() -> None:
     assert FindingCode.IMAGE_NAME_RESERVED not in _codes(result)
 
 
-def test_a_prodigy_plus_clears_the_module_its_images_go_to() -> None:
+def test_a_prodigy_plus_has_no_ram_module_so_it_never_clears_and_never_removes_by_name() -> None:
     data = _job(_image_label(), model="prodigy-plus", image_module=ImageModule.B).data
-    assert data.count(STX + b"qB") == 2
-    assert data.index(STX + b"qB") < data.index(STX + b"IB")
-    assert data.endswith(STX + b"qB")
+    assert STX + b"q" not in data
     assert STX + b"RLOGO" not in data
+    assert STX + b"IBAFLOGO\r" in data
 
 
 def test_a_prodigy_label_without_images_removes_nothing() -> None:

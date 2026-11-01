@@ -21,7 +21,7 @@ from datamax_dpl.adapters.cli.settings import (
 )
 from datamax_dpl.adapters.memory import RecordingPrinter
 from datamax_dpl.composition import build_testing
-from datamax_dpl.domain.enums import ImageModule
+from datamax_dpl.domain.enums import ImageModule, Severity
 from datamax_dpl.domain.errors import ConfigurationError
 from datamax_dpl.domain.timing import MAX_TIMEOUT_SECONDS, SEND_CHUNK_BYTES
 
@@ -83,6 +83,7 @@ def test_the_shipped_printer_defaults_set_no_calibration_or_stop_value() -> None
     assert options.image_module is None
     # A shipped limit would refuse long labels on every model, not only the one it was measured on.
     assert options.max_format_rows is None
+    assert options.held_image_severity is Severity.WARNING
 
 
 @pytest.mark.os_agnostic
@@ -196,6 +197,40 @@ def test_an_image_module_outside_a_to_e_is_refused_with_the_key_named(section: s
 
     with pytest.raises(
         ConfigurationError, match=rf"^{re.escape(section)}\.image_module: Input should be 'A', 'B', 'C', 'D' or 'E'$"
+    ):
+        _options(config, printer=printer)
+
+
+@pytest.mark.os_agnostic
+def test_a_held_image_finding_is_a_warning_by_default() -> None:
+    assert _options({}).held_image_severity is Severity.WARNING
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("severity", list(Severity))
+def test_a_configured_held_image_severity_reaches_the_render_options(severity: Severity) -> None:
+    assert _options({"printer": {"held_image_severity": severity.value}}).held_image_severity is severity
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printers_held_image_severity_wins_over_the_printer_section() -> None:
+    config = {"printer": {"held_image_severity": "info"}, "printers": {"x": {"held_image_severity": "error"}}}
+
+    assert _options(config, printer="x").held_image_severity is Severity.ERROR
+    assert _options(config).held_image_severity is Severity.INFO
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("section", "printer"), [("printer", None), ("printers.x", "x")])
+def test_a_held_image_severity_that_is_no_severity_is_refused_with_the_key_named(
+    section: str, printer: str | None
+) -> None:
+    value = {"held_image_severity": "loud"}
+    config = {"printer": value} if printer is None else {"printers": {"x": value}}
+
+    with pytest.raises(
+        ConfigurationError,
+        match=rf"^{re.escape(section)}\.held_image_severity: Input should be 'info', 'warning' or 'error'$",
     ):
         _options(config, printer=printer)
 

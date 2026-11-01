@@ -167,7 +167,8 @@ def encode_image(element: Image, *, index: int, ctx: RenderContext) -> list[byte
     content name at double the magnification (also for a stored-only reference to a name the job
     downloads). An image of known size that ends past the print width is refused
     (``image_past_print_width``). A stored-only reference must already be on the printer
-    (``image_must_be_stored``) unless another element of the job downloads its name.
+    (``image_must_be_stored``) unless another element of the job downloads its name; it is refused
+    (``stored_image_cleared``) where the module is cleared before the label, which removes it.
     """
     row = row_of(element.y, index=index, ctx=ctx)
     column = column_of(element.x, index=index, ctx=ctx)
@@ -175,11 +176,21 @@ def encode_image(element: Image, *, index: int, ctx: RenderContext) -> list[byte
     if element.bitmap is not None:
         bitmap = Bitmap.from_rows(element.bitmap)
         placed = ctx.download_image(element.name, bitmap, element=index, edge=edge, magnification=element.magnification)
+    elif element.name in ctx.bitmap_rows:
+        placed = ctx.place_stored_image(element.name, element=index, edge=edge, magnification=element.magnification)
+    elif ctx.module_cleared_before:
+        ctx.findings.refuse(
+            FindingCode.STORED_IMAGE_CLEARED,
+            f"image {element.name} has no bitmap, and clear_graphics_before_label clears module {ctx.image_module} "
+            "before the label, which removes every image stored there; give the bitmap, or set "
+            "clear_graphics_before_label = false to print an image the printer stores",
+            element=index,
+        )
+        return []
     else:
-        if element.name not in ctx.bitmap_rows:
-            ctx.findings.info(
-                FindingCode.IMAGE_MUST_BE_STORED, f"image {element.name} must already be on the printer", element=index
-            )
+        ctx.findings.info(
+            FindingCode.IMAGE_MUST_BE_STORED, f"image {element.name} must already be on the printer", element=index
+        )
         placed = ctx.place_stored_image(element.name, element=index, edge=edge, magnification=element.magnification)
     if placed is None:
         return []

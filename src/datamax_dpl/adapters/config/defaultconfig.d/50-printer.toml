@@ -211,11 +211,26 @@ options = []
 #          The Prodigy and Prodigy Plus have no built-in module: a job that
 #          downloads an image is refused (image_module_unknown) until this names
 #          the module fitted. C is the printer's default module on every model.
-#          `datamax-dpl capabilities MODEL` shows the model's module.
+#          `datamax-dpl capabilities MODEL` shows the model's module. Only the
+#          model's built-in RAM is ever cleared (<STX>q): another module may be
+#          flash, which every clear wears (graphics_clear_skipped).
 # Type: string, "A", "B", "C", "D" or "E"
 # Default: unset (the model's built-in module)
 # Environment Variable: DATAMAX_DPL___PRINTER__IMAGE_MODULE=B
 # image_module = "A"
+
+# Purpose: Severity of the findings of a label whose image downloads no clear
+#          precedes (a module that is not the model's built-in RAM, a model that
+#          can clear nothing). 'print' and 'verify' then read the printer's stored
+#          image names first and leave out the download of each one it holds
+#          (image_name_held), since downloading a held name again prints nothing;
+#          where the names cannot be read (offline, a one-way link, no answer)
+#          every image is downloaded (image_names_unread). error refuses such a
+#          label under either policy.
+# Type: string, "info", "warning" or "error"
+# Default: "warning"
+# Environment Variable: DATAMAX_DPL___PRINTER__HELD_IMAGE_SEVERITY=error
+# held_image_severity = "warning"
 
 # Purpose: Highest dot row along the feed one label format may reach, at dot
 #          height 1, counted as the job commands it (scale_along and offset_along

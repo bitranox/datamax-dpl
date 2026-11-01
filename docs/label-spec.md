@@ -358,7 +358,13 @@ described in the Datamax manual and is passed through as written.
 
 With `bitmap` the image is downloaded to the printer under `name` before the label. Without it the
 image must already be stored on the printer, and the info finding `image_must_be_stored` says so,
-unless another `image` element of the label downloads that name.
+unless another `image` element of the label downloads that name. Where the job clears the image
+module before the label (`<STX>q`, on the model's built-in RAM with `clear_graphics_before_label`
+on), the clear removes such an image, so the label is refused with `stored_image_cleared`.
+Where no clear runs before the downloads, the printer's stored names decide instead: a printer
+that already holds a name prints nothing for a second download of it, so `print` and `verify`
+read its names first and leave out the download of each held one (`image_name_held`), or keep
+every download when they cannot be read (`image_names_unread`).
 An image with `bitmap` that ends past the model's printable width, its width times its
 magnification counted from the column it starts at, is refused with `image_past_print_width`
 under both policies; so is a raster fallback or a merged transparency image that does. A stored

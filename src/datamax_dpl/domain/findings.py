@@ -71,6 +71,10 @@ class FindingCollector:
         """Record something no fallback can repair; always an error."""
         self._findings.append(Finding(code=code, severity=Severity.ERROR, message=message, element=element))
 
+    def at(self, severity: Severity, code: FindingCode, message: str, *, element: int | None = None) -> None:
+        """Record a finding at a severity the caller configured; the policy does not weigh it."""
+        self._findings.append(Finding(code=code, severity=severity, message=message, element=element))
+
     @property
     def degrading(self) -> bool:
         """True when fallbacks are applied (the policy is degrade)."""

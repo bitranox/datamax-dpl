@@ -1111,7 +1111,7 @@ def test_an_image_starting_past_the_last_column_gets_one_finding_not_two() -> No
 @pytest.mark.os_agnostic
 def test_a_stored_image_of_unknown_size_is_not_checked() -> None:
     label = Label.model_validate({"elements": [{"type": "image", "x": 100, "y": 5, "name": "LOGO"}]})
-    result = build_job(label, RenderOptions(model="allegro-2"))
+    result = build_job(label, RenderOptions(model="allegro-2", clear_graphics_before_label=False))
     assert result.ok, result.findings
     assert _past_width(result) == []
 

@@ -2,6 +2,10 @@
 
 Every use case takes its collaborators (printer opener, camera, clock) as keyword arguments, so
 the CLI wires production adapters and the tests wire in-memory ones.
+
+A job that no clear precedes must not download an image name the printer already holds (it would
+print nothing), so before such a job is printed :func:`with_stored_names` reads the printer's
+graphic directory and renders again; every other render, and every offline one, reads nothing.
 """
 
 from __future__ import annotations
@@ -16,12 +20,19 @@ from pydantic import BaseModel, ConfigDict
 from ..domain.batch import cut_across_records
 from ..domain.detect import Detection, Evidence, suggest_profiles
 from ..domain.enums import Severity
-from ..domain.errors import LabelRejectedError, PrinterProtocolError, PrinterTimeoutError, TransportError
+from ..domain.errors import (
+    LabelRejectedError,
+    PrinterProtocolError,
+    PrinterTimeoutError,
+    TransportError,
+    UnsupportedOperationError,
+)
 from ..domain.findings import Finding
+from ..domain.held_images import HeldImages, held_images_from
 from ..domain.label import Cut
 from ..domain.memory import MemoryDirectory, parse_module_directory
 from ..domain.placeholders import fill_label
-from ..domain.render import RenderResult, build_job
+from ..domain.render import RenderResult, build_job, build_jobs
 from ..domain.status import (
     CANCEL,
     CUT_NOW,
@@ -50,6 +61,7 @@ if TYPE_CHECKING:
     from .ports import Clock, OpenPrinter, PrinterTransport, Sleep
 
 _T = TypeVar("_T")
+_Rendered = TypeVar("_Rendered", bound="RenderResult | BatchResult")
 
 
 class BatchResult(BaseModel):
@@ -79,13 +91,21 @@ class BatchResult(BaseModel):
         return [(i, f) for i, result in enumerate(self.results) for f in result.findings]
 
 
-def render_label(label: Label, options: RenderOptions) -> RenderResult:
-    """Render one label and report every finding (never raises for a finding)."""
-    return build_job(label, options)
+def render_label(label: Label, options: RenderOptions, *, held: HeldImages | None = None) -> RenderResult:
+    """Render one label and report every finding (never raises for a finding).
+
+    ``held`` is what the printer holds in the image module, None when it was not asked.
+    """
+    return build_job(label, options, held=held)
 
 
-def render_batch(label: Label, records: Iterable[Mapping[str, str]], options: RenderOptions) -> BatchResult:
+def render_batch(
+    label: Label, records: Iterable[Mapping[str, str]], options: RenderOptions, *, held: HeldImages | None = None
+) -> BatchResult:
     """Render ``label`` once per record, filling its ``{name}`` placeholders.
+
+    ``held`` is what the printer holds in the image module before the first record, None when it
+    was not asked; with no clear, a name an earlier record downloaded counts as held too.
 
     Raises:
         MissingFieldError: A record lacks a field a placeholder names.
@@ -93,12 +113,70 @@ def render_batch(label: Label, records: Iterable[Mapping[str, str]], options: Re
     """
     cut = label.cut
     if cut is None or cut.every == 1 or label.quantity > 1:
-        results = tuple(build_job(fill_label(label, record), options, filled=True) for record in records)
+        results = build_jobs((fill_label(label, record) for record in records), options, filled=True, held=held)
         return BatchResult(data=b"".join(result.data for result in results), results=results)
     per_record = label.model_copy(update={"cut": Cut(every=1, at_end=False)})
-    results = tuple(build_job(fill_label(per_record, record), options, filled=True) for record in records)
+    results = build_jobs((fill_label(per_record, record) for record in records), options, filled=True, held=held)
     data, findings = cut_across_records([(r.data, r.closing) for r in results], cut=cut, options=options)
     return BatchResult(data=data, results=results, batch_findings=findings)
+
+
+def _unread_module(result: RenderResult | BatchResult) -> str | None:
+    """The image module whose stored names a job needs and was not given, or None when it needs none."""
+    results = result.results if isinstance(result, BatchResult) else (result,)
+    return next((r.image_module for r in results if r.names_unread and r.image_module is not None), None)
+
+
+def stored_image_names(
+    *, module: str, uri: str, timeout: float, open_printer: OpenPrinter, wait: AnswerWait | None = None
+) -> HeldImages:
+    """Return the image names the printer holds in ``module``, read from its graphic directory (``<STX>W``).
+
+    Never raises for a printer that cannot say: a one-way channel, no answer in time or an answer
+    the parser cannot read gives unknown names with the reason, and the job is then rendered with
+    every download kept and ``image_names_unread`` quoting that reason. A printer that cannot be
+    reached at all is left to the send that follows, which reports it.
+
+    Args:
+        module: The letter of the job's image module.
+        uri: The printer.
+        timeout: Seconds for each connect and write.
+        open_printer: Opens the channel.
+        wait: How long to keep trying for the answer, as ``memory`` does; None waits ``timeout``.
+    """
+    try:
+        (directory,) = read_memory_directory(
+            kinds=("graphic",), uri=uri, timeout=timeout, open_printer=open_printer, wait=wait
+        )
+    except UnsupportedOperationError:
+        return HeldImages(unread_because="the link to the printer is one-way")
+    except TransportError as exc:
+        return HeldImages(unread_because=f"reading them failed: {exc}")
+    return held_images_from(directory, module=module)
+
+
+def with_stored_names(
+    render: Callable[[HeldImages | None], _Rendered], *, read: Callable[[str], HeldImages]
+) -> _Rendered:
+    """Render a job to be printed, reading the printer's stored image names first where it needs them.
+
+    The job is rendered once without them. Only when no clear precedes its downloads and it
+    downloads an image (``RenderResult.names_unread``) are the names of its module read with
+    ``read`` and the job rendered again with them; a job that clears first reads nothing.
+
+    Args:
+        render: Renders the job with the given names (None: not asked).
+        read: Returns what the printer holds in the module it is given, e.g. via
+            :func:`stored_image_names`.
+
+    Returns:
+        The job to send.
+    """
+    result = render(None)
+    module = _unread_module(result)
+    if module is None:
+        return result
+    return render(read(module))
 
 
 class PrintReport(BaseModel):
@@ -498,4 +576,6 @@ __all__ = [
     "render_label",
     "send_bytes",
     "send_command",
+    "stored_image_names",
+    "with_stored_names",
 ]

@@ -20,6 +20,8 @@ from ....application.use_cases import (
     read_memory_directory,
     render_label,
     send_command,
+    stored_image_names,
+    with_stored_names,
 )
 from ....application.verify import IdleWait, verify_print
 from ....domain.enums import StatusProblem
@@ -47,6 +49,9 @@ from .model_options import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from ....application.use_cases import BatchResult
+    from ....domain.held_images import HeldImages
+    from ....domain.label import Label
     from ..context import CLIContext
 
 _DATA_HELP = "Data records (CSV, JSON array or JSON lines) filling {name} placeholders, one label each."
@@ -63,7 +68,7 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
 
     def body(cli_ctx: CLIContext) -> CommandResult:
         settings = resolve_settings(cli_ctx, **given)
-        result = render_loaded(load_label(label_source), data, settings)
+        result = _render_to_print(load_label(label_source), data, settings, cli_ctx)
         payload = render_payload(result, include_dpl=False)
         if not result.ok:
             return CommandResult(ok=False, payload=payload, human="REFUSED: nothing sent")
@@ -106,6 +111,23 @@ def cli_status(ctx: click.Context, **given: Any) -> None:
         return CommandResult(ok=not status.problems, payload=payload, human="\n".join(lines))
 
     run_command(ctx, command="status", body=body)
+
+
+def _render_to_print(
+    label: Label, data: str | None, settings: PrinterSettings, cli_ctx: CLIContext
+) -> RenderResult | BatchResult:
+    """Render a job to be printed, reading the printer's stored image names where no clear precedes it."""
+
+    def read(module: str) -> HeldImages:
+        return stored_image_names(
+            module=module,
+            uri=require_uri(settings),
+            timeout=settings.timeout,
+            open_printer=printer_opener(cli_ctx, settings),
+            wait=_answer_wait(settings, cli_ctx),
+        )
+
+    return with_stored_names(lambda held: render_loaded(label, data, settings, held=held), read=read)
 
 
 #: How the CLI lengthens the wait ``status`` and ``memory`` keep trying for, named when it runs out.
@@ -347,7 +369,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
         settings = resolve_settings(cli_ctx, **given)
         # Loaded once and rendered from that copy: LABEL '-' is stdin, which cannot be read twice.
         label = load_label(label_source)
-        result = render_loaded(label, None, settings)
+        result = _render_to_print(label, None, settings, cli_ctx)
         if not isinstance(result, RenderResult) or not result.ok:
             return CommandResult(ok=False, payload=render_payload(result, include_dpl=False), human="REFUSED")
         folder = Path(output_dir)

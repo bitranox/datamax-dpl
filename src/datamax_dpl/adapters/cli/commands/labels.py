@@ -26,6 +26,7 @@ from ..typed_click import argument, option
 from .model_options import printer_choice_decorator, render_options_decorator, resolve_settings
 
 if TYPE_CHECKING:
+    from ....domain.held_images import HeldImages
     from ....domain.render import RenderResult
     from ..context import CLIContext
     from ..settings import PrinterSettings
@@ -42,7 +43,9 @@ def build(
     return render_loaded(load_label(label_source), data, settings)
 
 
-def render_loaded(label: Label, data: str | None, settings: PrinterSettings) -> RenderResult | BatchResult:
+def render_loaded(
+    label: Label, data: str | None, settings: PrinterSettings, *, held: HeldImages | None = None
+) -> RenderResult | BatchResult:
     """Render an already loaded label (one per record of ``data`` when given).
 
     A command that needs the label itself as well as its rendering loads it once and calls this:
@@ -52,14 +55,15 @@ def render_loaded(label: Label, data: str | None, settings: PrinterSettings) -> 
         label: The label to render.
         data: Data records source filling the placeholders, or None for one label.
         settings: The merged printer settings.
+        held: The image names the printer holds in the job's module; None when it was not asked.
 
     Returns:
         The single render, or the batch when ``data`` is given.
     """
     options = render_options(settings)
     if data is None:
-        return render_label(label, options)
-    return render_batch(label, load_records(data), options)
+        return render_label(label, options, held=held)
+    return render_batch(label, load_records(data), options, held=held)
 
 
 def _human(payload: RenderPayload, *, show_dpl: bool) -> str:

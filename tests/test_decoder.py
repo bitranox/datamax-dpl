@@ -229,11 +229,15 @@ def test_lower_case_text_in_a_capitals_only_font_is_reported() -> None:
 # ======================== image magnification round trip ========================
 
 
+#: A stored-only image prints only where no clear before the label removes it (stored_image_cleared).
+_KEEP_STORED = RenderOptions(model="dmx-600", clear_graphics_before_label=False)
+
+
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("magnification", [1, 3])
 def test_explain_rebuilds_an_images_square_magnification(magnification: int) -> None:
     source = Label(elements=[Image(x=5, y=5, name="LOGO", magnification=magnification)])
-    explanation = explain(render(source, RenderOptions(model="dmx-600")).data)
+    explanation = explain(render(source, _KEEP_STORED).data)
     assert explanation.label is not None
     [element] = explanation.label.elements
     assert isinstance(element, Image)
@@ -243,7 +247,7 @@ def test_explain_rebuilds_an_images_square_magnification(magnification: int) -> 
 
 @pytest.mark.os_agnostic
 def test_explain_names_a_non_square_image_magnification_the_image_cannot_hold() -> None:
-    data = render(Label(elements=[Image(x=5, y=5, name="LOGO")]), RenderOptions(model="dmx-600")).data
+    data = render(Label(elements=[Image(x=5, y=5, name="LOGO")]), _KEEP_STORED).data
     explanation = explain(data.replace(b"1Y11000", b"1Y23000"))
     assert "image, magnified 2x3" in [command.meaning for command in explanation.commands]
     assert explanation.label is not None
@@ -254,7 +258,7 @@ def test_explain_names_a_non_square_image_magnification_the_image_cannot_hold() 
 
 @pytest.mark.os_agnostic
 def test_explain_names_a_zero_image_magnification_instead_of_failing_on_it() -> None:
-    data = render(Label(elements=[Image(x=5, y=5, name="LOGO")]), RenderOptions(model="dmx-600")).data
+    data = render(Label(elements=[Image(x=5, y=5, name="LOGO")]), _KEEP_STORED).data
     explanation = explain(data.replace(b"1Y11000", b"1Y00000"))
     assert "image, magnified 0x0" in [command.meaning for command in explanation.commands]
     assert explanation.problems == ()

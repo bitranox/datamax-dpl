@@ -8,6 +8,10 @@ Byte layout of a job: system commands (unit mode, then the persistent printer se
 start of print, maximum label length, feed rate, software switches, stop/present position), the
 clear of the image module, the image downloads, ``<STX>L``, format settings, one line per record,
 ``Q``, ``E``, a final cut when one is needed, and the clear after the label.
+
+A label that no clear precedes leaves out the download of every image name the printer holds
+(:class:`~datamax_dpl.domain.held_images.HeldImages`, read by the caller); :func:`build_jobs`
+renders a batch, where a name an earlier label downloaded counts as held for the later ones.
 """
 
 from __future__ import annotations
@@ -23,12 +27,14 @@ from .encode_text import encode_scalable_text, encode_text
 from .enums import Attribute, FindingCode, PrinterSetting, Severity, Unit
 from .errors import LabelRejectedError
 from .findings import Finding, FindingCollector
+from .held_images import HeldImages
 from .image_budget import ImageBudget
 from .job import (
     PRINTER_STOP,
     closing_clears,
     format_footer,
     format_header,
+    held_after,
     image_downloads,
     stops_at_tear_off,
     system_prefix,
@@ -43,6 +49,8 @@ from .transparency import Emulation, emulate_transparency
 from .units import MM_PER_INCH, Axis, Correction, DplUnit, to_inches
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from .label import Element, Label, PrinterStop
     from .profiles import PrinterProfile
 
@@ -70,6 +78,10 @@ class RenderResult(BaseModel):
             (see :mod:`~datamax_dpl.domain.transparency`).
         closing: The bytes that end ``data``: the clears after the label. A batch that cuts
             across records puts its cut before them, so they stay the last of each label.
+        image_module: The memory module the downloads go to, None where the job has none.
+        names_unread: True when no clear runs before the downloads and the printer's stored names
+            were not known (``image_names_unread``): reading them (``<STX>W``) and rendering again
+            leaves out each held one.
 
     Example:
         >>> from datamax_dpl.domain.label import Label, Text
@@ -92,6 +104,8 @@ class RenderResult(BaseModel):
     halved_elements: tuple[int, ...]
     emulated_groups: tuple[tuple[int, ...], ...]
     closing: bytes
+    image_module: str | None = None
+    names_unread: bool = False
 
     @property
     def sent_as(self) -> SentAs:
@@ -206,7 +220,7 @@ def _bitmap_rows(label: Label) -> dict[str, tuple[str, ...]]:
     return rows
 
 
-def _context(label: Label, options: RenderOptions, *, halve: bool) -> RenderContext:
+def _context(label: Label, options: RenderOptions, *, halve: bool, held: HeldImages) -> RenderContext:
     profile = get_profile(options.model)
     findings = FindingCollector(options.policy)
     calibration = _resolve(options, profile.calibration)
@@ -233,6 +247,8 @@ def _context(label: Label, options: RenderOptions, *, halve: bool) -> RenderCont
         reserved_image_names=frozenset(e.name for e in label.elements if isinstance(e, Image)),
         bitmap_rows=_bitmap_rows(label),
         halve_images=halve,
+        held_images=held,
+        held_image_severity=options.held_image_severity,
     )
     _report_model_defaults(label, probe, provenance=calibration.provenance, from_model=from_model)
     if label.unit is Unit.MM and probe.supports(Feature.FORMAT_METRIC):
@@ -258,7 +274,7 @@ def job_context(label: Label, options: RenderOptions | None = None) -> RenderCon
         >>> job_context(Label(elements=[Text(x=5, y=5, text="Hi")]), RenderOptions(model="allegro-2")).dots_per_unit
         2.0
     """
-    return _context(label, options or RenderOptions(), halve=False)
+    return _context(label, options or RenderOptions(), halve=False, held=HeldImages())
 
 
 def _check_label_level(label: Label, ctx: RenderContext, *, filled: bool) -> None:
@@ -416,13 +432,13 @@ class _Job:
 
     @property
     def image_bytes(self) -> int:
-        """Bytes of dot data the job's downloads hold."""
-        return sum(download.data_bytes for download in self.ctx.downloads)
+        """Bytes of dot data the job's downloads hold; a download left out for a held name costs none."""
+        return sum(download.data_bytes for download in self.ctx.sent_downloads)
 
 
-def _encode(label: Label, options: RenderOptions, *, filled: bool, halve: bool) -> _Job:
+def _encode(label: Label, options: RenderOptions, *, filled: bool, halve: bool, held: HeldImages) -> _Job:
     """Encode everything up to the format header, halving the job's images when ``halve``."""
-    ctx = _context(label, options, halve=halve)
+    ctx = _context(label, options, halve=halve, held=held)
     _check_label_level(label, ctx, filled=filled)
     _check_qr_dot_size(label, ctx)
     prefix = system_prefix(label, ctx)
@@ -456,16 +472,16 @@ def _fit_budget(label: Label, options: RenderOptions, *, filled: bool, job: _Job
 
     Halving happens once: a job still past the budget afterwards is refused, not halved again.
     """
-    held = f"the job's image downloads hold {job.image_bytes} bytes; {budget.describe()}"
+    over = f"the job's image downloads hold {job.image_bytes} bytes; {budget.describe()}"
     if not job.ctx.findings.degrading:
-        job.ctx.findings.refuse(FindingCode.IMAGE_MEMORY_EXCEEDED, held)
+        job.ctx.findings.refuse(FindingCode.IMAGE_MEMORY_EXCEEDED, over)
         return job
-    halved = _encode(label, options, filled=filled, halve=True)
+    halved = _encode(label, options, filled=filled, halve=True, held=job.ctx.held_images)
     elements = sorted(set(halved.ctx.halved_elements))
     if elements:
         halved.ctx.findings.deviate(
             FindingCode.IMAGE_HALVED,
-            held,
+            over,
             fallback=(
                 f"elements {', '.join(map(str, elements))} sent at half resolution and placed at double "
                 f"magnification ({halved.image_bytes} bytes); unverified on paper"
@@ -480,18 +496,71 @@ def _fit_budget(label: Label, options: RenderOptions, *, filled: bool, job: _Job
     return halved
 
 
-def build_job(label: Label, options: RenderOptions | None = None, *, filled: bool = False) -> RenderResult:
+def build_job(
+    label: Label, options: RenderOptions | None = None, *, filled: bool = False, held: HeldImages | None = None
+) -> RenderResult:
     """Render ``label`` for ``options.model`` and report every finding; never raises for a finding.
 
     A job whose image downloads hold more than its image memory budget is encoded a second time
     with its images halved (degrade) or refused (strict); see :mod:`~datamax_dpl.domain.image_budget`.
 
+    Args:
+        label: The label.
+        options: How to render; None renders for ``generic``.
+        filled: True for a label whose placeholders data records filled.
+        held: The image names the printer holds in the job's module; None when nobody asked it.
+            Only a label no clear precedes uses them.
+
     Raises:
         UnknownModelError: ``options.model`` names no profile.
         ValueError: ``options.firmware`` is malformed.
     """
+    result, _ = _build(label, options or RenderOptions(), filled=filled, held=held or HeldImages())
+    return result
+
+
+def build_jobs(
+    labels: Iterable[Label],
+    options: RenderOptions | None = None,
+    *,
+    filled: bool = False,
+    held: HeldImages | None = None,
+) -> tuple[RenderResult, ...]:
+    """Render each label of a batch in turn, as :func:`build_job` does, carrying what the printer holds.
+
+    A label no clear precedes leaves out the download of a name an earlier label downloaded with
+    no clear since: the printer holds it, and a second download would print nothing.
+
+    Args:
+        labels: The labels, in the order they are sent.
+        options: How to render; None renders for ``generic``.
+        filled: True for labels whose placeholders data records filled.
+        held: The image names the printer holds before the first label; None when nobody asked it.
+
+    Raises:
+        UnknownModelError: ``options.model`` names no profile.
+        ValueError: ``options.firmware`` is malformed.
+
+    Example:
+        >>> from datamax_dpl.domain.label import Label, Qr
+        >>> no_clear = {"clear_graphics_before_label": False, "clear_graphics_after_label": False}
+        >>> options = RenderOptions(model="allegro-2", **no_clear)
+        >>> jobs = build_jobs([Label(elements=[Qr(x=5, y=5, data="SAME")])] * 2, options)
+        >>> [len(job.downloads) for job in jobs]
+        [1, 0]
+    """
     options = options or RenderOptions()
-    job = _encode(label, options, filled=filled, halve=False)
+    state = held or HeldImages()
+    results: list[RenderResult] = []
+    for label in labels:
+        result, state = _build(label, options, filled=filled, held=state)
+        results.append(result)
+    return tuple(results)
+
+
+def _build(label: Label, options: RenderOptions, *, filled: bool, held: HeldImages) -> tuple[RenderResult, HeldImages]:
+    """Render ``label`` and return its result with what the printer holds after its job."""
+    job = _encode(label, options, filled=filled, halve=False, held=held)
     budget = _image_budget(options)
     if budget is not None and job.image_bytes > budget.limit:
         job = _fit_budget(label, options, filled=filled, job=job, budget=budget)
@@ -501,18 +570,22 @@ def build_job(label: Label, options: RenderOptions | None = None, *, filled: boo
     downloads = image_downloads(ctx)
     closing = closing_clears(ctx)
     data = b"".join([*job.prefix, *downloads, *head, *job.body, *foot, *ctx.system_suffix, *closing])
-    return RenderResult(
+    findings = ctx.findings.findings()
+    result = RenderResult(
         data=data,
-        findings=ctx.findings.findings(),
+        findings=findings,
         model=ctx.profile.id,
         dpl_unit=ctx.dpl_unit,
         record_count=job.record_count,
-        downloads=tuple(download.name for download in ctx.downloads),
+        downloads=tuple(download.name for download in ctx.sent_downloads),
         image_bytes=job.image_bytes,
         halved_elements=tuple(sorted(set(ctx.halved_elements))),
         emulated_groups=tuple(ctx.emulated_groups),
         closing=b"".join(closing),
+        image_module=ctx.image_module,
+        names_unread=any(finding.code is FindingCode.IMAGE_NAMES_UNREAD for finding in findings),
     )
+    return result, held_after(ctx)
 
 
 def render(label: Label, options: RenderOptions | None = None) -> RenderResult:
@@ -533,4 +606,12 @@ def render(label: Label, options: RenderOptions | None = None) -> RenderResult:
     return result
 
 
-__all__ = ["RenderResult", "build_job", "effective_calibration", "format_row_limit", "job_context", "render"]
+__all__ = [
+    "RenderResult",
+    "build_job",
+    "build_jobs",
+    "effective_calibration",
+    "format_row_limit",
+    "job_context",
+    "render",
+]

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Final
 
 from .charset import DEFAULT_SYMBOL_SET
 from .enums import FindingCode, MediaSensor, PrinterSetting, SpeedCode
+from .held_images import EMPTY_MODULE, HeldImages
 from .profiles import Feature, SpeedRange
 from .records import STX, line
 from .transparency import emulates_transparency
@@ -20,7 +21,7 @@ from .units import MM_PER_INCH, Axis, DplUnit, hundredths_to_mm, to_inches
 
 if TYPE_CHECKING:
     from .label import Label
-    from .render_context import RenderContext
+    from .render_context import ImageDownload, RenderContext
 
 INCH_MODE = STX + b"n"
 CUT_NOW = STX + b"o"
@@ -575,10 +576,34 @@ def format_footer(label: Label, ctx: RenderContext) -> list[bytes]:
 
 
 def _clear_module_command(ctx: RenderContext) -> bytes | None:
-    """Return ``<STX>q`` for the module this job's images go to, or None where it cannot be sent."""
-    if not ctx.supports(Feature.CLEAR_MODULE) or ctx.image_module is None:
+    """Return ``<STX>q`` for the module this job's images go to, or None where it is not sent.
+
+    It is not sent where the model has no ``<STX>q``, the job has no module, or the module is not
+    one of the model's built-in RAM modules (:attr:`RenderContext.clears_module`).
+    """
+    if not ctx.clears_module or ctx.image_module is None:
         return None
     return _system(f"q{ctx.image_module}")
+
+
+def _report_skipped_clear(ctx: RenderContext) -> None:
+    """Say once that the clears skip a module that may be flash, on a label that downloads an image.
+
+    Each ``<STX>q`` wears a flash module (manual p.35), and a plug-in module may be one (Appendix
+    L), so a model that has ``<STX>q`` sends it only to its built-in RAM, whatever the clear keys
+    say. A label without downloads gets no finding, as for a model that can clear nothing.
+    """
+    state = ctx.printer_state
+    if not ctx.downloads or not (state.clear_graphics_before_label or state.clear_graphics_after_label):
+        return
+    if not ctx.supports(Feature.CLEAR_MODULE) or ctx.image_module is None or ctx.clears_module:
+        return
+    ctx.findings.info(
+        FindingCode.GRAPHICS_CLEAR_SKIPPED,
+        f"image module {ctx.image_module} not cleared: it is not a built-in RAM module of {ctx.profile.name} "
+        "(manual, Appendix L) and may be flash, which every clear (<STX>q) wears; no image name the printer is "
+        "known to hold there is downloaded again",
+    )
 
 
 def _remove_image(name: str) -> bytes:
@@ -628,13 +653,54 @@ def _report_no_clear(ctx: RenderContext) -> None:
     )
 
 
+def _report_held_names(ctx: RenderContext) -> None:
+    """Report the downloads a label leaves out for a held name, and names that could not be read.
+
+    Called only when no clear runs before the downloads. A name the printer listed is left out
+    with ``image_name_held``: the format places the image the printer holds, which is what the
+    measured Allegro 2 prints (a second download of a held name prints nothing). A name an earlier
+    label of the batch downloaded is left out silently: the job sent that image itself. With the
+    printer's names unknown every other download is kept, and one ``image_names_unread`` says what
+    a held name would do. Both findings take the configured severity, which the policy leaves alone.
+    """
+    held = ctx.held_images
+    severity = ctx.held_image_severity
+    module = ctx.image_module
+    unread = False
+    first: dict[str, ImageDownload] = {}
+    for download in ctx.downloads:
+        first.setdefault(download.name, download)
+    for download in first.values():
+        if download.name in held.sent:
+            continue
+        if held.listed is None:
+            unread = True
+        elif download.name in held.listed:
+            ctx.findings.at(
+                severity,
+                FindingCode.IMAGE_NAME_HELD,
+                f"image {download.name} is not downloaded: the printer already holds that name in module {module}, "
+                "and a second download of it prints nothing; the label prints the stored image, which may differ",
+                element=download.element,
+            )
+    if unread:
+        ctx.findings.at(
+            severity,
+            FindingCode.IMAGE_NAMES_UNREAD,
+            f"image names stored in module {module} were not read ({held.unread_because}): every image is "
+            "downloaded, and a name the printer already holds prints nothing",
+        )
+
+
 def image_downloads(ctx: RenderContext) -> list[bytes]:
     """Return the label's clear and its image downloads, in the order they go before ``<STX>L``.
 
     A model with ``<STX>q`` clears the whole module the images go to on every label, images or
     not, so no image another program stored can be held under a name this job reuses; it removes
-    EVERY file in that module, formats and fonts included, not only images. The plain Prodigy has
-    no ``<STX>q`` and removes each name it downloads right before that download.
+    EVERY file in that module, formats and fonts included, not only images. It clears only its
+    built-in RAM (:func:`_report_skipped_clear`). The plain Prodigy has no ``<STX>q`` and removes
+    each name it downloads right before that download. Where no clear runs before the downloads,
+    the download of a name the printer holds is left out (:func:`_report_held_names`).
 
     Args:
         ctx: The job's context, after every field is encoded, so its downloads are complete.
@@ -642,22 +708,24 @@ def image_downloads(ctx: RenderContext) -> list[bytes]:
     Returns:
         The commands between the printer settings and ``<STX>L``.
     """
-    downloads = [download.command for download in ctx.downloads]
     before = ctx.printer_state.clear_graphics_before_label
     clear = _clear_module_command(ctx)
-    if clear is not None:
-        return ([clear] if before else []) + downloads
-    if not ctx.supports(Feature.REMOVE_IMAGE):
+    _report_skipped_clear(ctx)
+    if clear is not None and before:
+        return [clear] + [download.command for download in ctx.downloads]
+    removes = ctx.supports(Feature.REMOVE_IMAGE)
+    if not removes and not ctx.supports(Feature.CLEAR_MODULE):
         _report_no_clear(ctx)
-        return downloads
-    removable = _removable_names(ctx) if before or ctx.printer_state.clear_graphics_after_label else []
-    if not before:
-        return downloads
-    return [
-        part
-        for download in ctx.downloads
-        for part in ([_remove_image(download.name)] if download.name in removable else []) + [download.command]
-    ]
+    removable = _removable_names(ctx) if removes and (before or ctx.printer_state.clear_graphics_after_label) else []
+    if removes and before:
+        return [
+            part
+            for download in ctx.downloads
+            for part in ([_remove_image(download.name)] if download.name in removable else []) + [download.command]
+        ]
+    if ctx.downloads:
+        _report_held_names(ctx)
+    return [download.command for download in ctx.sent_downloads]
 
 
 def closing_clears(ctx: RenderContext) -> list[bytes]:
@@ -681,8 +749,40 @@ def closing_clears(ctx: RenderContext) -> list[bytes]:
     if not ctx.supports(Feature.REMOVE_IMAGE):
         return []
     # image_downloads already refused a name the remove command cannot carry.
+    return [_remove_image(name) for name in _removed_after(ctx)]
+
+
+def _removed_after(ctx: RenderContext) -> list[str]:
+    """The names the Prodigy's clear after removes: every one the label downloads, as the label names them."""
     names = dict.fromkeys(download.name for download in ctx.downloads)
-    return [_remove_image(name) for name in names if name not in RIBBON_SAVER_NAMES]
+    return [name for name in names if name not in RIBBON_SAVER_NAMES]
+
+
+def held_after(ctx: RenderContext) -> HeldImages:
+    """Return what the printer holds in the image module once this label's job has run.
+
+    For the next label of a batch: a clear (``<STX>q``) after the label empties the module; one
+    before it leaves exactly the label's downloads; the Prodigy's removes take the label's own
+    names out; with no clear the label's downloads join what was held.
+
+    Args:
+        ctx: The job's context, after :func:`image_downloads` and :func:`closing_clears`.
+
+    Returns:
+        The names known to be held after the job, and whether the printer's own were read.
+    """
+    state = ctx.printer_state
+    if ctx.clears_module and state.clear_graphics_after_label:
+        return EMPTY_MODULE
+    sent = frozenset(download.name for download in ctx.sent_downloads)
+    if ctx.module_cleared_before:
+        return HeldImages(listed=frozenset(), sent=sent)
+    held = ctx.held_images
+    if not (ctx.supports(Feature.REMOVE_IMAGE) and state.clear_graphics_after_label):
+        return HeldImages(listed=held.listed, unread_because=held.unread_because, sent=held.sent | sent)
+    removed = frozenset(_removed_after(ctx))
+    listed = None if held.listed is None else held.listed - removed
+    return HeldImages(listed=listed, unread_because=held.unread_because, sent=(held.sent | sent) - removed)
 
 
 __all__ = [
@@ -697,6 +797,7 @@ __all__ = [
     "closing_clears",
     "format_footer",
     "format_header",
+    "held_after",
     "image_downloads",
     "stops_at_tear_off",
     "system_prefix",

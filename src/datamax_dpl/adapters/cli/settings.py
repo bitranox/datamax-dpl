@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 from ...application.use_cases import RETRY_INTERVAL_SECONDS, STATUS_WAIT_SECONDS
 from ...application.verify import ONE_WAY_SETTLE_SECONDS, POLL_SECONDS
 from ...domain.camera import CameraSettings
-from ...domain.enums import CutterPresence, FallbackPolicy, HardwareOption, ImageModule
+from ...domain.enums import CutterPresence, FallbackPolicy, HardwareOption, ImageModule, Severity
 from ...domain.errors import ConfigurationError
 from ...domain.job import MAX_STOP_POSITION_MM
 from ...domain.label import PrinterStop, stop_position_or_printer
@@ -85,6 +85,8 @@ class PrinterSettings(BaseModel):
     image_module: ImageModule | None = None
     # None is not "no limit": it takes the model's, which only the Allegro 2 has so far.
     max_format_rows: int | None = Field(default=None, gt=0)
+    # A label no clear precedes: a download left out for a held name, or names that could not be read.
+    held_image_severity: Severity = Severity.WARNING
     name: str = ""
     label_width: float | None = Field(default=None, gt=0)
     label_height: float | None = Field(default=None, gt=0)
@@ -223,6 +225,7 @@ def render_options(settings: PrinterSettings) -> RenderOptions:
         image_memory_bytes=settings.image_memory_bytes,
         image_module=settings.image_module,
         max_format_rows=settings.max_format_rows,
+        held_image_severity=settings.held_image_severity,
     )
 
 

@@ -144,7 +144,10 @@ def test_the_result_reports_the_bytes_of_the_images_it_downloads() -> None:
 @pytest.mark.os_agnostic
 def test_a_stored_image_the_job_only_places_costs_nothing() -> None:
     stored = {"type": "image", "x": 5, "y": 5, "name": "LOGO"}
-    result = build_job(label(stored), allegro(1))
+    # Clear off: a clear before the label would remove the stored image (stored_image_cleared).
+    result = build_job(
+        label(stored), RenderOptions(model="allegro-2", image_memory_bytes=1, clear_graphics_before_label=False)
+    )
     assert result.image_bytes == 0
     assert result.ok, result.findings
 
@@ -164,7 +167,8 @@ def test_a_stored_only_reference_to_a_name_the_job_downloads_need_not_be_on_the_
 def test_a_stored_only_image_no_element_downloads_must_be_on_the_printer() -> None:
     stored = {"type": "image", "x": 5, "y": 5, "name": "LOGO"}
     other = {**USER_IMAGE, "name": "OTHER"}
-    finding = only(build_job(label(stored, other), RenderOptions(model="dmx-600")), FindingCode.IMAGE_MUST_BE_STORED)
+    options = RenderOptions(model="dmx-600", clear_graphics_before_label=False)
+    finding = only(build_job(label(stored, other), options), FindingCode.IMAGE_MUST_BE_STORED)
     assert (finding.element, finding.message) == (0, "image LOGO must already be on the printer")
 
 
@@ -378,7 +382,8 @@ def test_under_strict_a_job_over_the_budget_is_refused_without_halving() -> None
 @pytest.mark.os_agnostic
 def test_an_image_element_places_its_magnification() -> None:
     stored = {"type": "image", "x": 5, "y": 5, "name": "LOGO", "magnification": 3}
-    assert placements(build_job(label(stored), RenderOptions(model="dmx-600")).data)[0].startswith(b"1Y33000")
+    options = RenderOptions(model="dmx-600", clear_graphics_before_label=False)
+    assert placements(build_job(label(stored), options).data)[0].startswith(b"1Y33000")
 
 
 @pytest.mark.os_agnostic
@@ -546,7 +551,10 @@ def test_a_stored_reference_keeps_its_own_magnification_doubled() -> None:
 @pytest.mark.os_agnostic
 def test_a_stored_image_this_job_does_not_download_is_left_alone_when_halving() -> None:
     other = {"type": "image", "x": 40, "y": 5, "name": "OTHER"}
-    result = build_job(label(LOGO_WITH_BITMAP, other), dmx(100))
+    result = build_job(
+        label(LOGO_WITH_BITMAP, other),
+        RenderOptions(model="dmx-600", image_memory_bytes=100, clear_graphics_before_label=False),
+    )
     assert placements(result.data)[1].startswith(b"1Y11000")
     assert placements(result.data)[1].endswith(b"OTHER")
     assert result.halved_elements == (0,)

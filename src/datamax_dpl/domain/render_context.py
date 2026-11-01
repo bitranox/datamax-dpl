@@ -21,12 +21,15 @@ from .enums import (
     ImageModule,
     MediaSensor,
     PrinterSetting,
+    Severity,
     SpeedCode,
     Unit,
 )
+from .held_images import HeldImages
 from .image_budget import HALVING_FACTOR, halve, halved_magnification, image_data_bytes
 from .image_records import CR, MAX_WIDTH, download_command
 from .label import StopPosition
+from .profiles import Feature
 from .raster import Bitmap
 from .records import MAX_IMAGE_MAGNIFICATION
 from .units import (
@@ -49,7 +52,7 @@ if TYPE_CHECKING:
 
     from .findings import FindingCollector
     from .label import Image
-    from .profiles import Feature, Firmware, PrinterProfile
+    from .profiles import Firmware, PrinterProfile
 
 #: Largest value of a four-digit DPL distance field.
 MAX_FIELD_VALUE = 9999
@@ -141,10 +144,18 @@ class RenderOptions(BaseModel):
             model with that bit; None when unknown, which sends no ``<STX>V`` there.
         clear_graphics_before_label: Clear the memory module the label's images go to before
             each label downloads them, so a name the printer already holds cannot drop the format.
-            ``<STX>q`` clears EVERY file in that module (images, formats, fonts), not only images;
+            ``<STX>q`` clears EVERY file in that module (images, formats, fonts), not only images,
+            so an image the label places without a bitmap is refused (``stored_image_cleared``);
             the plain Prodigy, which has no ``<STX>q``, removes just the names the label downloads.
+            Where no clear runs before the downloads, a name the printer holds is not downloaded
+            again (see :class:`~datamax_dpl.domain.held_images.HeldImages`).
         clear_graphics_after_label: Clear that module again after each label, so the next job
             starts from an empty module whatever program sends it; it too removes every file.
+            Neither clear goes to a module that is not one of the model's built-in RAM modules
+            (``PrinterProfile.ram_modules``): a plug-in module may be flash, which every clear wears.
+        held_image_severity: Severity of ``image_name_held`` and ``image_names_unread``, the
+            findings of a label whose downloads no clear precedes; ``error`` refuses such a label
+            under either policy.
 
     Example:
         >>> RenderOptions(model="dmx-600").policy
@@ -177,6 +188,7 @@ class RenderOptions(BaseModel):
     label_present: bool | None = None
     clear_graphics_before_label: bool = True
     clear_graphics_after_label: bool = True
+    held_image_severity: Severity = Severity.WARNING
 
 
 @dataclass(frozen=True)
@@ -292,10 +304,12 @@ class ImageDownload:
     Attributes:
         name: The image name the format's image record refers to.
         command: The complete ``<STX>I`` download command.
+        element: The first element that queued it, for findings about the download.
     """
 
     name: str
     command: bytes
+    element: int
 
     @property
     def data_bytes(self) -> int:
@@ -393,6 +407,9 @@ class RenderContext:
         halved_elements: Elements whose image was halved, in the order they were encoded.
         emulated_groups: Groups of overlapping elements drawn into one image, because the label
             asks for transparency and the model has no attribute command.
+        held_images: The image names the printer is known to hold in ``image_module``; a label
+            no clear precedes leaves out the download of each one (see :attr:`sent_downloads`).
+        held_image_severity: Severity of the findings about those names.
     """
 
     profile: PrinterProfile
@@ -420,6 +437,8 @@ class RenderContext:
     halve_images: bool = False
     halved_elements: list[int] = field(default_factory=list[int])
     emulated_groups: list[tuple[int, ...]] = field(default_factory=list[tuple[int, ...]])
+    held_images: HeldImages = field(default_factory=HeldImages)
+    held_image_severity: Severity = Severity.WARNING
     module_refused: bool = field(default=False, init=False)
 
     def correction(self, axis: Axis) -> Correction:
@@ -450,6 +469,36 @@ class RenderContext:
         if support.min_firmware is not None and (self.firmware is None or self.firmware < support.min_firmware):
             return False
         return support.option is None or support.option in self.options
+
+    @property
+    def clears_module(self) -> bool:
+        """True when a clear may go to the image module as ``<STX>q``: the model has it, the module is its RAM.
+
+        A plug-in module may be flash, which every clear wears (manual p.35, Appendix L), so its
+        clear is skipped whatever the clear keys say.
+        """
+        return self.supports(Feature.CLEAR_MODULE) and self.image_module in self.profile.ram_modules
+
+    @property
+    def module_cleared_before(self) -> bool:
+        """True when ``<STX>q`` empties the image module before the label: nothing stored there survives."""
+        return self.printer_state.clear_graphics_before_label and self.clears_module
+
+    @property
+    def clear_runs_before(self) -> bool:
+        """True when a clear runs before the label's downloads: ``<STX>q``, or the Prodigy's per-name remove.
+
+        Only without one can a name the printer holds meet a download of it again.
+        """
+        before = self.printer_state.clear_graphics_before_label
+        return before and (self.clears_module or self.supports(Feature.REMOVE_IMAGE))
+
+    @property
+    def sent_downloads(self) -> list[ImageDownload]:
+        """The downloads the job sends: all, but each name the printer holds where no clear runs before them."""
+        if self.clear_runs_before:
+            return list(self.downloads)
+        return [download for download in self.downloads if not self.held_images.holds(download.name)]
 
     def requirement(self, feature: Feature) -> str:
         """Describe what ``feature`` needs on this model, for messages (``needs firmware 2.01``)."""
@@ -648,11 +697,12 @@ class RenderContext:
         size = (sent.width, sent.height)
         # Halving always doubles the magnification, so a changed one means the bits were halved.
         if placed_at != magnification:
-            drawn = self._queue_drawn(self._drawn_name(sent), sent, module=module)
+            drawn = self._queue_drawn(self._drawn_name(sent), sent, module=module, element=element)
             return self._checked(
                 PlacedImage(name=drawn, magnification=placed_at, size=size), edge=edge, element=element
             )
-        self.downloads.append(ImageDownload(name=name, command=download_command(name, sent, module=module)))
+        command = download_command(name, sent, module=module)
+        self.downloads.append(ImageDownload(name=name, command=command, element=element))
         return self._checked(PlacedImage(name=name, magnification=placed_at, size=size), edge=edge, element=element)
 
     def image_rows(self, image: Image) -> Sequence[str] | None:
@@ -694,7 +744,7 @@ class RenderContext:
         if module is None:
             return None
         placed = PlacedImage(
-            name=self._queue_drawn(self._drawn_name(sent), sent, module=module),
+            name=self._queue_drawn(self._drawn_name(sent), sent, module=module, element=element),
             magnification=placed_at,
             size=(sent.width, sent.height),
         )
@@ -738,7 +788,9 @@ class RenderContext:
         if module is None:
             return None
         placed = PlacedImage(
-            name=self._queue_drawn(name, sent, module=module), magnification=placed_at, size=(sent.width, sent.height)
+            name=self._queue_drawn(name, sent, module=module, element=element),
+            magnification=placed_at,
+            size=(sent.width, sent.height),
         )
         return self._checked(placed, edge=edge, element=element)
 
@@ -767,10 +819,11 @@ class RenderContext:
             return False
         return held == download_command(name, bitmap, module=self.image_module)
 
-    def _queue_drawn(self, name: str, bitmap: Bitmap, *, module: str) -> str:
+    def _queue_drawn(self, name: str, bitmap: Bitmap, *, module: str, element: int) -> str:
         """Queue ``bitmap`` into ``module`` under ``name`` (from :meth:`_drawn_name`), once, and return the name."""
         if all(download.name != name for download in self.downloads):
-            self.downloads.append(ImageDownload(name=name, command=download_command(name, bitmap, module=module)))
+            command = download_command(name, bitmap, module=module)
+            self.downloads.append(ImageDownload(name=name, command=command, element=element))
         return name
 
 
