@@ -460,8 +460,11 @@ def test_a_batch_cuts_after_every_nth_record_and_at_the_end(cli_runner: CliRunne
     args = ["--json", "print", write_json(tmp_path / "l.json", label), "--data", str(data), "--model", "dmx-600"]
     result = run(cli_runner, [*args, "--cutter", "yes", "--printer", PRINTER], factory(printer))
     assert result.exit_code == 0, result.output
-    jobs = printer.data.split(b"\x02L\r")[1:]
-    assert [job.endswith(b"E\r\x02o") for job in jobs] == [False, True, True]
+    # Every record's job starts in inch mode and ends with its clear of module E, after the
+    # batch's cut where one follows it.
+    jobs = printer.data.split(b"\x02n")[1:]
+    assert [job.endswith(b"E\r\x02o\x02qE") for job in jobs] == [False, True, True]
+    assert all(job.endswith(b"E\r\x02qE") for job in jobs[:1])
     assert "batch_cut_unverified" in {f["code"] for f in envelope(result)["data"]["findings"]}
 
 

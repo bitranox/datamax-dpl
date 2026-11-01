@@ -104,8 +104,10 @@ def test_the_ladder_renders_clean_in_strict_with_its_image_whole(
 
     result = build_job(_label(summary), options)
 
+    # The ladder configures no cutter, so the software switches stay as the printer holds them.
     assert [(finding.code, finding.severity) for finding in result.findings] == [
-        (FindingCode.MODEL_DEFAULTS_APPLIED, Severity.INFO)
+        (FindingCode.MODEL_DEFAULTS_APPLIED, Severity.INFO),
+        (FindingCode.SOFTWARE_SWITCHES_NOT_SENT, Severity.INFO),
     ]
     assert result.halved_elements == ()
     assert result.image_bytes == summary["image_bytes"] == 3 * (summary["image_rows"][1] + 1)

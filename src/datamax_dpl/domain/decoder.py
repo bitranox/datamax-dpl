@@ -7,6 +7,7 @@ other command is reported as ``unknown`` rather than guessed.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -28,6 +29,8 @@ _FONT_9 = 9
 _PRESENT_DISTANCE_DIGITS = 4
 #: Parameter length of fixed-width system commands (``<STX>`` + letter + digits, no ``<CR>``).
 _SYSTEM_WIDTHS = {"c": 4, "f": 3, "M": 4, "O": 4, "E": 4, "b": 4, "H": 4, "S": 1, "V": 1, "R": 1, "X": 1, "q": 1}
+#: ``<STX>R`` with a 1-8 character image name and ``<CR>``: the Prodigy's remove image (p.36).
+_REMOVE_IMAGE = re.compile(rb"\x02R[A-Za-z0-9_]{1,8}\r")
 _SYSTEM_NAMES = {
     "L": "enter label formatting",
     "n": "inch mode",
@@ -147,6 +150,16 @@ def _until_cr(data: bytes, start: int) -> int:
     return len(data) if end < 0 else end + 1
 
 
+def _remove_image_end(data: bytes, pos: int) -> int | None:
+    """Return where a Prodigy's ``<STX>R<name><CR>`` ends, or None for the one-letter ``<STX>R``.
+
+    The plain Prodigy removes one stored image by name with a command ended by ``<CR>`` (manual
+    p.36); elsewhere ``<STX>RY``/``<STX>RN`` switch the ribbon saver and end after one letter.
+    """
+    match = _REMOVE_IMAGE.match(data, pos)
+    return None if match is None else match.end()
+
+
 def _system(data: bytes, pos: int, state: _State) -> int:
     letter = chr(data[pos + 1]) if pos + 1 < len(data) else ""
     if letter == "I":
@@ -162,7 +175,8 @@ def _system(data: bytes, pos: int, state: _State) -> int:
         end = _until_cr(data, pos)
         _add(state, CommandKind.SYSTEM, data[pos:end], "extended command")
         return end
-    end = pos + 2 + _SYSTEM_WIDTHS.get(letter, 0)
+    end = _remove_image_end(data, pos) if letter == "R" else None
+    end = end or pos + 2 + _SYSTEM_WIDTHS.get(letter, 0)
     _add(state, CommandKind.SYSTEM, data[pos:end], _SYSTEM_NAMES.get(letter, f"system command {letter}"))
     if letter == "m":
         state.metric = True

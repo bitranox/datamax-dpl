@@ -31,6 +31,12 @@ def hundredths_to_mm(hundredths: int) -> float:
     For limits and defaults the manual gives in inch-mode units, so a refusal or a table names the
     figure a reader can check (2539.746) and the value converts back to the same units exactly.
 
+    Args:
+        hundredths: The distance in hundredths of an inch, as an inch-mode DPL command writes it.
+
+    Returns:
+        The same distance in millimetres, rounded to three decimals.
+
     Example:
         >>> hundredths_to_mm(220)
         55.88

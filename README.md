@@ -118,7 +118,9 @@ label = Label(
     ],
 )
 result = render(label, RenderOptions(model="dmx-600"))
-print(result.data)  # b'\x02L\rm\r131100002000030ART. 4711\r1F0012000300030400638133393\rQ0001\rE\r'
+# The printer settings and the clear of module E, the format, then the clear after the label:
+# b'\x02n\x02c0000\x02O0220\x02M1600\x02SO\x02qE\x02L\rm\r131100002000030ART. 4711\r1F0012000300030400638133393\rQ0001\rE\r\x02qE'
+print(result.data)
 for finding in result.findings:
     print(finding.severity.value, finding.code, finding.message)
 ```

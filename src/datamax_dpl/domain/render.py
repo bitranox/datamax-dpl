@@ -4,9 +4,10 @@
 the same but raises :class:`~datamax_dpl.domain.errors.LabelRejectedError` when any finding is an
 error, so a caller that only wants bytes cannot print a label that broke a rule.
 
-Byte layout of a job: system commands (unit mode, media, stop/present position, image
-downloads), ``<STX>L``, format settings, one line per record, ``Q``, ``E``, then a final cut when
-one is needed.
+Byte layout of a job: system commands (unit mode, then the persistent printer settings: media,
+start of print, maximum label length, feed rate, software switches, stop/present position), the
+clear of the image module, the image downloads, ``<STX>L``, format settings, one line per record,
+``Q``, ``E``, a final cut when one is needed, and the clear after the label.
 """
 
 from __future__ import annotations
@@ -19,11 +20,19 @@ from pydantic import BaseModel, ConfigDict
 from .encode_barcode import encode_barcode
 from .encode_graphics import encode_box, encode_circle, encode_image, encode_line, encode_polygon, encode_qr
 from .encode_text import encode_scalable_text, encode_text
-from .enums import Attribute, FindingCode, Severity, Unit
+from .enums import Attribute, FindingCode, PrinterSetting, Severity, Unit
 from .errors import LabelRejectedError
 from .findings import Finding, FindingCollector
 from .image_budget import ImageBudget
-from .job import PRINTER_STOP, format_footer, format_header, stops_at_tear_off, system_prefix
+from .job import (
+    PRINTER_STOP,
+    closing_clears,
+    format_footer,
+    format_header,
+    image_downloads,
+    stops_at_tear_off,
+    system_prefix,
+)
 from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText, Text
 from .overlap import inexact_rectangle, printed_dots
 from .placeholders import label_placeholders
@@ -59,12 +68,14 @@ class RenderResult(BaseModel):
         emulated_groups: Groups of overlapping elements drawn together into one downloaded image,
             because the label asks for transparency on a model without the attribute command
             (see :mod:`~datamax_dpl.domain.transparency`).
+        closing: The bytes that end ``data``: the clears after the label. A batch that cuts
+            across records puts its cut before them, so they stay the last of each label.
 
     Example:
         >>> from datamax_dpl.domain.label import Label, Text
         >>> result = build_job(Label(elements=[Text(x=5, y=5, text="Hi")]), RenderOptions(model="dmx-600"))
-        >>> result.ok, result.data.startswith(b"\\x02L")
-        (True, True)
+        >>> result.ok, result.data[:8], result.closing
+        (True, b'\\x02n\\x02c0000', b'\\x02qE')
     """
 
     # A job is not UTF-8 (charset-mapped text, image records): pydantic's default JSON form for
@@ -80,6 +91,7 @@ class RenderResult(BaseModel):
     image_bytes: int
     halved_elements: tuple[int, ...]
     emulated_groups: tuple[tuple[int, ...], ...]
+    closing: bytes
 
     @property
     def sent_as(self) -> SentAs:
@@ -175,8 +187,9 @@ def _model_defaults_used(options: RenderOptions, calibration: CalibrationDefault
 
 def _report_model_defaults(label: Label, ctx: RenderContext, *, provenance: str, from_model: dict[str, str]) -> None:
     """Record which model defaults this job uses, naming the stop position only where it is sent."""
-    if not stops_at_tear_off(label, ctx):
-        # The label's own or the cutter's stop position replaces the model's: it is never sent.
+    if not stops_at_tear_off(label, ctx) or PrinterSetting.STOP not in ctx.printer_state.send:
+        # The label's own or the cutter's stop position replaces the model's, and a job that sends
+        # no stop position sends none: either way the model's is never sent.
         from_model = {name: text for name, text in from_model.items() if name != "stop_position"}
     if from_model:
         ctx.findings.info(
@@ -485,8 +498,9 @@ def build_job(label: Label, options: RenderOptions | None = None, *, filled: boo
     ctx = job.ctx
     head = format_header(label, ctx)
     foot = format_footer(label, ctx)
-    downloads = [download.command for download in ctx.downloads]
-    data = b"".join([*job.prefix, *downloads, *head, *job.body, *foot, *ctx.system_suffix])
+    downloads = image_downloads(ctx)
+    closing = closing_clears(ctx)
+    data = b"".join([*job.prefix, *downloads, *head, *job.body, *foot, *ctx.system_suffix, *closing])
     return RenderResult(
         data=data,
         findings=ctx.findings.findings(),
@@ -497,6 +511,7 @@ def build_job(label: Label, options: RenderOptions | None = None, *, filled: boo
         image_bytes=job.image_bytes,
         halved_elements=tuple(sorted(set(ctx.halved_elements))),
         emulated_groups=tuple(ctx.emulated_groups),
+        closing=b"".join(closing),
     )
 
 

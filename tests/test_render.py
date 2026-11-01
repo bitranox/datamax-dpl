@@ -36,6 +36,11 @@ def records(label: Label, model: str = "dmx-600") -> list[bytes]:
     return [line for line in data.split(b"\r") if line[:1] in (b"1", b"2", b"3", b"4")]
 
 
+def system_commands(data: bytes) -> list[bytes]:
+    """The system commands a job sends before its format, each without its ``<STX>``."""
+    return data[: data.index(STX + b"L\r")].split(STX)[1:]
+
+
 def inch_label(*elements: Element) -> Label:
     return Label(unit=Unit.INCH, elements=list(elements))
 
@@ -114,9 +119,12 @@ def test_appendix_b_sample_program_renders_byte_for_byte() -> None:
         ],
     )
     result = render(label, RenderOptions(model="dmx-400"))
-    assert result.data == (
+    # The format is the manual's; the printer state the job sets and its clears surround it.
+    assert system_commands(result.data) == [b"n", b"c0000", b"O0220", b"M1200", b"SK", b"qA"]
+    assert result.data[result.data.index(STX + b"L\r") : -len(result.closing)] == (
         STX + b"L\rn\rD11\rH07\r191100801000025" + b"10K OHM 1/4 WATT\r1a6210000000050590PCS\rQ0001\rE\r"
     )
+    assert result.closing == STX + b"qA"
 
 
 @pytest.mark.os_agnostic
@@ -130,7 +138,8 @@ def test_metric_label_uses_tenths_of_millimetres_where_the_model_has_metric_form
 @pytest.mark.os_agnostic
 def test_metric_label_is_converted_to_inches_where_the_model_has_no_metric_formats() -> None:
     result = build_job(Label(elements=[Text(x=25.4, y=12.7, text="A")]), RenderOptions(model="allegro"))
-    assert result.data.startswith(STX + b"n" + STX + b"L\r")
+    assert system_commands(result.data)[0] == b"n"
+    assert b"\rm\r" not in result.data
     assert b"121100000500100A" in result.data
     assert FindingCode.INCH_UNITS in {f.code for f in result.findings}
 
@@ -142,7 +151,7 @@ def test_quantity_and_cut_every_n_with_a_final_cut() -> None:
     )
     result = render(label, RenderOptions(model="dmx-600", cutter_installed=True))
     assert b"\r:0005\r" in result.data
-    assert result.data.endswith(b"Q0021\rE\r" + STX + b"o")
+    assert result.data.endswith(b"Q0021\rE\r" + STX + b"o" + STX + b"qE")
 
 
 @pytest.mark.os_agnostic
@@ -151,7 +160,7 @@ def test_cut_every_n_that_divides_the_quantity_needs_no_final_cut() -> None:
         {"quantity": 20, "cut": {"every": 5}, "elements": [{"type": "text", "x": 1, "y": 1, "text": "X"}]}
     )
     result = render(label, RenderOptions(model="dmx-600", cutter_installed=True))
-    assert result.data.endswith(b"Q0020\rE\r")
+    assert result.data.endswith(b"Q0020\rE\r" + STX + b"qE")
 
 
 @pytest.mark.os_agnostic
@@ -165,7 +174,7 @@ def test_a_label_that_cuts_is_refused_when_the_printer_has_no_cutter() -> None:
 def test_present_distance_and_media_become_system_commands_in_inch_mode() -> None:
     label = Label(present_distance=25.4, media=MediaSensor.GAP, elements=[Text(x=1, y=1, text="X")])
     data = render(label, RenderOptions(model="pe42")).data
-    assert data.startswith(STX + b"n" + STX + b"c0000" + STX + b"e" + STX + b"Kf0100" + STX + b"L\r")
+    assert system_commands(data) == [b"n", b"c0000", b"e", b"O0220", b"M1600", b"SO", b"Kf0100", b"qA"]
 
 
 @pytest.mark.os_agnostic
@@ -556,7 +565,7 @@ def _names_the_model_stop(result: RenderResult) -> bool:
 def test_an_allegro_2_without_options_stops_where_the_user_measured_it() -> None:
     """66.8 mm is what ``<STX>f263`` stopped at on the printer, so no scale or offset may move it."""
     result = _stop_job()
-    assert result.data.startswith(STX + b"n" + STX + b"f263" + STX + b"L\r")
+    assert system_commands(result.data) == [b"n", b"c0000", b"O0220", b"M1200", b"SC", b"f263", b"qA"]
     assert _names_the_model_stop(result)
 
 
@@ -792,8 +801,9 @@ def test_a_present_distance_sent_as_the_stop_position_is_the_labels_own_stop(
 @pytest.mark.os_agnostic
 def test_a_model_with_a_present_distance_command_sends_it_beside_the_configured_stop() -> None:
     result = _stop_job({"present_distance": 30}, model="pe42", stop_position_mm=40)
-    assert result.data.startswith(STX + b"n" + STX + b"f157" + STX + b"Kf0118" + STX + b"L\r")
-    assert result.findings == ()
+    assert system_commands(result.data) == [b"n", b"c0000", b"O0220", b"M1600", b"SO", b"f157", b"Kf0118", b"qA"]
+    # The cutter is not configured, so no software switches can be built; nothing else is noted.
+    assert [f.code for f in result.findings] == [FindingCode.SOFTWARE_SWITCHES_NOT_SENT]
 
 
 @pytest.mark.os_agnostic
@@ -810,8 +820,9 @@ def test_a_present_distance_command_goes_out_beside_whichever_stop_the_job_sends
 ) -> None:
     """<STX>Kf is added to the stop, never chosen instead of it: the label's own and the cutter's too."""
     result = _stop_job({"present_distance": 30, **label_fields}, model="pe42", **options)
-    assert result.data.startswith(STX + b"n" + STX + stop + STX + b"Kf0118" + STX + b"L\r")
-    assert result.findings == ()
+    assert system_commands(result.data) == [b"n", b"c0000", b"O0220", b"M1600", b"SO", stop, b"Kf0118", b"qA"]
+    # No label_present is configured, so no software switches can be built; nothing else is noted.
+    assert [f.code for f in result.findings] == [FindingCode.SOFTWARE_SWITCHES_NOT_SENT]
 
 
 @pytest.mark.os_agnostic

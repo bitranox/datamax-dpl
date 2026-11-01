@@ -13,8 +13,8 @@ The library surface, in the order a caller usually needs it:
 Example:
     >>> from datamax_dpl import Label, RenderOptions, Text, render
     >>> job = render(Label(elements=[Text(x=5, y=5, text="Hello")]), RenderOptions(model="dmx-600"))
-    >>> job.data[:3]
-    b'\\x02L\\r'
+    >>> job.data[:8]
+    b'\\x02n\\x02c0000'
 """
 
 from __future__ import annotations
