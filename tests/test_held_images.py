@@ -17,7 +17,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from printer_server import answering, silent, trickling
+from printer_server import answering, answering_over, silent, trickling
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
@@ -504,6 +504,60 @@ def test_a_names_answer_that_never_ends_is_cut_at_the_wait(serve: Callable[..., 
     assert held.listed is None
     assert held.unread_because.startswith("reading them failed"), held.unread_because
     assert waited < 4.0, waited
+
+
+@pytest.mark.os_agnostic
+def test_a_wait_shorter_than_the_ending_silence_still_reads_an_answer_that_comes_at_once(
+    serve: Callable[..., PrinterServer],
+) -> None:
+    """The wait bounds the answer's last byte; the 1 s of silence that ends the answer comes on top."""
+    server = serve(answering(_WG, _HOLDS_LOGO))
+    held = stored_image_names(
+        module="A",
+        uri=server.address,
+        timeout=1.0,
+        open_printer=build_production().open_printer,
+        wait=AnswerWait(seconds=0.5),
+    )
+    server.join()
+
+    assert held.listed == {LOGO_SENT}, held.unread_because
+
+
+@pytest.mark.os_agnostic
+def test_an_answer_whose_last_byte_comes_inside_the_wait_is_read(serve: Callable[..., PrinterServer]) -> None:
+    """Last byte at 0.7 s of a 1.5 s wait: read, although its ending silence runs to 1.7 s."""
+    server = serve(answering_over(_WG, _HOLDS_LOGO, seconds=0.7))
+    held = stored_image_names(
+        module="A",
+        uri=server.address,
+        timeout=1.0,
+        open_printer=build_production().open_printer,
+        wait=AnswerWait(seconds=1.5),
+    )
+    server.join()
+
+    assert held.listed == {LOGO_SENT}, held.unread_because
+
+
+@pytest.mark.os_agnostic
+def test_an_answer_still_arriving_when_the_wait_ends_is_unread(serve: Callable[..., PrinterServer]) -> None:
+    """Last byte at 3 s of a 1 s wait: unread, and the read gives up at the wait plus the silence."""
+    server = serve(answering_over(_WG, _HOLDS_LOGO, seconds=3.0))
+    started = time.monotonic()
+    held = stored_image_names(
+        module="A",
+        uri=server.address,
+        timeout=1.0,
+        open_printer=build_production().open_printer,
+        wait=AnswerWait(seconds=1.0),
+    )
+    waited = time.monotonic() - started
+    server.join()
+
+    assert held.listed is None
+    assert held.unread_because.startswith("reading them failed"), held.unread_because
+    assert waited < 2.9, waited
 
 
 def _print(printer: RecordingPrinter, label: Label, options: RenderOptions) -> RenderResult:

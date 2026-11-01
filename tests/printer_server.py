@@ -33,6 +33,7 @@ __all__ = [
     "PrinterServer",
     "Serve",
     "answering",
+    "answering_over",
     "hanging_up",
     "reading_slowly",
     "resetting",
@@ -210,6 +211,27 @@ def answering(request: bytes, reply: bytes) -> Play:
         server.read_exactly(connection, len(request))
         connection.sendall(reply)
         server.read_to_end(connection)
+
+    return play
+
+
+def answering_over(request: bytes, reply: bytes, *, seconds: float) -> Play:
+    """A printer that waits for ``request``, sends ``reply`` spread evenly over ``seconds``, then falls silent.
+
+    The last byte goes out ``seconds`` after the request, by the clock, so a thread the scheduler
+    held back catches up; the connection then stays open until the client hangs up, so only the
+    client's own silence ends the answer.
+    """
+
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        server.read_exactly(connection, len(request))
+        start = time.monotonic()
+        step = seconds / max(1, len(reply) - 1)
+        with contextlib.suppress(OSError):
+            for index, byte in enumerate(reply):
+                time.sleep(max(0.0, start + index * step - time.monotonic()))
+                connection.sendall(bytes([byte]))
+            server.read_to_end(connection)
 
     return play
 

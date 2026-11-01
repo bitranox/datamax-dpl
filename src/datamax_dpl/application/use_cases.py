@@ -155,9 +155,10 @@ def stored_image_names(
         uri: The printer.
         timeout: Seconds for each connect and write.
         open_printer: Opens the channel.
-        wait: How long to keep trying for the answer, as ``memory`` does, and how long the answer
-            may take once it began: an answer still coming when the wait ends counts as no answer.
-            None waits ``timeout``.
+        wait: How long to keep trying for the answer, as ``memory`` does, and by when its last
+            byte must have arrived: an answer still coming when the wait ends counts as no
+            answer. The silence that ends the answer (:data:`DIRECTORY_IDLE_SECONDS`) comes on
+            top. None waits ``timeout``.
         one_way: True when ``uri`` names a channel that cannot read answers (a file, stdout, a
             device file), decided from the URI alone.
     """
@@ -516,9 +517,10 @@ def read_memory_directory(
         open_printer: Opens the channel.
         idle: Seconds of silence that end an answer.
         wait: How long to keep trying for the first answer; None waits ``timeout`` seconds in all.
-        answer_within_wait: True when the first answer must also end within ``wait``, so the
-            wait bounds the whole read; False leaves an answer that began in time the
-            transport's own bound (:data:`~datamax_dpl.domain.timing.MAX_ANSWER_SECONDS`).
+        answer_within_wait: True when the first answer's last byte must also arrive within
+            ``wait``, so the wait bounds the read up to the ``idle`` silence that ends it; False
+            leaves an answer that began in time the transport's own bound
+            (:data:`~datamax_dpl.domain.timing.MAX_ANSWER_SECONDS`).
 
     Returns:
         One directory per kind, in the order of ``kinds``; none, and nothing opened, for no kinds.
@@ -539,7 +541,9 @@ def read_memory_directory(
             MEMORY_DIRECTORY_REQUESTS[first],
             timeout=left,
             idle=idle,
-            total=left if answer_within_wait else MAX_ANSWER_SECONDS,
+            # The wait bounds the answer's last byte: the silence that ends it comes on top, so a
+            # wait no longer than that silence still reads a printer that answers at once.
+            total=left + idle if answer_within_wait else MAX_ANSWER_SECONDS,
         ),
         uri=uri,
         timeout=timeout,
