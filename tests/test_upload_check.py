@@ -429,6 +429,67 @@ def test_verify_checks_the_upload_and_draws_the_expected_picture_from_the_halved
     assert printer.queries[-1] == STATUS_REQUEST
 
 
+# ======================== the model's image budget on a two-way print ========================
+
+#: 600 x 600 dots: 45000 bytes of dot data, past the Allegro 2's 44535-byte default budget and
+#: within the fake module's 49088 bytes.
+_BIG_PATTERN = ["".join("#" if (row * 3 + col * 11) % 7 == 0 else "." for col in range(600)) for row in range(600)]
+BIG = Image(x=1, y=1, name="BIG", bitmap=_BIG_PATTERN)
+TWO_WAY = RenderOptions(model="allegro-2", model_image_budget=False)
+
+
+def _codes(result: RenderResult) -> list[FindingCode]:
+    return [f.code for f in result.findings]
+
+
+@pytest.mark.os_agnostic
+def test_a_two_way_print_sends_images_past_the_model_budget_at_full_size_and_says_why() -> None:
+    label = Label(elements=[BIG])
+    offline = render_label(label, ALLEGRO)
+    assert offline.halved_elements == (0,)
+
+    printer, sent = _print(ImageModules(), label, TWO_WAY)
+
+    result = _single(sent)
+    assert result.halved_elements == ()
+    assert result.image_bytes == 45000
+    assert printer.data.count(FORMAT) == 1
+    assert FindingCode.IMAGE_HALVED not in _codes(result)
+    [skipped] = [f for f in result.findings if f.code is FindingCode.IMAGE_BUDGET_SKIPPED]
+    assert skipped.severity is Severity.INFO
+    assert "45000 bytes" in skipped.message
+    assert "allegro-2 default image memory budget is 44535 bytes" in skipped.message
+    assert "upload check" in skipped.message
+
+
+@pytest.mark.os_agnostic
+def test_a_two_way_print_within_the_model_budget_says_nothing_about_it() -> None:
+    _, sent = _print(ImageModules(), Label(elements=[LOGO]), TWO_WAY)
+
+    assert FindingCode.IMAGE_BUDGET_SKIPPED not in _codes(_single(sent))
+
+
+@pytest.mark.os_agnostic
+def test_a_configured_image_memory_bytes_halves_a_two_way_print_as_it_does_offline() -> None:
+    options = RenderOptions(model="allegro-2", model_image_budget=False, image_memory_bytes=40000)
+
+    _, sent = _print(ImageModules(), Label(elements=[BIG]), options)
+
+    result = _single(sent)
+    assert result.halved_elements == (0,)
+    assert "configured image memory budget is 40000 bytes" in _message(result, FindingCode.IMAGE_HALVED)
+    assert FindingCode.IMAGE_BUDGET_SKIPPED not in _codes(result)
+
+
+@pytest.mark.os_agnostic
+def test_a_job_the_model_budget_is_left_out_of_still_halves_in_round_3_when_the_module_is_full() -> None:
+    _, sent = _print(ImageModules(capacity=20000), Label(elements=[BIG]), TWO_WAY)
+
+    result = _single(sent)
+    assert result.halved_elements == (0,)
+    assert "did not store the job's images at full size" in _message(result, FindingCode.IMAGE_HALVED)
+
+
 # ======================== the CLI over a real channel ========================
 
 
@@ -494,6 +555,50 @@ def test_print_to_a_file_reads_nothing_and_writes_the_job_in_one_piece(cli_runne
     assert result.exit_code == 0, result.output
     assert target.read_bytes() == render_label(Label(elements=[LOGO]), ALLEGRO).data
     assert WG not in target.read_bytes()
+
+
+def _big_label_file(tmp_path: Path) -> str:
+    path = tmp_path / "big.json"
+    path.write_text(json.dumps({"elements": [BIG.model_dump(mode="json")]}), encoding="utf-8")
+    return str(path)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.usefixtures("no_ambient_configuration")
+def test_print_over_tcp_sends_images_past_the_model_budget_at_full_size_while_validate_halves_them(
+    cli_runner: CliRunner, tmp_path: Path, serve: Callable[[Play], PrinterServer]
+) -> None:
+    modules = ImageModules()
+    server = serve(module_printer(modules))
+    source = _big_label_file(tmp_path)
+    [full] = render_label(Label(elements=[BIG]), TWO_WAY).downloads
+
+    printed = _run(cli_runner, ["--json", "print", source, "--model", "allegro-2", "--printer", server.address])
+    server.join()
+    validated = _run(cli_runner, ["--json", "validate", source, "--model", "allegro-2"])
+
+    assert printed.exit_code == 0, printed.output
+    assert modules.downloads == [full]
+    print_codes = [finding["code"] for finding in json.loads(printed.stdout)["data"]["findings"]]
+    assert "image_budget_skipped" in print_codes
+    assert "image_halved" not in print_codes
+    validate_codes = [finding["code"] for finding in json.loads(validated.stdout)["data"]["findings"]]
+    assert "image_halved" in validate_codes
+    assert "image_budget_skipped" not in validate_codes
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.usefixtures("no_ambient_configuration")
+def test_print_to_a_file_keeps_the_model_budget_and_halves_images_past_it(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    target = tmp_path / "job.dpl"
+    args = ["print", _big_label_file(tmp_path), "--model", "allegro-2", "--printer", f"file:{target}"]
+
+    result = _run(cli_runner, args)
+
+    assert result.exit_code == 0, result.output
+    assert target.read_bytes() == render_label(Label(elements=[BIG]), ALLEGRO).data
 
 
 # ======================== what the domain hands the sender ========================

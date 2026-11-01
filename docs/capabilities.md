@@ -99,7 +99,11 @@ only places (no `bitmap`) costs nothing. Past the budget, `degrade` halves every
 downloads from a bitmap or draws (each 2x2 block of dots becomes one, black if any was, so a
 one-dot line survives) and places it at double magnification; a QR Code is never halved, since
 that would merge its modules. Halving happens once: a job still past the budget, and under
-`strict` any job past it, is refused. Unverified on paper.
+`strict` any job past it, is refused. Unverified on paper. `print` and `verify` on a two-way link
+leave the model's budget out: they send the images at full size, read whether the printer stored
+them, and halve them only when it did not (`image_budget_skipped` says when the model's budget
+would have halved them). So the `image_halved` that `validate`, `render` and `preview` report for
+a model's budget describes a one-way print. A budget set in `image_memory_bytes` applies everywhere.
 
 Images download to the memory module the "Image module" column of the Limits table names, the
 model's built-in RAM (manual, Appendix L): module A on most models, E on the DMX 600/800 (where A
@@ -174,6 +178,7 @@ are stable; `tests/test_capabilities_doc.py` keeps this table in step with `Find
 | `graphics_clear_skipped`               | info                                                          | A label downloads an image into a module that is not one of the model's built-in RAM modules (manual, Appendix L), such as a plug-in module, which may be flash; no `<STX>q` goes to it, whatever the clear keys say.                                      |
 | `graphics_clear_unsupported`           | info                                                          | A label downloads an image on a model with neither clear module (`<STX>q`, which removes every file in the module) nor remove image (`<STX>R`); a held image name may stop it printing.                                                                    |
 | `heat_out_of_range`                    | warning, error under strict                                   | `heat` is above the model's maximum; the maximum is used.                                                                                                                                                                                                  |
+| `image_budget_skipped`                 | info                                                          | `print`, `verify` on a two-way link: the downloads pass the model's image memory budget, which `validate`, `render` and a one-way link halve at; here they go at full size and the upload check decides. A configured budget still applies.                |
 | `image_halved`                         | warning, error under strict                                   | Past the image memory budget, or in round 3 of the upload check (`print`, `verify`); every image but a QR Code is sent at half resolution and printed at double magnification. Unverified on paper.                                                        |
 | `image_memory_exceeded`                | error                                                         | The image downloads hold more than the budget under strict, or still after one halving; or an image whose doubled magnification would pass 9.                                                                                                              |
 | `image_module_unknown`                 | error                                                         | The model has no built-in memory module (Prodigy, Prodigy Plus) and no `image_module` is set; a job that downloads an image (given, QR Code, raster fallback, emulated transparency) is refused.                                                           |

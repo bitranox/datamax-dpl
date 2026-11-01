@@ -293,6 +293,7 @@ class FindingCode(str, Enum):
     GRAPHICS_CLEAR_SKIPPED = "graphics_clear_skipped"
     GRAPHICS_CLEAR_UNSUPPORTED = "graphics_clear_unsupported"
     HEAT_OUT_OF_RANGE = "heat_out_of_range"
+    IMAGE_BUDGET_SKIPPED = "image_budget_skipped"
     IMAGE_HALVED = "image_halved"
     IMAGE_MEMORY_EXCEEDED = "image_memory_exceeded"
     IMAGE_MODULE_UNKNOWN = "image_module_unknown"

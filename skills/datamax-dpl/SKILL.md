@@ -104,7 +104,9 @@ cut off part way says to power-cycle the printer, which may be waiting for the r
   cartridge: on another one, set it from `memory --kind graphic`; other models have no budget). Past
   it, `degrade` sends every image but a QR Code at half resolution and double magnification
   (`image_halved`; `preview` shows it). Refused (`image_memory_exceeded`): still past it after
-  halving, any job past it under `strict`, a halved image at `magnification` 5 or more.
+  halving, any job past it under `strict`, a halved image at `magnification` 5 or more. On a
+  two-way `print`/`verify` the model's budget is left out (the upload check decides,
+  `image_budget_skipped`); a configured `image_memory_bytes` still applies.
 - Image module: downloads go to the model's built-in module (`image_module` in `capabilities`); a Prodigy/Prodigy Plus has none and refuses them (`image_module_unknown`) until `[printer] image_module` (A-E) names the module fitted.
 - Upload check (`print`, `verify`, two-way link): a download into a full module is lost silently,
   so a label's downloads go first, the printer's directory (`<STX>W`) is read within

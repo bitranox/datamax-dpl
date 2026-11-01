@@ -30,8 +30,8 @@ if TYPE_CHECKING:
 
     from ....domain.held_images import HeldImages
     from ....domain.render import RenderResult
+    from ....domain.render_context import RenderOptions
     from ..context import CLIContext
-    from ..settings import PrinterSettings
 
 _LABEL_HELP = "Label JSON file ('-' for stdin); 'datamax-dpl schema' prints its format."
 _DATA_HELP = "Data records (CSV, JSON array or JSON lines) filling {name} placeholders, one label each."
@@ -43,13 +43,13 @@ def build(
     """Load the label (and records) and render it with the merged printer settings."""
     settings = resolve_settings(cli_ctx, **settings_given)
     label = load_label(label_source)
-    return render_loaded(label, None if data is None else load_records(data), settings)
+    return render_loaded(label, None if data is None else load_records(data), render_options(settings))
 
 
 def render_loaded(
     label: Label,
     records: Sequence[Mapping[str, str]] | None,
-    settings: PrinterSettings,
+    options: RenderOptions,
     *,
     held: HeldImages | None = None,
 ) -> RenderResult | BatchResult:
@@ -62,13 +62,13 @@ def render_loaded(
     Args:
         label: The label to render.
         records: Data records filling the placeholders, or None for one label.
-        settings: The merged printer settings.
+        options: How to render (``render_options`` of the merged settings, or what a command
+            makes of them).
         held: The image names the printer holds in the job's module; None when it was not asked.
 
     Returns:
         The single render, or the batch when ``records`` are given.
     """
-    options = render_options(settings)
     if records is None:
         return render_label(label, options, held=held)
     return render_batch(label, records, options, held=held)

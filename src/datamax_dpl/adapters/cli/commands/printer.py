@@ -55,6 +55,7 @@ if TYPE_CHECKING:
 
     from ....application.use_cases import BatchResult
     from ....domain.label import Label
+    from ....domain.render_context import RenderOptions
     from ..context import CLIContext
 
 _DATA_HELP = "Data records (CSV, JSON array or JSON lines) filling {name} placeholders, one label each."
@@ -73,12 +74,13 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
         settings = resolve_settings(cli_ctx, **given)
         label = load_label(label_source)
         records = None if data is None else load_records(data)
-        result, held = _render_to_print(label, records, settings, cli_ctx)
+        uri = require_uri(settings)
+        options = _print_options(settings, uri=uri)
+        result, held = _render_to_print(label, records, options, settings, cli_ctx)
         if not result.ok:
             return CommandResult(
                 ok=False, payload=render_payload(result, include_dpl=False), human="REFUSED: nothing sent"
             )
-        uri = require_uri(settings)
         open_printer = printer_opener(cli_ctx, settings)
         if is_one_way(uri):
             # A one-way link cannot read the directory: the job goes out at once, as it always did.
@@ -86,7 +88,7 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
             sent, bytes_sent = result, report.bytes_sent
         else:
             job = CheckedJob(
-                renders=record_renders(label, records, render_options(settings)),
+                renders=record_renders(label, records, options),
                 check=_upload_check(settings, cli_ctx),
                 held=held or HeldImages(),
             )
@@ -148,8 +150,32 @@ def cli_status(ctx: click.Context, **given: Any) -> None:
     run_command(ctx, command="status", body=body)
 
 
+def _print_options(settings: PrinterSettings, *, uri: str) -> RenderOptions:
+    """The render options ``print`` and ``verify`` render with for the printer at ``uri``.
+
+    A two-way link leaves out the model's own image memory budget: its upload check reads whether
+    the printer stored the images, which says more than a count of dot data can (user decision
+    D63). An ``image_memory_bytes`` configured applies on every link.
+
+    Example:
+        >>> settings = PrinterSettings(model="allegro-2")
+        >>> _print_options(settings, uri="tcp://192.0.2.60:9100").model_image_budget
+        False
+        >>> _print_options(settings, uri="file:job.dpl").model_image_budget
+        True
+    """
+    options = render_options(settings)
+    if is_one_way(uri):
+        return options
+    return options.model_copy(update={"model_image_budget": False})
+
+
 def _render_to_print(
-    label: Label, records: Sequence[Mapping[str, str]] | None, settings: PrinterSettings, cli_ctx: CLIContext
+    label: Label,
+    records: Sequence[Mapping[str, str]] | None,
+    options: RenderOptions,
+    settings: PrinterSettings,
+    cli_ctx: CLIContext,
 ) -> tuple[RenderResult | BatchResult, HeldImages | None]:
     """Render a job to be printed, reading the printer's stored image names where no clear precedes it.
 
@@ -168,7 +194,7 @@ def _render_to_print(
             one_way=is_one_way(uri),
         )
 
-    return render_with_stored_names(lambda held: render_loaded(label, records, settings, held=held), read=read)
+    return render_with_stored_names(lambda held: render_loaded(label, records, options, held=held), read=read)
 
 
 #: How the CLI lengthens the wait ``status`` and ``memory`` keep trying for, named when it runs out.
@@ -425,13 +451,13 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
         settings = resolve_settings(cli_ctx, **given)
         # Loaded once and rendered from that copy: LABEL '-' is stdin, which cannot be read twice.
         label = load_label(label_source)
-        result, held = _render_to_print(label, None, settings, cli_ctx)
+        uri = require_uri(settings)
+        options = _print_options(settings, uri=uri)
+        result, held = _render_to_print(label, None, options, settings, cli_ctx)
         if not isinstance(result, RenderResult) or not result.ok:
             return CommandResult(ok=False, payload=render_payload(result, include_dpl=False), human="REFUSED")
         folder = Path(output_dir)
         services = cli_ctx.services
-        options = render_options(settings)
-        uri = require_uri(settings)
         checked = (
             None
             if is_one_way(uri)

@@ -141,7 +141,13 @@ class RenderOptions(BaseModel):
             None sends no stop position for such a job and leaves the printer's own setting.
         image_memory_bytes: Bytes of image data one job may download (see
             :mod:`~datamax_dpl.domain.image_budget`); None takes the model's budget, which most
-            models do not have.
+            models do not have. A budget set here applies on every path, ``model_image_budget``
+            or not.
+        model_image_budget: Whether the model's own image memory budget applies when
+            ``image_memory_bytes`` sets none. False for a two-way print or verify, whose upload
+            check reads whether the printer stored the images: they go at full size and are
+            halved only when the printer did not store them (``image_budget_skipped`` says when
+            the model's budget would have halved them).
         image_module: Memory module image downloads are stored in; None takes the model's
             built-in module (``PrinterProfile.image_module``). A model without one refuses a job
             that downloads an image (``image_module_unknown``) until this names the module fitted.
@@ -198,6 +204,7 @@ class RenderOptions(BaseModel):
     stop_position_mm: StopPosition | None = None
     cutter_stop_position_mm: float | None = Field(default=None, gt=0)
     image_memory_bytes: int | None = Field(default=None, gt=0)
+    model_image_budget: bool = True
     image_module: ImageModule | None = None
     max_format_rows: int | None = Field(default=None, gt=0)
     send_settings: frozenset[PrinterSetting] | None = None

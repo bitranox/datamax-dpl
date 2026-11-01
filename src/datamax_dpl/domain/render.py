@@ -478,12 +478,22 @@ def _encode(label: Label, options: RenderOptions, *, filled: bool, halve: bool, 
 
 
 def _image_budget(options: RenderOptions) -> ImageBudget | None:
-    """Return the image memory budget a job for ``options`` keeps to, or None when it has none."""
+    """Return the image memory budget a job for ``options`` keeps to, or None when it has none.
+
+    A configured budget always applies; the model's own only where ``model_image_budget`` says so.
+    """
+    if options.image_memory_bytes is not None:
+        return ImageBudget(limit=options.image_memory_bytes, source="configured")
+    if not options.model_image_budget:
+        return None
+    return _model_budget(options)
+
+
+def _model_budget(options: RenderOptions) -> ImageBudget | None:
+    """Return the model's own image memory budget, or None for a model that has none."""
     calibration = effective_calibration(options)
     if calibration.image_memory_bytes is None:
         return None
-    if options.image_memory_bytes is not None:
-        return ImageBudget(limit=calibration.image_memory_bytes, source="configured")
     return ImageBudget(
         limit=calibration.image_memory_bytes,
         source=f"{options.model} default",
@@ -602,6 +612,25 @@ def _halved(label: Label, options: RenderOptions, *, filled: bool, held: HeldIma
     return halved
 
 
+def _note_skipped_budget(job: _Job, options: RenderOptions) -> None:
+    """Say so when the model's budget, left out for a two-way print, would have halved the job's images.
+
+    ``validate`` and a one-way print keep to that budget, so the same label reads ``image_halved``
+    there and goes at full size here; this finding names the difference.
+    """
+    if options.model_image_budget:
+        return
+    model = _model_budget(options)
+    if model is None or job.image_bytes <= model.limit:
+        return
+    job.ctx.findings.info(
+        FindingCode.IMAGE_BUDGET_SKIPPED,
+        f"the job's image downloads hold {job.image_bytes} bytes; {model.describe()}, and validate, render and "
+        "a one-way print halve images past it; here they go at full size and the upload check reads whether "
+        "the printer stored them",
+    )
+
+
 def _build(
     label: Label, options: RenderOptions, *, filled: bool, held: HeldImages, halve: bool = False
 ) -> tuple[RenderResult, HeldImages]:
@@ -616,6 +645,8 @@ def _build(
         budget = _image_budget(options)
         if budget is not None and job.image_bytes > budget.limit:
             job = _fit_budget(label, options, filled=filled, job=job, budget=budget)
+        elif budget is None:
+            _note_skipped_budget(job, options)
     ctx = job.ctx
     head = format_header(label, ctx)
     foot = format_footer(label, ctx)
