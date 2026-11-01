@@ -17,11 +17,12 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from printer_server import answering, silent
+from printer_server import answering, silent, trickling
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
 from datamax_dpl.application.use_cases import (
+    AnswerWait,
     print_result,
     render_batch,
     render_label,
@@ -36,7 +37,7 @@ from datamax_dpl.domain.label import Image, Label, Qr
 from datamax_dpl.domain.memory import parse_module_directory
 from datamax_dpl.domain.profiles import MODEL_PROFILES
 from datamax_dpl.domain.raster import Bitmap
-from datamax_dpl.domain.render import RenderResult, build_job, render
+from datamax_dpl.domain.render import RenderResult, build_job, build_jobs, render
 from datamax_dpl.domain.render_context import RenderOptions, drawn_image_name
 from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS
 
@@ -197,6 +198,7 @@ def test_a_held_name_is_not_downloaded_and_the_format_still_places_it() -> None:
     assert held.downloads == ()
     assert _found(held, FindingCode.IMAGE_NAME_HELD) == [(Severity.WARNING, 0)]
     assert FindingCode.IMAGE_NAMES_UNREAD not in [f.code for f in held.findings]
+    assert not held.names_unread
 
 
 @pytest.mark.os_agnostic
@@ -256,14 +258,12 @@ def test_two_images_of_one_name_and_one_bitmap_download_once_and_both_are_placed
 
 
 @pytest.mark.os_agnostic
-def test_a_name_held_only_up_to_letter_case_keeps_the_download_and_names_the_case_question() -> None:
+def test_a_name_listed_only_in_another_letter_case_is_another_name() -> None:
+    """One Allegro 2 kept a name as sent and printed no image for it in another case (2026-11-01)."""
     result = _job(Label(elements=[_LOGO]), HeldImages(listed=frozenset({LOGO_SENT.lower()})), **_NO_CLEAR)
     assert STX + b"IAAF" + _L + b"\r" in result.data
-    assert FindingCode.IMAGE_NAME_HELD not in [f.code for f in result.findings]
-    [finding] = [f for f in result.findings if f.code is FindingCode.IMAGE_NAMES_UNREAD]
-    assert (finding.severity, finding.element) == (Severity.WARNING, 0)
-    assert f"holds {LOGO_SENT.lower()}" in finding.message
-    assert "letter case" in finding.message
+    assert not {FindingCode.IMAGE_NAME_HELD, FindingCode.IMAGE_NAMES_UNREAD} & {f.code for f in result.findings}
+    assert not result.names_unread
 
 
 # ======================== names that were not read ========================
@@ -333,6 +333,53 @@ def test_a_batch_with_no_clear_downloads_a_name_once() -> None:
     assert [len(result.downloads) for result in batch.results] == [1, 0]
     # The second record's name is the batch's own: neither held nor unread.
     assert [f.code for f in batch.results[1].findings if f.code is FindingCode.IMAGE_NAMES_UNREAD] == []
+
+
+#: Two bitmaps whose content names collide, found by brute force over 2**20 bitmaps of 16x2 dots.
+_COLLIDING = (["................", ".##.#.#.#......#"], ["................", "#.#..#.##...#.#."])
+_COLLIDED = drawn_image_name(Bitmap.from_rows(_COLLIDING[0]))
+
+
+def _colliding_labels() -> list[Label]:
+    first, second = _COLLIDING
+    return [
+        Label(elements=[Image(x=1, y=1, name="A", bitmap=first)]),
+        Label(elements=[Image(x=1, y=1, name="B", bitmap=second)]),
+    ]
+
+
+@pytest.mark.os_agnostic
+def test_a_later_record_s_other_bitmap_under_a_name_the_batch_sent_is_salted_and_downloaded() -> None:
+    assert drawn_image_name(Bitmap.from_rows(_COLLIDING[1])) == _COLLIDED
+    salted = drawn_image_name(Bitmap.from_rows(_COLLIDING[1]), salt=1)
+    first, second = build_jobs(_colliding_labels(), _options(**_NO_CLEAR))
+    assert first.downloads == (_COLLIDED,)
+    assert second.downloads == (salted,)
+    assert _DOWNLOAD_NAME.findall(second.data) == [salted.encode("ascii")]
+    assert salted.encode("ascii") in _format(second.data)
+    assert _COLLIDED.encode("ascii") not in _format(second.data)
+    assert FindingCode.IMAGE_NAME_HELD not in [f.code for f in second.findings]
+
+
+@pytest.mark.os_agnostic
+def test_a_later_record_of_the_same_bitmap_still_places_the_name_the_batch_sent() -> None:
+    first, again = build_jobs([_colliding_labels()[0]] * 2, _options(**_NO_CLEAR))
+    assert (first.downloads, again.downloads) == ((_COLLIDED,), ())
+    assert _COLLIDED.encode("ascii") in _format(again.data)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"model": "allegro-2", "clear_graphics_after_label": False},
+        {"model": "prodigy", "image_module": ImageModule.B, "clear_graphics_after_label": False},
+    ],
+    ids=["clear-module", "prodigy-remove"],
+)
+def test_a_clear_before_each_record_frees_the_name_the_batch_sent(options: dict[str, Any]) -> None:
+    _, second = build_jobs(_colliding_labels(), _options(**options))
+    assert second.downloads == (_COLLIDED,)
 
 
 @pytest.mark.os_agnostic
@@ -436,6 +483,26 @@ def test_the_default_module_gives_no_names_whatever_the_directory_lists() -> Non
     held = held_images_from(directory, module="C")
     assert held.listed is None
     assert held.unread_because == "C is the printer's default module; which letter it is was not read"
+
+
+@pytest.mark.os_agnostic
+def test_a_names_answer_that_never_ends_is_cut_at_the_wait(serve: Callable[..., PrinterServer]) -> None:
+    """An answer that starts in time but never falls silent ends at the wait, not at 120 s."""
+    server = serve(trickling(_WG, _HOLDS_LOGO, every=0.2, for_seconds=8.0))
+    started = time.monotonic()
+    held = stored_image_names(
+        module="A",
+        uri=server.address,
+        timeout=1.0,
+        open_printer=build_production().open_printer,
+        wait=AnswerWait(seconds=1.5),
+    )
+    waited = time.monotonic() - started
+    server.join()
+
+    assert held.listed is None
+    assert held.unread_because.startswith("reading them failed"), held.unread_because
+    assert waited < 4.0, waited
 
 
 def _print(printer: RecordingPrinter, label: Label, options: RenderOptions) -> RenderResult:

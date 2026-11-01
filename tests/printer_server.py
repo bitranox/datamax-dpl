@@ -37,6 +37,7 @@ __all__ = [
     "reading_slowly",
     "resetting",
     "silent",
+    "trickling",
 ]
 
 #: Longest wait for a server thread to end, and for a client to connect to it.
@@ -209,6 +210,26 @@ def answering(request: bytes, reply: bytes) -> Play:
         server.read_exactly(connection, len(request))
         connection.sendall(reply)
         server.read_to_end(connection)
+
+    return play
+
+
+def trickling(request: bytes, reply: bytes, *, every: float, for_seconds: float) -> Play:
+    """A printer that waits for ``request``, then sends ``reply`` one byte every ``every`` seconds.
+
+    Its answer never falls silent long enough to end: it stops after ``for_seconds`` or when the
+    client hangs up, then closes the connection.
+    """
+
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        server.read_exactly(connection, len(request))
+        end = time.monotonic() + for_seconds
+        with contextlib.suppress(OSError):
+            for byte in reply * (1 + int(for_seconds / every / max(1, len(reply)))):
+                if time.monotonic() >= end:
+                    break
+                connection.sendall(bytes([byte]))
+                time.sleep(every)
 
     return play
 

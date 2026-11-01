@@ -50,7 +50,7 @@ from ..domain.status import (
     parse_memory_report,
     parse_version,
 )
-from ..domain.timing import check_timeout
+from ..domain.timing import MAX_ANSWER_SECONDS, check_timeout
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -155,7 +155,9 @@ def stored_image_names(
         uri: The printer.
         timeout: Seconds for each connect and write.
         open_printer: Opens the channel.
-        wait: How long to keep trying for the answer, as ``memory`` does; None waits ``timeout``.
+        wait: How long to keep trying for the answer, as ``memory`` does, and how long the answer
+            may take once it began: an answer still coming when the wait ends counts as no answer.
+            None waits ``timeout``.
         one_way: True when ``uri`` names a channel that cannot read answers (a file, stdout, a
             device file), decided from the URI alone.
     """
@@ -165,7 +167,7 @@ def stored_image_names(
         return HeldImages(unread_because=ONE_WAY_LINK)
     try:
         (directory,) = read_memory_directory(
-            kinds=("graphic",), uri=uri, timeout=timeout, open_printer=open_printer, wait=wait
+            kinds=("graphic",), uri=uri, timeout=timeout, open_printer=open_printer, wait=wait, answer_within_wait=True
         )
     except UnsupportedOperationError:
         return HeldImages(unread_because=ONE_WAY_LINK)
@@ -497,6 +499,7 @@ def read_memory_directory(
     open_printer: OpenPrinter,
     idle: float = DIRECTORY_IDLE_SECONDS,
     wait: AnswerWait | None = None,
+    answer_within_wait: bool = False,
 ) -> tuple[MemoryDirectory, ...]:
     """Ask the printer for the memory module directory of each kind (``<STX>W``), in order.
 
@@ -513,6 +516,9 @@ def read_memory_directory(
         open_printer: Opens the channel.
         idle: Seconds of silence that end an answer.
         wait: How long to keep trying for the first answer; None waits ``timeout`` seconds in all.
+        answer_within_wait: True when the first answer must also end within ``wait``, so the
+            wait bounds the whole read; False leaves an answer that began in time the
+            transport's own bound (:data:`~datamax_dpl.domain.timing.MAX_ANSWER_SECONDS`).
 
     Returns:
         One directory per kind, in the order of ``kinds``; none, and nothing opened, for no kinds.
@@ -529,7 +535,12 @@ def read_memory_directory(
         return ()
     first, *rest = kinds
     printer, answer = _first_answer(
-        lambda channel, left: channel.read_answer(MEMORY_DIRECTORY_REQUESTS[first], timeout=left, idle=idle),
+        lambda channel, left: channel.read_answer(
+            MEMORY_DIRECTORY_REQUESTS[first],
+            timeout=left,
+            idle=idle,
+            total=left if answer_within_wait else MAX_ANSWER_SECONDS,
+        ),
         uri=uri,
         timeout=timeout,
         open_printer=open_printer,

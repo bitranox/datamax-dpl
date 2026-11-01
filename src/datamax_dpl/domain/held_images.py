@@ -9,10 +9,12 @@ module directory (``<STX>W``), which the application reads; the domain only weig
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from .memory import MemoryDirectory
 
 #: Why the names are unknown when nobody asked the printer: an offline render, validate or preview.
@@ -22,6 +24,10 @@ DEFAULT_MODULE = "C"
 #: Why the names of the default module are unknown: a directory lists real module letters only (one
 #: Allegro 2 listed just ``MODULE: A``), so which of them ``C`` is cannot be read from it.
 DEFAULT_MODULE_UNREAD = "C is the printer's default module; which letter it is was not read"
+
+
+def _nothing_sent() -> dict[str, bytes]:
+    return {}
 
 
 @dataclass(frozen=True)
@@ -35,7 +41,9 @@ class HeldImages:
         listed: Names the module's directory listed, or None when it was not read.
         unread_because: Why ``listed`` is None, quoted in the ``image_names_unread`` finding.
         sent: Names an earlier label of the same batch downloaded into the module with no clear
-            since; known to be held, without the printer having said so.
+            since, each with the download command that sent it; known to be held, without the
+            printer having said so. The command tells a later label whether its own image under
+            that name is the same picture.
 
     Example:
         >>> HeldImages(listed=frozenset({"LOGO"})).holds("LOGO"), HeldImages().holds("LOGO")
@@ -44,30 +52,21 @@ class HeldImages:
 
     listed: frozenset[str] | None = None
     unread_because: str = NOT_ASKED
-    sent: frozenset[str] = frozenset()
+    # Left out of the hash, which a dict has none of; equal values still hash alike.
+    sent: Mapping[str, bytes] = field(default_factory=_nothing_sent, hash=False)
 
     def holds(self, name: str) -> bool:
         """Return True when the printer is known to hold ``name`` in the module.
 
-        Names compare exactly: whether a printer folds the letter case of a stored name is
-        unverified, and a name taken for held by mistake would print another image.
-        """
-        return name in self.sent or (self.listed is not None and name in self.listed)
-
-    def case_variants(self, name: str) -> tuple[str, ...]:
-        """Return the listed names that differ from ``name`` only in letter case, sorted.
-
-        Such a name is not taken for held (:meth:`holds`), but it may be: a printer that folds
-        the case of a stored name would print nothing for the download.
+        Names compare exactly, letter case included: one Allegro 2 listed a name as it was sent
+        and printed no image for a format naming it in another case (2026-11-01), so a name
+        listed only in another case is another name.
 
         Example:
-            >>> HeldImages(listed=frozenset({"LOGO", "Logo", "ICON"})).case_variants("logo")
-            ('LOGO', 'Logo')
+            >>> HeldImages(listed=frozenset({"LOGO"})).holds("logo")
+            False
         """
-        if self.listed is None:
-            return ()
-        folded = name.casefold()
-        return tuple(sorted(listed for listed in self.listed if listed != name and listed.casefold() == folded))
+        return name in self.sent or (self.listed is not None and name in self.listed)
 
 
 #: The module is known to be empty: a clear just emptied it.

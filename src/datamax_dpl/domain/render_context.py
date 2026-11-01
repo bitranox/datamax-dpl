@@ -802,9 +802,11 @@ class RenderContext:
     def _drawn_name(self, bitmap: Bitmap) -> str:
         """Return the name this job queues ``bitmap`` under: its first salted content name that is free.
 
-        A name is free when no stored-only label ``image`` reserves it and no download of the job
-        holds it, or the download holding it is this very bitmap. Picked without queuing, so a refusal can name
-        what the job would have sent.
+        A name is free when no stored-only label ``image`` reserves it and no download holds it,
+        or the download holding it is this very bitmap. A download holds it in this job, or in an
+        earlier label of the batch with no clear since (``HeldImages.sent``), whose picture the
+        printer still has under it. Picked without queuing, so a refusal can name what the job
+        would have sent.
         """
         salt = 0
         while not self._name_is_free(drawn_image_name(bitmap, salt=salt), bitmap):
@@ -816,10 +818,12 @@ class RenderContext:
         if name in self.reserved_image_names:
             return False
         held = next((download.command for download in self.downloads if download.name == name), None)
+        if held is None and not self.clear_runs_before:
+            held = self.held_images.sent.get(name)
         if held is None:
             return True
-        # Every download of the job fits one row record and goes to its image module, so an image
-        # too wide for a row, or a job without a module, never holds a name already.
+        # Every download of the job or of its batch fits one row record and goes to the image
+        # module, so an image too wide for a row, or a job without a module, never holds a name.
         if bitmap.width > MAX_WIDTH or self.image_module is None:
             return False
         return held == download_command(name, bitmap, module=self.image_module)
