@@ -510,19 +510,19 @@ module A has been seen on a printer. A job clears (`<STX>q`) only the model's bu
 other module may be flash, which every clear wears (manual p.35), so its clear is skipped
 (`graphics_clear_skipped`).
 
-A printer that already holds an image name prints nothing for a job that downloads that name
-again (one Allegro 2, 2026-11-01). So where no clear precedes a label's downloads, `print` and
-`verify` first read the printer's stored graphic names (`<STX>W`, as `datamax-dpl memory --kind
-graphic` does) and leave out the download of each name it holds; the label then prints the stored
-image (`image_name_held`). Where the names cannot be read (`render`, `validate` and `preview`
-never ask; a one-way link cannot answer, so a file, stdout or a device file is not opened to ask;
-`C` is the default module, whose real letter a directory does not show; the printer did not
-answer within `stored_names_wait`) every image is downloaded and `image_names_unread` says so. A
-name the printer lists only in another letter case is another name: one Allegro 2 kept a name as it
-was sent and printed no image for a format naming it in another case. In a `--data` batch a name an
-earlier label downloaded is not downloaded again, and a different picture whose content name an
-earlier label sent is downloaded under another name. `held_image_severity` sets the severity of
-both findings.
+A printer that already holds an image name prints nothing for a job that downloads that name again
+(one Allegro 2, 2026-11-01). So where no clear precedes a label's downloads, `print` and `verify`
+first read the printer's stored graphic names (`<STX>W`, as `datamax-dpl memory --kind graphic`
+does) and leave out the download of each name it holds; the label then prints the stored image
+(`image_name_held`). Where the names cannot be read (`render`, `validate` and `preview` never ask;
+a one-way link cannot answer, so a file, stdout or a device file is not opened to ask; `C` is the
+default module, whose real letter a directory does not show; the printer did not answer within
+`stored_names_wait`) every image is downloaded and `image_names_unread` says so. A name the printer
+lists only in another letter case is another name: one Allegro 2 kept a name as it was sent and
+printed no image for a format naming it in another case. In a `--data` batch a name an earlier
+label downloaded is not downloaded again, and a different picture whose content name an earlier
+label sent, or placed as a name the printer listed, is downloaded under another name.
+`held_image_severity` sets the severity of both findings.
 
 `max_format_rows` ships unset too. The Allegro 2 cuts a long format off; its model limit is 1648
 dot rows, about 201 mm at its default `scale_along`, the lowest row any test format was cut at on

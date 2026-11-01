@@ -26,7 +26,7 @@ DEFAULT_MODULE = "C"
 DEFAULT_MODULE_UNREAD = "C is the printer's default module; which letter it is was not read"
 
 
-def _nothing_sent() -> dict[str, bytes]:
+def _no_commands() -> dict[str, bytes]:
     return {}
 
 
@@ -44,6 +44,11 @@ class HeldImages:
             since, each with the download command that sent it; known to be held, without the
             printer having said so. The command tells a later label whether its own image under
             that name is the same picture.
+        placed: Names the printer listed that an earlier label of the batch placed without
+            downloading, each with the download command of the picture that label took the
+            listed image for. A later label with a different picture under that name names it
+            with the next salt instead, as for a name in ``sent``; the printer's own picture under
+            the name stays unknown.
 
     Example:
         >>> HeldImages(listed=frozenset({"LOGO"})).holds("LOGO"), HeldImages().holds("LOGO")
@@ -53,7 +58,8 @@ class HeldImages:
     listed: frozenset[str] | None = None
     unread_because: str = NOT_ASKED
     # Left out of the hash, which a dict has none of; equal values still hash alike.
-    sent: Mapping[str, bytes] = field(default_factory=_nothing_sent, hash=False)
+    sent: Mapping[str, bytes] = field(default_factory=_no_commands, hash=False)
+    placed: Mapping[str, bytes] = field(default_factory=_no_commands, hash=False)
 
     def holds(self, name: str) -> bool:
         """Return True when the printer is known to hold ``name`` in the module.
@@ -67,6 +73,20 @@ class HeldImages:
             False
         """
         return name in self.sent or (self.listed is not None and name in self.listed)
+
+    def command_for(self, name: str) -> bytes | None:
+        """Return the download command of the picture the batch knows, or took, the printer to hold under ``name``.
+
+        A name the batch sent gives the command that sent it, a listed name an earlier label
+        placed gives the command of the picture that label took it for; any other name gives None.
+
+        Example:
+            >>> held = HeldImages(listed=frozenset({"D1"}), sent={"D2": b"two"}, placed={"D1": b"one"})
+            >>> held.command_for("D1"), held.command_for("D2"), held.command_for("D3")
+            (b'one', b'two', None)
+        """
+        sent = self.sent.get(name)
+        return sent if sent is not None else self.placed.get(name)
 
 
 #: The module is known to be empty: a clear just emptied it.

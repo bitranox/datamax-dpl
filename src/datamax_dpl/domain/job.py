@@ -754,15 +754,34 @@ def held_after(ctx: RenderContext) -> HeldImages:
     if ctx.module_cleared_before:
         return HeldImages(listed=frozenset(), sent=sent)
     held = ctx.held_images
-    if not (ctx.supports(Feature.REMOVE_IMAGE) and state.clear_graphics_after_label):
-        return HeldImages(listed=held.listed, unread_because=held.unread_because, sent={**held.sent, **sent})
-    # The removes name only what the job downloaded. That leaves out every listed name, except
-    # where the Prodigy's remove before runs: it downloads a listed name again, and its remove
-    # after takes it out, so ``listed`` may still name it. No later label of the batch reads
-    # ``listed`` then, since each one removes and downloads its own names itself.
-    removed = frozenset(_removed_after(ctx))
-    kept = {name: command for name, command in {**held.sent, **sent}.items() if name not in removed}
-    return HeldImages(listed=held.listed, unread_because=held.unread_because, sent=kept)
+    kept = {**held.sent, **sent}
+    if ctx.supports(Feature.REMOVE_IMAGE) and state.clear_graphics_after_label:
+        # The removes name only what the job downloaded. That leaves out every listed name, except
+        # where the Prodigy's remove before runs: it downloads a listed name again, and its remove
+        # after takes it out, so ``listed`` may still name it. No later label of the batch reads
+        # ``listed`` then, since each one removes and downloads its own names itself.
+        removed = frozenset(_removed_after(ctx))
+        kept = {name: command for name, command in kept.items() if name not in removed}
+    placed = {**held.placed, **_placed_listed(ctx)}
+    return HeldImages(listed=held.listed, unread_because=held.unread_because, sent=kept, placed=placed)
+
+
+def _placed_listed(ctx: RenderContext) -> dict[str, bytes]:
+    """The listed names this label placed without downloading, each with the command of the picture it took them for.
+
+    The label printed the printer's image under each such name as its own picture, so a later
+    label of the batch with a different picture under the name must salt past it, as past a name
+    the batch sent. A listed name is placed only where no clear runs before the downloads; the
+    names the batch itself sent are carried in ``sent`` already.
+    """
+    held = ctx.held_images
+    if ctx.clear_runs_before or held.listed is None:
+        return {}
+    return {
+        download.name: download.command
+        for download in ctx.downloads
+        if download.name in held.listed and download.name not in held.sent
+    }
 
 
 __all__ = [

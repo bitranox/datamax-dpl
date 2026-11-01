@@ -363,6 +363,39 @@ def test_a_later_record_s_other_bitmap_under_a_name_the_batch_sent_is_salted_and
 
 
 @pytest.mark.os_agnostic
+def test_a_later_record_s_other_bitmap_under_a_listed_name_an_earlier_record_placed_is_salted() -> None:
+    """Record 1 places the listed name as its picture A; record 2's B under that name would print A."""
+    salted = drawn_image_name(Bitmap.from_rows(_COLLIDING[1]), salt=1)
+    held = HeldImages(listed=frozenset({_COLLIDED}))
+    first, second = build_jobs(_colliding_labels(), _options(**_NO_CLEAR), held=held)
+    assert first.downloads == ()
+    assert _COLLIDED.encode("ascii") in _format(first.data)
+    assert second.downloads == (salted,)
+    assert _DOWNLOAD_NAME.findall(second.data) == [salted.encode("ascii")]
+    assert salted.encode("ascii") in _format(second.data)
+    assert _COLLIDED.encode("ascii") not in _format(second.data)
+
+
+@pytest.mark.os_agnostic
+def test_a_listed_name_a_record_placed_stays_taken_past_a_record_that_does_not_use_it() -> None:
+    salted = drawn_image_name(Bitmap.from_rows(_COLLIDING[1]), salt=1)
+    first, second = _colliding_labels()
+    held = HeldImages(listed=frozenset({_COLLIDED}))
+    *_, third = build_jobs([first, Label(elements=[_LOGO]), second], _options(**_NO_CLEAR), held=held)
+    assert third.downloads == (salted,)
+    assert _COLLIDED.encode("ascii") not in _format(third.data)
+
+
+@pytest.mark.os_agnostic
+def test_a_later_record_of_the_same_bitmap_still_places_the_listed_name_and_says_it_is_held() -> None:
+    held = HeldImages(listed=frozenset({_COLLIDED}))
+    first, again = build_jobs([_colliding_labels()[0]] * 2, _options(**_NO_CLEAR), held=held)
+    assert (first.downloads, again.downloads) == ((), ())
+    assert _COLLIDED.encode("ascii") in _format(again.data)
+    assert [_found(result, FindingCode.IMAGE_NAME_HELD) for result in (first, again)] == [[(Severity.WARNING, 0)]] * 2
+
+
+@pytest.mark.os_agnostic
 def test_a_later_record_of_the_same_bitmap_still_places_the_name_the_batch_sent() -> None:
     first, again = build_jobs([_colliding_labels()[0]] * 2, _options(**_NO_CLEAR))
     assert (first.downloads, again.downloads) == ((_COLLIDED,), ())
