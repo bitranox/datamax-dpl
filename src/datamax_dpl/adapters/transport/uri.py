@@ -200,7 +200,9 @@ def parse_printer_uri(uri: str) -> PrinterUri:
         raise ValueError(f"printer URI {uri!r}: {exc}; accepted forms: {ACCEPTED_FORMS}") from exc
 
 
-def transport_error(uri: PrinterUri, *, action: str, error: OSError, unanswered: bool = False) -> TransportError:
+def transport_error(
+    uri: PrinterUri, *, action: str, error: OSError, unanswered: bool = False, advice: str = ""
+) -> TransportError:
     """Turn an ``OSError`` into the :class:`~datamax_dpl.domain.errors.TransportError` callers see.
 
     A timeout becomes :class:`~datamax_dpl.domain.errors.PrinterTimeoutError`, so a caller can
@@ -216,6 +218,8 @@ def transport_error(uri: PrinterUri, *, action: str, error: OSError, unanswered:
         error: The operating system's error.
         unanswered: The channel took no request (see ``TransportError``), such as a connect
             that timed out.
+        advice: What the reader might do about it; the message ends with it (see
+            :func:`truncated_job_advice`).
 
     Returns:
         The error to raise (chain it with ``from error``); its message names the URI kind, the
@@ -233,8 +237,33 @@ def transport_error(uri: PrinterUri, *, action: str, error: OSError, unanswered:
     reason = error.strerror or str(error) or type(error).__name__
     message = f"cannot {action} {channel_name(uri)}: {reason}"
     if isinstance(error, TimeoutError):
-        return PrinterTimeoutError(message, unanswered=unanswered)
-    return TransportError(message, unanswered=unanswered or isinstance(error, ConnectionRefusedError))
+        return PrinterTimeoutError(message, unanswered=unanswered, advice=advice)
+    return TransportError(message, unanswered=unanswered or isinstance(error, ConnectionRefusedError), advice=advice)
+
+
+def truncated_job_advice(*, written: int, size: int) -> str:
+    """The advice for a job that stopped part way: empty when none of it was written.
+
+    A printer that took the start of a job waits for the rest of it, and a download it never
+    finishes keeps it busy until it is power-cycled (measured on an Allegro 2: interpreter_busy for
+    minutes after a truncated image download, cleared by a power cycle). The job cannot be
+    resumed from here, since the printer reports nothing about how much it took.
+
+    Args:
+        written: Bytes of the job written before the write stopped.
+        size: Bytes in the whole job.
+
+    Example:
+        >>> truncated_job_advice(written=0, size=4096)
+        ''
+        >>> truncated_job_advice(written=2048, size=4096)
+        '2048 of 4096 bytes were written, so the printer may be waiting for the rest of the job: power-cycle it'
+    """
+    if not written:
+        return ""
+    return (
+        f"{written} of {size} bytes were written, so the printer may be waiting for the rest of the job: power-cycle it"
+    )
 
 
 #: Bytes a printer sends for flow control at any time; alone they are not the start of an answer.
@@ -526,5 +555,6 @@ __all__ = [
     "no_answer",
     "parse_printer_uri",
     "transport_error",
+    "truncated_job_advice",
     "unsupported_query",
 ]

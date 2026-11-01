@@ -34,6 +34,7 @@ __all__ = [
     "Serve",
     "answering",
     "hanging_up",
+    "reading_slowly",
     "resetting",
     "silent",
 ]
@@ -58,7 +59,10 @@ class PrinterServer:
     and macOS then drop a client's SYN, so its connect times out (Windows refuses it instead).
     ``next_connection_within`` bounds the wait for every connection after the first, so a play
     kept for a client that should NOT come back ends the thread soon instead of after
-    :data:`JOIN_SECONDS`.
+    :data:`JOIN_SECONDS`. ``receive_buffer`` shrinks the receive buffer of every accepted socket
+    (``SO_RCVBUF``, set on the listener before any client connects, so the window the handshake
+    offers is the small one), so a printer that reads slowly holds back a client after a few KB
+    rather than after the hundreds of KB a loopback socket buffers by default.
     """
 
     def __init__(
@@ -67,8 +71,11 @@ class PrinterServer:
         refuse_for: float = 0.0,
         queue_full_for: float = 0.0,
         next_connection_within: float = JOIN_SECONDS,
+        receive_buffer: int = 0,
     ) -> None:
         self.listener = socket.create_server(("127.0.0.1", 0), backlog=0 if queue_full_for else None)
+        if receive_buffer:
+            self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, receive_buffer)
         self.port: int = self.listener.getsockname()[1]
         # Made before any client can connect, so the client finds the queue already full. Bounded,
         # so an OS that admits nothing at backlog 0 fails here at once instead of blocking for the
@@ -158,6 +165,20 @@ class PrinterServer:
             while chunk := connection.recv(65536):
                 self._record(chunk)
 
+    def read_paced(self, connection: socket.socket, *, step: int, every: float) -> None:
+        """Record at most ``step`` bytes every ``every`` seconds until the client hangs up or falls silent.
+
+        It paces itself by the clock rather than sleeping a fixed ``every`` after each read, so a
+        thread the scheduler held back catches up instead of falling ever further behind its rate.
+        """
+        due = time.monotonic()
+        # A client that gives up with bytes still unsent resets the connection: that is its end too.
+        with contextlib.suppress(ConnectionResetError, TimeoutError):
+            while chunk := connection.recv(step):
+                self._record(chunk)
+                due += every
+                time.sleep(max(0.0, due - time.monotonic()))
+
     def _record(self, data: bytes | bytearray) -> None:
         self.received += data
         self.connections[-1] += data
@@ -172,7 +193,12 @@ class Serve(Protocol):
     """The ``serve`` fixture: start a :class:`PrinterServer` that the fixture joins at teardown."""
 
     def __call__(
-        self, *plays: Play, refuse_for: float = ..., queue_full_for: float = ..., next_connection_within: float = ...
+        self,
+        *plays: Play,
+        refuse_for: float = ...,
+        queue_full_for: float = ...,
+        next_connection_within: float = ...,
+        receive_buffer: int = ...,
     ) -> PrinterServer: ...
 
 
@@ -192,6 +218,15 @@ def hanging_up(request: bytes) -> Play:
 
     def play(server: PrinterServer, connection: socket.socket) -> None:
         server.read_exactly(connection, len(request))
+
+    return play
+
+
+def reading_slowly(*, step: int, every: float) -> Play:
+    """A printer that takes ``step`` bytes every ``every`` seconds until the client hangs up."""
+
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        server.read_paced(connection, step=step, every=every)
 
     return play
 

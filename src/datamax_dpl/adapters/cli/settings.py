@@ -18,7 +18,7 @@ from ...domain.errors import ConfigurationError
 from ...domain.job import MAX_STOP_POSITION_MM
 from ...domain.label import PrinterStop, stop_position_or_printer
 from ...domain.render_context import RenderOptions
-from ...domain.timing import MAX_TIMEOUT_SECONDS
+from ...domain.timing import MAX_TIMEOUT_SECONDS, SEND_CHUNK_BYTES, TransportTuning
 from ...domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
 from ..transport.uri import is_printer_name, is_printer_uri
 
@@ -57,6 +57,8 @@ class PrinterSettings(BaseModel):
     # than as a nameless "wait" when status runs.
     status_wait: float = Field(default=STATUS_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
     status_retry_interval: float = Field(default=RETRY_INTERVAL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
+    # The largest piece of a job one write call takes: timeout bounds each piece (TransportTuning).
+    send_chunk_bytes: int = Field(default=SEND_CHUNK_BYTES, gt=0)
     cutter: CutterPresence = CutterPresence.UNKNOWN
     options: frozenset[HardwareOption] = Field(default_factory=frozenset[HardwareOption])
     # Same range as RenderOptions, so a bad value is refused here with its config key named. None
@@ -219,6 +221,16 @@ def render_options(settings: PrinterSettings) -> RenderOptions:
     )
 
 
+def transport_tuning(settings: PrinterSettings) -> TransportTuning:
+    """How the transports pace their writes for this printer configuration.
+
+    Example:
+        >>> transport_tuning(PrinterSettings(send_chunk_bytes=512)).send_chunk_bytes
+        512
+    """
+    return TransportTuning(send_chunk_bytes=settings.send_chunk_bytes)
+
+
 def require_uri(settings: PrinterSettings) -> str:
     """Return the printer URI or raise when none is configured or given.
 
@@ -238,4 +250,5 @@ __all__ = [
     "printer_settings",
     "render_options",
     "require_uri",
+    "transport_tuning",
 ]

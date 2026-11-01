@@ -90,6 +90,16 @@ timeout = 10.0
 # Environment Variable: DATAMAX_DPL___PRINTER__STATUS_RETRY_INTERVAL=0.5
 # status_retry_interval = 0.25
 
+# Purpose: Largest piece of a job handed to one write, over tcp and serial. The
+#          timeout bounds each piece rather than the whole job, so it means the
+#          printer took no data for that long: at the about 1390 bytes/s of a
+#          print server feeding a 9600 baud printer, 1024 bytes need under a
+#          second. A larger piece needs a timeout long enough to send it.
+# Type: integer, greater than 0 (bytes)
+# Default: 1024
+# Environment Variable: DATAMAX_DPL___PRINTER__SEND_CHUNK_BYTES=512
+# send_chunk_bytes = 1024
+
 # Purpose: Whether the printer has its cutter installed and enabled.
 #          yes:     cut commands are sent as the label asks
 #          no:      a label that asks for cutting is refused

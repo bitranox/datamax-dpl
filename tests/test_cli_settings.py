@@ -12,10 +12,18 @@ import tomlkit
 from lib_layered_config import Config
 
 from datamax_dpl.adapters import cli as cli_mod
-from datamax_dpl.adapters.cli.settings import PrinterOverrides, PrinterSettings, printer_settings, render_options
+from datamax_dpl.adapters.cli.settings import (
+    PrinterOverrides,
+    PrinterSettings,
+    printer_settings,
+    render_options,
+    transport_tuning,
+)
+from datamax_dpl.adapters.memory import RecordingPrinter
+from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.enums import ImageModule
 from datamax_dpl.domain.errors import ConfigurationError
-from datamax_dpl.domain.timing import MAX_TIMEOUT_SECONDS
+from datamax_dpl.domain.timing import MAX_TIMEOUT_SECONDS, SEND_CHUNK_BYTES
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -412,3 +420,88 @@ def test_a_configured_max_format_rows_lets_an_allegro_2_render_the_long_line(
     dpl = _render(cli_runner, factory, tmp_path, label=_LONG_LINE, model="allegro-2")
 
     assert "<STX>L" in dpl
+
+
+@pytest.mark.os_agnostic
+def test_a_job_is_sent_in_pieces_of_1024_bytes_by_default() -> None:
+    assert transport_tuning(_settings({})).send_chunk_bytes == SEND_CHUNK_BYTES == 1024
+
+
+@pytest.mark.os_agnostic
+def test_a_configured_send_chunk_bytes_reaches_the_transport_tuning() -> None:
+    assert transport_tuning(_settings({"printer": {"send_chunk_bytes": 512}})).send_chunk_bytes == 512
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printers_send_chunk_bytes_wins_over_the_printer_section() -> None:
+    config = {"printer": {"send_chunk_bytes": 512}, "printers": {"x": {"send_chunk_bytes": 4096}}}
+
+    assert transport_tuning(_settings(config, printer="x")).send_chunk_bytes == 4096
+    assert transport_tuning(_settings(config)).send_chunk_bytes == 512
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("value", [0, -1])
+@pytest.mark.parametrize(("section", "printer"), [("printer", None), ("printers.x", "x")])
+def test_a_send_chunk_bytes_not_above_zero_is_refused_with_the_key_named(
+    value: int, section: str, printer: str | None
+) -> None:
+    config = {"printer": {"send_chunk_bytes": value}}
+    if printer is not None:
+        config = {"printers": {"x": {"send_chunk_bytes": value}}}
+
+    with pytest.raises(
+        ConfigurationError, match=rf"^{re.escape(section)}\.send_chunk_bytes: Input should be greater than 0$"
+    ):
+        _settings(config, printer=printer)
+
+
+#: Keys the shipped file documents with their default and leaves commented out, so a later layer's
+#: change of the default reaches every installation that never set them.
+_COMMENTED_OUT_DEFAULTS = ("status_wait", "status_retry_interval", "send_chunk_bytes")
+
+
+def _shipped_printer_toml() -> str:
+    shipped = resources.files("datamax_dpl") / "adapters" / "config" / "defaultconfig.d" / "50-printer.toml"
+    return shipped.read_text(encoding="utf-8")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("key", _COMMENTED_OUT_DEFAULTS)
+def test_the_shipped_printer_file_leaves_a_default_key_unset_and_documents_its_default(key: str) -> None:
+    text = _shipped_printer_toml()
+    printer: dict[str, Any] = tomlkit.parse(text).unwrap()["printer"]
+    [documented] = re.findall(rf"^# {key} = (\S+)$", text, flags=re.MULTILINE)
+
+    assert key not in printer
+    assert float(documented) == PrinterSettings.model_fields[key].default
+
+
+@pytest.mark.os_agnostic
+def test_a_send_chunk_bytes_set_on_the_command_line_reaches_the_printer_opener(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    printer = RecordingPrinter()
+    label = tmp_path / "label.json"
+    label.write_text(json.dumps(_LINE), encoding="utf-8")
+    args = ["--set", "printer.send_chunk_bytes=256", "print", str(label), "--printer", "tcp://192.0.2.60:9100"]
+
+    result = cli_runner.invoke(cli_mod.cli, args, obj=lambda: build_testing(printer=printer))
+
+    assert result.exit_code == 0, result.output
+    assert [tuning.send_chunk_bytes for tuning in printer.tunings] == [256]
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printers_send_chunk_bytes_reaches_the_printer_opener(cli_runner: CliRunner, tmp_path: Path) -> None:
+    printer = RecordingPrinter()
+    label = tmp_path / "label.json"
+    label.write_text(json.dumps(_LINE), encoding="utf-8")
+    named = ["--set", "printers.lager.uri=tcp://192.0.2.60:9100", "--set", "printers.lager.send_chunk_bytes=2048"]
+
+    result = cli_runner.invoke(
+        cli_mod.cli, [*named, "print", str(label), "--printer", "lager"], obj=lambda: build_testing(printer=printer)
+    )
+
+    assert result.exit_code == 0, result.output
+    assert [tuning.send_chunk_bytes for tuning in printer.tunings] == [2048]

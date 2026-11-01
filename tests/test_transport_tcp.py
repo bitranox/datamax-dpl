@@ -4,27 +4,29 @@ from __future__ import annotations
 
 import contextlib
 import errno
+import re
 import select
 import socket
+import sys
 import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from printer_server import JOIN_SECONDS, answering, resetting, silent
+from printer_server import JOIN_SECONDS, answering, reading_slowly, resetting, silent
 
 from datamax_dpl.adapters.transport import open_printer
 from datamax_dpl.adapters.transport.tcp import (
     MAX_ANSWER_BYTES,
     MAX_IDLE_ANSWER_BYTES,
     REFUSED_RETRY_SECONDS,
-    SEND_CHUNK_BYTES,
     TcpTransport,
 )
 from datamax_dpl.adapters.transport.uri import TcpUri
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.status import is_status_line
+from datamax_dpl.domain.timing import SEND_CHUNK_BYTES, TransportTuning
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -289,6 +291,146 @@ def test_a_job_is_written_in_pieces_no_larger_than_the_send_chunk() -> None:
 
     assert max(recording.sizes) <= SEND_CHUNK_BYTES
     assert bytes(received) == job
+
+
+#: Most bytes the slow printer below takes per read, and the seconds between two reads: at most
+#: 16 KB/s, about 9 KB/s measured with the small buffers, so a 1 KiB piece waited at most 0.13 s
+#: for room (far inside the 1 s timeout even on a loaded runner) while the whole job took 2.6 s.
+_SLOW_STEP = 1024
+_SLOW_EVERY = 1 / 16
+_SLOW_JOB = b"j" * (24 * 1024)
+_SMALL_BUFFER = 1
+
+
+def _slow_printer_transport(server: PrinterServer, *, send_chunk_bytes: int) -> TcpTransport:
+    """A transport whose own send buffer is as small as the OS allows, so the printer's pace shows.
+
+    Loopback buffers hold hundreds of KB, so a job of tens of KB would sit in them whole and every
+    piece size would look alike; with the smallest buffers on both ends (about 4 KB on Linux) the
+    printer's reading decides how fast the job leaves.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, _SMALL_BUFFER)
+    sock.settimeout(JOIN_SECONDS)
+    sock.connect((server.uri.host, server.uri.port))
+    tuning = TransportTuning(send_chunk_bytes=send_chunk_bytes)
+    return TcpTransport(sock, uri=server.uri, timeout=1.0, tuning=tuning)
+
+
+@pytest.mark.os_agnostic
+def test_a_printer_slower_than_the_timeout_takes_a_job_sent_in_small_pieces(
+    serve: Callable[..., PrinterServer],
+) -> None:
+    """The timeout bounds each 1 KiB piece, so a printer that keeps taking data is never cut off."""
+    server = serve(reading_slowly(step=_SLOW_STEP, every=_SLOW_EVERY), receive_buffer=_SMALL_BUFFER)
+
+    with _slow_printer_transport(server, send_chunk_bytes=SEND_CHUNK_BYTES) as printer:
+        printer.send(_SLOW_JOB)
+    server.join()
+
+    assert bytes(server.received) == _SLOW_JOB
+
+
+@pytest.mark.os_posix
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows takes one send of any size whole while its buffer is not full"
+)
+def test_the_same_job_in_one_large_piece_times_out_against_the_same_printer(
+    serve: Callable[..., PrinterServer],
+) -> None:
+    """The control for the test above: one piece is one sendall, and the timeout bounds it whole."""
+    server = serve(reading_slowly(step=_SLOW_STEP, every=_SLOW_EVERY), receive_buffer=_SMALL_BUFFER)
+
+    with (
+        _slow_printer_transport(server, send_chunk_bytes=64 * 1024) as printer,
+        pytest.raises(PrinterTimeoutError, match="cannot write to tcp"),
+    ):
+        printer.send(_SLOW_JOB)
+    server.join()
+
+
+@pytest.mark.os_agnostic
+def test_a_job_cut_off_by_a_stalled_printer_advises_a_power_cycle(serve: Callable[..., PrinterServer]) -> None:
+    """Part of the job went out, so the printer may wait for the rest of it; nothing here can send that."""
+    stop = threading.Event()
+
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        stop.wait(JOIN_SECONDS)
+
+    server = serve(play)
+    job = b"x" * (16 * 1024 * 1024)
+    try:
+        with TcpTransport.connect(server.uri, timeout=0.3) as printer, pytest.raises(PrinterTimeoutError) as caught:
+            printer.send(job)
+    finally:
+        stop.set()
+
+    message = str(caught.value)
+    written = re.fullmatch(
+        r"cannot write to tcp 127\.0\.0\.1:\d+: timed out; ([0-9]+) of 16777216 bytes were written, "
+        r"so the printer may be waiting for the rest of the job: power-cycle it",
+        message,
+    )
+    assert written is not None, message
+    assert 0 < int(written.group(1)) < len(job)
+    assert caught.value.reason.endswith("timed out")
+
+
+@pytest.mark.os_agnostic
+def test_open_printer_paces_a_tcp_job_by_the_tuning_it_is_given(serve: Callable[..., PrinterServer]) -> None:
+    """Only whole pieces count as written, so the count shows the piece size the transport used."""
+    stop = threading.Event()
+
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        stop.wait(JOIN_SECONDS)
+
+    server = serve(play)
+    # 999 shares no factor with the default 1024, so a count of whole 999-byte pieces is not one of
+    # whole default pieces unless it is a million bytes apart.
+    tuning = TransportTuning(send_chunk_bytes=999)
+    try:
+        with (
+            contextlib.closing(open_printer(server.address, timeout=0.3, tuning=tuning)) as printer,
+            pytest.raises(PrinterTimeoutError) as caught,
+        ):
+            printer.send(b"x" * (16 * 1024 * 1024))
+    finally:
+        stop.set()
+
+    written = re.search(r"; ([0-9]+) of [0-9]+ bytes were written", str(caught.value))
+    assert written is not None, str(caught.value)
+    assert int(written.group(1)) % 999 == 0
+
+
+class _StallingSendSocket(socket.socket):
+    """A real socket that takes its first ``sendall`` and times out on every later one."""
+
+    def __init__(self, *, fileno: int) -> None:
+        super().__init__(fileno=fileno)
+        self.calls = 0
+
+    def sendall(self, data: ReadableBuffer, flags: int = 0, /) -> None:
+        self.calls += 1
+        if self.calls > 1:
+            raise TimeoutError("timed out")
+        super().sendall(data, flags)
+
+
+@pytest.mark.os_agnostic
+def test_a_request_cut_off_part_way_advises_no_power_cycle() -> None:
+    """A request is a few bytes, never a job a printer could be left waiting on, even in one-byte pieces."""
+    ours, theirs = socket.socketpair()
+    stalled = _StallingSendSocket(fileno=ours.detach())
+    tuning = TransportTuning(send_chunk_bytes=1)
+    with (
+        theirs,
+        TcpTransport(stalled, uri=TcpUri(host="127.0.0.1"), timeout=1.0, tuning=tuning) as printer,
+        pytest.raises(PrinterTimeoutError) as caught,
+    ):
+        printer.query(b"\x01A", timeout=1.0)
+
+    assert stalled.calls == 2
+    assert caught.value.advice == ""
 
 
 @pytest.mark.os_agnostic

@@ -33,9 +33,12 @@ if TYPE_CHECKING:
         GetDefaultConfigPath,
         InitLogging,
         OpenPrinter,
+        OpenTunablePrinter,
+        PrinterTransport,
         SetPrinterValues,
         Sleep,
     )
+    from ..domain.timing import TransportTuning
 
     _assert_get_config: GetConfig = get_config
     _assert_get_default_config_path: GetDefaultConfigPath = get_default_config_path
@@ -43,7 +46,7 @@ if TYPE_CHECKING:
     _assert_display_config: DisplayConfig = display_config
     _assert_init_logging: InitLogging = init_logging
     _assert_check_logging_config: CheckLoggingConfig = check_logging_config
-    _assert_open_printer: OpenPrinter = open_printer
+    _assert_open_printer: OpenTunablePrinter = open_printer
     _assert_capture_image: CaptureImage = capture_image
     _assert_set_printer_values: SetPrinterValues = set_user_printer_values
     _assert_sleep: Sleep = time.sleep
@@ -61,10 +64,33 @@ class AppServices:
     display_config: DisplayConfig
     init_logging: InitLogging
     check_logging_config: CheckLoggingConfig
-    open_printer: OpenPrinter
+    open_printer: OpenTunablePrinter
     capture_image: CaptureImage
     sleep: Sleep
     clock: Clock
+
+    def tuned_open_printer(self, tuning: TransportTuning) -> OpenPrinter:
+        """``open_printer`` with the printer settings' ``tuning`` bound, see :func:`bind_tuning`."""
+        return bind_tuning(self.open_printer, tuning)
+
+
+def bind_tuning(open_printer: OpenTunablePrinter, tuning: TransportTuning) -> OpenPrinter:
+    """Return ``open_printer`` with ``tuning`` bound, as the use cases take an opener.
+
+    Example:
+        >>> from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
+        >>> from datamax_dpl.domain.timing import TransportTuning
+        >>> printer = RecordingPrinter()
+        >>> opener = bind_tuning(open_recording_printer(printer), TransportTuning(send_chunk_bytes=256))
+        >>> _ = opener("tcp://192.0.2.60:9100", timeout=1.0)
+        >>> printer.tunings[0].send_chunk_bytes
+        256
+    """
+
+    def opened(uri: str, *, timeout: float) -> PrinterTransport:
+        return open_printer(uri, timeout=timeout, tuning=tuning)
+
+    return opened
 
 
 class _FakeClock:
@@ -142,6 +168,7 @@ def build_testing(
 
 __all__ = [
     "AppServices",
+    "bind_tuning",
     "build_production",
     "build_testing",
     "check_logging_config",

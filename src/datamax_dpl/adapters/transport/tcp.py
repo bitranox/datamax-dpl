@@ -8,7 +8,7 @@ import time
 from typing import TYPE_CHECKING
 
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
-from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS
+from datamax_dpl.domain.timing import DEFAULT_TRANSPORT_TUNING, MAX_ANSWER_SECONDS, TransportTuning
 
 from .uri import (
     NOTHING_SKIPPED,
@@ -21,6 +21,7 @@ from .uri import (
     check_timeout,
     no_answer,
     transport_error,
+    truncated_job_advice,
 )
 
 if TYPE_CHECKING:
@@ -35,11 +36,6 @@ MAX_ANSWER_BYTES = 64 * 1024
 #: listing a 256K or 512K module can hold, while a printer streaming something endless is still
 #: cut off.
 MAX_IDLE_ANSWER_BYTES = 1024 * 1024
-#: Largest piece handed to one send call. Windows takes a single send of any size whole while its
-#: buffer is not full (a 64 MB job "sent" to a printer reading nothing, in 0.02 s), so a job sent
-#: in one call never times out there; pieces no larger than its default 64 KiB send buffer block
-#: once the printer stops reading, on every OS.
-SEND_CHUNK_BYTES = 64 * 1024
 #: Longest time a REFUSED connection is retried. A print server that just closed a job's
 #: connection refuses the next one for a moment (about 1-2 s measured on a SerComm PS301), so a
 #: status query sent right after a print would otherwise fail although nothing is wrong. Other
@@ -56,20 +52,26 @@ class TcpTransport(ClosingTransport):
     holding one (a test, a socket pair) can wrap it.
     """
 
-    def __init__(self, sock: socket.socket, *, uri: TcpUri, timeout: float) -> None:
-        """Wrap ``sock``; ``timeout`` bounds every write."""
+    def __init__(
+        self, sock: socket.socket, *, uri: TcpUri, timeout: float, tuning: TransportTuning = DEFAULT_TRANSPORT_TUNING
+    ) -> None:
+        """Wrap ``sock``; ``timeout`` bounds the write of every piece of ``tuning.send_chunk_bytes``."""
         self._sock = sock
         self._uri = uri
         self._timeout = check_timeout(timeout)
+        self._tuning = tuning
         sock.settimeout(self._timeout)
 
     @classmethod
-    def connect(cls, uri: TcpUri, *, timeout: float) -> TcpTransport:
+    def connect(
+        cls, uri: TcpUri, *, timeout: float, tuning: TransportTuning = DEFAULT_TRANSPORT_TUNING
+    ) -> TcpTransport:
         """Connect to ``uri`` within ``timeout`` seconds.
 
         Args:
             uri: Host and port.
-            timeout: Seconds for the connection and for every later write.
+            timeout: Seconds for the connection and for every later write of one piece.
+            tuning: The piece size a job is written in.
 
         Returns:
             The connected transport.
@@ -93,7 +95,7 @@ class TcpTransport(ClosingTransport):
             # is the reset. An unknown or unreachable host is not worth asking again.
             no_request = isinstance(exc, TimeoutError) or _is_hang_up(exc)
             raise transport_error(uri, action="connect to", error=exc, unanswered=no_request) from exc
-        return cls(sock, uri=uri, timeout=timeout)
+        return cls(sock, uri=uri, timeout=timeout, tuning=tuning)
 
     @property
     def bidirectional(self) -> bool:
@@ -101,10 +103,12 @@ class TcpTransport(ClosingTransport):
         return True
 
     def send(self, data: bytes) -> None:
-        """Write ``data`` completely.
+        """Write ``data`` completely, in pieces of ``send_chunk_bytes``.
 
         Raises:
-            PrinterTimeoutError: The printer stopped accepting data for longer than the timeout.
+            PrinterTimeoutError: One piece was not taken within the timeout: the printer stopped
+                taking data. Once part of the job was written, the message says so and advises a
+                power cycle, since the printer may wait for the rest.
             TransportError: The connection failed or is closed.
         """
         self._ensure_open()
@@ -200,16 +204,32 @@ class TcpTransport(ClosingTransport):
         self._write(request, request=True)
 
     def _write(self, data: bytes, *, request: bool) -> None:
-        """Write ``data`` completely; a hang-up while writing a ``request`` is ``unanswered``."""
+        """Write ``data`` completely; a hang-up while writing a ``request`` is ``unanswered``.
+
+        A job that times out after some of its pieces were written says how much went and that
+        the printer may wait for the rest (:func:`~.uri.truncated_job_advice`).
+        """
         view = memoryview(data)
+        piece = self._tuning.send_chunk_bytes
+        written = 0
         try:
-            # The socket timeout bounds each piece, so it measures how long the printer stopped
-            # taking data, not how long the whole job takes.
-            for offset in range(0, len(view), SEND_CHUNK_BYTES):
-                self._sock.sendall(view[offset : offset + SEND_CHUNK_BYTES])
+            # A socket timeout bounds one whole sendall call, not the gap between two bytes, so
+            # the piece size decides what the timeout measures. With small pieces (1 KiB by
+            # default) it bounds how long the printer took no data: a 64 KiB piece at the 1390
+            # bytes/s of a print server feeding a 9600 baud printer needs 47 s and failed a 10 s
+            # timeout while the printer was still taking data. Pieces also keep a stalled printer
+            # visible on Windows, which takes a single send of any size whole while its buffer is
+            # not full (a 64 MB job "sent" to a printer reading nothing, in 0.02 s), so a job sent
+            # in one call never times out there.
+            for written in range(0, len(view), piece):
+                self._sock.sendall(view[written : written + piece])
         except OSError as exc:
             hung_up = request and _is_hang_up(exc)
-            raise transport_error(self._uri, action="write to", error=exc, unanswered=hung_up) from exc
+            # A timeout is the measured case of a printer left waiting for the rest of a job; a
+            # request is a few bytes, never a job the printer could wait on.
+            stalled_job = not request and isinstance(exc, TimeoutError)
+            advice = truncated_job_advice(written=written, size=len(data)) if stalled_job else ""
+            raise transport_error(self._uri, action="write to", error=exc, unanswered=hung_up, advice=advice) from exc
 
     def _discard_waiting(self) -> None:
         """Read and drop whatever already sits in the receive buffer, without waiting.

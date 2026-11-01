@@ -9,12 +9,13 @@ import rich_click as click
 
 from ....domain.enums import CutterPresence, FallbackPolicy, HardwareOption
 from ....domain.errors import ConfigurationError
-from ..settings import PrinterOverrides, PrinterSettings, printer_settings
+from ..settings import PrinterOverrides, PrinterSettings, printer_settings, transport_tuning
 from ..typed_click import option
 
 if TYPE_CHECKING:
     from lib_layered_config import Config
 
+    from ....application.ports import OpenPrinter
     from ..context import CLIContext
 
 _Decorator = Callable[[Callable[..., Any]], Callable[..., Any]]
@@ -100,6 +101,11 @@ def resolve_settings(cli_ctx: CLIContext, **given: Any) -> PrinterSettings:
     return printer_settings(config, overrides)
 
 
+def printer_opener(cli_ctx: CLIContext, settings: PrinterSettings) -> OpenPrinter:
+    """The printer opener for ``settings``: the composition's, with their transport tuning bound."""
+    return cli_ctx.services.tuned_open_printer(transport_tuning(settings))
+
+
 def hardware_options(values: Iterable[str]) -> frozenset[HardwareOption]:
     """Read the ``--option`` values, refusing one this package does not know.
 
@@ -137,6 +143,7 @@ __all__ = [
     "hardware_options",
     "loaded_config",
     "printer_choice_decorator",
+    "printer_opener",
     "printer_options_decorator",
     "render_options_decorator",
     "resolve_settings",

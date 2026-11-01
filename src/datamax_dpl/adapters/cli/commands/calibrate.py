@@ -31,7 +31,7 @@ from ..constants import CLICK_CONTEXT_SETTINGS
 from ..runner import CommandResult, run_command
 from ..settings import PrinterOverrides, printer_settings, render_options, require_uri
 from ..typed_click import option
-from .model_options import printer_options_decorator, render_options_decorator, resolve_settings
+from .model_options import printer_opener, printer_options_decorator, render_options_decorator, resolve_settings
 
 if TYPE_CHECKING:
     from ....domain.label import Label
@@ -174,7 +174,7 @@ def cli_calibrate_print(
             b"".join(r.data for r in results.values()),
             uri=uri,
             timeout=settings.timeout,
-            open_printer=cli_ctx.services.open_printer,
+            open_printer=printer_opener(cli_ctx, settings),
         )
         payload = payload.model_copy(update={"printer": uri, "bytes_sent": report.bytes_sent})
         if payload.along_length_mm is not None:

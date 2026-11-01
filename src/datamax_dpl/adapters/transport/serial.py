@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol
 import serial
 
 from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
+from datamax_dpl.domain.timing import DEFAULT_TRANSPORT_TUNING, TransportTuning
 
 from .tcp import MAX_ANSWER_BYTES, MAX_ANSWER_SECONDS, MAX_IDLE_ANSWER_BYTES
 from .uri import (
@@ -27,6 +28,7 @@ from .uri import (
     answer_started,
     check_timeout,
     no_answer,
+    truncated_job_advice,
 )
 
 if TYPE_CHECKING:
@@ -106,7 +108,14 @@ class SerialTransport(ClosingTransport):
     holding one can wrap it.
     """
 
-    def __init__(self, port: SerialPort, *, uri: SerialUri, drain_timeout: float | None = None) -> None:
+    def __init__(
+        self,
+        port: SerialPort,
+        *,
+        uri: SerialUri,
+        drain_timeout: float | None = None,
+        tuning: TransportTuning = DEFAULT_TRANSPORT_TUNING,
+    ) -> None:
         """Wrap the open ``port``.
 
         Args:
@@ -115,18 +124,23 @@ class SerialTransport(ClosingTransport):
             drain_timeout: Seconds the port may go without sending a queued byte before
                 :meth:`send` gives up, or ``None`` for a port with no output queue of its own (the
                 pyserial URL handlers, where written bytes are already gone).
+            tuning: The piece size a job is written in.
         """
         self._port = port
         self._uri = uri
         self._drain_timeout = drain_timeout
+        self._tuning = tuning
 
     @classmethod
-    def open(cls, uri: SerialUri, *, timeout: float) -> SerialTransport:
+    def open(
+        cls, uri: SerialUri, *, timeout: float, tuning: TransportTuning = DEFAULT_TRANSPORT_TUNING
+    ) -> SerialTransport:
         """Open the port ``uri`` names with its line settings.
 
         Args:
             uri: Port path (or pyserial URL) and line settings.
-            timeout: Seconds every write may take.
+            timeout: Seconds the write of one piece of a job may take.
+            tuning: The piece size a job is written in.
 
         Returns:
             The open transport.
@@ -151,7 +165,7 @@ class SerialTransport(ClosingTransport):
         except (OSError, ValueError) as exc:
             raise TransportError(f"cannot open serial {uri.path}: {exc}") from exc
         drain_timeout = timeout if _has_output_queue(port) else None
-        return cls(port, uri=uri, drain_timeout=drain_timeout)
+        return cls(port, uri=uri, drain_timeout=drain_timeout, tuning=tuning)
 
     @property
     def bidirectional(self) -> bool:
@@ -159,22 +173,32 @@ class SerialTransport(ClosingTransport):
         return True
 
     def send(self, data: bytes) -> None:
-        """Write ``data`` and wait until it has left the port.
+        """Write ``data`` in pieces of ``send_chunk_bytes`` and wait until it has left the port.
+
+        pyserial's write timeout bounds one whole write call, as a socket timeout bounds one
+        ``sendall``, so the job is written piece by piece as on tcp: the timeout then means the
+        printer took no data for that long, not that the whole job took longer.
 
         Raises:
-            PrinterTimeoutError: The printer held the line (flow control) past the write timeout,
-                or the port sent none of its queued bytes for that long. The unsent bytes are
-                dropped, so they never reach the printer later as the tail of a broken job.
+            PrinterTimeoutError: The printer held the line (flow control) past the write timeout
+                for one piece, or the port sent none of its queued bytes for that long. The unsent
+                bytes are dropped, so they never reach the printer later as the tail of a broken
+                job; once part of the job was written, the message says so and advises a power
+                cycle, since the printer may wait for the rest.
             TransportError: The port failed or is closed.
         """
+        piece = self._tuning.send_chunk_bytes
+        written = 0
         try:
-            self._port.write(data)
+            for written in range(0, len(data), piece):
+                self._port.write(data[written : written + piece])
         except serial.SerialTimeoutException as exc:
             self._drop_queued_output()
-            raise PrinterTimeoutError(f"serial {self._uri.path}: write timed out") from exc
+            advice = truncated_job_advice(written=written, size=len(data))
+            raise PrinterTimeoutError(f"serial {self._uri.path}: write timed out", advice=advice) from exc
         except OSError as exc:
             raise TransportError(f"cannot write to serial {self._uri.path}: {exc}") from exc
-        self._drain()
+        self._drain(size=len(data))
 
     def query(
         self,
@@ -247,7 +271,7 @@ class SerialTransport(ClosingTransport):
         """Close the port; safe to call twice."""
         self._port.close()
 
-    def _drain(self) -> None:
+    def _drain(self, *, size: int) -> None:
         """Wait until the output queue is empty; the clock restarts whenever a byte leaves it.
 
         pyserial's ``flush`` is not used because it waits without any bound: ``tcdrain`` on POSIX
@@ -264,7 +288,8 @@ class SerialTransport(ClosingTransport):
                     self._drop_queued_output()
                     raise PrinterTimeoutError(
                         f"serial {self._uri.path}: the printer took no data for {self._drain_timeout:g} s "
-                        f"({waiting} bytes not sent)"
+                        f"({waiting} bytes not sent)",
+                        advice=truncated_job_advice(written=max(0, size - waiting), size=size),
                     )
                 time.sleep(_DRAIN_POLL_SECONDS)
                 still_waiting = self._port.out_waiting

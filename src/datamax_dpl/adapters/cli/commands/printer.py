@@ -36,7 +36,13 @@ from ..runner import CommandResult, run_command
 from ..settings import PrinterSettings, camera_settings, render_options, require_uri
 from ..typed_click import argument, option
 from .labels import render_loaded
-from .model_options import loaded_config, printer_options_decorator, render_options_decorator, resolve_settings
+from .model_options import (
+    loaded_config,
+    printer_opener,
+    printer_options_decorator,
+    render_options_decorator,
+    resolve_settings,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -62,7 +68,7 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
         if not result.ok:
             return CommandResult(ok=False, payload=payload, human="REFUSED: nothing sent")
         uri = require_uri(settings)
-        report = print_result(result, uri=uri, timeout=settings.timeout, open_printer=cli_ctx.services.open_printer)
+        report = print_result(result, uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings))
         payload = payload.model_copy(update={"printer": uri, "bytes_sent": report.bytes_sent})
         return CommandResult(ok=True, payload=payload, human=f"sent {report.bytes_sent} bytes to {uri}")
 
@@ -92,7 +98,7 @@ def cli_status(ctx: click.Context, **given: Any) -> None:
         status = query_status(
             uri=uri,
             timeout=settings.timeout,
-            open_printer=cli_ctx.services.open_printer,
+            open_printer=printer_opener(cli_ctx, settings),
             wait=_answer_wait(settings, cli_ctx),
         )
         payload = StatusPayload(printer=uri, idle=status.idle, problems=list(status.problems), flags=status)
@@ -126,7 +132,7 @@ def cli_detect(ctx: click.Context, **given: Any) -> None:
     def body(cli_ctx: CLIContext) -> CommandResult:
         settings = resolve_settings(cli_ctx, **given)
         report = detect_printer(
-            uri=require_uri(settings), timeout=settings.timeout, open_printer=cli_ctx.services.open_printer
+            uri=require_uri(settings), timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)
         )
         human = "\n".join([*report.detection.reasons, "fits: " + (", ".join(report.detection.candidates) or "none")])
         return CommandResult(ok=bool(report.detection.candidates), payload=report, human=human)
@@ -181,7 +187,7 @@ def cli_memory(ctx: click.Context, kind: str, idle: float, **given: Any) -> None
             uri=uri,
             timeout=settings.timeout,
             idle=idle,
-            open_printer=cli_ctx.services.open_printer,
+            open_printer=printer_opener(cli_ctx, settings),
             wait=_answer_wait(settings, cli_ctx),
         )
         payload = MemoryPayload(printer=uri, directories=list(directories))
@@ -225,7 +231,7 @@ def _single(command: PrinterCommand, help_text: str) -> click.Command:
             settings = resolve_settings(cli_ctx, **given)
             uri = require_uri(settings)
             report = send_command(
-                command, uri=uri, timeout=settings.timeout, open_printer=cli_ctx.services.open_printer
+                command, uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)
             )
             payload = SentPayload(printer=uri, command=command, bytes_sent=report.bytes_sent)
             return CommandResult(ok=True, payload=payload, human=f"{command.value} sent to {uri}")
@@ -346,7 +352,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
             timeout=settings.timeout,
             camera=camera_settings(loaded_config(cli_ctx)),
             output_dir=folder,
-            open_printer=services.open_printer,
+            open_printer=printer_opener(cli_ctx, settings),
             capture=services.capture_image,
             sleep=services.sleep,
             clock=services.clock,

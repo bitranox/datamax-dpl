@@ -1,12 +1,15 @@
 """Seconds a printer exchange may wait: the one rule every timeout, idle and deadline obeys.
 
 It lives in the domain so the application can refuse a bad value before any channel is opened,
-and the transports apply the same rule to what reaches them directly.
+and the transports apply the same rule to what reaches them directly. :class:`TransportTuning`
+carries the settings that pace a transport's writes, which decide what a write timeout measures.
 """
 
 from __future__ import annotations
 
 import math
+
+from pydantic import BaseModel, Field
 
 #: Largest timeout every platform accepts: Windows stores a socket timeout as 2**31-1 ms.
 MAX_TIMEOUT_SECONDS = 2147483.0
@@ -18,6 +21,31 @@ MAX_TIMEOUT_SECONDS = 2147483.0
 #: and 120 s leaves margin. A listing that genuinely needs longer is refused rather than read
 #: without end; an Allegro 2's whole answer was 100 bytes.
 MAX_ANSWER_SECONDS = 120.0
+#: Default of ``[printer] send_chunk_bytes``: the largest piece of a job handed to one write call.
+#: A write timeout bounds a whole call, so the piece size decides what the timeout measures. At
+#: about 1390 bytes/s (a 9600 baud printer behind a print server, measured) a 64 KiB piece needs
+#: 47 s and fails a 10 s timeout although the printer is taking data; 1 KiB needs under a second,
+#: so the timeout then means the printer stopped taking data.
+SEND_CHUNK_BYTES = 1024
+
+
+class TransportTuning(BaseModel, frozen=True, extra="forbid"):
+    """How the transports pace what they write, from the printer settings.
+
+    Attributes:
+        send_chunk_bytes: Largest piece of a job one write call takes; the write timeout bounds
+            each piece.
+
+    Example:
+        >>> TransportTuning().send_chunk_bytes
+        1024
+    """
+
+    send_chunk_bytes: int = Field(default=SEND_CHUNK_BYTES, gt=0)
+
+
+#: The tuning a transport uses when it is given none.
+DEFAULT_TRANSPORT_TUNING = TransportTuning()
 
 
 def check_timeout(timeout: float, *, name: str = "timeout") -> float:
@@ -46,4 +74,11 @@ def check_timeout(timeout: float, *, name: str = "timeout") -> float:
     return timeout
 
 
-__all__ = ["MAX_ANSWER_SECONDS", "MAX_TIMEOUT_SECONDS", "check_timeout"]
+__all__ = [
+    "DEFAULT_TRANSPORT_TUNING",
+    "MAX_ANSWER_SECONDS",
+    "MAX_TIMEOUT_SECONDS",
+    "SEND_CHUNK_BYTES",
+    "TransportTuning",
+    "check_timeout",
+]

@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
     from ..domain.camera import CameraSettings, CapturedImage
     from ..domain.enums import DeployTarget, OutputFormat
+    from ..domain.timing import TransportTuning
 
 
 class GetConfig(Protocol):
@@ -151,6 +152,16 @@ class OpenPrinter(Protocol):
     def __call__(self, uri: str, *, timeout: float) -> PrinterTransport: ...
 
 
+class OpenTunablePrinter(Protocol):
+    """An :class:`OpenPrinter` that also takes how the transport paces its writes.
+
+    The tuning comes from the printer settings, which only the command reading them knows; the
+    composition binds it, so the use cases keep opening printers by URI and timeout alone.
+    """
+
+    def __call__(self, uri: str, *, timeout: float, tuning: TransportTuning = ...) -> PrinterTransport: ...
+
+
 class CaptureImage(Protocol):
     """Take one photo with the configured camera and store it in ``output_dir``.
 
@@ -182,6 +193,7 @@ __all__ = [
     "GetDefaultConfigPath",
     "InitLogging",
     "OpenPrinter",
+    "OpenTunablePrinter",
     "PrinterTransport",
     "SetPrinterValues",
     "Sleep",

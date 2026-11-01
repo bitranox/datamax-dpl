@@ -24,6 +24,8 @@ long it was given (`no complete answer within 0.5 s`): raise `--timeout` (second
 `[printer] timeout`. `status` and `memory` instead keep trying for `[printer] status_wait` (30 s)
 while a print server is busy with an earlier job and then say how long they waited (`no answer in
 30.0 s (4 attempts)`): raise `status_wait`, or pass `--timeout`, which is their whole wait.
+A job is sent in `[printer] send_chunk_bytes` pieces (1024) and the timeout bounds each one; a job
+cut off part way says to power-cycle the printer, which may be waiting for the rest.
 
 ## The loop - labels cost money, so do every step
 

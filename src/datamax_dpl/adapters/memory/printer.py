@@ -10,12 +10,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from datamax_dpl.domain.errors import PrinterTimeoutError, TransportError, UnsupportedOperationError
-from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS, check_timeout
+from datamax_dpl.domain.timing import DEFAULT_TRANSPORT_TUNING, MAX_ANSWER_SECONDS, TransportTuning, check_timeout
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from datamax_dpl.application.ports import OpenPrinter, PrinterTransport
+    from datamax_dpl.application.ports import OpenTunablePrinter, PrinterTransport
 
 
 class RecordingPrinter:
@@ -26,6 +26,8 @@ class RecordingPrinter:
             as the bytes would have appeared on the wire.
         queries: The request of each :meth:`query` and :meth:`read_answer`, in order.
         opened: ``(uri, timeout)`` of every open through :func:`open_recording_printer`.
+        tunings: The :class:`~datamax_dpl.domain.timing.TransportTuning` of each of those opens;
+            nothing is paced by it here, every send is recorded whole.
         closed: True once :meth:`close` ran.
 
     Example:
@@ -44,6 +46,7 @@ class RecordingPrinter:
         self.sent: list[bytes] = []
         self.queries: list[bytes] = []
         self.opened: list[tuple[str, float]] = []
+        self.tunings: list[TransportTuning] = []
         self.closed = False
 
     @property
@@ -143,11 +146,12 @@ class RecordingPrinter:
             raise TransportError("recording printer: the transport is closed")
 
 
-def open_recording_printer(printer: RecordingPrinter) -> OpenPrinter:
-    """Return an :class:`~datamax_dpl.application.ports.OpenPrinter` that always opens ``printer``.
+def open_recording_printer(printer: RecordingPrinter) -> OpenTunablePrinter:
+    """Return an :class:`~datamax_dpl.application.ports.OpenTunablePrinter` that always opens ``printer``.
 
-    Each open records ``(uri, timeout)`` in ``printer.opened`` and reopens it, so a use case that
-    opens, closes and opens again keeps writing into the same record.
+    Each open records ``(uri, timeout)`` in ``printer.opened`` and its tuning in
+    ``printer.tunings``, and reopens it, so a use case that opens, closes and opens again keeps
+    writing into the same record.
 
     Example:
         >>> printer = RecordingPrinter()
@@ -158,8 +162,9 @@ def open_recording_printer(printer: RecordingPrinter) -> OpenPrinter:
         [('tcp://label-printer:9100', 2.0)]
     """
 
-    def _open(uri: str, *, timeout: float) -> PrinterTransport:
+    def _open(uri: str, *, timeout: float, tuning: TransportTuning = DEFAULT_TRANSPORT_TUNING) -> PrinterTransport:
         printer.opened.append((uri, timeout))
+        printer.tunings.append(tuning)
         printer.closed = False
         return printer
 

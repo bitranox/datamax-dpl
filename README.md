@@ -200,6 +200,8 @@ while connecting, or closed before answering) is tried again on a new one, and a
 until the wait ends, never asked twice. `--timeout` sets that whole wait instead. A printer that
 refuses every connection, such as one asked on a mistyped port, therefore takes the whole wait to
 report.
+A job goes out in pieces of `[printer] send_chunk_bytes` (default 1024), and `--timeout` bounds
+each piece, so it fires only when the printer stops taking data, however long the whole job takes.
 `reset`, `cancel`, `pause`, `feed` and `cut` send single printer commands.
 
 `memory` lists what the printer's memory modules hold and how many bytes each has free
