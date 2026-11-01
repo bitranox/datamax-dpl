@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import tomlkit
 from lib_layered_config import Config
+from pydantic import ValidationError
 
 from datamax_dpl.adapters import cli as cli_mod
 from datamax_dpl.adapters.cli.settings import (
@@ -23,7 +24,7 @@ from datamax_dpl.adapters.memory import RecordingPrinter
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.enums import ImageModule, Severity
 from datamax_dpl.domain.errors import ConfigurationError
-from datamax_dpl.domain.timing import MAX_TIMEOUT_SECONDS, SEND_CHUNK_BYTES
+from datamax_dpl.domain.timing import MAX_SEND_CHUNK_BYTES, MAX_TIMEOUT_SECONDS, SEND_CHUNK_BYTES, TransportTuning
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -491,6 +492,34 @@ def test_a_send_chunk_bytes_not_above_zero_is_refused_with_the_key_named(
         _settings(config, printer=printer)
 
 
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("section", "printer"), [("printer", None), ("printers.x", "x")])
+def test_a_send_chunk_bytes_above_64_kib_is_refused_with_the_key_named(section: str, printer: str | None) -> None:
+    """Windows takes one send of any size whole while its buffer is not full, so no timeout would bound it."""
+    config = {"printer": {"send_chunk_bytes": MAX_SEND_CHUNK_BYTES + 1}}
+    if printer is not None:
+        config = {"printers": {"x": {"send_chunk_bytes": MAX_SEND_CHUNK_BYTES + 1}}}
+
+    with pytest.raises(
+        ConfigurationError,
+        match=rf"^{re.escape(section)}\.send_chunk_bytes: Input should be less than or equal to 65536$",
+    ):
+        _settings(config, printer=printer)
+
+
+@pytest.mark.os_agnostic
+def test_a_send_chunk_bytes_of_exactly_64_kib_is_taken() -> None:
+    settings = _settings({"printer": {"send_chunk_bytes": MAX_SEND_CHUNK_BYTES}})
+
+    assert transport_tuning(settings).send_chunk_bytes == MAX_SEND_CHUNK_BYTES == 65536
+
+
+@pytest.mark.os_agnostic
+def test_a_transport_tuning_refuses_a_piece_above_64_kib_as_the_settings_do() -> None:
+    with pytest.raises(ValidationError, match="less than or equal to 65536"):
+        TransportTuning(send_chunk_bytes=MAX_SEND_CHUNK_BYTES + 1)
+
+
 #: Keys the shipped file documents with their default and leaves commented out, so a later layer's
 #: change of the default reaches every installation that never set them.
 _COMMENTED_OUT_DEFAULTS = (
@@ -518,19 +547,49 @@ def test_the_shipped_printer_file_leaves_a_default_key_unset_and_documents_its_d
     assert float(documented) == PrinterSettings.model_fields[key].default
 
 
+#: What each printer command needs on its command line beyond ``--printer``; LABEL is the label file.
+_PRINTER_COMMANDS: dict[str, tuple[str, ...]] = {
+    "print": ("print", "LABEL"),
+    "status": ("status",),
+    "detect": ("detect",),
+    "memory": ("memory",),
+    "calibrate": ("calibrate", "print", "--model", "allegro-2", "--width", "100", "--height", "55"),
+    "verify": ("--set", "camera.kind=file", "verify", "LABEL", "--output-dir", "OUT"),
+    "cut": ("cut",),
+    "feed": ("feed",),
+    "reset": ("reset",),
+    "cancel": ("cancel",),
+    "pause": ("pause",),
+}
+#: Answers a printer gives the requests of status, detect, memory and verify.
+_PRINTER_ANSWERS = {
+    b"\x01A": b"NNNNNNNN\r",
+    b"\x02k": b"Y",
+    b"\x02v": b"VER DA - 01.01 12/21/97\r",
+    b"\x02KQ": b"INTERNAL MEMORY\rVER: DA-01.01 12/21/97\rINSTALLED: 0016\rAVAILABLE: 0010\rMODULE: D:0032\r"
+    b"SCALABLE: 0025\rLABEL MEM: 0004\rLABEL SIZE: 0640:0640:IN\r",
+    b"\x02WG": b"MODULE: A\rAVAILABLE BYTES IN MODULE:00049083\r",
+}
+
+
 @pytest.mark.os_agnostic
-def test_a_send_chunk_bytes_set_on_the_command_line_reaches_the_printer_opener(
-    cli_runner: CliRunner, tmp_path: Path
+@pytest.mark.parametrize("command", sorted(_PRINTER_COMMANDS))
+def test_every_printer_command_opens_the_printer_with_the_configured_send_chunk_bytes(
+    cli_runner: CliRunner, tmp_path: Path, command: str
 ) -> None:
-    printer = RecordingPrinter()
+    """Each command opens through the tuned opener; one using the composition's own would get the default."""
+    printer = RecordingPrinter(answers=_PRINTER_ANSWERS)
     label = tmp_path / "label.json"
     label.write_text(json.dumps(_LINE), encoding="utf-8")
-    args = ["--set", "printer.send_chunk_bytes=256", "print", str(label), "--printer", "tcp://192.0.2.60:9100"]
+    places = {"LABEL": str(label), "OUT": str(tmp_path)}
+    given = [places.get(arg, arg) for arg in _PRINTER_COMMANDS[command]]
+    args = ["--set", "printer.send_chunk_bytes=256", *given, "--printer", "tcp://192.0.2.60:9100"]
 
     result = cli_runner.invoke(cli_mod.cli, args, obj=lambda: build_testing(printer=printer))
 
     assert result.exit_code == 0, result.output
-    assert [tuning.send_chunk_bytes for tuning in printer.tunings] == [256]
+    assert printer.tunings
+    assert set(printer.tunings) == {TransportTuning(send_chunk_bytes=256)}
 
 
 @pytest.mark.os_agnostic

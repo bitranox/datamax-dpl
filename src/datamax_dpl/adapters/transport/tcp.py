@@ -107,9 +107,10 @@ class TcpTransport(ClosingTransport):
 
         Raises:
             PrinterTimeoutError: One piece was not taken within the timeout: the printer stopped
-                taking data. Once part of the job was written, the message says so and advises a
-                power cycle, since the printer may wait for the rest.
-            TransportError: The connection failed or is closed.
+                taking data.
+            TransportError: The connection failed or is closed. A failure while writing (this
+                error or a timeout) says how much of the job was written and advises a power
+                cycle, since the printer may wait for the rest.
         """
         self._ensure_open()
         self._write(data, request=False)
@@ -206,8 +207,8 @@ class TcpTransport(ClosingTransport):
     def _write(self, data: bytes, *, request: bool) -> None:
         """Write ``data`` completely; a hang-up while writing a ``request`` is ``unanswered``.
 
-        A job that times out after some of its pieces were written says how much went and that
-        the printer may wait for the rest (:func:`~.uri.truncated_job_advice`).
+        A job whose write fails says how much of it went and that the printer may wait for the
+        rest (:func:`~.uri.truncated_job_advice`); a request never does.
         """
         view = memoryview(data)
         piece = self._tuning.send_chunk_bytes
@@ -225,10 +226,11 @@ class TcpTransport(ClosingTransport):
                 self._sock.sendall(view[written : written + piece])
         except OSError as exc:
             hung_up = request and _is_hang_up(exc)
-            # A timeout is the measured case of a printer left waiting for the rest of a job; a
-            # request is a few bytes, never a job the printer could wait on.
-            stalled_job = not request and isinstance(exc, TimeoutError)
-            advice = truncated_job_advice(written=written, size=len(data)) if stalled_job else ""
+            # A timeout is the measured case of a printer left waiting for the rest of a job, and a
+            # reset or a broken pipe can cut a job off just as well. ``written`` is where the
+            # failing piece starts, so part of that piece may have gone too. A request is a few
+            # bytes, never a job the printer could wait on.
+            advice = "" if request else truncated_job_advice(written=written, size=len(data))
             raise transport_error(self._uri, action="write to", error=exc, unanswered=hung_up, advice=advice) from exc
 
     def _discard_waiting(self) -> None:

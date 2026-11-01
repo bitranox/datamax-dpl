@@ -294,20 +294,27 @@ def test_a_job_is_written_in_pieces_no_larger_than_the_send_chunk() -> None:
 
 
 #: Most bytes the slow printer below takes per read, and the seconds between two reads: at most
-#: 16 KB/s, about 9 KB/s measured with the small buffers, so a 1 KiB piece waited at most 0.13 s
-#: for room (far inside the 1 s timeout even on a loaded runner) while the whole job took 2.6 s.
+#: 16 KB/s, paced by the clock, so no window from the start of the job moves more. A 1 KiB piece
+#: then waits about 1/16 s for room, far inside the 1 s timeout even on a loaded runner, and the
+#: whole job takes about 3.4 s (Linux, measured).
 _SLOW_STEP = 1024
 _SLOW_EVERY = 1 / 16
-_SLOW_JOB = b"j" * (24 * 1024)
-_SMALL_BUFFER = 1
+#: Sent as one 64 KiB piece, the job must not leave within the 1 s timeout: in that second the
+#: printer takes at most about 17 KB and the two buffers hold about 16 KB (Linux doubles each
+#: 4096 asked for; measured: 17408 bytes taken when the piece timed out), half the job.
+_SLOW_JOB = b"j" * (64 * 1024)
+#: Asked for on both ends. Set explicitly rather than as small as the OS allows: Linux clamps a
+#: 1-byte buffer to about 4.6 KB, but an OS that honoured it would hold the printer to a few bytes
+#: per second and fail the small-piece test too.
+_SMALL_BUFFER = 4096
 
 
 def _slow_printer_transport(server: PrinterServer, *, send_chunk_bytes: int) -> TcpTransport:
-    """A transport whose own send buffer is as small as the OS allows, so the printer's pace shows.
+    """A transport whose own send buffer is small, so the printer's pace shows.
 
     Loopback buffers hold hundreds of KB, so a job of tens of KB would sit in them whole and every
-    piece size would look alike; with the smallest buffers on both ends (about 4 KB on Linux) the
-    printer's reading decides how fast the job leaves.
+    piece size would look alike; with small buffers on both ends the printer's reading decides how
+    fast the job leaves.
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, _SMALL_BUFFER)
@@ -367,7 +374,7 @@ def test_a_job_cut_off_by_a_stalled_printer_advises_a_power_cycle(serve: Callabl
 
     message = str(caught.value)
     written = re.fullmatch(
-        r"cannot write to tcp 127\.0\.0\.1:\d+: timed out; ([0-9]+) of 16777216 bytes were written, "
+        r"cannot write to tcp 127\.0\.0\.1:\d+: timed out; at least ([0-9]+) of 16777216 bytes were written, "
         r"so the printer may be waiting for the rest of the job: power-cycle it",
         message,
     )
@@ -397,35 +404,80 @@ def test_open_printer_paces_a_tcp_job_by_the_tuning_it_is_given(serve: Callable[
     finally:
         stop.set()
 
-    written = re.search(r"; ([0-9]+) of [0-9]+ bytes were written", str(caught.value))
+    written = re.search(r"; at least ([0-9]+) of [0-9]+ bytes were written", str(caught.value))
     assert written is not None, str(caught.value)
     assert int(written.group(1)) % 999 == 0
 
 
 class _StallingSendSocket(socket.socket):
-    """A real socket that takes its first ``sendall`` and times out on every later one."""
+    """A real socket that takes its first ``takes`` calls of ``sendall`` and fails every later one with ``error``."""
 
-    def __init__(self, *, fileno: int) -> None:
+    def __init__(self, *, fileno: int, takes: int = 1, error: OSError | None = None) -> None:
         super().__init__(fileno=fileno)
         self.calls = 0
+        self._takes = takes
+        self._error = TimeoutError("timed out") if error is None else error
 
     def sendall(self, data: ReadableBuffer, flags: int = 0, /) -> None:
         self.calls += 1
-        if self.calls > 1:
-            raise TimeoutError("timed out")
+        if self.calls > self._takes:
+            raise self._error
         super().sendall(data, flags)
 
 
+#: The advice of a job whose write failed before a whole piece was known to have gone.
+_PARTLY_WRITTEN = (
+    "the job may have been partly written, so the printer may be waiting for the rest of it: power-cycle it"
+)
+#: The advice of a 1000-byte job whose third 100-byte piece failed.
+_TWO_PIECES_WRITTEN = (
+    "at least 200 of 1000 bytes were written, so the printer may be waiting for the rest of the job: power-cycle it"
+)
+_JOB_WRITE_ERRORS = [
+    TimeoutError("timed out"),
+    ConnectionResetError(errno.ECONNRESET, "Connection reset by peer"),
+    BrokenPipeError(errno.EPIPE, "Broken pipe"),
+]
+
+
 @pytest.mark.os_agnostic
-def test_a_request_cut_off_part_way_advises_no_power_cycle() -> None:
+@pytest.mark.parametrize("error", _JOB_WRITE_ERRORS, ids=["timeout", "reset", "broken-pipe"])
+@pytest.mark.parametrize(
+    ("takes", "advice"),
+    [
+        (2, _TWO_PIECES_WRITTEN),
+        # Part of the first piece may have gone before the failure: sendall does not say how much.
+        (0, _PARTLY_WRITTEN),
+    ],
+    ids=["after-two-pieces", "in-the-first-piece"],
+)
+def test_any_failure_while_writing_a_job_advises_a_power_cycle(error: OSError, takes: int, advice: str) -> None:
+    """A reset or a pulled cable leaves the printer as waiting for the rest as a stall does."""
+    ours, theirs = socket.socketpair()
+    failing = _StallingSendSocket(fileno=ours.detach(), takes=takes, error=error)
+    tuning = TransportTuning(send_chunk_bytes=100)
+    with (
+        theirs,
+        TcpTransport(failing, uri=TcpUri(host="127.0.0.1"), timeout=1.0, tuning=tuning) as printer,
+        pytest.raises(TransportError) as caught,
+    ):
+        printer.send(b"x" * 1000)
+
+    assert caught.value.advice == advice
+    assert not caught.value.unanswered
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("error", _JOB_WRITE_ERRORS, ids=["timeout", "reset", "broken-pipe"])
+def test_a_request_cut_off_part_way_advises_no_power_cycle(error: OSError) -> None:
     """A request is a few bytes, never a job a printer could be left waiting on, even in one-byte pieces."""
     ours, theirs = socket.socketpair()
-    stalled = _StallingSendSocket(fileno=ours.detach())
+    stalled = _StallingSendSocket(fileno=ours.detach(), error=error)
     tuning = TransportTuning(send_chunk_bytes=1)
     with (
         theirs,
         TcpTransport(stalled, uri=TcpUri(host="127.0.0.1"), timeout=1.0, tuning=tuning) as printer,
-        pytest.raises(PrinterTimeoutError) as caught,
+        pytest.raises(TransportError) as caught,
     ):
         printer.query(b"\x01A", timeout=1.0)
 
@@ -495,6 +547,7 @@ def test_a_hang_up_while_writing_a_request_is_unanswered_and_one_while_sending_a
             printer.send(b"job")
 
     assert (request.value.unanswered, job.value.unanswered) == (request_unanswered, False)
+    assert (request.value.advice, job.value.advice) == ("", _PARTLY_WRITTEN)
 
 
 @pytest.mark.os_agnostic

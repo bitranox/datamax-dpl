@@ -63,15 +63,18 @@ uri = ""
 # Environment Variable: DATAMAX_DPL___PRINTER__POLICY=strict
 policy = "degrade"
 
-# Purpose: Timeout for one transport operation (connect, write, an answer), in seconds.
-#          'status' and 'memory' wait status_wait in all for their first answer.
+# Purpose: Timeout for one transport operation (connect, write one piece of a
+#          job, an answer), in seconds. 'status' and 'memory' wait status_wait
+#          in all for their first answer, and 'verify' as long for the printer
+#          to finish its job.
 # Type: float, greater than 0
 # Default: 10.0
 # Environment Variable: DATAMAX_DPL___PRINTER__TIMEOUT=10.0
 timeout = 10.0
 
 # Purpose: Seconds 'status' and 'memory' keep trying for the printer's first
-#          answer while a print server is still busy with an earlier job. A
+#          answer while a print server is still busy with an earlier job, and
+#          'verify' waits in all for the printer to finish its job. A
 #          connection that took no request (refused, timed out while
 #          connecting, closed or reset before the request or a byte of answer)
 #          is tried again on a new one; an open but silent connection is read
@@ -94,8 +97,11 @@ timeout = 10.0
 #          timeout bounds each piece rather than the whole job, so it means the
 #          printer took no data for that long: at the about 1390 bytes/s of a
 #          print server feeding a 9600 baud printer, 1024 bytes need under a
-#          second. A larger piece needs a timeout long enough to send it.
-# Type: integer, greater than 0 (bytes)
+#          second. A larger piece needs a timeout long enough to send it. At
+#          most 65536: Windows takes one send of any size whole while its
+#          socket buffer is not full, so a larger piece comes back sent from a
+#          printer that reads nothing and the timeout never fires.
+# Type: integer, greater than 0, at most 65536 (bytes)
 # Default: 1024
 # Environment Variable: DATAMAX_DPL___PRINTER__SEND_CHUNK_BYTES=512
 # send_chunk_bytes = 1024

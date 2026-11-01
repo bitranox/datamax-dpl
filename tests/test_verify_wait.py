@@ -15,11 +15,16 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from datamax_dpl.adapters.cli import root as cli_mod
-from datamax_dpl.adapters.memory import FakeCamera, RecordingPrinter
+from datamax_dpl.adapters.memory import FakeCamera, RecordingPrinter, open_recording_printer
 from datamax_dpl.application.use_cases import BUSY_HINT, AnswerWait, query_status
-from datamax_dpl.application.verify import IdleWait, wait_idle
+from datamax_dpl.application.verify import IdleWait, verify_print, wait_idle
 from datamax_dpl.composition import build_testing
+from datamax_dpl.domain.camera import CameraKind, CameraSettings
 from datamax_dpl.domain.errors import PrinterTimeoutError, TransportError
+from datamax_dpl.domain.label import Label
+from datamax_dpl.domain.profiles import get_profile
+from datamax_dpl.domain.render import render
+from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.timing import DEFAULT_TRANSPORT_TUNING, MAX_ANSWER_SECONDS, TransportTuning
 
 if TYPE_CHECKING:
@@ -223,15 +228,73 @@ class BusyThenSilentPrinter(SilentPrinter):
 
 @pytest.mark.os_agnostic
 def test_a_printer_falling_silent_after_busy_polls_ends_the_one_wait_begun_at_the_first_poll() -> None:
-    """The polls share one wait: the silent poll gets only what the busy ones left of it."""
+    """The polls share one wait: the silent poll gets only what the busy ones left of it.
+
+    The silent poll is read as ``status`` reads one, but the printer was last heard busy, so that
+    is what the message says; the poll's own failure is chained to it.
+    """
     clock = Clock()
     printer = BusyThenSilentPrinter(clock, busy_for=2.0)
 
-    with pytest.raises(PrinterTimeoutError, match=r": no answer in 5\.0 s \(1 attempt\); "):
+    with pytest.raises(PrinterTimeoutError) as caught:
         _idle(printer, clock)
 
+    assert str(caught.value) == f"printer still busy after 5.0 s (the last poll got no answer); {WAIT_LONGER}"
+    assert isinstance(caught.value.__cause__, PrinterTimeoutError)
+    assert ": no answer in 5.0 s (1 attempt); " in str(caught.value.__cause__)
     assert clock.now == 5.0
     assert printer.waits[-1] == 3.0
+
+
+class SlowBusyPrinter(ScriptedPrinter):
+    """Answers busy ``answer_after`` seconds after each poll; a poll given less time gets no answer."""
+
+    def __init__(self, clock: Clock, *, answer_after: float) -> None:
+        super().__init__(clock)
+        self._answer_after = answer_after
+
+    def answer(self, timeout: float) -> bytes:
+        if timeout < self._answer_after:
+            self.clock.now += timeout
+            raise PrinterTimeoutError(f"slow: no complete answer within {timeout:g} s (0 bytes read)")
+        self.clock.now += self._answer_after
+        return BUSY
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("seconds", "message"),
+    [
+        # Polls answered at 0.3 and 1.1 s; the third, at 1.6 s, has 0.2 s left and gets no answer.
+        (1.8, "printer still busy after 1.8 s (the last poll got no answer)"),
+        # Polls answered at 0.3, 1.1 and 1.9 s; the pause after the third is cut to the 0.1 s left.
+        (2.0, "printer still busy after 2.0 s"),
+    ],
+)
+def test_a_printer_answering_busy_slowly_is_reported_still_busy_however_the_wait_ends(
+    seconds: float, message: str
+) -> None:
+    clock = Clock()
+    printer = SlowBusyPrinter(clock, answer_after=0.3)
+
+    with pytest.raises(PrinterTimeoutError) as caught:
+        _idle(printer, clock, seconds=seconds)
+
+    assert str(caught.value) == f"{message}; {WAIT_LONGER}"
+    assert clock.now == pytest.approx(seconds)
+
+
+@pytest.mark.os_agnostic
+def test_the_pause_between_two_polls_never_runs_past_the_wait() -> None:
+    """A 20 s interval in a 30 s wait polls at 0, 20 and 30 s, never at 40."""
+    clock = Clock()
+    printer = BusyPrinter(clock, busy_for=math.inf)
+
+    with pytest.raises(PrinterTimeoutError) as caught:
+        _idle(printer, clock, seconds=30.0, poll_interval=20.0)
+
+    assert str(caught.value) == f"printer still busy after 30.0 s; {WAIT_LONGER}"
+    assert clock.sleeps == [20.0, 10.0]
 
 
 @pytest.mark.os_agnostic
@@ -311,6 +374,56 @@ def test_verify_and_status_end_a_wait_on_the_same_printer_alike(scenario: str) -
     verify_printer, verify_opens = _SCENARIOS[scenario](verify_clock)
 
     assert _verify_outcome(verify_printer, opens=verify_opens) == _status_outcome(status_printer, opens=status_opens)
+
+
+_BAD_WAITS: dict[str, Callable[[Clock], IdleWait]] = {
+    "wait 0": lambda clock: _wait(clock, seconds=0.0),
+    "wait NaN": lambda clock: _wait(clock, seconds=math.nan),
+    "poll interval 0": lambda clock: _wait(clock, poll_interval=0.0),
+    "poll interval NaN": lambda clock: _wait(clock, poll_interval=math.nan),
+    "one-way settle -1": lambda clock: _wait(clock)._replace(one_way_settle=-1.0),
+    "one-way settle NaN": lambda clock: _wait(clock)._replace(one_way_settle=math.nan),
+    "retry interval 0": lambda clock: _wait(clock)._replace(answer=_wait(clock).answer._replace(retry_interval=0.0)),
+}
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("case", sorted(_BAD_WAITS))
+def test_verify_refuses_an_unusable_wait_before_the_label_is_sent(case: str, tmp_path: Path) -> None:
+    """A wait refused only after the job went out would leave a printed label nobody photographed."""
+    clock = Clock()
+    printer = RecordingPrinter(answers={b"\x01A": IDLE})
+    label = Label.model_validate(LABEL)
+    options = RenderOptions(model="generic")
+
+    with pytest.raises(ValueError, match=r"must be (above|at least) 0"):
+        verify_print(
+            render(label, options),
+            label,
+            get_profile("generic"),
+            options=options,
+            uri=PRINTER,
+            timeout=1.0,
+            camera=CameraSettings(kind=CameraKind.FILE),
+            output_dir=tmp_path,
+            open_printer=open_recording_printer(printer),
+            capture=FakeCamera(),
+            sleep=clock.sleep,
+            clock=clock,
+            wait=_BAD_WAITS[case](clock),
+        )
+
+    assert (printer.opened, printer.sent) == ([], [])
+
+
+@pytest.mark.os_agnostic
+def test_verify_takes_a_one_way_settle_of_0() -> None:
+    clock = Clock()
+    wait = _wait(clock)._replace(one_way_settle=0.0)
+
+    assert wait_idle(
+        BusyPrinter(clock, busy_for=0.0), uri=PRINTER, timeout=1.0, open_printer=_never_opens, wait=wait
+    ).idle
 
 
 def _services(clock: Clock, printer: PrinterTransport) -> Callable[[], AppServices]:

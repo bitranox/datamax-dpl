@@ -27,21 +27,27 @@ MAX_ANSWER_SECONDS = 120.0
 #: 47 s and fails a 10 s timeout although the printer is taking data; 1 KiB needs under a second,
 #: so the timeout then means the printer stopped taking data.
 SEND_CHUNK_BYTES = 1024
+#: Largest ``send_chunk_bytes`` taken. Windows takes one send of any size whole while its socket
+#: buffer is not full, so a larger piece would come back "sent" from a printer that reads nothing
+#: and the timeout would never fire (an 8 MiB piece of a 4 MiB job returned in 0.00 s, measured).
+#: With pieces of at most 64 KiB a printer that stops reading fills the buffer, and a later piece
+#: times out.
+MAX_SEND_CHUNK_BYTES = 65536
 
 
 class TransportTuning(BaseModel, frozen=True, extra="forbid"):
     """How the transports pace what they write, from the printer settings.
 
     Attributes:
-        send_chunk_bytes: Largest piece of a job one write call takes; the write timeout bounds
-            each piece.
+        send_chunk_bytes: Largest piece of a job one write call takes, at most
+            :data:`MAX_SEND_CHUNK_BYTES`; the write timeout bounds each piece.
 
     Example:
         >>> TransportTuning().send_chunk_bytes
         1024
     """
 
-    send_chunk_bytes: int = Field(default=SEND_CHUNK_BYTES, gt=0)
+    send_chunk_bytes: int = Field(default=SEND_CHUNK_BYTES, gt=0, le=MAX_SEND_CHUNK_BYTES)
 
 
 #: The tuning a transport uses when it is given none.
@@ -77,6 +83,7 @@ def check_timeout(timeout: float, *, name: str = "timeout") -> float:
 __all__ = [
     "DEFAULT_TRANSPORT_TUNING",
     "MAX_ANSWER_SECONDS",
+    "MAX_SEND_CHUNK_BYTES",
     "MAX_TIMEOUT_SECONDS",
     "SEND_CHUNK_BYTES",
     "TransportTuning",

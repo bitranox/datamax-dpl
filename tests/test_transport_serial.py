@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import os
 import re
 import select
@@ -221,19 +222,42 @@ class AnsweringPort(ScriptedPort):
 
 
 class PieceRecordingPort(DrainingPort):
-    """A port with nothing queued that records the size of every write; write number ``stall_at`` (from 1) times out."""
+    """A port with nothing queued that records the size of every write; write number ``stall_at`` (from 1) fails.
 
-    def __init__(self, *, stall_at: int = 0) -> None:
+    It fails with ``error``, by default pyserial's own error for a line held past write_timeout.
+    """
+
+    def __init__(self, *, stall_at: int = 0, error: Exception | None = None) -> None:
         super().__init__(queued=0, bytes_per_tick=0)
         self.sizes: list[int] = []
         self._stall_at = stall_at
+        self._error = serial.SerialTimeoutException("Write timeout") if error is None else error
 
     def write(self, b: bytes, /) -> int | None:
         if len(self.sizes) + 1 == self._stall_at:
-            # pyserial's own error when the line stays held past write_timeout.
-            raise serial.SerialTimeoutException("Write timeout")
+            raise self._error
         self.sizes.append(len(b))
         return len(b)
+
+
+class VanishingPort(DrainingPort):
+    """A port that takes every write and then fails to say what it still holds, as a pulled USB adapter does."""
+
+    @property
+    def out_waiting(self) -> int:
+        raise OSError(errno.EIO, "Input/output error")
+
+
+#: The advice of a job whose write failed before a whole piece was known to have gone.
+PARTLY_WRITTEN = (
+    "the job may have been partly written, so the printer may be waiting for the rest of it: power-cycle it"
+)
+#: The advice of a 1000-byte job whose third 100-byte piece failed.
+TWO_PIECES_WRITTEN = (
+    "at least 200 of 1000 bytes were written, so the printer may be waiting for the rest of the job: power-cycle it"
+)
+#: A pulled USB serial adapter: pyserial passes the OS error on.
+PULLED = OSError(errno.EIO, "Input/output error")
 
 
 @pytest.mark.os_agnostic
@@ -266,21 +290,74 @@ def test_a_serial_job_cut_off_part_way_advises_a_power_cycle_and_drops_the_rest(
         printer.send(b"x" * 1000)
 
     assert str(caught.value) == (
-        "serial loop://: write timed out; 200 of 1000 bytes were written, "
+        "serial loop://: write timed out; at least 200 of 1000 bytes were written, "
         "so the printer may be waiting for the rest of the job: power-cycle it"
     )
     assert port.output_discarded
 
 
 @pytest.mark.os_agnostic
-def test_a_serial_write_that_times_out_before_any_piece_advises_no_power_cycle() -> None:
+def test_a_serial_write_that_times_out_in_the_first_piece_advises_a_power_cycle() -> None:
+    """pyserial does not say how much of the timed-out write left the port, so part of it may have."""
     port = PieceRecordingPort(stall_at=1)
     printer = SerialTransport(port, uri=LOOP)
 
     with pytest.raises(PrinterTimeoutError) as caught:
         printer.send(b"x" * 1000)
 
-    assert str(caught.value) == "serial loop://: write timed out"
+    assert str(caught.value) == f"serial loop://: write timed out; {PARTLY_WRITTEN}"
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("stall_at", "advice"),
+    [
+        (3, TWO_PIECES_WRITTEN),
+        (1, PARTLY_WRITTEN),
+    ],
+    ids=["after-two-pieces", "in-the-first-piece"],
+)
+def test_a_serial_port_failing_while_writing_a_job_advises_a_power_cycle(stall_at: int, advice: str) -> None:
+    """A pulled adapter cuts a job off as a held line does."""
+    port = PieceRecordingPort(stall_at=stall_at, error=PULLED)
+    printer = SerialTransport(port, uri=LOOP, tuning=TransportTuning(send_chunk_bytes=100))
+
+    with pytest.raises(TransportError) as caught:
+        printer.send(b"x" * 1000)
+
+    assert type(caught.value) is TransportError
+    assert caught.value.advice == advice
+
+
+@pytest.mark.os_agnostic
+def test_a_serial_port_failing_while_its_job_drains_advises_a_power_cycle() -> None:
+    printer = SerialTransport(VanishingPort(queued=0, bytes_per_tick=0), uri=LOOP, drain_timeout=0.2)
+
+    with pytest.raises(TransportError) as caught:
+        printer.send(b"x" * 8)
+
+    assert caught.value.advice == PARTLY_WRITTEN
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "port",
+    [
+        PieceRecordingPort(stall_at=1),
+        PieceRecordingPort(stall_at=1, error=PULLED),
+        DrainingPort(queued=5, bytes_per_tick=0),
+        VanishingPort(queued=0, bytes_per_tick=0),
+    ],
+    ids=["write-timeout", "write-fails", "drain-timeout", "drain-fails"],
+)
+def test_a_serial_request_that_fails_to_go_out_advises_no_power_cycle(port: DrainingPort) -> None:
+    """A request is a few bytes, never a job a printer could be left waiting on."""
+    printer = SerialTransport(port, uri=LOOP, drain_timeout=0.2)
+
+    with pytest.raises(TransportError) as caught:
+        printer.query(b"\x01A", timeout=0.3)
+
+    assert caught.value.advice == ""
 
 
 @pytest.mark.os_agnostic
@@ -293,7 +370,7 @@ def test_a_serial_job_whose_queue_stops_draining_part_way_advises_a_power_cycle(
         printer.send(b"x" * 8)
 
     assert caught.value.advice == (
-        "3 of 8 bytes were written, so the printer may be waiting for the rest of the job: power-cycle it"
+        "at least 3 of 8 bytes were written, so the printer may be waiting for the rest of the job: power-cycle it"
     )
 
 
@@ -504,17 +581,19 @@ def test_a_pty_nobody_reads_makes_a_send_time_out(pty_printer: PtyPrinter) -> No
 @pytest.mark.skipif(sys.platform == "win32", reason="os.openpty is POSIX only")
 def test_open_printer_paces_a_serial_job_by_the_tuning_it_is_given(pty_printer: PtyPrinter) -> None:
     """Only whole pieces count as written, so the count shows the piece size the transport used."""
-    # 999 shares no factor with the default 1024 (see the tcp test of the same name).
-    tuning = TransportTuning(send_chunk_bytes=999)
+    # 97 shares no factor with the default 1024 (see the tcp test of the same name), and is far
+    # below the about 1 KB a macOS pty holds, so whole pieces go before the write times out.
+    tuning = TransportTuning(send_chunk_bytes=97)
     with (
         contextlib.closing(open_printer(f"serial://{pty_printer.path}", timeout=0.3, tuning=tuning)) as printer,
         pytest.raises(PrinterTimeoutError) as caught,
     ):
         printer.send(b"x" * (4 * 1024 * 1024))
 
-    written = re.search(r"; ([0-9]+) of [0-9]+ bytes were written", str(caught.value))
+    written = re.search(r"; at least ([0-9]+) of [0-9]+ bytes were written", str(caught.value))
     assert written is not None, str(caught.value)
-    assert int(written.group(1)) % 999 == 0
+    assert int(written.group(1)) > 0
+    assert int(written.group(1)) % 97 == 0
 
 
 @pytest.mark.os_posix

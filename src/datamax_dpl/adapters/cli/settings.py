@@ -19,7 +19,7 @@ from ...domain.errors import ConfigurationError
 from ...domain.job import MAX_STOP_POSITION_MM
 from ...domain.label import PrinterStop, stop_position_or_printer
 from ...domain.render_context import RenderOptions
-from ...domain.timing import MAX_TIMEOUT_SECONDS, SEND_CHUNK_BYTES, TransportTuning
+from ...domain.timing import MAX_SEND_CHUNK_BYTES, MAX_TIMEOUT_SECONDS, SEND_CHUNK_BYTES, TransportTuning
 from ...domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
 from ..transport.uri import is_printer_name, is_printer_uri
 
@@ -53,7 +53,8 @@ class PrinterSettings(BaseModel):
     policy: FallbackPolicy = FallbackPolicy.DEGRADE
     timeout: float = Field(default=10.0, gt=0)
     # How long status and memory keep trying for the first answer while a print server is still
-    # busy with an earlier job, and the pause between two of their connections.
+    # busy with an earlier job (and verify waits for the printer to finish), and the pause between
+    # two of their connections.
     # Bounded above too, so an infinite or oversized value is refused naming its key here rather
     # than as a nameless "wait" when status runs.
     status_wait: float = Field(default=STATUS_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
@@ -63,7 +64,8 @@ class PrinterSettings(BaseModel):
     verify_poll_interval: float = Field(default=POLL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
     one_way_settle: float = Field(default=ONE_WAY_SETTLE_SECONDS, ge=0, le=MAX_TIMEOUT_SECONDS)
     # The largest piece of a job one write call takes: timeout bounds each piece (TransportTuning).
-    send_chunk_bytes: int = Field(default=SEND_CHUNK_BYTES, gt=0)
+    # Bounded above as there, so a larger value is refused naming its key here.
+    send_chunk_bytes: int = Field(default=SEND_CHUNK_BYTES, gt=0, le=MAX_SEND_CHUNK_BYTES)
     cutter: CutterPresence = CutterPresence.UNKNOWN
     options: frozenset[HardwareOption] = Field(default_factory=frozenset[HardwareOption])
     # Same range as RenderOptions, so a bad value is refused here with its config key named. None
@@ -149,7 +151,7 @@ def printer_settings(config: Config, overrides: PrinterOverrides) -> PrinterSett
             "uri": _given(uri, base.uri),
             "policy": _given(overrides.policy, base.policy),
             "timeout": _given(overrides.timeout, base.timeout),
-            # --timeout is the whole wait where one applies: status and memory keep trying for it.
+            # --timeout is the whole wait where one applies: status, memory and verify wait for it.
             "status_wait": _given(overrides.timeout, base.status_wait),
             "cutter": _given(overrides.cutter, base.cutter),
             # Options add up instead of replacing: --option names one more installed option.

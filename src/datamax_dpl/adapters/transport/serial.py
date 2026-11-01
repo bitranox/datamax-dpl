@@ -51,6 +51,18 @@ def _has_output_queue(port: object) -> bool:
     return isinstance(port, serial.Serial)
 
 
+def _job_advice(*, request: bool, written: int, size: int) -> str:
+    """The power-cycle advice for a failed write of a job; none for a request.
+
+    Example:
+        >>> _job_advice(request=True, written=0, size=2)
+        ''
+        >>> _job_advice(request=False, written=0, size=2).startswith("the job may have been partly written")
+        True
+    """
+    return "" if request else truncated_job_advice(written=written, size=size)
+
+
 class SerialPort(Protocol):
     """The pyserial calls this transport uses."""
 
@@ -183,22 +195,12 @@ class SerialTransport(ClosingTransport):
             PrinterTimeoutError: The printer held the line (flow control) past the write timeout
                 for one piece, or the port sent none of its queued bytes for that long. The unsent
                 bytes are dropped, so they never reach the printer later as the tail of a broken
-                job; once part of the job was written, the message says so and advises a power
-                cycle, since the printer may wait for the rest.
-            TransportError: The port failed or is closed.
+                job.
+            TransportError: The port failed or is closed. A failure while writing (this error or
+                a timeout) says how much of the job was written and advises a power cycle, since
+                the printer may wait for the rest.
         """
-        piece = self._tuning.send_chunk_bytes
-        written = 0
-        try:
-            for written in range(0, len(data), piece):
-                self._port.write(data[written : written + piece])
-        except serial.SerialTimeoutException as exc:
-            self._drop_queued_output()
-            advice = truncated_job_advice(written=written, size=len(data))
-            raise PrinterTimeoutError(f"serial {self._uri.path}: write timed out", advice=advice) from exc
-        except OSError as exc:
-            raise TransportError(f"cannot write to serial {self._uri.path}: {exc}") from exc
-        self._drain(size=len(data))
+        self._write(data, request=False)
 
     def query(
         self,
@@ -225,7 +227,7 @@ class SerialTransport(ClosingTransport):
         if not terminator or lines < 1:
             raise ValueError("terminator must not be empty and lines at least 1")
         self._drop_waiting_input()
-        self.send(request)
+        self._write(request, request=True)
         wait = Wait.since(time.monotonic(), timeout)
         read = self._read_lines(terminator, wait=wait, lines=lines, accept=accept)
         if read.complete:
@@ -263,7 +265,7 @@ class SerialTransport(ClosingTransport):
         check_timeout(idle, name="idle")
         check_timeout(total, name="total")
         self._drop_waiting_input()
-        self.send(request)
+        self._write(request, request=True)
         answer = self._read_start(Wait.since(started, min(timeout, total)))
         return self._read_rest(answer, idle=idle, end=started + total, total=total)
 
@@ -271,7 +273,29 @@ class SerialTransport(ClosingTransport):
         """Close the port; safe to call twice."""
         self._port.close()
 
-    def _drain(self, *, size: int) -> None:
+    def _write(self, data: bytes, *, request: bool) -> None:
+        """Write ``data`` in pieces and wait until it has left the port.
+
+        A job whose write fails says how much of it went and that the printer may wait for the
+        rest (:func:`~.uri.truncated_job_advice`); a request is a few bytes, never a job the
+        printer could wait on, so it never does.
+        """
+        piece = self._tuning.send_chunk_bytes
+        written = 0
+        try:
+            for written in range(0, len(data), piece):
+                self._port.write(data[written : written + piece])
+        except serial.SerialTimeoutException as exc:
+            self._drop_queued_output()
+            advice = _job_advice(request=request, written=written, size=len(data))
+            raise PrinterTimeoutError(f"serial {self._uri.path}: write timed out", advice=advice) from exc
+        except OSError as exc:
+            # A pulled USB adapter fails mid-job as a held line times out: the printer kept the start.
+            advice = _job_advice(request=request, written=written, size=len(data))
+            raise TransportError(f"cannot write to serial {self._uri.path}: {exc}", advice=advice) from exc
+        self._drain(size=len(data), request=request)
+
+    def _drain(self, *, size: int, request: bool) -> None:
         """Wait until the output queue is empty; the clock restarts whenever a byte leaves it.
 
         pyserial's ``flush`` is not used because it waits without any bound: ``tcdrain`` on POSIX
@@ -280,6 +304,8 @@ class SerialTransport(ClosingTransport):
         """
         if self._drain_timeout is None:
             return
+        # Unknown until the port first says what it holds: then none of the job is known to have left.
+        waiting = size
         try:
             waiting = self._port.out_waiting
             deadline = time.monotonic() + self._drain_timeout
@@ -289,7 +315,7 @@ class SerialTransport(ClosingTransport):
                     raise PrinterTimeoutError(
                         f"serial {self._uri.path}: the printer took no data for {self._drain_timeout:g} s "
                         f"({waiting} bytes not sent)",
-                        advice=truncated_job_advice(written=max(0, size - waiting), size=size),
+                        advice=_job_advice(request=request, written=max(0, size - waiting), size=size),
                     )
                 time.sleep(_DRAIN_POLL_SECONDS)
                 still_waiting = self._port.out_waiting
@@ -297,7 +323,8 @@ class SerialTransport(ClosingTransport):
                     deadline = time.monotonic() + self._drain_timeout
                 waiting = still_waiting
         except OSError as exc:
-            raise TransportError(f"cannot write to serial {self._uri.path}: {exc}") from exc
+            advice = _job_advice(request=request, written=max(0, size - waiting), size=size)
+            raise TransportError(f"cannot write to serial {self._uri.path}: {exc}", advice=advice) from exc
 
     def _drop_queued_output(self) -> None:
         """Discard what the port has not sent yet; a port that refuses has nothing to discard."""

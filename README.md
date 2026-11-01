@@ -197,11 +197,14 @@ The model matrix, the limits and the full fallback table are in
 `status` and `memory` keep trying for `[printer] status_wait` seconds (default 30) while a print
 server is still busy with an earlier job: a connection that took no request (refused, timed out
 while connecting, or closed before answering) is tried again on a new one, and a silent one is read
-until the wait ends, never asked twice. `--timeout` sets that whole wait instead. A printer that
-refuses every connection, such as one asked on a mistyped port, therefore takes the whole wait to
-report.
-A job goes out in pieces of `[printer] send_chunk_bytes` (default 1024), and `--timeout` bounds
-each piece, so it fires only when the printer stops taking data, however long the whole job takes.
+until the wait ends, never asked twice. `verify` waits as long in all for the printer to finish
+its job. `--timeout` sets that whole wait instead. A printer that refuses every connection, such
+as one asked on a mistyped port, therefore takes the whole wait to report.
+A job goes out in pieces of `[printer] send_chunk_bytes` (default 1024, at most 65536), and
+`--timeout` bounds each piece, not the whole job: it fires when one piece is not taken in time. A
+piece needs its size over the line's speed, about 1.07 s for 1024 bytes at 9600 baud (about 960
+bytes/s), so with a timeout well above that it fires only when the printer stops taking data,
+however long the whole job takes.
 `reset`, `cancel`, `pause`, `feed` and `cut` send single printer commands.
 
 `memory` lists what the printer's memory modules hold and how many bytes each has free

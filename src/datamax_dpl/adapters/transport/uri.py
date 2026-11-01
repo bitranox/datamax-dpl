@@ -242,27 +242,31 @@ def transport_error(
 
 
 def truncated_job_advice(*, written: int, size: int) -> str:
-    """The advice for a job that stopped part way: empty when none of it was written.
+    """The advice for a job whose write failed: the printer may wait for the rest of it.
 
     A printer that took the start of a job waits for the rest of it, and a download it never
     finishes keeps it busy until it is power-cycled (measured on an Allegro 2: interpreter_busy for
     minutes after a truncated image download, cleared by a power cycle). The job cannot be
-    resumed from here, since the printer reports nothing about how much it took.
+    resumed from here, since the printer reports nothing about how much it took. Any failure
+    while writing a job gets this advice, a timeout, a reset or a pulled cable alike: each can
+    cut the job off part way.
 
     Args:
-        written: Bytes of the job written before the write stopped.
+        written: Bytes of the job known to have been written before the write failed: whole
+            pieces, so part of the failing piece may have gone too.
         size: Bytes in the whole job.
 
     Example:
-        >>> truncated_job_advice(written=0, size=4096)
-        ''
-        >>> truncated_job_advice(written=2048, size=4096)
-        '2048 of 4096 bytes were written, so the printer may be waiting for the rest of the job: power-cycle it'
+        >>> truncated_job_advice(written=0, size=4096).split(", so ")
+        ['the job may have been partly written', 'the printer may be waiting for the rest of it: power-cycle it']
+        >>> truncated_job_advice(written=2048, size=4096).split(", so ")[0]
+        'at least 2048 of 4096 bytes were written'
     """
     if not written:
-        return ""
+        return "the job may have been partly written, so the printer may be waiting for the rest of it: power-cycle it"
     return (
-        f"{written} of {size} bytes were written, so the printer may be waiting for the rest of the job: power-cycle it"
+        f"at least {written} of {size} bytes were written, "
+        "so the printer may be waiting for the rest of the job: power-cycle it"
     )
 
 
