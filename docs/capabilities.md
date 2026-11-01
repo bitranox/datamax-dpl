@@ -113,7 +113,10 @@ Allegro 2), and none on the Prodigy and Prodigy Plus, whose modules A and B are 
 `C` is the printer's default module on every model, and `datamax-dpl capabilities MODEL` shows the
 model's own as `image_module`. On a model without a built-in module a job that downloads an image
 is refused (`image_module_unknown`) until `image_module` names the module fitted; a job that only
-places stored images is not. Only module A has been seen on a printer (an Allegro 2).
+places stored images is not. Only module A has been seen on a printer (an Allegro 2). On a two-way
+link `print` and `verify` refuse a job that downloads into `C` before sending anything
+(`image_module_unlisted`): no directory lists the default module by that letter, so the check that
+the images arrived could never pass.
 
 A format holds only so many dot rows along the feed: the Allegro 2 cuts a longer one off. The
 "Max format rows" column of the Limits table gives that limit where one is known, counted as the
@@ -182,6 +185,7 @@ are stable; `tests/test_capabilities_doc.py` keeps this table in step with `Find
 | `image_halved`                         | warning, error under strict                                   | Past the image memory budget, or in round 3 of the upload check (`print`, `verify`); every image but a QR Code is sent at half resolution and printed at double magnification. Unverified on paper.                                                        |
 | `image_memory_exceeded`                | error                                                         | The image downloads hold more than the budget under strict, or still after one halving; or an image whose doubled magnification would pass 9.                                                                                                              |
 | `image_module_unknown`                 | error                                                         | The model has no built-in memory module (Prodigy, Prodigy Plus) and no `image_module` is set; a job that downloads an image (given, QR Code, raster fallback, emulated transparency) is refused.                                                           |
+| `image_module_unlisted`                | error                                                         | `print`, `verify` on a two-way link with `image_module` `C`: no directory lists the default module by that letter, so the upload check could never pass; refused before anything is sent. Set a module letter the printer lists, or use a one-way link.    |
 | `image_must_be_stored`                 | info                                                          | An image without a bitmap, whose name no other image of the label downloads, must already be stored on the printer.                                                                                                                                        |
 | `image_name_held`                      | `held_image_severity` (warning by default)                    | No clear runs before the label's downloads, and the printer's directory lists a name the label downloads; that download is left out and the label prints the image the printer holds.                                                                      |
 | `image_names_unread`                   | `held_image_severity` (warning by default)                    | No clear runs before the label's downloads and the printer's stored image names are unknown (an offline render, a one-way link, the default module C, or the read failed); every image is downloaded, and a name the printer already holds prints nothing. |

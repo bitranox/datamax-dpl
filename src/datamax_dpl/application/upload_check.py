@@ -19,6 +19,10 @@ Still missing: the label is refused (``image_upload_refused``), its format is ne
 after it is sent, and the module is cleared again where a clear may go. Each round after the
 first adds an ``image_upload_retried`` finding saying what it did and what the printer then listed.
 
+A job whose images go to module C, the printer's default module, which no directory lists under
+that letter, is refused before anything is sent (``image_module_unlisted``): the check could never
+pass, and the format may not go out before it has.
+
 In a batch each label is checked on its own, and a label rendered again (with the module known
 empty after a clear, or halved) passes what the printer then holds on to the next label.
 """
@@ -32,7 +36,8 @@ from ..domain.batch import with_cut
 from ..domain.enums import FindingCode, Severity
 from ..domain.errors import LabelRejectedError
 from ..domain.findings import Finding
-from ..domain.held_images import EMPTY_MODULE, HeldImages
+from ..domain.held_images import DEFAULT_MODULE, EMPTY_MODULE, HeldImages
+from ..domain.profiles import get_profile
 from .use_cases import AnswerWait, BatchResult, read_stored_names
 
 if TYPE_CHECKING:
@@ -83,6 +88,10 @@ class CheckedPrint(NamedTuple):
 class CheckedJob(NamedTuple):
     """A job to send with its upload check, and how to render each of its labels again.
 
+    The renders and the job they rebuild are rendered with the same options; with
+    ``model_image_budget`` False, as ``print`` and ``verify`` render for a two-way link, the images
+    go at full size and the check, not the model's budget, decides whether they are halved.
+
     Attributes:
         renders: One render per label, in the order they are sent (``record_renders``).
         check: How the upload is checked.
@@ -96,7 +105,7 @@ class CheckedJob(NamedTuple):
 
 
 class UploadRefusedError(LabelRejectedError):
-    """The printer did not list a label's images after every round; that label's format was never sent.
+    """The printer did not list a label's images after every round, or never could; that label's format was never sent.
 
     Attributes:
         result: The job as far as it went, the refused label's ``image_upload_refused`` included.
@@ -107,7 +116,13 @@ class UploadRefusedError(LabelRejectedError):
     def __init__(self, result: RenderResult | BatchResult, *, bytes_sent: int) -> None:
         """Keep the job as far as it went and the bytes it wrote."""
         errors = tuple(f for f in _all_findings(result) if f.severity is Severity.ERROR)
-        super().__init__("the printer did not store a label's images; its format was not sent", errors)
+        unlisted = any(f.code is FindingCode.IMAGE_MODULE_UNLISTED for f in errors)
+        message = (
+            "no directory lists module C, so a label's images could not be checked; nothing was sent"
+            if unlisted
+            else "the printer did not store a label's images; its format was not sent"
+        )
+        super().__init__(message, errors)
         self.result = result
         self.bytes_sent = bytes_sent
 
@@ -281,6 +296,27 @@ def _check_label(record: _Record) -> bool:
     return True
 
 
+def _unlisted_module(result: RenderResult) -> RenderResult | None:
+    """The label refused with ``image_module_unlisted`` when it downloads into a module no directory lists.
+
+    None for a label that downloads nothing, or whose module a directory lists.
+    """
+    if not result.downloads or result.image_module != DEFAULT_MODULE:
+        return None
+    built_in = get_profile(result.model).image_module
+    letter = f" (module {built_in} on the {result.model})" if built_in else ""
+    refusal = Finding(
+        code=FindingCode.IMAGE_MODULE_UNLISTED,
+        severity=Severity.ERROR,
+        message=(
+            f"image_module {DEFAULT_MODULE} is the printer's default module, which no directory lists by that "
+            "letter, so the upload check can never see the images; nothing was sent. Set image_module to a "
+            f"module letter the printer lists{letter}, or print over a one-way link"
+        ),
+    )
+    return result.model_copy(update={"findings": (*result.findings, refusal)})
+
+
 def _send_labels(link: Link, job: CheckedJob, *, cuts: Sequence[bool]) -> tuple[list[RenderResult], bool]:
     """Send each label of ``job`` in turn, with a batch cut after each label ``cuts`` marks.
 
@@ -293,6 +329,9 @@ def _send_labels(link: Link, job: CheckedJob, *, cuts: Sequence[bool]) -> tuple[
         record = _Record(render=render, held=held, link=link, check=job.check)
         if not record.result.ok:
             sent.append(record.result)
+            return sent, False
+        if (unlisted := _unlisted_module(record.result)) is not None:
+            sent.append(unlisted)
             return sent, False
         if record.result.downloads and not _check_label(record):
             sent.append(record.as_sent())
@@ -326,7 +365,14 @@ def send_checked(
     """
     if not isinstance(result, BatchResult):
         return send_checked_label(link, job)
-    sent, done = _send_labels(link, job, cuts=result.cut_after or (False,) * len(result.results))
+    # Refused before the first record goes out: a record that downloads nothing would print, and
+    # the check of the first one that downloads could never pass.
+    for index, record in enumerate(result.results):
+        if (unlisted := _unlisted_module(record)) is not None:
+            sent, done = [*result.results[:index], unlisted], False
+            break
+    else:
+        sent, done = _send_labels(link, job, cuts=result.cut_after or (False,) * len(result.results))
     batch = BatchResult(
         data=b"",
         results=(*sent, *result.results[len(sent) :]),
@@ -346,7 +392,8 @@ def print_checked(
     Raises:
         LabelRejectedError: The job has an error finding; nothing was sent.
         UploadRefusedError: A label's images were still not listed after every round; its format
-            and everything after it were not sent.
+            and everything after it were not sent. Or the job downloads into module C, which no
+            directory lists (``image_module_unlisted``); nothing was sent.
         TransportError: The printer could not be reached or written.
     """
     if not result.ok:

@@ -246,7 +246,10 @@ options = []
 #          DMX 600/800 (there A and B are plug-in modules and D is non-volatile).
 #          The Prodigy and Prodigy Plus have no built-in module: a job that
 #          downloads an image is refused (image_module_unknown) until this names
-#          the module fitted. C is the printer's default module on every model.
+#          the module fitted. C is the printer's default module on every model;
+#          'print' and 'verify' on a two-way link refuse a job that downloads into
+#          it before sending anything (image_module_unlisted), since no directory
+#          lists it by that letter.
 #          `datamax-dpl capabilities MODEL` shows the model's module. Only the
 #          model's built-in RAM is ever cleared (<STX>q): another module may be
 #          flash, which every clear wears (graphics_clear_skipped).

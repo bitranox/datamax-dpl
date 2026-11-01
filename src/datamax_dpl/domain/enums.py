@@ -297,6 +297,7 @@ class FindingCode(str, Enum):
     IMAGE_HALVED = "image_halved"
     IMAGE_MEMORY_EXCEEDED = "image_memory_exceeded"
     IMAGE_MODULE_UNKNOWN = "image_module_unknown"
+    IMAGE_MODULE_UNLISTED = "image_module_unlisted"
     IMAGE_MUST_BE_STORED = "image_must_be_stored"
     IMAGE_NAME_HELD = "image_name_held"
     IMAGE_NAMES_UNREAD = "image_names_unread"

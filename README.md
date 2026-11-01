@@ -379,7 +379,8 @@ stored image names. On a two-way link both send a label's image downloads first 
 once the printer lists every one of them, clearing and uploading again, then uploading the images
 halved, before refusing the label (`[printer] upload_check_rounds`, see [CONFIG.md](CONFIG.md)).
 There the model's own image memory budget is left out, so images `validate` reports halved go at
-full size unless the printer did not store them (`image_budget_skipped`).
+full size unless the printer did not store them (`image_budget_skipped`), and a job whose images go
+to the default module `C`, which no directory lists, is refused before anything is sent.
 It does not judge the photo; a person, or an LLM given both pictures, compares them.
 This loop has only run against a simulated printer and camera so far.
 

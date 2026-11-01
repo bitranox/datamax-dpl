@@ -26,6 +26,7 @@ from datamax_dpl.composition import build_production
 from datamax_dpl.domain.camera import CameraKind, CameraSettings, CapturedImage
 from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, MediaType, Severity
 from datamax_dpl.domain.errors import LabelRejectedError, TransportError
+from datamax_dpl.domain.held_images import HeldImages
 from datamax_dpl.domain.label import Image, Label, Qr
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.render import RenderResult
@@ -490,6 +491,65 @@ def test_a_job_the_model_budget_is_left_out_of_still_halves_in_round_3_when_the_
     assert "did not store the job's images at full size" in _message(result, FindingCode.IMAGE_HALVED)
 
 
+# ======================== a module no directory lists ========================
+
+
+@pytest.mark.os_agnostic
+def test_a_two_way_print_to_module_c_is_refused_at_once_with_nothing_sent_and_no_read() -> None:
+    options = RenderOptions(model="allegro-2", image_module=ImageModule.C)
+    assert render_label(Label(elements=[LOGO]), options).ok
+
+    printer, refused = _refused(ImageModules(), Label(elements=[LOGO]), options)
+
+    assert printer.sent == []
+    assert printer.queries == []
+    assert refused.bytes_sent == 0
+    assert "no directory lists module C" in str(refused)
+    result = _single(refused.result)
+    [error] = result.errors
+    assert error.code is FindingCode.IMAGE_MODULE_UNLISTED
+    assert "image_module C" in error.message
+    assert "module A" in error.message
+    assert "one-way link" in error.message
+    assert FindingCode.IMAGE_UPLOAD_RETRIED not in _codes(result)
+
+
+@pytest.mark.os_agnostic
+def test_a_two_way_batch_to_module_c_sends_not_even_the_records_before_the_first_download() -> None:
+    label = Label(elements=[Qr(x=5, y=5, data="{code}")])
+    options = RenderOptions(
+        model="allegro-2",
+        image_module=ImageModule.C,
+        clear_graphics_before_label=False,
+        clear_graphics_after_label=False,
+    )
+    records = [{"code": "ONE"}, {"code": "TWO"}]
+    [first] = render_label(Label(elements=[Qr(x=5, y=5, data="ONE")]), options).downloads
+    held = HeldImages(listed=frozenset({first}))
+    result = render_batch(label, records, options, held=held)
+    assert [len(r.downloads) for r in result.results] == [0, 1]
+    job = CheckedJob(renders=record_renders(label, records, options), check=_check(), held=held)
+    printer = ModulePrinter(ImageModules())
+
+    with pytest.raises(UploadRefusedError) as caught:
+        print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+
+    assert printer.sent == []
+    assert caught.value.bytes_sent == 0
+    assert [f.code for f in caught.value.findings] == [FindingCode.IMAGE_MODULE_UNLISTED]
+
+
+@pytest.mark.os_agnostic
+def test_a_one_way_channel_sends_a_module_c_job_whole_as_before() -> None:
+    options = RenderOptions(model="allegro-2", image_module=ImageModule.C)
+    printer = RecordingPrinter(bidirectional=False)
+    result, job = _job(Label(elements=[LOGO]), options, None, 3)
+
+    print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+
+    assert printer.sent == [result.data]
+
+
 # ======================== the CLI over a real channel ========================
 
 
@@ -599,6 +659,24 @@ def test_print_to_a_file_keeps_the_model_budget_and_halves_images_past_it(
 
     assert result.exit_code == 0, result.output
     assert target.read_bytes() == render_label(Label(elements=[BIG]), ALLEGRO).data
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.usefixtures("no_ambient_configuration")
+def test_print_over_tcp_to_module_c_is_refused_with_nothing_sent(
+    cli_runner: CliRunner, tmp_path: Path, serve: Callable[[Play], PrinterServer]
+) -> None:
+    server = serve(module_printer(ImageModules()))
+    args = ["--json", "print", _label_file(tmp_path), "--model", "allegro-2", "--printer", server.address]
+
+    result = _run(cli_runner, args, DATAMAX_DPL___PRINTER__IMAGE_MODULE="C")
+    server.join()
+
+    assert result.exit_code == 1, result.output
+    assert STX + b"I" not in bytes(server.received)
+    assert FORMAT not in bytes(server.received)
+    errors = [f for f in json.loads(result.stdout)["data"]["findings"] if f["severity"] == "error"]
+    assert [finding["code"] for finding in errors] == ["image_module_unlisted"]
 
 
 # ======================== what the domain hands the sender ========================
