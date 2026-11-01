@@ -55,6 +55,10 @@ def _holds_bytes(annotation: object) -> bool:
 
 def _package_models() -> list[type[BaseModel]]:
     for module in pkgutil.walk_packages(datamax_dpl.__path__, f"{datamax_dpl.__name__}."):
+        # __main__ defines no model, and importing it here makes the runpy tests of it warn that
+        # it is already in sys.modules (tests/test_module_entry.py).
+        if module.name.endswith(".__main__"):
+            continue
         importlib.import_module(module.name)
     seen: list[type[BaseModel]] = []
     pending: list[type[BaseModel]] = list(BaseModel.__subclasses__())
