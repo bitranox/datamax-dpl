@@ -10,6 +10,7 @@ module directory (``<STX>W``), which the application reads; the domain only weig
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -50,6 +51,9 @@ class HeldImages:
             with the next salt instead, as for a name in ``sent``; the printer's own picture under
             the name stays unknown.
 
+    ``sent`` and ``placed`` are read-only copies of the mappings given, so a value stays what it
+    was made with, however the caller's dict changes afterwards.
+
     Example:
         >>> HeldImages(listed=frozenset({"LOGO"})).holds("LOGO"), HeldImages().holds("LOGO")
         (True, False)
@@ -60,6 +64,13 @@ class HeldImages:
     # Left out of the hash, which a dict has none of; equal values still hash alike.
     sent: Mapping[str, bytes] = field(default_factory=_no_commands, hash=False)
     placed: Mapping[str, bytes] = field(default_factory=_no_commands, hash=False)
+
+    def __post_init__(self) -> None:
+        """Hold ``sent`` and ``placed`` as read-only copies."""
+        # Frozen stops rebinding a field, not changing the dict it holds; a copy behind a proxy
+        # stops both the caller's dict and any reader from changing what a batch carries along.
+        object.__setattr__(self, "sent", MappingProxyType(dict(self.sent)))
+        object.__setattr__(self, "placed", MappingProxyType(dict(self.placed)))
 
     def holds(self, name: str) -> bool:
         """Return True when the printer is known to hold ``name`` in the module.

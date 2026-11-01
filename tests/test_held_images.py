@@ -453,6 +453,29 @@ def test_a_prodigy_batch_keeps_a_held_name_it_never_removed() -> None:
     assert STX + b"R" not in batch.data
 
 
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("field", ["sent", "placed"])
+def test_the_commands_a_held_images_value_carries_cannot_be_changed(field: str) -> None:
+    given = {"D1": b"one"}
+    held = HeldImages(sent=given) if field == "sent" else HeldImages(placed=given)
+    given["D2"] = b"two"
+    commands = getattr(held, field)
+    assert dict(commands) == {"D1": b"one"}
+    with pytest.raises(TypeError):
+        commands["D3"] = b"three"
+
+
+@pytest.mark.os_agnostic
+def test_held_images_values_compare_and_hash_by_what_they_hold() -> None:
+    first = HeldImages(listed=frozenset({"X"}), sent={"D1": b"x"}, placed={"D2": b"y"})
+    same = HeldImages(listed=frozenset({"X"}), sent={"D1": b"x"}, placed={"D2": b"y"})
+    other = HeldImages(listed=frozenset({"X"}), sent={"D1": b"z"}, placed={"D2": b"y"})
+    assert first == same
+    assert hash(first) == hash(same)
+    assert first != other
+    assert {first, same, other} == {first, other}
+
+
 # ======================== a stored-only image ========================
 
 
