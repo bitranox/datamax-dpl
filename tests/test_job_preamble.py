@@ -28,11 +28,16 @@ from datamax_dpl.domain.enums import (
 )
 from datamax_dpl.domain.label import Cut, Image, Label, Qr, ScalableText, Text
 from datamax_dpl.domain.profiles import PROFILES, get_profile
+from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.render import RenderResult, build_job
-from datamax_dpl.domain.render_context import RenderOptions
+from datamax_dpl.domain.render_context import RenderOptions, drawn_image_name
 
 STX = b"\x02"
 _BITMAP = ["#.#.#.#.", ".#.#.#.#"]
+_ICON_BITMAP = ["##..##..", "..##..##"]
+#: The printer names the two bitmaps download under: their content names.
+_LOGO = drawn_image_name(Bitmap.from_rows(_BITMAP)).encode("ascii")
+_ICON = drawn_image_name(Bitmap.from_rows(_ICON_BITMAP)).encode("ascii")
 
 
 def _text_label(**fields: object) -> Label:
@@ -369,7 +374,7 @@ def test_a_configured_plug_in_module_is_never_cleared_and_says_so_once() -> None
 
 def test_a_prodigy_removes_each_name_it_downloads_before_the_download_and_after_the_format() -> None:
     data = _job(_image_label(), model="prodigy", image_module=ImageModule.B).data
-    remove = STX + b"RLOGO\r"
+    remove = STX + b"R" + _LOGO + b"\r"
     assert data.count(remove) == 2
     assert data.index(remove) < data.index(STX + b"IB")
     assert data.endswith(b"E\r" + remove)
@@ -377,40 +382,39 @@ def test_a_prodigy_removes_each_name_it_downloads_before_the_download_and_after_
 
 
 def test_a_prodigy_removes_each_of_two_names_before_its_download_and_both_after_the_format() -> None:
-    label = Label(elements=[Image(x=1, y=1, name="LOGO", bitmap=_BITMAP), Image(x=1, y=9, name="ICON", bitmap=_BITMAP)])
+    label = Label(
+        elements=[Image(x=1, y=1, name="LOGO", bitmap=_BITMAP), Image(x=1, y=9, name="ICON", bitmap=_ICON_BITMAP)]
+    )
     data = _job(label, model="prodigy", image_module=ImageModule.B).data
     head = data[: data.index(STX + b"L\r")]
-    order = re.findall(rb"\x02R[A-Z]+\r|\x02IBAF[A-Z]+\r", head)
-    assert order == [STX + b"RLOGO\r", STX + b"IBAFLOGO\r", STX + b"RICON\r", STX + b"IBAFICON\r"]
-    assert data.endswith(b"E\r" + STX + b"RLOGO\r" + STX + b"RICON\r")
+    order = re.findall(rb"\x02R[0-9A-Z]+\r|\x02IBAF[0-9A-Z]+\r", head)
+    assert order == [
+        STX + b"R" + _LOGO + b"\r",
+        STX + b"IBAF" + _LOGO + b"\r",
+        STX + b"R" + _ICON + b"\r",
+        STX + b"IBAF" + _ICON + b"\r",
+    ]
+    assert data.endswith(b"E\r" + STX + b"R" + _LOGO + b"\r" + STX + b"R" + _ICON + b"\r")
 
 
 @pytest.mark.parametrize("name", ["Y", "N"])
 @pytest.mark.parametrize("policy", list(FallbackPolicy))
-def test_a_prodigy_refuses_an_image_name_its_ribbon_saver_command_would_read(name: str, policy: FallbackPolicy) -> None:
+def test_a_prodigy_image_named_like_the_ribbon_saver_is_removed_by_its_content_name(
+    name: str, policy: FallbackPolicy
+) -> None:
+    """``<STX>RY``/``<STX>RN`` switch the ribbon saver (manual p.36); the remove names the content name instead."""
     label = Label(elements=[Image(x=1, y=1, name=name, bitmap=_BITMAP)])
     result = _job(label, model="prodigy", image_module=ImageModule.B, policy=policy)
-    assert _finding(result, FindingCode.IMAGE_NAME_RESERVED) == [Severity.ERROR]
+    assert result.ok, result.findings
     assert STX + b"R" + name.encode() + b"\r" not in result.data
-
-
-@pytest.mark.parametrize("name", ["NAME", "YARD"])
-def test_a_prodigy_keeps_a_name_that_only_starts_with_y_or_n(name: str) -> None:
-    label = Label(elements=[Image(x=1, y=1, name=name, bitmap=_BITMAP)])
-    result = _job(label, model="prodigy", image_module=ImageModule.B)
-    assert FindingCode.IMAGE_NAME_RESERVED not in _codes(result)
-
-
-def test_a_model_that_clears_its_module_keeps_an_image_named_n() -> None:
-    result = _job(Label(elements=[Image(x=1, y=1, name="N", bitmap=_BITMAP)]), model="allegro-2")
-    assert FindingCode.IMAGE_NAME_RESERVED not in _codes(result)
+    assert result.data.count(STX + b"R" + _LOGO + b"\r") == 2
 
 
 def test_a_prodigy_plus_has_no_ram_module_so_it_never_clears_and_never_removes_by_name() -> None:
     data = _job(_image_label(), model="prodigy-plus", image_module=ImageModule.B).data
     assert STX + b"q" not in data
-    assert STX + b"RLOGO" not in data
-    assert STX + b"IBAFLOGO\r" in data
+    assert STX + b"R" not in data
+    assert STX + b"IBAF" + _LOGO + b"\r" in data
 
 
 def test_a_prodigy_label_without_images_removes_nothing() -> None:
@@ -422,7 +426,7 @@ def test_a_prodigy_label_without_images_removes_nothing() -> None:
 def test_permissive_clears_the_module_and_never_removes_by_name() -> None:
     data = _job(_image_label(), model="permissive").data
     assert data.count(STX + b"qA") == 2
-    assert STX + b"RLOGO" not in data
+    assert STX + b"R" not in data
 
 
 def test_a_model_that_can_clear_nothing_reports_it_only_for_a_label_that_downloads() -> None:
@@ -459,7 +463,7 @@ def test_the_decoder_reads_every_command_of_a_prodigy_job() -> None:
     data = _job(_image_label(), model="prodigy", image_module=ImageModule.B, cutter_installed=True).data
     commands = explain(data).commands
     assert all(command.kind is not CommandKind.UNKNOWN for command in commands)
-    assert [command.raw for command in commands].count("<STX>RLOGO<CR>") == 2
+    assert [command.raw for command in commands].count(f"<STX>R{_LOGO.decode()}<CR>") == 2
 
 
 # ======================== Batch ========================

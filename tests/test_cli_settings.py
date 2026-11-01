@@ -24,6 +24,8 @@ from datamax_dpl.adapters.memory import RecordingPrinter
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.enums import ImageModule, Severity
 from datamax_dpl.domain.errors import ConfigurationError
+from datamax_dpl.domain.raster import Bitmap
+from datamax_dpl.domain.render_context import drawn_image_name
 from datamax_dpl.domain.timing import MAX_SEND_CHUNK_BYTES, MAX_TIMEOUT_SECONDS, SEND_CHUNK_BYTES, TransportTuning
 
 if TYPE_CHECKING:
@@ -37,6 +39,8 @@ if TYPE_CHECKING:
 _CALIBRATION_KEYS = ("scale_across", "scale_along", "offset_across", "offset_along")
 _LINE = {"elements": [{"type": "line", "x": 10, "y": 10, "x2": 10, "y2": 110, "thickness": 0.5}]}
 _LOGO = {"elements": [{"type": "image", "x": 1, "y": 1, "name": "LOGO", "bitmap": ["#......#"] * 8}]}
+#: The printer name LOGO's bitmap is downloaded under: its content name.
+_LOGO_SENT = drawn_image_name(Bitmap.from_rows(["#......#"] * 8))
 
 
 def _options(config: dict[str, Any], printer: str | None = None) -> RenderOptions:
@@ -398,7 +402,7 @@ def test_a_configured_image_module_lets_a_prodigy_download_its_image(
 
     dpl = _render(cli_runner, factory, tmp_path, label=_LOGO, model="prodigy")
 
-    assert "<STX>IBAFLOGO" in dpl
+    assert f"<STX>IBAF{_LOGO_SENT}" in dpl
 
 
 @pytest.mark.os_agnostic
@@ -424,8 +428,8 @@ def test_a_set_override_of_the_image_module_wins_over_the_models(
     plain = _render(cli_runner, config_cli_context({}), tmp_path, label=_LOGO)
     moved = _render(cli_runner, config_cli_context({}), tmp_path, "--set", "printer.image_module=C", label=_LOGO)
 
-    assert "<STX>IEAFLOGO" in plain
-    assert "<STX>ICAFLOGO" in moved
+    assert f"<STX>IEAF{_LOGO_SENT}" in plain
+    assert f"<STX>ICAF{_LOGO_SENT}" in moved
 
 
 _LONG_LINE = {"elements": [{"type": "line", "x": 5, "y": 2, "x2": 5, "y2": 215, "thickness": 0.5}]}

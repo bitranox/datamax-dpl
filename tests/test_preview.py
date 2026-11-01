@@ -18,7 +18,7 @@ from datamax_dpl.domain.preview import canvas_for, mask_area, preview_bitmap, te
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.render import build_job, job_context
-from datamax_dpl.domain.render_context import RenderOptions
+from datamax_dpl.domain.render_context import RenderOptions, drawn_image_name
 from datamax_dpl.domain.symbology import Symbology
 from datamax_dpl.domain.units import MM_PER_INCH, Axis, DplUnit
 
@@ -419,6 +419,23 @@ def test_a_stored_reference_to_a_name_the_job_downloads_draws_that_image(stored_
     expected = black_set(Bitmap.from_rows(LOGO_ROWS))
     assert picture_at(picture, canvas.point(2, 2), size=16) == expected
     assert picture_at(picture, canvas.point(40, 2), size=16) == expected
+
+
+@pytest.mark.os_agnostic
+def test_two_images_of_one_name_with_different_bitmaps_each_draw_their_own() -> None:
+    """Each goes to the printer under its own content name, so each prints its own bitmap."""
+    other_rows = ["#" * 16] * 2 + ["." * 16] * 14
+    first = Image(x=2, y=2, name="LOGO", bitmap=LOGO_ROWS)
+    second = Image(x=40, y=2, name="LOGO", bitmap=other_rows)
+    label = Label(unit=Unit.MM, width=80, height=30, elements=[first, second])
+    profile = get_profile(MODEL)
+    canvas = canvas_for(label, profile)
+    picture = preview_bitmap(label, profile)
+    assert build_job(label, RenderOptions(model=MODEL)).downloads == tuple(
+        drawn_image_name(Bitmap.from_rows(rows)) for rows in (LOGO_ROWS, other_rows)
+    )
+    assert picture_at(picture, canvas.point(2, 2), size=16) == black_set(Bitmap.from_rows(LOGO_ROWS))
+    assert picture_at(picture, canvas.point(40, 2), size=16) == black_set(Bitmap.from_rows(other_rows))
 
 
 @pytest.mark.os_agnostic

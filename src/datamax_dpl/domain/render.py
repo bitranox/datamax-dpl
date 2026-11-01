@@ -220,11 +220,21 @@ def _bitmap_rows(label: Label) -> dict[str, tuple[str, ...]]:
     return rows
 
 
+def _stored_names(label: Label, bitmap_rows: dict[str, tuple[str, ...]]) -> frozenset[str]:
+    """Return the names of the label's images only the printer holds: no element of it downloads them."""
+    return frozenset(
+        element.name
+        for element in label.elements
+        if isinstance(element, Image) and element.bitmap is None and element.name not in bitmap_rows
+    )
+
+
 def _context(label: Label, options: RenderOptions, *, halve: bool, held: HeldImages) -> RenderContext:
     profile = get_profile(options.model)
     findings = FindingCollector(options.policy)
     calibration = _resolve(options, profile.calibration)
     from_model = _model_defaults_used(options, calibration)
+    bitmap_rows = _bitmap_rows(label)
     probe = RenderContext(
         profile=profile,
         firmware=parse_firmware(options.firmware),
@@ -244,8 +254,8 @@ def _context(label: Label, options: RenderOptions, *, halve: bool, held: HeldIma
         model_offset_axes=frozenset(axis for axis in Axis if f"offset_{axis.value}" in from_model),
         stop_position_mm=calibration.stop_position_mm,
         cutter_stop_position_mm=options.cutter_stop_position_mm,
-        reserved_image_names=frozenset(e.name for e in label.elements if isinstance(e, Image)),
-        bitmap_rows=_bitmap_rows(label),
+        reserved_image_names=_stored_names(label, bitmap_rows),
+        bitmap_rows=bitmap_rows,
         halve_images=halve,
         held_images=held,
         held_image_severity=options.held_image_severity,

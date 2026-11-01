@@ -20,7 +20,7 @@ from datamax_dpl.domain.preview import canvas_for, preview_bitmap
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.render import RenderResult, build_job, job_context, render
-from datamax_dpl.domain.render_context import RenderOptions
+from datamax_dpl.domain.render_context import RenderOptions, drawn_image_name
 
 if TYPE_CHECKING:
     from datamax_dpl.domain.findings import Finding
@@ -200,6 +200,8 @@ def _record_black_dots(record: Element) -> int:
 STX = b"\x02"
 #: 40 x 20 dots, a checkerboard of 2-dot squares; the box below covers its edge.
 CHECKER = ["".join("#" if (x // 2 + y // 2) % 2 else "." for x in range(40)) for y in range(20)]
+#: The printer name LOGO's checkerboard downloads under on its own: its content name.
+LOGO_SENT = drawn_image_name(Bitmap.from_rows(CHECKER))
 LOGO = {"type": "image", "x": 10, "y": 10, "name": "LOGO", "bitmap": CHECKER}
 FRAME = {"type": "box", "x": 10, "y": 10, "width": 40, "height": 20, "thickness": 2}
 NOTE = {"type": "text", "x": 12, "y": 24, "text": "HI", "font": 1}
@@ -256,7 +258,7 @@ def frame_over_checker(*, mode: CombineMode = CombineMode.OR) -> Bitmap:
 def test_a_box_over_an_image_prints_as_one_downloaded_image_holding_both() -> None:
     result = build_job(transparent(LOGO, FRAME), ALLEGRO_2)
     [name] = result.downloads
-    assert name != "LOGO"
+    assert name not in ("LOGO", LOGO_SENT)
     assert format_records(result.data) == [f"1Y1100000050005{name}".encode("ascii")]
     assert black_set(downloaded(result.data, name), width=40) == black_set(frame_over_checker())
     assert result.emulated_groups == ((0, 1),)
@@ -301,7 +303,7 @@ def test_strict_refuses_an_emulated_transparency() -> None:
 def test_a_model_with_the_attribute_command_gets_a2_and_no_merge() -> None:
     result = build_job(transparent(LOGO, FRAME), RenderOptions(model="dmx-600"))
     assert b"\rA2\r" in result.data
-    assert result.downloads == ("LOGO",)
+    assert result.downloads == (LOGO_SENT,)
     assert result.emulated_groups == ()
     assert [record[:2] for record in format_records(result.data)] == [b"1Y", b"1X"]
 
@@ -310,8 +312,11 @@ def test_a_model_with_the_attribute_command_gets_a2_and_no_merge() -> None:
 @pytest.mark.parametrize("attribute", [None, 1, 3])
 def test_without_transparency_the_allegro_2_job_is_unchanged(attribute: int | None) -> None:
     result = build_job(transparent(LOGO, FRAME, attribute=attribute), ALLEGRO_2)
-    assert result.downloads == ("LOGO",)
-    assert format_records(result.data) == [b"1Y1100000050005LOGO", b"1X1100000050005B020010001001"]
+    assert result.downloads == (LOGO_SENT,)
+    assert format_records(result.data) == [
+        f"1Y1100000050005{LOGO_SENT}".encode("ascii"),
+        b"1X1100000050005B020010001001",
+    ]
     assert result.emulated_groups == ()
     transparency = {c for c in codes(result) if c.value.startswith("transparency")}
     assert transparency == set()
@@ -398,18 +403,18 @@ def test_a_member_image_past_the_print_width_is_refused_once() -> None:
 
 
 @pytest.mark.os_agnostic
-def test_a_merged_image_another_field_places_by_name_is_still_downloaded() -> None:
+def test_a_stored_reference_outside_a_group_still_downloads_the_merged_image_s_bitmap() -> None:
     stored = {"type": "image", "x": 300, "y": 10, "name": "LOGO"}
     result = build_job(transparent(LOGO, FRAME, stored), ALLEGRO_2)
     assert result.emulated_groups == ((0, 1),)
-    assert "LOGO" in result.downloads
-    assert format_records(result.data)[-1] == b"1Y1100000050150LOGO"
+    assert LOGO_SENT in result.downloads
+    assert format_records(result.data)[-1] == f"1Y1100000050150{LOGO_SENT}".encode("ascii")
 
 
 @pytest.mark.os_agnostic
 def test_a_stored_reference_to_a_downloaded_name_merges_as_that_image() -> None:
     """The stored LOGO over APART prints LOGO's dots, so it merges like LOGO over FRAME: the same
-    content-named image twice. Nothing places LOGO by name any more, so LOGO is not downloaded."""
+    content-named image twice. Nothing places LOGO's own bitmap, so it is not downloaded."""
     stored = {"type": "image", "x": 200, "y": 10, "name": "LOGO"}
     result = build_job(transparent(LOGO, FRAME, stored, APART), ALLEGRO_2)
     assert result.emulated_groups == ((0, 1), (2, 3))

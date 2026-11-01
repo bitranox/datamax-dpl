@@ -148,34 +148,18 @@ def _merge(members: list[PrintedDots]) -> _Merged:
     return _Merged(bitmap=bitmap, column=column, row=row)
 
 
-def _keep_named_downloads(label: Label, group: tuple[int, ...], ctx: RenderContext, *, grouped: frozenset[int]) -> None:
-    """Still download a merged image under its own name when a field merged into no group places that name.
-
-    A field merged into another group places nothing by name: its dots are drawn into that
-    group's image, a stored-only reference too (as the image the job downloads under its name).
-    """
-    for index in group:
-        element = label.elements[index]
-        if not isinstance(element, Image) or element.bitmap is None:
-            continue
-        if any(
-            isinstance(other, Image) and other.name == element.name
-            for position, other in enumerate(label.elements)
-            if position not in grouped
-        ):
-            encode_image(element, index=index, ctx=ctx)
-
-
 def _bytes_sent(placed: PlacedImage, ctx: RenderContext) -> int:
     return next(download.data_bytes for download in ctx.downloads if download.name == placed.name)
 
 
-def _emulate_group(label: Label, group: tuple[int, ...], ctx: RenderContext, *, grouped: frozenset[int]) -> list[bytes]:
+def _emulate_group(label: Label, group: tuple[int, ...], ctx: RenderContext) -> list[bytes]:
     """Draw ``group`` into one downloaded image and return its placing line; nothing when it is refused.
 
     The merged image is a drawn image like a raster fallback: one that ends past the print width
     is refused (``image_past_print_width``, also when it holds a QR Code), unless a member is
-    already refused for the print width, which says why.
+    already refused for the print width, which says why. A merged ``image`` element downloads
+    nothing of its own: a stored-only reference to its name outside the group queues that
+    bitmap's download itself (:meth:`~datamax_dpl.domain.render_context.RenderContext.place_stored_image`).
     """
     refused = _member_findings(label.elements, group, ctx)
     members = [printed_dots(label.elements[index], ctx) for index in group]
@@ -188,7 +172,6 @@ def _emulate_group(label: Label, group: tuple[int, ...], ctx: RenderContext, *, 
         what=f"merged image of elements {', '.join(map(str, group))}",
     )
     placed = ctx.download_drawn_image(merged.bitmap, element=first, edge=edge, halvable=halvable)
-    _keep_named_downloads(label, group, ctx, grouped=grouped)
     if placed is None:
         return []
     if placed.magnification != 1:
@@ -241,7 +224,7 @@ def emulate_transparency(label: Label, ctx: RenderContext) -> Emulation:
         )
         return Emulation()
     grouped = frozenset(index for group in report.groups for index in group)
-    placed = {group[0]: _emulate_group(label, group, ctx, grouped=grouped) for group in report.groups}
+    placed = {group[0]: _emulate_group(label, group, ctx) for group in report.groups}
     _report_inexact(label, report.inexact, ctx)
     return Emulation(placed=placed, merged=grouped)
 

@@ -352,15 +352,24 @@ described in the Datamax manual and is passed through as written.
 | Key             | Type                      | Meaning                                                                                       |
 |-----------------|---------------------------|-----------------------------------------------------------------------------------------------|
 | `x`, `y`        | number >= 0               | Lower-left corner. DPL images cannot be rotated.                                              |
-| `name`          | 1-8 of `A-Z a-z 0-9 _`    | Image name on the printer.                                                                    |
+| `name`          | 1-8 of `A-Z a-z 0-9 _`    | The image's name in the label; the printer name of an image without `bitmap`.                 |
 | `bitmap`        | list of strings, optional | Rows, top row first: `1` or `#` is black, `0` or `.` is white. All rows have the same length. |
 | `magnification` | integer 1-9, default 1    | Printer dots per image dot, across and along.                                                 |
 
-With `bitmap` the image is downloaded to the printer under `name` before the label. Without it the
-image must already be stored on the printer, and the info finding `image_must_be_stored` says so,
-unless another `image` element of the label downloads that name. Where the job clears the image
-module before the label (`<STX>q`, on the model's built-in RAM with `clear_graphics_before_label`
-on), the clear removes such an image, so the label is refused with `stored_image_cleared`.
+With `bitmap` the image is downloaded to the printer before the label under its content name, `D`
+plus 7 hex digits of a hash of its size and bits ([dpl-reference.md](dpl-reference.md), section 5),
+never under `name`: the same picture gets the same printer name in every job, so a name the
+printer already holds is that very picture, two elements with the same bitmap download it once,
+and two elements of one `name` with different bitmaps download both. `name` stays in findings,
+and `preview` draws each element's own bitmap. Without `bitmap`, an element whose `name` another
+`image` element of the label downloads prints that element's bitmap (the first one's, when several
+do). Any other image without `bitmap` must already be stored on the printer under `name`, and the
+info finding `image_must_be_stored` says so. A label that downloads `LOGO` therefore does not
+store anything under `LOGO`: a later label that names `LOGO` without a bitmap finds only an image
+another program stored under that name (the printer lists the job's own images by their content
+names, as `datamax-dpl memory` shows). Where the job clears the image module before the label
+(`<STX>q`, on the model's built-in RAM with `clear_graphics_before_label` on), the clear removes
+such a stored image, so the label is refused with `stored_image_cleared`.
 Where no clear runs before the downloads, the printer's stored names decide instead: a printer
 that already holds a name prints nothing for a second download of it, so `print` and `verify`
 read its names first and leave out the download of each held one (`image_name_held`), or keep
@@ -376,9 +385,9 @@ Allegro 2 ships 44535; `[printer] image_memory_bytes` sets it, see
 under `degrade`, every image the job downloads or draws (raster fallbacks) is sent at half
 resolution, each 2x2 block of dots becoming one dot that is black if any of the four was, and
 placed at double magnification, with the warning `image_halved`; `preview` draws it the same way.
-A halved image is sent under the name of its halved content, never under its own `name`, so on
-the printer `name` always holds the full bitmap; an element that names the same image without a
-`bitmap` in that job is placed as the halved image too, at double its own magnification. A QR Code is
+A halved image is sent under the content name of its halved bits, so a printer name always holds
+the bits it is named for; an element that names the same image without a `bitmap` in that job is
+placed as the halved image too, at double its own magnification. A QR Code is
 never halved. A job still past the budget after one halving, or any job past it under `strict`, is
 refused with `image_memory_exceeded`, as is an image at `magnification` 5 or more, since doubled it
 would pass 9. Unverified on paper: halved images have not been printed yet.

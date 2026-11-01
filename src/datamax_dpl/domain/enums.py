@@ -298,7 +298,6 @@ class FindingCode(str, Enum):
     IMAGE_MODULE_UNKNOWN = "image_module_unknown"
     IMAGE_MUST_BE_STORED = "image_must_be_stored"
     IMAGE_NAME_HELD = "image_name_held"
-    IMAGE_NAME_RESERVED = "image_name_reserved"
     IMAGE_NAMES_UNREAD = "image_names_unread"
     IMAGE_PAST_PRINT_WIDTH = "image_past_print_width"
     IMAGE_TOO_WIDE = "image_too_wide"

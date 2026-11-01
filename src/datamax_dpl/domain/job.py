@@ -607,33 +607,10 @@ def _report_skipped_clear(ctx: RenderContext) -> None:
 
 
 def _remove_image(name: str) -> bytes:
-    # The one system command that ends in <CR>: the name is 1-8 characters (manual p.36).
+    # The one system command that ends in <CR>: the name is 1-8 characters (manual p.36). It is
+    # always a content name (D and seven hex digits), so it is never Y or N, whose <STX>RY and
+    # <STX>RN switch the ribbon saver instead (same page).
     return line(_system(f"R{name}"))
-
-
-#: Image names whose remove command is the ribbon saver's: ``<STX>RY`` / ``<STX>RN`` switch it on
-#: or off (manual p.36), and that page names no model the ribbon saver form skips.
-RIBBON_SAVER_NAMES = frozenset({"Y", "N"})
-
-
-def _removable_names(ctx: RenderContext) -> list[str]:
-    """Return the names this job downloads that a remove command may name, refusing the others.
-
-    Refused under either policy: ``<STX>RY`` would change a persistent printer setting instead of
-    removing an image. A name only starting with Y or N is kept: whether the firmware reads such
-    a name's first letter as the ribbon saver command is unverified, and refusing it on
-    speculation would break ordinary names. Lowercase "y" and "n" are kept too: the manual shows
-    the ribbon saver only with uppercase Y and N, which is unverified as well.
-    """
-    names = list(dict.fromkeys(download.name for download in ctx.downloads))
-    for name in names:
-        if name in RIBBON_SAVER_NAMES:
-            ctx.findings.refuse(
-                FindingCode.IMAGE_NAME_RESERVED,
-                f"image name {name}: on {ctx.profile.name} <STX>R{name} switches the ribbon saver instead of "
-                "removing the image (manual p.36); choose another name",
-            )
-    return [name for name in names if name not in RIBBON_SAVER_NAMES]
 
 
 def _report_no_clear(ctx: RenderContext) -> None:
@@ -681,15 +658,15 @@ def _report_held_names(ctx: RenderContext) -> None:
             ctx.findings.at(
                 severity,
                 FindingCode.IMAGE_NAME_HELD,
-                f"image {download.name} is not downloaded: the printer already holds that name in module {module}, "
-                "and a second download of it prints nothing; the label prints the stored image, which may differ",
+                f"{download.described} is not downloaded: the printer already holds that name in module {module}, "
+                "and a second download of it prints nothing; the label prints the stored image",
                 element=download.element,
             )
         elif variants := held.case_variants(download.name):
             ctx.findings.at(
                 severity,
                 FindingCode.IMAGE_NAMES_UNREAD,
-                f"image {download.name} is downloaded, but module {module} holds {', '.join(variants)}, which differs "
+                f"{download.described} is downloaded, but module {module} holds {', '.join(variants)}, which differs "
                 "only in letter case; whether the printer tells names apart by letter case was not read, and if it "
                 "does not, that name is held and this label prints nothing",
                 element=download.element,
@@ -727,13 +704,8 @@ def image_downloads(ctx: RenderContext) -> list[bytes]:
     removes = ctx.supports(Feature.REMOVE_IMAGE)
     if not removes and not ctx.supports(Feature.CLEAR_MODULE):
         _report_no_clear(ctx)
-    removable = _removable_names(ctx) if removes and (before or ctx.printer_state.clear_graphics_after_label) else []
     if removes and before:
-        return [
-            part
-            for download in ctx.downloads
-            for part in ([_remove_image(download.name)] if download.name in removable else []) + [download.command]
-        ]
+        return [part for download in ctx.downloads for part in (_remove_image(download.name), download.command)]
     if ctx.downloads:
         _report_held_names(ctx)
     return [download.command for download in ctx.sent_downloads]
@@ -759,7 +731,6 @@ def closing_clears(ctx: RenderContext) -> list[bytes]:
         return [clear]
     if not ctx.supports(Feature.REMOVE_IMAGE):
         return []
-    # image_downloads already refused a name the remove command cannot carry.
     return [_remove_image(name) for name in _removed_after(ctx)]
 
 
@@ -768,8 +739,7 @@ def _removed_after(ctx: RenderContext) -> list[str]:
 
     A held name the job left out is the printer's own image, which this label did not put there.
     """
-    names = dict.fromkeys(download.name for download in ctx.sent_downloads)
-    return [name for name in names if name not in RIBBON_SAVER_NAMES]
+    return list(dict.fromkeys(download.name for download in ctx.sent_downloads))
 
 
 def held_after(ctx: RenderContext) -> HeldImages:
@@ -808,7 +778,6 @@ __all__ = [
     "MAX_STOP_POSITION",
     "MAX_STOP_POSITION_MM",
     "PRINTER_STOP",
-    "RIBBON_SAVER_NAMES",
     "closing_clears",
     "format_footer",
     "format_header",

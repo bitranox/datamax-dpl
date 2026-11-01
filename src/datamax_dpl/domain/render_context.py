@@ -65,22 +65,25 @@ MIN_START_OF_PRINT_MM = hundredths_to_mm(50)
 MIN_MAX_LABEL_LENGTH_MM = hundredths_to_mm(500)
 #: Largest distance the four digits of ``<STX>O`` and ``<STX>M`` hold in inch mode, 9999/100 in.
 MAX_SYSTEM_DISTANCE_MM = hundredths_to_mm(MAX_FIELD_VALUE)
-#: First character of the name of every image the library draws (raster fallbacks, QR Codes).
+#: First character of the printer name of every image a job downloads: a label ``image`` with a
+#: bitmap, a raster fallback, a QR Code, a merged transparency group.
 DRAWN_IMAGE_PREFIX = "D"
 #: Hex digits of the content hash after the prefix: an image name holds at most 8 characters.
 _NAME_HASH_DIGITS = 7
 
 
 def drawn_image_name(bitmap: Bitmap, *, salt: int = 0) -> str:
-    """Return the printer name of a drawn image: ``D`` and 7 hex digits of a hash of its content.
+    """Return the printer name of a downloaded image: ``D`` and 7 hex digits of a hash of its content.
 
-    The printer keeps a downloaded image in its memory module across jobs and answers BELL when a
-    job loads a name it already holds (manual, Appendix D), which does not say the new image
-    replaces the old. A name that follows the content keeps one image's name off another's bits:
-    the same bitmap gets the same name in every job and process (sha256, unlike the per-process
-    salted ``hash()``). Within one job :meth:`RenderContext.download_drawn_image` salts past a
-    name already taken, so two different images never share one there; across separate jobs two
-    different bitmaps share a name only on a hash collision, about 1 in 2**28 per pair.
+    Every image a job downloads goes under this name, a label ``image`` with a bitmap as well as
+    one the library draws. The printer keeps a downloaded image in its memory module across jobs
+    and prints nothing for a format that downloads a name it already holds (one Allegro 2, 3 of 3
+    rounds), so a name that follows the content means a held name is the same picture: the same
+    bitmap gets the same name in every job and process (sha256, unlike the per-process salted
+    ``hash()``). Within one job :meth:`RenderContext.download_drawn_image` and
+    :meth:`RenderContext.download_image` salt past a name already taken, so two different images
+    never share one there; across separate jobs two different bitmaps share a name only on a hash
+    collision, about 1 in 2**28 per pair.
 
     Args:
         bitmap: The image; its width and height count, since the packed rows pad to whole bytes.
@@ -302,14 +305,29 @@ class ImageDownload:
     back out of the bytes.
 
     Attributes:
-        name: The image name the format's image record refers to.
+        name: The printer name the format's image record refers to, the image's content name.
         command: The complete ``<STX>I`` download command.
         element: The first element that queued it, for findings about the download.
+        label_name: The ``name`` of the label ``image`` element that queued it, for findings;
+            None for an image the library drew.
     """
 
     name: str
     command: bytes
     element: int
+    label_name: str | None = None
+
+    @property
+    def described(self) -> str:
+        """Name the download in a finding: ``image LOGO (sent as D1A2B3C4)``, or ``image D1A2B3C4`` when drawn.
+
+        Example:
+            >>> ImageDownload(name="D1A2B3C4", command=b"", element=0, label_name="LOGO").described
+            'image LOGO (sent as D1A2B3C4)'
+        """
+        if self.label_name is None:
+            return f"image {self.name}"
+        return f"image {self.label_name} (sent as {self.name})"
 
     @property
     def data_bytes(self) -> int:
@@ -397,11 +415,12 @@ class RenderContext:
             caller set; a field that offset pushes past the label edge is clamped, not refused.
         stop_position_mm: Tear-off stop position in mm on this printer, or None for its own setting.
         cutter_stop_position_mm: Stop position in mm when cutting, or None for its own setting.
-        reserved_image_names: Names of the label's own ``image`` elements, with or without a
-            bitmap; a drawn image never takes one, whichever element comes first.
+        reserved_image_names: Names of the label's stored-only ``image`` elements that no
+            element of the label downloads: they name images the printer stores, so no download
+            of the job takes one, whichever element comes first.
         bitmap_rows: The bitmap of each name a label ``image`` downloads (the first such
-            element's), so a stored-only reference to that name in a halving job is placed as
-            the halved image, whichever element comes first.
+            element's), so a stored-only reference to that name is placed as that download,
+            halved where the job halves it, whichever element comes first.
         halve_images: Download every image that may be halved at half resolution, placed at
             double magnification (the job is past its image memory budget).
         halved_elements: Elements whose image was halved, in the order they were encoded.
@@ -666,10 +685,11 @@ class RenderContext:
     ) -> PlacedImage | None:
         """Queue a label's ``bitmap`` for download before the format and say how to place it.
 
-        The full bitmap goes under ``name``. A halved one goes under its content name like a drawn
-        image: on the printer ``name`` then always holds the full bitmap, and a printer that keeps
-        an image it already holds (manual, Appendix D) can never place a halved one at a size meant
-        for the full one, or the other way round.
+        The bitmap goes under its content name (:func:`drawn_image_name`), halved or not, never
+        under ``name``: the same picture then has the same printer name in every job, so a name
+        the printer holds is that very picture, and two elements of one ``name`` with different
+        bitmaps can never clash. A second element with the same bitmap places the first one's
+        download. ``name`` stays the label's own, in findings.
 
         Args:
             name: The image name, the label's own.
@@ -680,32 +700,27 @@ class RenderContext:
             magnification: Printer dots per image dot the element asks for.
 
         Returns:
-            The name and the magnification to place it at (doubled when the job halves its
-            images), or None when the image is too wide for one row record (``image_too_wide``)
-            or the job has no memory module to download to (``image_module_unknown``): it is then
-            refused, not queued, and the caller places nothing for the element.
-
-        Raises:
-            ValueError: When the name is not 1-8 letters, digits or underscores.
+            The printer name and the magnification to place it at (doubled when the job halves
+            its images), or None when the image is too wide for one row record
+            (``image_too_wide``) or the job has no memory module to download to
+            (``image_module_unknown``): it is then refused, not queued, and the caller places
+            nothing for the element.
         """
         sent, placed_at = self._sent_form(bitmap, what=f"image {name}", element=element, magnification=magnification)
+        return self._download_label_image(name, sent, element=element, edge=edge, magnification=placed_at)
+
+    def _download_label_image(
+        self, name: str, sent: Bitmap, *, element: int, edge: ImageEdge, magnification: int
+    ) -> PlacedImage | None:
+        """Queue ``sent``, a label image as the job sends it, under its content name and place it."""
         if not self._fits_an_image_row(self._described(edge, element=element), sent, element=element):
             return None
         module = self._module(element=element)
         if module is None:
             return None
-        size = (sent.width, sent.height)
-        # Halving always doubles the magnification, so a changed one means the bits were halved.
-        if placed_at != magnification:
-            drawn = self._queue_drawn(self._drawn_name(sent), sent, module=module, element=element)
-            return self._checked(
-                PlacedImage(name=drawn, magnification=placed_at, size=size), edge=edge, element=element
-            )
-        command = download_command(name, sent, module=module)
-        # A second element with the same name and bitmap places the image the first one queued.
-        if all(download.command != command for download in self.downloads):
-            self.downloads.append(ImageDownload(name=name, command=command, element=element))
-        return self._checked(PlacedImage(name=name, magnification=placed_at, size=size), edge=edge, element=element)
+        printer_name = self._queue_drawn(self._drawn_name(sent), sent, module=module, element=element, label_name=name)
+        placed = PlacedImage(name=printer_name, magnification=magnification, size=(sent.width, sent.height))
+        return self._checked(placed, edge=edge, element=element)
 
     def image_rows(self, image: Image) -> Sequence[str] | None:
         """Return the bitmap ``image`` prints: its own, else the one this job downloads under its name.
@@ -722,35 +737,23 @@ class RenderContext:
     def place_stored_image(self, name: str, *, element: int, edge: ImageEdge, magnification: int) -> PlacedImage | None:
         """Say how to place an image the label names without a bitmap.
 
-        Normally the printer's own image under ``name``. In a halving job where another element
-        of the label downloads ``name``, that download goes out halved under its content name, so
-        this reference is placed as the same halved image at double its own magnification, and
-        prints like the element that downloads it, whichever comes first. Only that halved image
-        has a known size, so only it is checked against the print width (``edge``).
+        Normally the printer's own image under ``name``. Where another element of the label
+        downloads ``name``, this reference prints that download: the first such element's bitmap
+        under its content name, halved and at double magnification where the job halves its
+        images, whichever element comes first. Only such a reference has a known size, so only it
+        is checked against the print width (``edge``).
 
         Returns:
-            How to place it, or None when the halved image is too wide for one row record
-            (refused as ``image_too_wide``) or the job has no memory module to download it to
-            (refused as ``image_module_unknown``); nothing is placed.
+            How to place it, or None when that bitmap is too wide for one row record (refused as
+            ``image_too_wide``) or the job has no memory module to download it to (refused as
+            ``image_module_unknown``); nothing is placed.
         """
         rows = self.bitmap_rows.get(name)
-        if not self.halve_images or rows is None:
+        if rows is None:
             return PlacedImage(name=name, magnification=magnification)
         bitmap = Bitmap.from_rows(rows)
         sent, placed_at = self._sent_form(bitmap, what=f"image {name}", element=element, magnification=magnification)
-        if placed_at == magnification:
-            return PlacedImage(name=name, magnification=magnification)
-        if not self._fits_an_image_row(self._described(edge, element=element), sent, element=element):
-            return None
-        module = self._module(element=element)
-        if module is None:
-            return None
-        placed = PlacedImage(
-            name=self._queue_drawn(self._drawn_name(sent), sent, module=module, element=element),
-            magnification=placed_at,
-            size=(sent.width, sent.height),
-        )
-        return self._checked(placed, edge=edge, element=element)
+        return self._download_label_image(name, sent, element=element, edge=edge, magnification=placed_at)
 
     def download_drawn_image(
         self, bitmap: Bitmap, *, element: int, edge: ImageEdge, magnification: int = 1, halvable: bool = True
@@ -799,8 +802,8 @@ class RenderContext:
     def _drawn_name(self, bitmap: Bitmap) -> str:
         """Return the name this job queues ``bitmap`` under: its first salted content name that is free.
 
-        A name is free when no label ``image`` reserves it and no download of the job holds it, or
-        the download holding it is this very bitmap. Picked without queuing, so a refusal can name
+        A name is free when no stored-only label ``image`` reserves it and no download of the job
+        holds it, or the download holding it is this very bitmap. Picked without queuing, so a refusal can name
         what the job would have sent.
         """
         salt = 0
@@ -821,11 +824,16 @@ class RenderContext:
             return False
         return held == download_command(name, bitmap, module=self.image_module)
 
-    def _queue_drawn(self, name: str, bitmap: Bitmap, *, module: str, element: int) -> str:
-        """Queue ``bitmap`` into ``module`` under ``name`` (from :meth:`_drawn_name`), once, and return the name."""
+    def _queue_drawn(
+        self, name: str, bitmap: Bitmap, *, module: str, element: int, label_name: str | None = None
+    ) -> str:
+        """Queue ``bitmap`` into ``module`` under ``name`` (from :meth:`_drawn_name`), once, and return the name.
+
+        ``label_name`` is the label ``image`` element's own name, None for an image the library drew.
+        """
         if all(download.name != name for download in self.downloads):
             command = download_command(name, bitmap, module=module)
-            self.downloads.append(ImageDownload(name=name, command=command, element=element))
+            self.downloads.append(ImageDownload(name=name, command=command, element=element, label_name=label_name))
         return name
 
 

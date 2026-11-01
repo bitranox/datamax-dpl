@@ -218,7 +218,7 @@ datamax-dpl memory --kind graphic --printer tcp://192.0.2.60:9100
 graphic:
   module A: 49083 bytes free
   module B: 257919 bytes free
-    LOGO
+    D374A0AB
     CAM
 ```
 

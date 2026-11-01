@@ -13,8 +13,9 @@ from datamax_dpl.domain.enums import FillPattern, FindingCode, ImageModule, Medi
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.label import Barcode, Box, Circle, DotSize, Element, Image, Label, Line, Point, Polygon, Text
 from datamax_dpl.domain.overlap import printed_dots
+from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.render import RenderResult, build_job, effective_calibration, job_context, render
-from datamax_dpl.domain.render_context import RenderOptions
+from datamax_dpl.domain.render_context import RenderOptions, drawn_image_name
 from datamax_dpl.domain.symbology import Symbology
 
 if TYPE_CHECKING:
@@ -215,11 +216,11 @@ def test_downloads_list_stored_and_rasterized_images_in_the_order_they_are_sent(
     )
     result = build_job(label, RenderOptions(model="allegro"))
     logo, drawn = result.downloads
-    assert logo == "LOGO_1"
+    assert logo == drawn_image_name(Bitmap.from_rows(["#.", ".#"]))
     circle = STX + b"IAAF" + drawn.encode("ascii") + b"\r"
-    assert result.data.index(STX + b"IAAFLOGO_1\r") < result.data.index(circle)
+    assert result.data.index(STX + b"IAAF" + logo.encode("ascii") + b"\r") < result.data.index(circle)
     assert result.data.index(circle) < result.data.index(STX + b"L\r")
-    assert STX + b"IAAFSTORED\r" not in result.data
+    assert re.findall(rb"\x02IAAF([^\r]*)\r", result.data) == [logo.encode("ascii"), drawn.encode("ascii")]
 
 
 # ======================== dot size ========================
@@ -1142,6 +1143,10 @@ def test_a_rasterized_polygon_past_the_print_width_is_refused() -> None:
 _EIGHT_BY_EIGHT = ["#......#"] * 8
 
 
+#: The printer name the eight-by-eight image is downloaded under: its content name.
+_EIGHT_BY_EIGHT_SENT = drawn_image_name(Bitmap.from_rows(_EIGHT_BY_EIGHT)).encode("ascii")
+
+
 def label_with_image() -> Label:
     return Label(elements=[Image(x=1, y=1, name="LOGO", bitmap=_EIGHT_BY_EIGHT)])
 
@@ -1157,20 +1162,20 @@ def module_findings(result: RenderResult) -> list[Finding]:
 @pytest.mark.os_agnostic
 def test_an_allegro_2_job_downloads_its_image_to_module_a() -> None:
     job = build_job(label_with_image(), RenderOptions(model="allegro-2")).data
-    assert b"\x02IAAFLOGO\r" in job
+    assert b"\x02IAAF" + _EIGHT_BY_EIGHT_SENT + b"\r" in job
 
 
 @pytest.mark.os_agnostic
 def test_a_dmx_600_job_downloads_its_image_to_module_e() -> None:
     job = build_job(label_with_image(), RenderOptions(model="dmx-600")).data
-    assert b"\x02IEAFLOGO\r" in job
+    assert b"\x02IEAF" + _EIGHT_BY_EIGHT_SENT + b"\r" in job
     assert b"\x02IAAF" not in job
 
 
 @pytest.mark.os_agnostic
 def test_the_configured_module_wins_over_the_model() -> None:
     job = build_job(label_with_image(), RenderOptions(model="dmx-600", image_module=ImageModule.C)).data
-    assert b"\x02ICAFLOGO\r" in job
+    assert b"\x02ICAF" + _EIGHT_BY_EIGHT_SENT + b"\r" in job
 
 
 @pytest.mark.os_agnostic

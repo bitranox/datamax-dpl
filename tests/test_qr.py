@@ -24,7 +24,7 @@ from datamax_dpl.domain.decoder import explain
 from datamax_dpl.domain.enums import CommandKind, FallbackPolicy, FindingCode, ImageModule, QrError, Severity, Unit
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.findings import FindingCollector
-from datamax_dpl.domain.image_records import decode_image
+from datamax_dpl.domain.image_records import decode_image, download_command
 from datamax_dpl.domain.label import Image, Label, Qr
 from datamax_dpl.domain.placeholders import fill_label, label_placeholders
 from datamax_dpl.domain.preview import preview_bitmap
@@ -34,6 +34,7 @@ from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.records import image_record
 from datamax_dpl.domain.render import RenderResult, build_job, render
 from datamax_dpl.domain.render_context import (
+    ImageDownload,
     ImageEdge,
     RenderContext,
     RenderOptions,
@@ -385,6 +386,11 @@ def drawn_name(ctx: RenderContext, bitmap: Bitmap) -> str:
     return placed.name
 
 
+def _queue_under(ctx: RenderContext, name: str, bitmap: Bitmap) -> None:
+    """Put ``bitmap`` in the job's downloads under ``name``: a hash collision no real pair of bitmaps gives."""
+    ctx.downloads.append(ImageDownload(name=name, command=download_command(name, bitmap, module="A"), element=0))
+
+
 @pytest.mark.os_agnostic
 def test_two_different_images_whose_names_collide_in_one_job_get_different_names() -> None:
     """A hash collision is forced by queuing another image under the first candidate name."""
@@ -400,7 +406,7 @@ def test_two_different_images_whose_names_collide_in_one_job_get_different_names
     )
     bitmap = Bitmap.from_rows(["#."])
     taken = drawn_image_name(bitmap)
-    ctx.download_image(taken, Bitmap.from_rows([".#"]), element=0, edge=AT_THE_LEFT_EDGE)
+    _queue_under(ctx, taken, Bitmap.from_rows([".#"]))
     name = drawn_name(ctx, bitmap)
     assert name not in (taken, "")
     assert name == drawn_image_name(bitmap, salt=1)
@@ -435,19 +441,30 @@ def test_the_qr_content_name_is_the_one_the_user_image_tests_use() -> None:
 
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("qr_first", [True, False])
-def test_a_drawn_image_never_takes_the_name_of_a_user_image_with_a_bitmap(qr_first: bool) -> None:
+def test_a_user_image_with_a_bitmap_named_like_a_drawn_image_takes_nothing_from_it(qr_first: bool) -> None:
+    """The user image goes under its own content name, so its label name is no printer name to avoid."""
     qr = {"type": "qr", "x": 5, "y": 5, "data": "HELLO"}
     image = _user_image(bitmap=["#.#.", ".#.#"])
     label = Label.model_validate({"elements": [qr, image] if qr_first else [image, qr]})
     result = build_job(label, RenderOptions(model="dmx-600"))
     assert result.ok, result.findings
-    assert sorted(result.downloads) == sorted(
-        [HELLO_NAME, drawn_image_name(qr_bitmap("HELLO", error=QrError.M), salt=1)]
-    )
+    user_sent = drawn_image_name(Bitmap.from_rows(["#.#.", ".#.#"]))
+    assert sorted(result.downloads) == sorted([HELLO_NAME, user_sent])
     assert all(len(bits) == 1 for bits in _names_and_bits(result).values())
-    qr_index = 0 if qr_first else 1
-    placed = image_records_of(result.data)[qr_index]
-    assert not placed.endswith(HELLO_NAME.encode("ascii"))
+    qr_index, image_index = (0, 1) if qr_first else (1, 0)
+    records = image_records_of(result.data)
+    assert records[qr_index].endswith(HELLO_NAME.encode("ascii"))
+    assert records[image_index].endswith(user_sent.encode("ascii"))
+
+
+@pytest.mark.os_agnostic
+def test_a_stored_reference_another_element_downloads_reserves_no_printer_name() -> None:
+    """The reference prints the other element's download, so HELLO_NAME names no stored image to avoid."""
+    qr = {"type": "qr", "x": 5, "y": 5, "data": "HELLO"}
+    label = Label.model_validate({"elements": [qr, _user_image(bitmap=["#.#.", ".#.#"]), _user_image(bitmap=None)]})
+    result = build_job(label, RenderOptions(model="dmx-600"))
+    assert result.ok, result.findings
+    assert sorted(result.downloads) == sorted([HELLO_NAME, drawn_image_name(Bitmap.from_rows(["#.#.", ".#.#"]))])
 
 
 @pytest.mark.os_agnostic
@@ -498,7 +515,7 @@ def test_download_drawn_image_never_names_two_different_images_alike(
         reserved_image_names=frozenset({first}) if reserved else frozenset(),
     )
     if taken_by_other:
-        ctx.download_image(drawn_image_name(bitmap, salt=1), Bitmap.from_rows([".#"]), element=0, edge=AT_THE_LEFT_EDGE)
+        _queue_under(ctx, drawn_image_name(bitmap, salt=1), Bitmap.from_rows([".#"]))
     name = drawn_name(ctx, bitmap)
     assert name == drawn_image_name(bitmap, salt=salt)
     if queued_twice:

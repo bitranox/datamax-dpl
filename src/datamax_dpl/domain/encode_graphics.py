@@ -162,13 +162,14 @@ def encode_polygon(element: Polygon, *, index: int, ctx: RenderContext) -> list[
 def encode_image(element: Image, *, index: int, ctx: RenderContext) -> list[bytes]:
     """Queue the image download (when a bitmap is given) and return its placing record.
 
-    A bitmap refused for its width places nothing. The record places what the context says:
-    the element's name at its magnification, or, when the job halves its images, the halved image's
-    content name at double the magnification (also for a stored-only reference to a name the job
-    downloads). An image of known size that ends past the print width is refused
-    (``image_past_print_width``). A stored-only reference must already be on the printer
-    (``image_must_be_stored``) unless another element of the job downloads its name; it is refused
-    (``stored_image_cleared``) where the module is cleared before the label, which removes it.
+    A bitmap refused for its width places nothing. The record places what the context says: the
+    bitmap's content name, never the element's own, at the element's magnification, or the halved
+    image's content name at double the magnification when the job halves its images. A
+    stored-only reference to a name another element of the label downloads places that download
+    the same way; any other stored-only reference places the element's name, which must already be
+    on the printer (``image_must_be_stored``), and is refused (``stored_image_cleared``) where the
+    module is cleared before the label, which removes it. An image of known size that ends past
+    the print width is refused (``image_past_print_width``).
     """
     row = row_of(element.y, index=index, ctx=ctx)
     column = column_of(element.x, index=index, ctx=ctx)

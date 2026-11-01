@@ -163,13 +163,16 @@ Prodigy and Prodigy Plus, whose A and B are both plug-ins, so a job there that d
 is refused (`image_module_unknown`) until `image_module` names the module fitted. `generic` and
 `permissive` use A. Only module A has been seen on a printer (an Allegro 2).
 
-An image the library draws (a raster fallback, a QR Code) is named `D` plus 7 upper-case hex
-digits of a sha256 of its size and bits: the printer keeps an image in its module across jobs and
+Every image a job downloads is named `D` plus 7 upper-case hex digits of a sha256 of its size and
+bits: an `image` element with a `bitmap` as well as one the library draws (a raster fallback, a
+QR Code, a merged transparency group). The printer keeps an image in its module across jobs and
 answers BELL when a job loads a name it already holds (Appendix D), without saying the new image
-replaces the old, so a per-job counter could let the next job print the previous job's image. When
-that name is already taken in the job (another drawn image with the same hash, or a user `image`
-of that name), the hash is salted until it is free; a user-named `image` always keeps its own name.
-Across separate jobs two different bitmaps share a name only on a hash collision, about 1 in 2**28.
+replaces the old; one Allegro 2 printed nothing for a format that downloaded a name it held (0 of 3
+rounds). With the name following the content, a held name is the same picture. When that name is
+already taken in the job (another image with the same hash, or an `image` element without a
+`bitmap` that names it), the hash is salted until it is free. Across separate jobs two different
+bitmaps share a name only on a hash collision, about 1 in 2**28. Only an `image` element without
+a `bitmap` that no element of the label downloads names a printer image by its own `name`.
 
 Measured on an Allegro 2 (firmware CA02 03.04), not stated in the manual: the printer draws the
 FIRST row record at the BOTTOM of the image, and images holding `0000FFnn` repeat records print

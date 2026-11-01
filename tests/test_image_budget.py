@@ -155,12 +155,12 @@ def test_a_stored_image_the_job_only_places_costs_nothing() -> None:
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("stored_first", [True, False])
 def test_a_stored_only_reference_to_a_name_the_job_downloads_need_not_be_on_the_printer(stored_first: bool) -> None:
-    """The job itself downloads LOGO, whichever element comes first, so nothing must be stored beforehand."""
+    """The job itself downloads LOGO's bitmap, whichever element comes first, so nothing must be stored beforehand."""
     stored = {"type": "image", "x": 5, "y": 5, "name": "LOGO"}
     elements = (stored, USER_IMAGE) if stored_first else (USER_IMAGE, stored)
     result = build_job(label(*elements), RenderOptions(model="dmx-600"))
     assert FindingCode.IMAGE_MUST_BE_STORED not in codes(result)
-    assert result.downloads == ("LOGO",)
+    assert result.downloads == (drawn_image_name(Bitmap.from_rows(USER_ROWS)),)
 
 
 @pytest.mark.os_agnostic
@@ -516,8 +516,8 @@ def dmx(budget: int | None) -> RenderOptions:
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("bitmap_first", [True, False], ids=["bitmap-first", "stored-first"])
 def test_a_halved_user_image_and_a_stored_reference_to_it_print_alike(bitmap_first: bool) -> None:
-    """The name LOGO keeps meaning the full bitmap: the halved bits go under their content name,
-    and the stored-only reference in the same job is placed as that halved image."""
+    """The halved bits go under their own content name, never LOGO, and the stored-only reference
+    in the same job is placed as that halved image."""
     elements = [LOGO_WITH_BITMAP, LOGO_STORED] if bitmap_first else [LOGO_STORED, LOGO_WITH_BITMAP]
     result = build_job(label(*elements), dmx(100))
     halved = halve(Bitmap.from_rows(LOGO_ROWS))
@@ -535,10 +535,13 @@ def test_a_halved_user_image_and_a_stored_reference_to_it_print_alike(bitmap_fir
 
 
 @pytest.mark.os_agnostic
-def test_within_the_budget_the_user_image_keeps_its_name() -> None:
+def test_within_the_budget_the_user_image_goes_under_the_full_bitmap_s_content_name() -> None:
     result = build_job(label(LOGO_WITH_BITMAP, LOGO_STORED), dmx(10_000))
-    assert result.downloads == ("LOGO",)
-    assert all(record.startswith(b"1Y11000") and record.endswith(b"LOGO") for record in placements(result.data))
+    full = drawn_image_name(Bitmap.from_rows(LOGO_ROWS))
+    assert result.downloads == (full,)
+    records = placements(result.data)
+    assert len(records) == 2
+    assert all(record.startswith(b"1Y11000") and record.endswith(full.encode()) for record in records)
 
 
 @pytest.mark.os_agnostic

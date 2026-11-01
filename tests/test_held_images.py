@@ -12,6 +12,7 @@ RAM (manual, Appendix L p.189), and a stored-only image the clear before removes
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -33,8 +34,9 @@ from datamax_dpl.domain.held_images import HeldImages, held_images_from
 from datamax_dpl.domain.label import Image, Label, Qr
 from datamax_dpl.domain.memory import parse_module_directory
 from datamax_dpl.domain.profiles import MODEL_PROFILES
+from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.render import RenderResult, build_job, render
-from datamax_dpl.domain.render_context import RenderOptions
+from datamax_dpl.domain.render_context import RenderOptions, drawn_image_name
 from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS
 
 if TYPE_CHECKING:
@@ -46,12 +48,18 @@ if TYPE_CHECKING:
 
 STX = b"\x02"
 _BITMAP = ["#.#.#.#.", ".#.#.#.#"]
+_ICON_BITMAP = ["##..##..", "..##..##"]
 _LOGO = Image(x=1, y=1, name="LOGO", bitmap=_BITMAP)
-_ICON = Image(x=1, y=9, name="ICON", bitmap=_BITMAP)
+_ICON = Image(x=1, y=9, name="ICON", bitmap=_ICON_BITMAP)
 _STORED = Image(x=1, y=1, name="LOGO")
+#: The printer names the two images go under: their content names, never LOGO or ICON.
+LOGO_SENT = drawn_image_name(Bitmap.from_rows(_BITMAP))
+ICON_SENT = drawn_image_name(Bitmap.from_rows(_ICON_BITMAP))
+_L = LOGO_SENT.encode("ascii")
+_I = ICON_SENT.encode("ascii")
 _WG = MEMORY_DIRECTORY_REQUESTS["graphic"]
-_HOLDS_LOGO = b"MODULE: A\rLOGO\rAVAILABLE BYTES IN MODULE : 00049083\r"
-_LOGO_HELD = HeldImages(listed=frozenset({"LOGO"}))
+_HOLDS_LOGO = b"MODULE: A\r" + _L + b"\rAVAILABLE BYTES IN MODULE : 00049083\r"
+_LOGO_HELD = HeldImages(listed=frozenset({LOGO_SENT}))
 _NOTHING_HELD = HeldImages(listed=frozenset())
 #: Allegro 2 with no clear at all: no clear before, none after that would empty the module.
 _NO_CLEAR: dict[str, Any] = {
@@ -76,6 +84,69 @@ def _found(result: RenderResult, code: FindingCode) -> list[tuple[Severity, int 
 def _format(data: bytes) -> bytes:
     """The format: from ``<STX>L`` to its end, where the placing records stand."""
     return data[data.index(STX + b"L\r") :]
+
+
+#: The name of every image download in a job: ``<STX>I``, module, ``A``, ``F``, the name, ``<CR>``.
+_DOWNLOAD_NAME = re.compile(rb"\x02I[A-E]AF([^\r]*)\r")
+#: A content name: ``D`` and seven hex digits of the image's hash.
+_CONTENT_NAME = re.compile(rb"D[0-9A-F]{7}")
+
+
+# ======================== every bitmap goes under its content name ========================
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"model": "allegro-2"},
+        {"model": "allegro-2", "image_memory_bytes": 1},
+        {"model": "dmx-600"},
+        {"model": "prodigy", "image_module": ImageModule.B},
+        _NO_CLEAR,
+    ],
+    ids=["clear", "halved", "dmx-600", "prodigy", "no-clear"],
+)
+def test_no_image_is_downloaded_under_the_element_s_own_name(options: dict[str, Any]) -> None:
+    result = _job(Label(elements=[_LOGO, _ICON, _STORED]), **options)
+    names = _DOWNLOAD_NAME.findall(result.data)
+    assert names
+    assert all(_CONTENT_NAME.fullmatch(name) for name in names), names
+    assert not {b"LOGO", b"ICON"} & set(names)
+    assert STX + b"RLOGO" not in result.data
+
+
+@pytest.mark.os_agnostic
+def test_two_images_of_one_name_and_different_bitmaps_download_under_two_content_names() -> None:
+    other = Image(x=1, y=9, name="LOGO", bitmap=_ICON_BITMAP)
+    result = _job(Label(elements=[_LOGO, other]), model="allegro-2")
+    assert result.downloads == (LOGO_SENT, ICON_SENT)
+    assert _DOWNLOAD_NAME.findall(result.data) == [_L, _I]
+    assert _L in _format(result.data)
+    assert _I in _format(result.data)
+    assert result.ok, result.findings
+
+
+@pytest.mark.os_agnostic
+def test_a_stored_only_reference_to_a_name_the_label_downloads_places_that_download() -> None:
+    result = _job(Label(elements=[_STORED, _LOGO]), model="allegro-2")
+    assert result.downloads == (LOGO_SENT,)
+    assert _format(result.data).count(_L) == 2
+    assert b"LOGO" not in _format(result.data)
+
+
+@pytest.mark.os_agnostic
+def test_a_stored_only_reference_no_element_downloads_places_its_own_name() -> None:
+    result = _job(Label(elements=[_STORED, _ICON]), model="allegro-2", clear_graphics_before_label=False)
+    assert result.downloads == (ICON_SENT,)
+    assert re.search(rb"\r1Y11\d{11}LOGO\r", _format(result.data))
+
+
+@pytest.mark.os_agnostic
+def test_a_printer_holding_the_element_s_own_name_does_not_stop_its_download() -> None:
+    result = _job(Label(elements=[_LOGO]), HeldImages(listed=frozenset({"LOGO"})), **_NO_CLEAR)
+    assert result.downloads == (LOGO_SENT,)
+    assert FindingCode.IMAGE_NAME_HELD not in [f.code for f in result.findings]
 
 
 # ======================== which modules a clear goes to ========================
@@ -106,7 +177,7 @@ def test_a_plug_in_module_gets_no_clear_whatever_the_keys_say(model: str, module
 @pytest.mark.os_agnostic
 def test_the_plain_prodigy_keeps_its_per_name_removes_on_a_plug_in_module() -> None:
     result = _job(Label(elements=[_LOGO]), model="prodigy", image_module=ImageModule.B)
-    assert result.data.count(STX + b"RLOGO\r") == 2
+    assert result.data.count(STX + b"R" + _L + b"\r") == 2
     assert STX + b"q" not in result.data
     assert FindingCode.GRAPHICS_CLEAR_SKIPPED not in [f.code for f in result.findings]
     assert FindingCode.IMAGE_NAMES_UNREAD not in [f.code for f in result.findings]
@@ -120,7 +191,7 @@ def test_a_held_name_is_not_downloaded_and_the_format_still_places_it() -> None:
     held = _job(Label(elements=[_LOGO]), _LOGO_HELD, **_NO_CLEAR)
     unread = _job(Label(elements=[_LOGO]), **_NO_CLEAR)
     assert STX + b"I" not in held.data
-    assert STX + b"IAAFLOGO\r" in unread.data
+    assert STX + b"IAAF" + _L + b"\r" in unread.data
     assert _format(held.data) == _format(unread.data)
     assert held.downloads == ()
     assert _found(held, FindingCode.IMAGE_NAME_HELD) == [(Severity.WARNING, 0)]
@@ -130,10 +201,10 @@ def test_a_held_name_is_not_downloaded_and_the_format_still_places_it() -> None:
 @pytest.mark.os_agnostic
 def test_only_the_held_name_is_left_out_and_the_finding_names_its_element() -> None:
     result = _job(Label(elements=[_ICON, _LOGO]), _LOGO_HELD, **_NO_CLEAR)
-    assert STX + b"IAAFICON\r" in result.data
-    assert STX + b"IAAFLOGO\r" not in result.data
+    assert STX + b"IAAF" + _I + b"\r" in result.data
+    assert STX + b"IAAF" + _L not in result.data
     [finding] = [f for f in result.findings if f.code is FindingCode.IMAGE_NAME_HELD]
-    assert (finding.element, "image LOGO" in finding.message) == (1, True)
+    assert (finding.element, f"image LOGO (sent as {LOGO_SENT})" in finding.message) == (1, True)
 
 
 @pytest.mark.os_agnostic
@@ -148,7 +219,7 @@ def test_a_held_drawn_image_is_not_downloaded_either() -> None:
 @pytest.mark.os_agnostic
 def test_a_name_the_printer_does_not_list_is_downloaded_with_no_finding() -> None:
     result = _job(Label(elements=[_LOGO]), _NOTHING_HELD, **_NO_CLEAR)
-    assert STX + b"IAAFLOGO\r" in result.data
+    assert STX + b"IAAF" + _L + b"\r" in result.data
     held_codes = {FindingCode.IMAGE_NAME_HELD, FindingCode.IMAGE_NAMES_UNREAD}
     assert not held_codes & {f.code for f in result.findings}
 
@@ -163,7 +234,7 @@ def test_a_left_out_download_costs_nothing_against_the_image_budget() -> None:
 @pytest.mark.os_agnostic
 def test_with_a_clear_before_a_held_name_is_downloaded_after_the_clear() -> None:
     result = _job(Label(elements=[_LOGO]), _LOGO_HELD, model="allegro-2")
-    assert result.data.index(STX + b"qA") < result.data.index(STX + b"IAAFLOGO\r")
+    assert result.data.index(STX + b"qA") < result.data.index(STX + b"IAAF" + _L + b"\r")
     assert not {FindingCode.IMAGE_NAME_HELD, FindingCode.IMAGE_NAMES_UNREAD} & {f.code for f in result.findings}
     assert not result.names_unread
 
@@ -185,13 +256,12 @@ def test_two_images_of_one_name_and_one_bitmap_download_once_and_both_are_placed
 
 @pytest.mark.os_agnostic
 def test_a_name_held_only_up_to_letter_case_keeps_the_download_and_names_the_case_question() -> None:
-    logo = Image(x=1, y=1, name="logo", bitmap=_BITMAP)
-    result = _job(Label(elements=[logo]), _LOGO_HELD, **_NO_CLEAR)
-    assert STX + b"IAAFlogo\r" in result.data
+    result = _job(Label(elements=[_LOGO]), HeldImages(listed=frozenset({LOGO_SENT.lower()})), **_NO_CLEAR)
+    assert STX + b"IAAF" + _L + b"\r" in result.data
     assert FindingCode.IMAGE_NAME_HELD not in [f.code for f in result.findings]
     [finding] = [f for f in result.findings if f.code is FindingCode.IMAGE_NAMES_UNREAD]
     assert (finding.severity, finding.element) == (Severity.WARNING, 0)
-    assert "LOGO" in finding.message
+    assert f"holds {LOGO_SENT.lower()}" in finding.message
     assert "letter case" in finding.message
 
 
@@ -201,7 +271,7 @@ def test_a_name_held_only_up_to_letter_case_keeps_the_download_and_names_the_cas
 @pytest.mark.os_agnostic
 def test_unknown_names_keep_every_download_and_say_so_once() -> None:
     result = _job(Label(elements=[_LOGO, _ICON]), **_NO_CLEAR)
-    assert result.downloads == ("LOGO", "ICON")
+    assert result.downloads == (LOGO_SENT, ICON_SENT)
     [finding] = [f for f in result.findings if f.code is FindingCode.IMAGE_NAMES_UNREAD]
     assert (finding.severity, finding.element) == (Severity.WARNING, None)
     assert "prints nothing" in finding.message
@@ -269,7 +339,7 @@ def test_a_batch_whose_clear_after_empties_the_module_downloads_again() -> None:
     label = Label.model_validate({"elements": [{"type": "image", "x": 1, "y": 1, "name": "LOGO", "bitmap": _BITMAP}]})
     options = _options(model="allegro-2", clear_graphics_before_label=False)
     batch = render_batch(label, [{}, {}], options, held=_LOGO_HELD)
-    assert [result.downloads for result in batch.results] == [(), ("LOGO",)]
+    assert [result.downloads for result in batch.results] == [(), (LOGO_SENT,)]
     # After the first record's qA the module is known empty: the second record needs no names.
     assert not batch.results[1].names_unread
 
@@ -279,17 +349,17 @@ def test_a_prodigy_batch_downloads_again_after_the_remove_after_the_label() -> N
     label = Label.model_validate({"elements": [{"type": "image", "x": 1, "y": 1, "name": "LOGO", "bitmap": _BITMAP}]})
     options = _options(model="prodigy", image_module=ImageModule.B, clear_graphics_before_label=False)
     batch = render_batch(label, [{}, {}], options, held=_NOTHING_HELD)
-    assert [result.downloads for result in batch.results] == [("LOGO",), ("LOGO",)]
-    assert [result.data.endswith(STX + b"RLOGO\r") for result in batch.results] == [True, True]
+    assert [result.downloads for result in batch.results] == [(LOGO_SENT,), (LOGO_SENT,)]
+    assert [result.data.endswith(STX + b"R" + _L + b"\r") for result in batch.results] == [True, True]
 
 
 @pytest.mark.os_agnostic
 def test_the_prodigy_s_remove_after_takes_only_the_names_the_label_downloaded() -> None:
     options = {"model": "prodigy", "image_module": ImageModule.B, "clear_graphics_before_label": False}
-    result = _job(Label(elements=[_ICON, _LOGO]), HeldImages(listed=frozenset({"ICON"})), **options)
-    assert result.downloads == ("LOGO",)
-    assert STX + b"RICON\r" not in result.data
-    assert result.closing == STX + b"RLOGO\r"
+    result = _job(Label(elements=[_ICON, _LOGO]), HeldImages(listed=frozenset({ICON_SENT})), **options)
+    assert result.downloads == (LOGO_SENT,)
+    assert STX + b"R" + _I not in result.data
+    assert result.closing == STX + b"R" + _L + b"\r"
 
 
 @pytest.mark.os_agnostic
@@ -347,7 +417,7 @@ def test_the_directory_s_names_of_the_job_s_module_are_the_held_ones() -> None:
     directory = parse_module_directory(
         _HOLDS_LOGO + b"MODULE: B\rICON\rAVAILABLE BYTES IN MODULE:00001000\r", kind="graphic"
     )
-    assert held_images_from(directory, module="A").listed == {"LOGO"}
+    assert held_images_from(directory, module="A").listed == {LOGO_SENT}
     assert held_images_from(directory, module="B").listed == {"ICON"}
 
 
@@ -385,7 +455,7 @@ def test_a_job_with_a_clear_before_reads_no_names() -> None:
     _print(printer, Label(elements=[_LOGO]), _options(model="allegro-2"))
     assert printer.queries == []
     assert STX + b"W" not in printer.data
-    assert STX + b"IAAFLOGO\r" in printer.data
+    assert STX + b"IAAF" + _L + b"\r" in printer.data
 
 
 @pytest.mark.os_agnostic
@@ -393,9 +463,9 @@ def test_a_job_with_no_clear_reads_the_names_and_leaves_out_the_held_download() 
     printer = RecordingPrinter(answers={_WG: _HOLDS_LOGO})
     result = _print(printer, Label(elements=[_ICON, _LOGO]), _options(**_NO_CLEAR))
     assert printer.queries == [_WG]
-    assert STX + b"IAAFLOGO\r" not in printer.data
-    assert STX + b"IAAFICON\r" in printer.data
-    assert b"LOGO" in _format(printer.data)
+    assert STX + b"IAAF" + _L not in printer.data
+    assert STX + b"IAAF" + _I + b"\r" in printer.data
+    assert _L in _format(printer.data)
     assert _found(result, FindingCode.IMAGE_NAME_HELD) == [(Severity.WARNING, 1)]
 
 
@@ -411,7 +481,7 @@ def test_a_one_way_link_reads_nothing_and_keeps_every_download() -> None:
     printer = RecordingPrinter(bidirectional=False)
     result = _print(printer, Label(elements=[_LOGO]), _options(**_NO_CLEAR))
     assert STX + b"W" not in printer.data
-    assert STX + b"IAAFLOGO\r" in printer.data
+    assert STX + b"IAAF" + _L + b"\r" in printer.data
     [finding] = [f for f in result.findings if f.code is FindingCode.IMAGE_NAMES_UNREAD]
     assert "one-way" in finding.message
 
@@ -421,7 +491,7 @@ def test_a_read_that_gets_no_answer_keeps_every_download_and_the_job_is_still_se
     printer = RecordingPrinter()
     result = _print(printer, Label(elements=[_LOGO]), _options(**_NO_CLEAR))
     assert printer.queries == [_WG]
-    assert STX + b"IAAFLOGO\r" in printer.data
+    assert STX + b"IAAF" + _L + b"\r" in printer.data
     [finding] = [f for f in result.findings if f.code is FindingCode.IMAGE_NAMES_UNREAD]
     assert "reading them failed" in finding.message
     assert "no answer" in finding.message
@@ -467,7 +537,7 @@ def test_print_with_the_clear_on_sends_no_directory_request(
 
     assert result.exit_code == 0, result.output
     assert STX + b"W" not in bytes(server.received)
-    assert STX + b"IAAFLOGO\r" in bytes(server.received)
+    assert STX + b"IAAF" + _L + b"\r" in bytes(server.received)
 
 
 @pytest.mark.os_agnostic
@@ -475,7 +545,7 @@ def test_print_with_the_clear_on_sends_no_directory_request(
 def test_print_to_a_plug_in_module_reads_the_names_and_leaves_out_the_held_download(
     cli_runner: CliRunner, tmp_path: Path, serve: Callable[..., PrinterServer]
 ) -> None:
-    holds = b"MODULE: B\rLOGO\rAVAILABLE BYTES IN MODULE : 00049083\r"
+    holds = b"MODULE: B\r" + _L + b"\rAVAILABLE BYTES IN MODULE : 00049083\r"
     server = serve(answering(_WG, holds), silent)
     args = ["print", _label_file(tmp_path, _ICON, _LOGO), "--model", "allegro-2", "--printer", server.address]
 
@@ -485,8 +555,8 @@ def test_print_to_a_plug_in_module_reads_the_names_and_leaves_out_the_held_downl
     assert result.exit_code == 0, result.output
     directory, job = (bytes(connection) for connection in server.connections)
     assert directory == _WG
-    assert STX + b"IBAFICON\r" in job
-    assert STX + b"IBAFLOGO\r" not in job
+    assert STX + b"IBAF" + _I + b"\r" in job
+    assert STX + b"IBAF" + _L not in job
     assert STX + b"q" not in job
     codes = [finding["code"] for finding in json.loads(result.stdout)["data"]["findings"]]
     assert "image_name_held" in codes
