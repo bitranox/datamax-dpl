@@ -726,6 +726,31 @@ def closing_clears(ctx: RenderContext) -> list[bytes]:
     return [_remove_image(name) for name in _removed_after(ctx)]
 
 
+def retry_clear(ctx: RenderContext) -> list[bytes]:
+    """Return the clear that goes before the label's images are uploaded again, where one may go.
+
+    A caller that sent the downloads and found a name missing from the printer's directory (a
+    download into a full module is lost with no error, one Allegro 2, 2026-10-31) clears the
+    module before it uploads them again: ``<STX>q`` where the module is the model's built-in RAM,
+    the plain Prodigy's ``<STX>R`` for each name the label downloads, nothing on a plug-in module
+    (which may be flash, worn by every ``<STX>q``) or on a model that can clear nothing. It does
+    not depend on the clear keys: the keys say what every label sends, this is a repair after a
+    loss.
+
+    Args:
+        ctx: The job's context, after every field is encoded, so its downloads are complete.
+
+    Returns:
+        The clear's commands; empty where no clear may go.
+    """
+    clear = _clear_module_command(ctx)
+    if clear is not None:
+        return [clear]
+    if not ctx.supports(Feature.REMOVE_IMAGE):
+        return []
+    return [_remove_image(name) for name in _removed_after(ctx)]
+
+
 def _removed_after(ctx: RenderContext) -> list[str]:
     """The names the Prodigy's clear after removes: each one the label's job downloads, and only those.
 
@@ -797,6 +822,7 @@ __all__ = [
     "format_header",
     "held_after",
     "image_downloads",
+    "retry_clear",
     "stops_at_tear_off",
     "system_prefix",
 ]

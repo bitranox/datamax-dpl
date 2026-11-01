@@ -106,6 +106,12 @@ cut off part way says to power-cycle the printer, which may be waiting for the r
   (`image_halved`; `preview` shows it). Refused (`image_memory_exceeded`): still past it after
   halving, any job past it under `strict`, a halved image at `magnification` 5 or more.
 - Image module: downloads go to the model's built-in module (`image_module` in `capabilities`); a Prodigy/Prodigy Plus has none and refuses them (`image_module_unknown`) until `[printer] image_module` (A-E) names the module fitted.
+- Upload check (`print`, `verify`, two-way link): a download into a full module is lost silently,
+  so a label's downloads go first, the printer's directory (`<STX>W`) is read within
+  `stored_names_wait`, and its format follows only once every downloaded name is listed. Else round
+  2 clears (`q` on built-in RAM, the Prodigy's `R`, never a plug-in module) and uploads again, round
+  3 uploads halved (`image_upload_retried`); still missing, the label is refused and nothing more
+  is sent (`image_upload_refused`). `[printer] upload_check_rounds` (1-3, default 3).
 - Every downloaded image goes under its content name (`D` + 7 characters from `0-9 A-Z a-z`, from
   its hash; letter case counts, measured kept and matched exactly on an Allegro 2 CA02 03.04 only),
   never the `image` element's `name`; only an `image` without `bitmap` that no element of the label

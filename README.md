@@ -375,7 +375,10 @@ until it is idle, for up to `status_wait` seconds in all (or `--timeout`; on a o
 waits `[printer] one_way_settle` seconds instead), waits `settle_seconds`, takes one photo, and
 writes `expected-<time>.png` next to it. Before sending a job no clear precedes, `verify` and
 `print` may first spend up to `[printer] stored_names_wait` seconds (30) reading the printer's
-stored image names. It does not judge the photo; a person, or an LLM given both pictures, compares them.
+stored image names. On a two-way link both send a label's image downloads first and its format only
+once the printer lists every one of them, clearing and uploading again, then uploading the images
+halved, before refusing the label (`[printer] upload_check_rounds`, see [CONFIG.md](CONFIG.md)).
+It does not judge the photo; a person, or an LLM given both pictures, compares them.
 This loop has only run against a simulated printer and camera so far.
 
 ## Claude Code skill

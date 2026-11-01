@@ -17,7 +17,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from printer_server import answering, answering_over, silent, trickling
+from printer_server import ImageModules, answering, answering_over, module_printer, silent, trickling
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
@@ -704,10 +704,11 @@ def _label_file(tmp_path: Path, *elements: Image) -> str:
 
 @pytest.mark.os_agnostic
 @pytest.mark.usefixtures("no_ambient_configuration")
-def test_print_with_the_clear_on_sends_no_directory_request(
+def test_print_with_the_clear_on_reads_no_directory_before_the_downloads(
     cli_runner: CliRunner, tmp_path: Path, serve: Callable[[Play], PrinterServer]
 ) -> None:
-    server = serve(silent)
+    """The one directory request is the upload check's, after the download; none comes before the job."""
+    server = serve(module_printer(ImageModules()))
 
     result = _run(
         cli_runner, ["print", _label_file(tmp_path, _LOGO), "--model", "allegro-2", "--printer", server.address]
@@ -715,8 +716,10 @@ def test_print_with_the_clear_on_sends_no_directory_request(
     server.join()
 
     assert result.exit_code == 0, result.output
-    assert STX + b"W" not in bytes(server.received)
-    assert STX + b"IAAF" + _L + b"\r" in bytes(server.received)
+    received = bytes(server.received)
+    download = received.index(STX + b"IAAF" + _L + b"\r")
+    assert received.count(STX + b"W") == 1
+    assert received.index(_WG) > download
 
 
 @pytest.mark.os_agnostic
@@ -724,8 +727,8 @@ def test_print_with_the_clear_on_sends_no_directory_request(
 def test_print_to_a_plug_in_module_reads_the_names_and_leaves_out_the_held_download(
     cli_runner: CliRunner, tmp_path: Path, serve: Callable[..., PrinterServer]
 ) -> None:
-    holds = b"MODULE: B\r" + _L + b"\rAVAILABLE BYTES IN MODULE : 00049083\r"
-    server = serve(answering(_WG, holds), silent)
+    modules = ImageModules(held=[("B", LOGO_SENT, 2)])
+    server = serve(module_printer(modules), module_printer(modules))
     args = ["print", _label_file(tmp_path, _ICON, _LOGO), "--model", "allegro-2", "--printer", server.address]
 
     result = _run(cli_runner, ["--json", *args], DATAMAX_DPL___PRINTER__IMAGE_MODULE="B")
@@ -739,6 +742,8 @@ def test_print_to_a_plug_in_module_reads_the_names_and_leaves_out_the_held_downl
     assert STX + b"q" not in job
     codes = [finding["code"] for finding in json.loads(result.stdout)["data"]["findings"]]
     assert "image_name_held" in codes
+    # The upload check then finds both: the stored LOGO and the ICON just downloaded.
+    assert modules.names("B") == [LOGO_SENT, ICON_SENT]
 
 
 @pytest.mark.os_agnostic
@@ -779,8 +784,11 @@ def test_a_refused_print_to_a_file_creates_no_file(cli_runner: CliRunner, tmp_pa
 def test_print_reads_the_stored_names_for_stored_names_wait_and_then_sends_the_job(
     cli_runner: CliRunner, tmp_path: Path, serve: Callable[..., PrinterServer]
 ) -> None:
-    """A printer silent to the read is waited for stored_names_wait (1 s here), not status_wait (20 s)."""
-    server = serve(silent, silent)
+    """A printer silent to the read is waited for stored_names_wait (1 s here), not status_wait (20 s).
+
+    The job's own connection then answers its upload check, which reads once, in about a second.
+    """
+    server = serve(silent, module_printer(ImageModules()))
     args = ["--json", "print", _label_file(tmp_path, _LOGO), "--model", "allegro-2", "--printer", server.address]
 
     started = time.monotonic()
@@ -799,6 +807,7 @@ def test_print_reads_the_stored_names_for_stored_names_wait_and_then_sends_the_j
     directory, job = (bytes(connection) for connection in server.connections)
     assert directory == _WG
     assert STX + b"IBAF" + _L + b"\r" in job
+    assert job.count(_WG) == 1
     [finding] = [f for f in json.loads(result.stdout)["data"]["findings"] if f["code"] == "image_names_unread"]
     assert "reading them failed" in finding["message"]
     assert "stored_names_wait" in finding["message"]

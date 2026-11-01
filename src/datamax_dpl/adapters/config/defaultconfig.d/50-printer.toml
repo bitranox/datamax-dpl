@@ -93,19 +93,32 @@ timeout = 10.0
 # Environment Variable: DATAMAX_DPL___PRINTER__STATUS_RETRY_INTERVAL=0.5
 # status_retry_interval = 0.25
 
-# Purpose: Seconds 'print' and 'verify' keep trying to read the printer's stored
-#          image names (<STX>W) before a job no clear precedes, and only for that
-#          read, whose answer's last byte must arrive within it (the 1 s of
+# Purpose: Seconds 'print' and 'verify' keep trying for each read of the
+#          printer's stored image names (<STX>W): before a job no clear
+#          precedes, and in each round of the upload check after a label's
+#          downloads. The answer's last byte must arrive within it (the 1 s of
 #          silence that ends the answer comes on top); 'status', 'memory' and
-#          verify's wait for the printer use status_wait. A printer was measured silent
-#          for 10-20 s after an image job, so a repeat print right after one
-#          still reads the names. On a link that never answers, every such job
-#          waits this long before it is sent (with image_names_unread); lower it
-#          there. --timeout leaves it.
+#          verify's wait for the printer use status_wait. A printer was measured
+#          silent for 10-20 s after an image job, so a repeat print right after
+#          one still reads the names. On a link that never answers, each read
+#          waits this long, and the upload check refuses the label after its
+#          rounds; lower it there. --timeout leaves it.
 # Type: float, greater than 0, at most 2147483
 # Default: 30.0
 # Environment Variable: DATAMAX_DPL___PRINTER__STORED_NAMES_WAIT=10
 # stored_names_wait = 30.0
+
+# Purpose: How many rounds the upload check of 'print' and 'verify' runs on a
+#          two-way link before it refuses a label whose images the printer's
+#          directory does not list (image_upload_refused): a download into a
+#          full module is lost with no error. 1 uploads and reads once; 2 then
+#          clears the module where a clear may go (never a plug-in module) and
+#          uploads again; 3 then uploads the images halved 2x2. Each round
+#          after the first reports image_upload_retried.
+# Type: integer, 1 to 3
+# Default: 3
+# Environment Variable: DATAMAX_DPL___PRINTER__UPLOAD_CHECK_ROUNDS=2
+# upload_check_rounds = 3
 
 # Purpose: Largest piece of a job handed to one write, over tcp and serial. The
 #          timeout bounds each piece rather than the whole job, so it means the

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Annotated, Any, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
+from ...application.upload_check import MAX_UPLOAD_CHECK_ROUNDS, MIN_UPLOAD_CHECK_ROUNDS, UPLOAD_CHECK_ROUNDS
 from ...application.use_cases import RETRY_INTERVAL_SECONDS, STATUS_WAIT_SECONDS, STORED_NAMES_WAIT_SECONDS
 from ...application.verify import ONE_WAY_SETTLE_SECONDS, POLL_SECONDS
 from ...domain.camera import CameraSettings
@@ -62,6 +63,11 @@ class PrinterSettings(BaseModel):
     # How long print and verify keep trying to read the stored image names before a job no clear
     # precedes; its own key, so a link that never answers can wait less without shortening status.
     stored_names_wait: float = Field(default=STORED_NAMES_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
+    # How many rounds print and verify run before refusing a label whose images the printer did not
+    # list after the upload: 1 reads once, 2 adds a clear and a second upload, 3 the images halved.
+    upload_check_rounds: int = Field(
+        default=UPLOAD_CHECK_ROUNDS, ge=MIN_UPLOAD_CHECK_ROUNDS, le=MAX_UPLOAD_CHECK_ROUNDS
+    )
     # verify waits status_wait in all for the printer to finish its job, polling at this interval;
     # a one-way channel cannot poll, so verify waits one_way_settle instead (0 waits not at all).
     verify_poll_interval: float = Field(default=POLL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)

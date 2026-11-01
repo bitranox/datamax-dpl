@@ -36,6 +36,7 @@ from .job import (
     format_header,
     held_after,
     image_downloads,
+    retry_clear,
     stops_at_tear_off,
     system_prefix,
 )
@@ -82,6 +83,16 @@ class RenderResult(BaseModel):
         names_unread: True when no clear runs before the downloads and the printer's stored names
             were not known (``image_names_unread``): reading them (``<STX>W``) and rendering again
             leaves out each held one.
+        upload_end: Where the job's image downloads end in ``data``: everything before it (the
+            printer settings, the clear before and the downloads) is the upload a caller can send
+            and check (``<STX>W``) before the format that places the images goes out.
+        retry_clear: The clear a caller sends before it uploads the images again because the
+            printer did not list them: ``<STX>q`` for a model's built-in RAM module, the plain
+            Prodigy's ``<STX>R`` for each name the job downloads; empty where no clear may go
+            (a plug-in module, which may be flash, or a model that can clear nothing). Sent
+            whatever the clear keys say.
+        retry_clear_empties: True when ``retry_clear`` empties the whole module (``<STX>q``), so
+            nothing the printer held there survives it.
 
     Example:
         >>> from datamax_dpl.domain.label import Label, Text
@@ -106,6 +117,9 @@ class RenderResult(BaseModel):
     closing: bytes
     image_module: str | None = None
     names_unread: bool = False
+    upload_end: int = 0
+    retry_clear: bytes = b""
+    retry_clear_empties: bool = False
 
     @property
     def sent_as(self) -> SentAs:
@@ -568,18 +582,47 @@ def build_jobs(
     return tuple(results)
 
 
-def _build(label: Label, options: RenderOptions, *, filled: bool, held: HeldImages) -> tuple[RenderResult, HeldImages]:
-    """Render ``label`` and return its result with what the printer holds after its job."""
-    job = _encode(label, options, filled=filled, halve=False, held=held)
-    budget = _image_budget(options)
-    if budget is not None and job.image_bytes > budget.limit:
-        job = _fit_budget(label, options, filled=filled, job=job, budget=budget)
+def _halved(label: Label, options: RenderOptions, *, filled: bool, held: HeldImages) -> _Job:
+    """Encode the job with its images halved, as the budget would, for a printer that did not store them whole.
+
+    No budget is weighed: the caller found that the printer's module did not take the images at
+    full size, which says more than a count of dot data can.
+    """
+    halved = _encode(label, options, filled=filled, halve=True, held=held)
+    elements = sorted(set(halved.ctx.halved_elements))
+    if elements:
+        halved.ctx.findings.deviate(
+            FindingCode.IMAGE_HALVED,
+            "the printer's image module did not store the job's images at full size",
+            fallback=(
+                f"elements {', '.join(map(str, elements))} sent at half resolution and placed at double "
+                f"magnification ({halved.image_bytes} bytes); unverified on paper"
+            ),
+        )
+    return halved
+
+
+def _build(
+    label: Label, options: RenderOptions, *, filled: bool, held: HeldImages, halve: bool = False
+) -> tuple[RenderResult, HeldImages]:
+    """Render ``label`` and return its result with what the printer holds after its job.
+
+    ``halve`` sends every image that can be halved at half resolution whatever the budget says.
+    """
+    if halve:
+        job = _halved(label, options, filled=filled, held=held)
+    else:
+        job = _encode(label, options, filled=filled, halve=False, held=held)
+        budget = _image_budget(options)
+        if budget is not None and job.image_bytes > budget.limit:
+            job = _fit_budget(label, options, filled=filled, job=job, budget=budget)
     ctx = job.ctx
     head = format_header(label, ctx)
     foot = format_footer(label, ctx)
     downloads = image_downloads(ctx)
     closing = closing_clears(ctx)
-    data = b"".join([*job.prefix, *downloads, *head, *job.body, *foot, *ctx.system_suffix, *closing])
+    upload = b"".join([*job.prefix, *downloads])
+    data = b"".join([upload, *head, *job.body, *foot, *ctx.system_suffix, *closing])
     findings = ctx.findings.findings()
     result = RenderResult(
         data=data,
@@ -594,8 +637,52 @@ def _build(label: Label, options: RenderOptions, *, filled: bool, held: HeldImag
         closing=b"".join(closing),
         image_module=ctx.image_module,
         names_unread=any(finding.code is FindingCode.IMAGE_NAMES_UNREAD for finding in findings),
+        upload_end=len(upload),
+        retry_clear=b"".join(retry_clear(ctx)),
+        retry_clear_empties=ctx.clears_module,
     )
     return result, held_after(ctx)
+
+
+def build_record(
+    label: Label,
+    options: RenderOptions | None = None,
+    *,
+    filled: bool = False,
+    held: HeldImages | None = None,
+    halve: bool = False,
+) -> tuple[RenderResult, HeldImages]:
+    """Render one label of a batch as :func:`build_jobs` does, and return what the printer holds after it.
+
+    A caller that sends a batch label by label, and may render a label again on the way (with the
+    module known empty after a clear, or with its images halved), carries the second value to the
+    next label.
+
+    Args:
+        label: The label.
+        options: How to render; None renders for ``generic``.
+        filled: True for a label whose placeholders data records filled.
+        held: The image names the printer holds before this label; None when nobody asked it.
+        halve: Send every image that can be halved (every one but a QR Code) at half resolution
+            and double magnification, with ``image_halved``, whatever the image memory budget
+            says: for a printer whose module did not store the images at full size.
+
+    Returns:
+        The result, and what the printer holds in the image module once the label's job has run.
+
+    Raises:
+        UnknownModelError: ``options.model`` names no profile.
+        ValueError: ``options.firmware`` is malformed.
+
+    Example:
+        >>> from datamax_dpl.domain.label import Image, Label
+        >>> label = Label(elements=[Image(x=1, y=1, name="LOGO", bitmap=["##..", "..##"])])
+        >>> full, _ = build_record(label, RenderOptions(model="allegro-2"))
+        >>> halved, _ = build_record(label, RenderOptions(model="allegro-2"), halve=True)
+        >>> full.halved_elements, halved.halved_elements, full.downloads == halved.downloads
+        ((), (0,), False)
+    """
+    return _build(label, options or RenderOptions(), filled=filled, held=held or HeldImages(), halve=halve)
 
 
 def render(label: Label, options: RenderOptions | None = None) -> RenderResult:
@@ -620,6 +707,7 @@ __all__ = [
     "RenderResult",
     "build_job",
     "build_jobs",
+    "build_record",
     "effective_calibration",
     "format_row_limit",
     "job_context",

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 import rich_click as click
 from pydantic import BaseModel, ConfigDict
 
+from ....application.upload_check import CheckedJob, UploadCheck, UploadRefusedError, print_checked
 from ....application.use_cases import (
     DIRECTORY_IDLE_SECONDS,
     AnswerWait,
@@ -18,13 +19,15 @@ from ....application.use_cases import (
     print_result,
     query_status,
     read_memory_directory,
+    record_renders,
     render_label,
+    render_with_stored_names,
     send_command,
     stored_image_names,
-    with_stored_names,
 )
 from ....application.verify import IdleWait, verify_print
-from ....domain.enums import StatusProblem
+from ....domain.enums import Severity, StatusProblem
+from ....domain.held_images import HeldImages
 from ....domain.memory import MemoryDirectory, MemoryKind
 from ....domain.preview import canvas_for
 from ....domain.profiles import get_profile
@@ -48,10 +51,9 @@ from .model_options import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from ....application.use_cases import BatchResult
-    from ....domain.held_images import HeldImages
     from ....domain.label import Label
     from ..context import CLIContext
 
@@ -69,16 +71,48 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
 
     def body(cli_ctx: CLIContext) -> CommandResult:
         settings = resolve_settings(cli_ctx, **given)
-        result = _render_to_print(load_label(label_source), data, settings, cli_ctx)
-        payload = render_payload(result, include_dpl=False)
+        label = load_label(label_source)
+        records = None if data is None else load_records(data)
+        result, held = _render_to_print(label, records, settings, cli_ctx)
         if not result.ok:
-            return CommandResult(ok=False, payload=payload, human="REFUSED: nothing sent")
+            return CommandResult(
+                ok=False, payload=render_payload(result, include_dpl=False), human="REFUSED: nothing sent"
+            )
         uri = require_uri(settings)
-        report = print_result(result, uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings))
-        payload = payload.model_copy(update={"printer": uri, "bytes_sent": report.bytes_sent})
-        return CommandResult(ok=True, payload=payload, human=f"sent {report.bytes_sent} bytes to {uri}")
+        open_printer = printer_opener(cli_ctx, settings)
+        if is_one_way(uri):
+            # A one-way link cannot read the directory: the job goes out at once, as it always did.
+            report = print_result(result, uri=uri, timeout=settings.timeout, open_printer=open_printer)
+            sent, bytes_sent = result, report.bytes_sent
+        else:
+            job = CheckedJob(
+                renders=record_renders(label, records, render_options(settings)),
+                check=_upload_check(settings, cli_ctx),
+                held=held or HeldImages(),
+            )
+            try:
+                checked = print_checked(result, job, uri=uri, timeout=settings.timeout, open_printer=open_printer)
+            except UploadRefusedError as exc:
+                return _upload_refused(exc, uri=uri)
+            sent, bytes_sent = checked.result, checked.bytes_sent
+        payload = render_payload(sent, include_dpl=False).model_copy(update={"printer": uri, "bytes_sent": bytes_sent})
+        return CommandResult(ok=True, payload=payload, human=f"sent {bytes_sent} bytes to {uri}")
 
     run_command(ctx, command="print", body=body)
+
+
+def _upload_refused(exc: UploadRefusedError, *, uri: str) -> CommandResult:
+    """The result of a print or verify whose upload check refused a label: its findings, what was sent."""
+    payload = render_payload(exc.result, include_dpl=False).model_copy(
+        update={"printer": uri, "bytes_sent": exc.bytes_sent}
+    )
+    errors = [finding for finding in payload.findings if finding.severity is Severity.ERROR]
+    return CommandResult(ok=False, payload=payload, human=f"REFUSED: {exc}\n{findings_text(errors)}")
+
+
+def _upload_check(settings: PrinterSettings, cli_ctx: CLIContext) -> UploadCheck:
+    """How ``print`` and ``verify`` check each label's image upload: ``stored_names_wait`` per read."""
+    return UploadCheck(wait=_stored_names_wait(settings, cli_ctx), rounds=settings.upload_check_rounds)
 
 
 class StatusPayload(BaseModel):
@@ -115,14 +149,13 @@ def cli_status(ctx: click.Context, **given: Any) -> None:
 
 
 def _render_to_print(
-    label: Label, data: str | None, settings: PrinterSettings, cli_ctx: CLIContext
-) -> RenderResult | BatchResult:
+    label: Label, records: Sequence[Mapping[str, str]] | None, settings: PrinterSettings, cli_ctx: CLIContext
+) -> tuple[RenderResult | BatchResult, HeldImages | None]:
     """Render a job to be printed, reading the printer's stored image names where no clear precedes it.
 
-    The records are loaded once and both renders use them: ``--data -`` is stdin, which cannot be
-    read a second time.
+    The records are loaded once by the caller and every render uses them: ``--data -`` is stdin,
+    which cannot be read a second time. Returns the job and the names it was rendered with.
     """
-    records = None if data is None else load_records(data)
 
     def read(module: str) -> HeldImages:
         uri = require_uri(settings)
@@ -135,7 +168,7 @@ def _render_to_print(
             one_way=is_one_way(uri),
         )
 
-    return with_stored_names(lambda held: render_loaded(label, records, settings, held=held), read=read)
+    return render_with_stored_names(lambda held: render_loaded(label, records, settings, held=held), read=read)
 
 
 #: How the CLI lengthens the wait ``status`` and ``memory`` keep trying for, named when it runs out.
@@ -392,26 +425,41 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
         settings = resolve_settings(cli_ctx, **given)
         # Loaded once and rendered from that copy: LABEL '-' is stdin, which cannot be read twice.
         label = load_label(label_source)
-        result = _render_to_print(label, None, settings, cli_ctx)
+        result, held = _render_to_print(label, None, settings, cli_ctx)
         if not isinstance(result, RenderResult) or not result.ok:
             return CommandResult(ok=False, payload=render_payload(result, include_dpl=False), human="REFUSED")
         folder = Path(output_dir)
         services = cli_ctx.services
-        report = verify_print(
-            result,
-            label,
-            get_profile(settings.model),
-            options=render_options(settings),
-            uri=require_uri(settings),
-            timeout=settings.timeout,
-            camera=camera_settings(loaded_config(cli_ctx)),
-            output_dir=folder,
-            open_printer=printer_opener(cli_ctx, settings),
-            capture=services.capture_image,
-            sleep=services.sleep,
-            clock=services.clock,
-            wait=_idle_wait(settings, cli_ctx),
+        options = render_options(settings)
+        uri = require_uri(settings)
+        checked = (
+            None
+            if is_one_way(uri)
+            else CheckedJob(
+                renders=record_renders(label, None, options),
+                check=_upload_check(settings, cli_ctx),
+                held=held or HeldImages(),
+            )
         )
+        try:
+            report = verify_print(
+                result,
+                label,
+                get_profile(settings.model),
+                options=options,
+                uri=uri,
+                timeout=settings.timeout,
+                camera=camera_settings(loaded_config(cli_ctx)),
+                output_dir=folder,
+                open_printer=printer_opener(cli_ctx, settings),
+                capture=services.capture_image,
+                sleep=services.sleep,
+                clock=services.clock,
+                wait=_idle_wait(settings, cli_ctx),
+                checked=checked,
+            )
+        except UploadRefusedError as exc:
+            return _upload_refused(exc, uri=uri)
         expected = folder / f"expected-{datetime.now(tz=timezone.utc):%Y%m%dT%H%M%S%fZ}.png"
         expected.write_bytes(report.expected_png)
         payload = VerifyPayload(

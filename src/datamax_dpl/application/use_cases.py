@@ -13,11 +13,11 @@ from __future__ import annotations
 import time
 from contextlib import closing
 from enum import Enum
-from typing import TYPE_CHECKING, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, NamedTuple, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
-from ..domain.batch import cut_across_records
+from ..domain.batch import batch_cuts, with_cut
 from ..domain.detect import Detection, Evidence, suggest_profiles
 from ..domain.enums import Severity
 from ..domain.errors import (
@@ -32,7 +32,7 @@ from ..domain.held_images import DEFAULT_MODULE, DEFAULT_MODULE_UNREAD, HeldImag
 from ..domain.label import Cut
 from ..domain.memory import MemoryDirectory, parse_module_directory
 from ..domain.placeholders import fill_label
-from ..domain.render import RenderResult, build_job, build_jobs
+from ..domain.render import RenderResult, build_job, build_jobs, build_record
 from ..domain.status import (
     CANCEL,
     CUT_NOW,
@@ -79,6 +79,13 @@ class BatchResult(BaseModel):
     data: bytes
     results: tuple[RenderResult, ...]
     batch_findings: tuple[Finding, ...] = ()
+    #: Whether a batch cut (``<STX>o``) follows each record; empty when the batch cuts across none.
+    cut_after: tuple[bool, ...] = ()
+
+    def record_jobs(self) -> tuple[bytes, ...]:
+        """Each record's bytes as ``data`` holds them, its batch cut included; joined they are ``data``."""
+        cuts = self.cut_after or (False,) * len(self.results)
+        return tuple(with_cut(r.data, r.closing, cut=after) for r, after in zip(self.results, cuts, strict=True))
 
     @property
     def ok(self) -> bool:
@@ -111,14 +118,67 @@ def render_batch(
         MissingFieldError: A record lacks a field a placeholder names.
         pydantic.ValidationError: A filled value breaks a field limit.
     """
+    per_record, cut = _batch_label(label)
+    results = build_jobs((fill_label(per_record, record) for record in records), options, filled=True, held=held)
+    if cut is None:
+        return BatchResult(data=b"".join(result.data for result in results), results=results)
+    cuts, findings = batch_cuts(len(results), cut=cut, options=options)
+    batch = BatchResult(data=b"", results=results, batch_findings=findings, cut_after=cuts)
+    return batch.model_copy(update={"data": b"".join(batch.record_jobs())})
+
+
+def _batch_label(label: Label) -> tuple[Label, Cut | None]:
+    """Return the label each record fills, and the cut the batch makes across records (None: none).
+
+    DPL's cut-by counts copies of one format, so a batch that cuts every N records cuts with
+    ``<STX>o`` itself (:mod:`~datamax_dpl.domain.batch`), and each record's own label does not cut.
+    """
     cut = label.cut
     if cut is None or cut.every == 1 or label.quantity > 1:
-        results = build_jobs((fill_label(label, record) for record in records), options, filled=True, held=held)
-        return BatchResult(data=b"".join(result.data for result in results), results=results)
-    per_record = label.model_copy(update={"cut": Cut(every=1, at_end=False)})
-    results = build_jobs((fill_label(per_record, record) for record in records), options, filled=True, held=held)
-    data, findings = cut_across_records([(r.data, r.closing) for r in results], cut=cut, options=options)
-    return BatchResult(data=data, results=results, batch_findings=findings)
+        return label, None
+    return label.model_copy(update={"cut": Cut(every=1, at_end=False)}), cut
+
+
+class RecordRender(Protocol):
+    """Render one label of a job given what the printer holds before it; see :func:`record_renders`."""
+
+    def __call__(self, held: HeldImages, *, halve: bool) -> tuple[RenderResult, HeldImages]:
+        """Return the label's result and what the printer holds after it; ``halve`` halves its images."""
+        ...
+
+
+def record_renders(
+    label: Label, records: Sequence[Mapping[str, str]] | None, options: RenderOptions
+) -> tuple[RecordRender, ...]:
+    """Return how to render each label of a job again, as :func:`render_label` or :func:`render_batch` rendered it.
+
+    A sender that checks each label's image upload renders a label again with what it then knows
+    the printer holds (an empty module after a clear) or with its images halved, and carries
+    what the printer holds after it to the next label.
+
+    Args:
+        label: The label.
+        records: The data records of a batch, or None for one label.
+        options: How to render.
+
+    Returns:
+        One render per label, in the order they are sent.
+
+    Raises:
+        MissingFieldError: A record lacks a field a placeholder names.
+        pydantic.ValidationError: A filled value breaks a field limit.
+    """
+    if records is None:
+        return (_render_of(label, options, filled=False),)
+    per_record, _ = _batch_label(label)
+    return tuple(_render_of(fill_label(per_record, record), options, filled=True) for record in records)
+
+
+def _render_of(label: Label, options: RenderOptions, *, filled: bool) -> RecordRender:
+    def render(held: HeldImages, *, halve: bool) -> tuple[RenderResult, HeldImages]:
+        return build_record(label, options, filled=filled, held=held, halve=halve)
+
+    return render
 
 
 def _unread_module(result: RenderResult | BatchResult) -> str | None:
@@ -166,15 +226,65 @@ def stored_image_names(
         return HeldImages(unread_because=DEFAULT_MODULE_UNREAD)
     if one_way:
         return HeldImages(unread_because=ONE_WAY_LINK)
+    printer, held = read_stored_names(
+        None, module=module, uri=uri, timeout=timeout, open_printer=open_printer, wait=wait
+    )
+    if printer is not None:
+        printer.close()
+    return held
+
+
+def read_stored_names(
+    printer: PrinterTransport | None,
+    *,
+    module: str,
+    uri: str,
+    timeout: float,
+    open_printer: OpenPrinter,
+    wait: AnswerWait | None = None,
+) -> tuple[PrinterTransport | None, HeldImages]:
+    """Read the image names the printer holds in ``module`` (``<STX>W``), asking on ``printer`` first.
+
+    The read :func:`stored_image_names` makes, on a channel the caller may already have open: a
+    sender that has just downloaded a job's images asks on the connection they went out on, and
+    goes on with the job there. A channel that fails before it takes the request is replaced by a
+    new one within ``wait``, as :func:`query_status` replaces its own.
+
+    Args:
+        printer: The open channel to ask first, or None to open one with ``open_printer``.
+        module: The letter of the job's image module.
+        uri: The printer.
+        timeout: Seconds for each connect and write.
+        open_printer: Opens a channel when there is none, or the one asked took no request.
+        wait: How long to keep trying, bounding the answer's last byte (see
+            :func:`stored_image_names`); None waits ``timeout``.
+
+    Returns:
+        The channel that answered, still open for the caller to go on with and close (None when
+        the read failed: every channel it used is closed then), and what it says ``module``
+        holds; unknown names with the reason when the read failed or its answer could not be read.
+    """
+    first = [] if printer is None else [printer]
+
+    def open_first(uri: str, *, timeout: float) -> PrinterTransport:
+        # The first attempt is the open channel itself; only a failure that took no request opens another.
+        return first.pop() if first else open_printer(uri, timeout=timeout)
+
     try:
-        (directory,) = read_memory_directory(
-            kinds=("graphic",), uri=uri, timeout=timeout, open_printer=open_printer, wait=wait, answer_within_wait=True
+        channel, (directory,) = _ask_directories(
+            kinds=("graphic",),
+            uri=uri,
+            timeout=timeout,
+            open_printer=open_first,
+            idle=DIRECTORY_IDLE_SECONDS,
+            wait=wait,
+            answer_within_wait=True,
         )
     except UnsupportedOperationError:
-        return HeldImages(unread_because=ONE_WAY_LINK)
+        return None, HeldImages(unread_because=ONE_WAY_LINK)
     except TransportError as exc:
-        return HeldImages(unread_because=f"reading them failed: {exc}")
-    return held_images_from(directory, module=module)
+        return None, HeldImages(unread_because=f"reading them failed: {exc}")
+    return channel, held_images_from(directory, module=module)
 
 
 def with_stored_names(
@@ -194,11 +304,24 @@ def with_stored_names(
     Returns:
         The job to send.
     """
+    return render_with_stored_names(render, read=read)[0]
+
+
+def render_with_stored_names(
+    render: Callable[[HeldImages | None], _Rendered], *, read: Callable[[str], HeldImages]
+) -> tuple[_Rendered, HeldImages | None]:
+    """Render as :func:`with_stored_names` does, and also return the names the job was rendered with.
+
+    Returns:
+        The job to send, and what the printer was read to hold (None when nothing was read): a
+        sender that renders a label again on the way starts from the same names.
+    """
     result = render(None)
     module = _unread_module(result)
     if module is None:
-        return result
-    return render(read(module))
+        return result, None
+    held = read(module)
+    return render(held), held
 
 
 class PrintReport(BaseModel):
@@ -535,6 +658,34 @@ def read_memory_directory(
     check_timeout(idle, name="idle")
     if not kinds:
         return ()
+    printer, directories = _ask_directories(
+        kinds=kinds,
+        uri=uri,
+        timeout=timeout,
+        open_printer=open_printer,
+        idle=idle,
+        wait=wait,
+        answer_within_wait=answer_within_wait,
+    )
+    printer.close()
+    return directories
+
+
+def _ask_directories(
+    *,
+    kinds: Sequence[MemoryKind],
+    uri: str,
+    timeout: float,
+    open_printer: OpenPrinter,
+    idle: float,
+    wait: AnswerWait | None,
+    answer_within_wait: bool,
+) -> tuple[PrinterTransport, tuple[MemoryDirectory, ...]]:
+    """Ask for each directory of ``kinds`` (at least one) as :func:`read_memory_directory` does.
+
+    Returns the channel that answered, still open, and the directories. A failure closes every
+    channel it opened and raises as :func:`read_memory_directory` does.
+    """
     first, *rest = kinds
     printer, answer = _first_answer(
         lambda channel, left: channel.read_answer(
@@ -550,11 +701,14 @@ def read_memory_directory(
         open_printer=open_printer,
         wait=AnswerWait(seconds=timeout) if wait is None else wait,
     )
-    with closing(printer):
+    try:
         answers = [answer] + [
             printer.read_answer(MEMORY_DIRECTORY_REQUESTS[kind], timeout=timeout, idle=idle) for kind in rest
         ]
-    return tuple(parse_module_directory(raw, kind=kind) for raw, kind in zip(answers, kinds, strict=True))
+    except BaseException:
+        printer.close()
+        raise
+    return printer, tuple(parse_module_directory(raw, kind=kind) for raw, kind in zip(answers, kinds, strict=True))
 
 
 #: Lines in the ``<STX>KQ`` memory report (docs/dpl-reference.md section 8).
@@ -608,13 +762,17 @@ __all__ = [
     "DetectReport",
     "PrintReport",
     "PrinterCommand",
+    "RecordRender",
     "detect_printer",
     "poll_status",
     "print_result",
     "query_status",
     "read_memory_directory",
+    "read_stored_names",
+    "record_renders",
     "render_batch",
     "render_label",
+    "render_with_stored_names",
     "send_bytes",
     "send_command",
     "stored_image_names",

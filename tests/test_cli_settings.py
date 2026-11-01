@@ -174,6 +174,22 @@ def test_a_named_printers_stored_names_wait_wins_over_the_printer_section() -> N
 
 
 @pytest.mark.os_agnostic
+def test_the_upload_check_runs_three_rounds_by_default_and_a_named_printer_sets_its_own() -> None:
+    config = {"printer": {"upload_check_rounds": 2}, "printers": {"x": {"upload_check_rounds": 1}}}
+
+    assert _settings({}).upload_check_rounds == 3
+    assert _settings(config).upload_check_rounds == 2
+    assert _settings(config, printer="x").upload_check_rounds == 1
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("value", "bound"), [(0, "greater than or equal to 1"), (4, "less than or equal to 3")])
+def test_upload_check_rounds_outside_one_to_three_is_refused_with_the_key_named(value: int, bound: str) -> None:
+    with pytest.raises(ConfigurationError, match=rf"^printer\.upload_check_rounds: Input should be {bound}$"):
+        _settings({"printer": {"upload_check_rounds": value}})
+
+
+@pytest.mark.os_agnostic
 def test_a_timeout_given_on_the_command_line_leaves_the_stored_names_wait_alone() -> None:
     """Only the key sets it: --timeout is the whole wait of status, memory and verify, not of this read."""
     assert _settings({"printer": {"stored_names_wait": 7}}, timeout=2.0).stored_names_wait == 7.0
@@ -556,6 +572,7 @@ _COMMENTED_OUT_DEFAULTS = (
     "status_wait",
     "status_retry_interval",
     "stored_names_wait",
+    "upload_check_rounds",
     "send_chunk_bytes",
     "verify_poll_interval",
     "one_way_settle",

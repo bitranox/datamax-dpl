@@ -301,6 +301,8 @@ class FindingCode(str, Enum):
     IMAGE_NAMES_UNREAD = "image_names_unread"
     IMAGE_PAST_PRINT_WIDTH = "image_past_print_width"
     IMAGE_TOO_WIDE = "image_too_wide"
+    IMAGE_UPLOAD_REFUSED = "image_upload_refused"
+    IMAGE_UPLOAD_RETRIED = "image_upload_retried"
     INCH_UNITS = "inch_units"
     LABEL_SETTING_NOT_SENT = "label_setting_not_sent"
     LABEL_WIDER_THAN_PRINT_WIDTH = "label_wider_than_print_width"

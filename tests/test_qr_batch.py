@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from printer_server import silent
+from printer_server import ImageModules, module_printer
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.composition import build_production
@@ -20,6 +20,7 @@ from datamax_dpl.domain.enums import Severity
 from datamax_dpl.domain.label import Label
 from datamax_dpl.domain.render import build_job
 from datamax_dpl.domain.render_context import RenderOptions
+from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -95,8 +96,11 @@ def test_the_printed_command_sends_each_record_with_its_own_code(
     cli_runner: CliRunner,
     serve: Callable[[Play], PrinterServer],
 ) -> None:
-    """Each record's job equals the label written with that code by hand, in the order of the rows."""
-    server = serve(silent)
+    """Each record's job equals the label written with that code by hand, in the order of the rows.
+
+    The printer answers each record's upload check; the directory requests are left out of the comparison.
+    """
+    server = serve(module_printer(ImageModules()))
     summary, lines = _run(tmp_path, capsys, "--count", "4", "--printer", server.address)
     argv: list[str] = summary["argv"]
     if sys.platform != "win32":
@@ -108,7 +112,9 @@ def test_the_printed_command_sends_each_record_with_its_own_code(
     assert result.exit_code == 0, result.output
     options = RenderOptions(model="allegro-2")
     jobs = [build_job(_literal_label(summary, row), options, filled=True) for row in _rows(summary)]
-    assert bytes(server.received) == b"".join(job.data for job in jobs)
+    assert bytes(server.received).replace(MEMORY_DIRECTORY_REQUESTS["graphic"], b"") == b"".join(
+        job.data for job in jobs
+    )
     assert len({job.downloads for job in jobs}) == 4
     for job in jobs:
         assert {finding.severity for finding in job.findings} == {Severity.INFO}

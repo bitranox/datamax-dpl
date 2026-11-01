@@ -16,10 +16,10 @@ import pytest
 import segno
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from printer_server import ImageModules, ModulePrinter
 from pydantic import ValidationError
 
 from datamax_dpl.adapters.cli import root as cli_mod
-from datamax_dpl.adapters.memory import RecordingPrinter
 from datamax_dpl.application.use_cases import render_batch
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.decoder import explain
@@ -44,12 +44,15 @@ from datamax_dpl.domain.render_context import (
     drawn_image_name,
     resolved_printer_state,
 )
+from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS
 from datamax_dpl.domain.units import DplUnit
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from click.testing import CliRunner, Result
+
+    from datamax_dpl.adapters.memory import RecordingPrinter
 
 STX = b"\x02"
 PRINTER = "tcp://192.0.2.60:9100"
@@ -620,11 +623,13 @@ def test_render_shows_the_download_and_the_magnified_record(cli_runner: CliRunne
 
 @pytest.mark.os_agnostic
 def test_print_sends_exactly_the_rendered_qr_job(cli_runner: CliRunner, tmp_path: Path) -> None:
-    printer = RecordingPrinter()
+    """The job goes out as rendered, its upload check's directory request between download and format."""
+    printer = ModulePrinter(ImageModules())
     args = ["--json", "print", qr_file(tmp_path), "--model", "allegro-2", "--printer", PRINTER]
     result = run_cli(cli_runner, args, printer)
     assert result.exit_code == 0, result.output
-    assert printer.data == render(Label.model_validate(QR_DOCUMENT), RenderOptions(model="allegro-2")).data
+    job = b"".join(chunk for chunk in printer.sent if chunk != MEMORY_DIRECTORY_REQUESTS["graphic"])
+    assert job == render(Label.model_validate(QR_DOCUMENT), RenderOptions(model="allegro-2")).data
 
 
 @pytest.mark.os_agnostic

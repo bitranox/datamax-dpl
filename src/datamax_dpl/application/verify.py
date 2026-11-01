@@ -18,8 +18,10 @@ from ..domain.camera import CameraKind, CameraSettings, CapturedImage
 from ..domain.errors import CameraError, LabelRejectedError, PrinterTimeoutError
 from ..domain.png import encode_png
 from ..domain.preview import preview_bitmap
+from ..domain.render import RenderResult
 from ..domain.status import PrinterStatus
 from ..domain.timing import MAX_TIMEOUT_SECONDS, check_timeout
+from .upload_check import CheckedJob, Link, UploadRefusedError, send_checked_label
 from .use_cases import AnswerWait, poll_status
 
 if TYPE_CHECKING:
@@ -27,7 +29,6 @@ if TYPE_CHECKING:
 
     from ..domain.label import Label
     from ..domain.profiles import PrinterProfile
-    from ..domain.render import RenderResult
     from ..domain.render_context import RenderOptions
     from .ports import CaptureImage, Clock, OpenPrinter, PrinterTransport, Sleep
 
@@ -63,10 +64,12 @@ class VerifyReport(BaseModel):
     """What ``verify`` produced.
 
     Attributes:
-        bytes_sent: Size of the job sent.
+        bytes_sent: Size of the job sent, every round of its upload check included.
         status: Printer status after printing, or None when the channel cannot read it.
         photo: The photo of the printed label.
         expected_png: Preview of the label at printer resolution, as PNG bytes.
+        result: The job as it went out: with its upload check's findings, halved where a round
+            halved it. None only for a report made without one.
     """
 
     # PNG bytes are never UTF-8, so JSON carries them as base64.
@@ -76,6 +79,7 @@ class VerifyReport(BaseModel):
     status: PrinterStatus | None
     photo: CapturedImage
     expected_png: bytes
+    result: RenderResult | None = None
 
 
 def check_idle_wait(wait: IdleWait) -> IdleWait:
@@ -162,15 +166,54 @@ def _still_busy(wait: AnswerWait, *, started: float, unanswered: bool) -> Printe
     )
 
 
+class _Printed(NamedTuple):
+    """What ``verify`` sent and how the printer ended up."""
+
+    result: RenderResult
+    bytes_sent: int
+    status: PrinterStatus | None
+
+
 def _print_and_wait(
-    data: bytes, *, uri: str, timeout: float, wait: IdleWait, open_printer: OpenPrinter, sleep: Sleep
-) -> PrinterStatus | None:
+    result: RenderResult,
+    *,
+    uri: str,
+    timeout: float,
+    wait: IdleWait,
+    open_printer: OpenPrinter,
+    sleep: Sleep,
+    checked: CheckedJob | None,
+) -> _Printed:
     with closing(open_printer(uri, timeout=timeout)) as printer:
-        printer.send(data)
         if not printer.bidirectional:
+            printer.send(result.data)
             sleep(wait.one_way_settle)
-            return None
-        return wait_idle(printer, uri=uri, timeout=timeout, open_printer=open_printer, wait=wait)
+            return _Printed(result=result, bytes_sent=len(result.data), status=None)
+        if checked is None:
+            printer.send(result.data)
+            status = wait_idle(printer, uri=uri, timeout=timeout, open_printer=open_printer, wait=wait)
+            return _Printed(result=result, bytes_sent=len(result.data), status=status)
+        link = Link(printer=printer, uri=uri, timeout=timeout, open_printer=open_printer)
+        try:
+            return _send_checked_and_wait(link, checked, wait=wait)
+        finally:
+            link.close_opened()
+
+
+def _send_checked_and_wait(link: Link, checked: CheckedJob, *, wait: IdleWait) -> _Printed:
+    """Send the label with its upload check on ``link``, then wait on the channel the job ended on.
+
+    Raises:
+        UploadRefusedError: The printer did not list the label's images after every round; its
+            format was not sent.
+    """
+    sent, done = send_checked_label(link, checked)
+    if not done:
+        raise UploadRefusedError(sent, bytes_sent=link.bytes_sent)
+    # The rest of the job went out on the channel that answered the last read, so one is open.
+    channel = link.printer or link.open_printer(link.uri, timeout=link.timeout)
+    status = wait_idle(channel, uri=link.uri, timeout=link.timeout, open_printer=link.open_printer, wait=wait)
+    return _Printed(result=sent, bytes_sent=link.bytes_sent, status=status)
 
 
 def verify_print(
@@ -188,15 +231,21 @@ def verify_print(
     sleep: Sleep,
     clock: Clock,
     wait: IdleWait | None = None,
+    checked: CheckedJob | None = None,
 ) -> VerifyReport:
     """Print ``result``, wait for the printer, photograph the label and return both pictures.
 
     ``options`` are the ones ``result`` was rendered with: the expected picture places each field
-    at the row and column that job writes. ``wait`` is how long the printer may take to finish
-    (see :class:`IdleWait`); None waits ``timeout`` seconds in all on ``clock`` and ``sleep``.
+    at the row and column that job writes, its images as the job sent them. ``wait`` is how long
+    the printer may take to finish (see :class:`IdleWait`); None waits ``timeout`` seconds in all
+    on ``clock`` and ``sleep``. ``checked`` sends a label that downloads an image after its upload
+    check on a two-way channel (see :mod:`~datamax_dpl.application.upload_check`); None sends the
+    job at once.
 
     Raises:
         LabelRejectedError: The job has error findings; nothing was printed.
+        UploadRefusedError: The printer did not list the label's images after every round; its
+            format was not sent, and no photo was taken.
         TransportError: The printer could not be reached, or did not finish in time.
         CameraError: No photo could be taken.
         ValueError: A value of ``wait`` is not a usable number of seconds (see
@@ -211,13 +260,15 @@ def verify_print(
     idle_wait = IdleWait(answer=AnswerWait(seconds=timeout, clock=clock, sleep=sleep)) if wait is None else wait
     # Before the job goes out: refused afterwards, it would leave a label printed and not photographed.
     check_idle_wait(idle_wait)
-    status = _print_and_wait(
-        result.data, uri=uri, timeout=timeout, wait=idle_wait, open_printer=open_printer, sleep=sleep
+    printed = _print_and_wait(
+        result, uri=uri, timeout=timeout, wait=idle_wait, open_printer=open_printer, sleep=sleep, checked=checked
     )
     sleep(camera.settle_seconds)
     photo = capture(camera, output_dir=output_dir)
-    expected = encode_png(preview_bitmap(label, profile, sent_as=result.sent_as, options=options))
-    return VerifyReport(bytes_sent=len(result.data), status=status, photo=photo, expected_png=expected)
+    expected = encode_png(preview_bitmap(label, profile, sent_as=printed.result.sent_as, options=options))
+    return VerifyReport(
+        bytes_sent=printed.bytes_sent, status=printed.status, photo=photo, expected_png=expected, result=printed.result
+    )
 
 
 __all__ = [
