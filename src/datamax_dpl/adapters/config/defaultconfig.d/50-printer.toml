@@ -100,9 +100,10 @@ timeout = 10.0
 # Environment Variable: DATAMAX_DPL___PRINTER__SEND_CHUNK_BYTES=512
 # send_chunk_bytes = 1024
 
-# Purpose: Seconds between two status polls while 'verify' waits for the printer
-#          to finish its job. The whole wait is status_wait (or --timeout); each
-#          poll waits timeout for its answer, never past the end of that wait.
+# Purpose: Seconds between a busy answer and the next status poll while 'verify'
+#          waits for the printer to finish its job. That whole wait is
+#          status_wait (or --timeout), waited as 'status' waits: a silent printer
+#          is read until it ends and never asked twice.
 # Type: float, greater than 0, at most 2147483
 # Default: 0.5
 # Environment Variable: DATAMAX_DPL___PRINTER__VERIFY_POLL_INTERVAL=1.0

@@ -217,7 +217,7 @@ def query_status(
         TransportError: The printer could not be reached for another reason.
     """
     printer, answer = _first_answer(
-        lambda channel, left: channel.query(STATUS_REQUEST, timeout=left, accept=is_status_line),
+        _ask_status,
         uri=uri,
         timeout=timeout,
         open_printer=open_printer,
@@ -227,6 +227,40 @@ def query_status(
     return parse_ascii_status(answer)
 
 
+def poll_status(
+    printer: PrinterTransport, *, uri: str, timeout: float, open_printer: OpenPrinter, wait: AnswerWait, started: float
+) -> tuple[PrinterTransport, PrinterStatus]:
+    """Ask the already open ``printer`` for its status exactly as :func:`query_status` asks a new one.
+
+    The same :class:`AnswerWait` applies, measured from ``started`` so that several polls share
+    one wait: a silent channel is read until the wait ends and never asked a second time, and a
+    failure that took no request is asked again on a new connection opened with ``open_printer``.
+
+    Returns:
+        The channel that answered, ``printer`` or the new connection, still open, and the status.
+
+    Raises:
+        PrinterTimeoutError: The wait ran out without an answer; ``printer`` is then closed.
+        PrinterProtocolError: The answer was not a status string.
+        TransportError: Any other failure, raised as is.
+    """
+    first = [printer]
+
+    def open_again(uri: str, *, timeout: float) -> PrinterTransport:
+        # The first attempt is the open channel itself; only a failure that took no request opens another.
+        return first.pop() if first else open_printer(uri, timeout=timeout)
+
+    channel, answer = _first_answer(
+        _ask_status, uri=uri, timeout=timeout, open_printer=open_again, wait=wait, started=started
+    )
+    return channel, parse_ascii_status(answer)
+
+
+def _ask_status(channel: PrinterTransport, left: float) -> bytes:
+    """The status request of every status wait: its answer is waited for as long as the wait has left."""
+    return channel.query(STATUS_REQUEST, timeout=left, accept=is_status_line)
+
+
 def _first_answer(
     ask: Callable[[PrinterTransport, float], _T],
     *,
@@ -234,12 +268,15 @@ def _first_answer(
     timeout: float,
     open_printer: OpenPrinter,
     wait: AnswerWait,
+    started: float | None = None,
 ) -> tuple[PrinterTransport, _T]:
     """Open the printer and ``ask`` it, again on a new connection while nothing answered, within ``wait``.
 
     ``ask`` gets the open channel and the seconds left. Returns the channel, still open for the
     caller to go on with and close, and what ``ask`` returned. An attempt is one opening of the
     channel; the TCP transport itself retries a refused connect within one opening for up to 3 s.
+    ``started`` is when the wait began, when an earlier ask already used part of it; by default
+    it begins now.
 
     Raises:
         PrinterTimeoutError: The wait ran out; the message gives the seconds waited, counts the
@@ -250,7 +287,7 @@ def _first_answer(
     check_timeout(timeout)
     check_timeout(wait.seconds, name="wait")
     check_timeout(wait.retry_interval, name="retry interval")
-    tries = _Tries(uri, wait)
+    tries = _Tries(uri, wait, started=started)
     while True:
         # No attempt starts once the wait is over: the pause before it can overrun the end.
         if tries.attempts and tries.left() <= 0:
@@ -276,10 +313,10 @@ class _WaitEndedError(Exception):
 class _Tries:
     """The attempts of one :class:`AnswerWait`: when it started and ends, how many ran, the last failure."""
 
-    def __init__(self, uri: str, wait: AnswerWait) -> None:
+    def __init__(self, uri: str, wait: AnswerWait, *, started: float | None = None) -> None:
         self.uri = uri
         self.wait = wait
-        self.started = wait.clock()
+        self.started = wait.clock() if started is None else started
         self.deadline = self.started + wait.seconds
         self.attempts = 0
         self.last: TransportError | None = None
@@ -453,6 +490,7 @@ __all__ = [
     "PrintReport",
     "PrinterCommand",
     "detect_printer",
+    "poll_status",
     "print_result",
     "query_status",
     "read_memory_directory",

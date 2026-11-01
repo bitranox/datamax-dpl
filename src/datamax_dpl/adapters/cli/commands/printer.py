@@ -123,13 +123,12 @@ def _answer_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> AnswerWait:
     )
 
 
-def _idle_wait(settings: PrinterSettings) -> IdleWait:
-    """How long ``verify`` waits for the printer to finish: ``status_wait`` in all, as ``status`` does."""
+def _idle_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> IdleWait:
+    """How long ``verify`` waits for the printer to finish: the wait ``status`` uses, polled while busy."""
     return IdleWait(
-        seconds=settings.status_wait,
+        answer=_answer_wait(settings, cli_ctx),
         poll_interval=settings.verify_poll_interval,
         one_way_settle=settings.one_way_settle,
-        wait_longer=WAIT_LONGER,
     )
 
 
@@ -366,7 +365,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
             capture=services.capture_image,
             sleep=services.sleep,
             clock=services.clock,
-            wait=_idle_wait(settings),
+            wait=_idle_wait(settings, cli_ctx),
         )
         expected = folder / f"expected-{datetime.now(tz=timezone.utc):%Y%m%dT%H%M%S%fZ}.png"
         expected.write_bytes(report.expected_png)

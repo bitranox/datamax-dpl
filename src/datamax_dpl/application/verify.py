@@ -17,8 +17,9 @@ from ..domain.camera import CameraKind, CameraSettings, CapturedImage
 from ..domain.errors import CameraError, LabelRejectedError, PrinterTimeoutError
 from ..domain.png import encode_png
 from ..domain.preview import preview_bitmap
-from ..domain.status import STATUS_REQUEST, PrinterStatus, is_status_line, parse_ascii_status
+from ..domain.status import PrinterStatus
 from ..domain.timing import check_timeout
+from .use_cases import AnswerWait, poll_status
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -39,23 +40,22 @@ ONE_WAY_SETTLE_SECONDS = 5.0
 class IdleWait(NamedTuple):
     """How ``verify`` waits for the printer to finish the job it was sent.
 
-    A printer can report busy for longer than one transport ``timeout`` after an image job, so
-    the whole wait is its own value, as ``status`` has ``status_wait``; each poll's answer wait is
-    the transport timeout, never past the end of the whole wait. A poll that gets no answer in
-    its wait ends the wait with that timeout: the printer is not asked again on the connection
-    an answer may still be owed on.
+    The polls share one :class:`~datamax_dpl.application.use_cases.AnswerWait`, the wait
+    ``status`` uses, and each poll is asked as ``status`` asks (``poll_status``): a silent
+    printer is read until the whole wait ends and never asked a second time, a connection that
+    took no request is asked again on a new one, and a printer that answers busy is polled again
+    after ``poll_interval`` until the wait runs out.
 
     Attributes:
-        seconds: The whole wait for the printer to report idle (or a problem), from the first poll.
-        poll_interval: Seconds between two polls on a channel that reads status.
+        answer: The whole wait, from the first poll, and how a poll that took no request is
+            asked again; its ``wait_longer`` ends the message when it runs out.
+        poll_interval: Seconds between a busy answer and the next poll.
         one_way_settle: Seconds waited instead, on a channel that cannot read status.
-        wait_longer: How the caller lengthens the wait, added to the message when it runs out.
     """
 
-    seconds: float
+    answer: AnswerWait
     poll_interval: float = POLL_SECONDS
     one_way_settle: float = ONE_WAY_SETTLE_SECONDS
-    wait_longer: str = ""
 
 
 class VerifyReport(BaseModel):
@@ -78,42 +78,50 @@ class VerifyReport(BaseModel):
 
 
 def wait_idle(
-    printer: PrinterTransport, *, timeout: float, wait: IdleWait, sleep: Sleep, clock: Clock
+    printer: PrinterTransport, *, uri: str, timeout: float, open_printer: OpenPrinter, wait: IdleWait
 ) -> PrinterStatus:
-    """Poll the status every ``wait.poll_interval`` until the printer is idle or reports a problem.
+    """Poll the status until the printer is idle or reports a problem, within ``wait.answer``.
 
-    Each poll waits ``timeout`` for its answer, but never past the end of ``wait.seconds``.
+    ``printer`` is the open channel the job went out on, and stays the caller's to close; a
+    connection opened here because ``printer`` took no request is closed here.
 
     Raises:
-        PrinterTimeoutError: Still busy when ``wait.seconds`` ran out; the message gives the
-            seconds waited and ends with ``wait.wait_longer``. A poll that got no answer in time
-            raises its own timeout.
-        ValueError: ``timeout`` or a wait value is not a usable number of seconds.
+        PrinterTimeoutError: No answer within the wait (as ``status`` reports it), or still busy
+            when it ran out; both messages give the seconds waited and end with
+            ``wait.answer.wait_longer``.
+        PrinterProtocolError: An answer was not a status string.
+        TransportError: The printer could not be reached for another reason.
+        ValueError: A wait value is not a usable number of seconds.
     """
-    check_timeout(timeout)
-    check_timeout(wait.seconds, name="wait")
+    answer_wait = wait.answer
+    check_timeout(answer_wait.seconds, name="wait")
     check_timeout(wait.poll_interval, name="poll interval")
-    started = clock()
-    deadline = started + wait.seconds
-    while (left := deadline - clock()) > 0:
-        answer = printer.query(STATUS_REQUEST, timeout=min(timeout, left), accept=is_status_line)
-        status = parse_ascii_status(answer)
-        if status.idle or status.problems:
-            return status
-        sleep(wait.poll_interval)
-    msg = f"printer still busy after {clock() - started:.1f} s"
-    raise PrinterTimeoutError(msg, advice=wait.wait_longer)
+    started = answer_wait.clock()
+    channel = printer
+    try:
+        while answer_wait.clock() - started < answer_wait.seconds:
+            channel, status = poll_status(
+                channel, uri=uri, timeout=timeout, open_printer=open_printer, wait=answer_wait, started=started
+            )
+            if status.idle or status.problems:
+                return status
+            answer_wait.sleep(wait.poll_interval)
+    finally:
+        if channel is not printer:
+            channel.close()
+    advice = answer_wait.wait_longer
+    raise PrinterTimeoutError(f"printer still busy after {answer_wait.clock() - started:.1f} s", advice=advice)
 
 
 def _print_and_wait(
-    data: bytes, *, uri: str, timeout: float, wait: IdleWait, open_printer: OpenPrinter, sleep: Sleep, clock: Clock
+    data: bytes, *, uri: str, timeout: float, wait: IdleWait, open_printer: OpenPrinter, sleep: Sleep
 ) -> PrinterStatus | None:
     with closing(open_printer(uri, timeout=timeout)) as printer:
         printer.send(data)
         if not printer.bidirectional:
             sleep(wait.one_way_settle)
             return None
-        return wait_idle(printer, timeout=timeout, wait=wait, sleep=sleep, clock=clock)
+        return wait_idle(printer, uri=uri, timeout=timeout, open_printer=open_printer, wait=wait)
 
 
 def verify_print(
@@ -136,7 +144,7 @@ def verify_print(
 
     ``options`` are the ones ``result`` was rendered with: the expected picture places each field
     at the row and column that job writes. ``wait`` is how long the printer may take to finish
-    (see :class:`IdleWait`); None waits ``timeout`` seconds in all.
+    (see :class:`IdleWait`); None waits ``timeout`` seconds in all on ``clock`` and ``sleep``.
 
     Raises:
         LabelRejectedError: The job has error findings; nothing was printed.
@@ -149,9 +157,9 @@ def verify_print(
     if camera.kind is CameraKind.NONE:
         msg = "no camera configured: set [camera] kind; nothing was printed"
         raise CameraError(msg)
-    idle_wait = IdleWait(seconds=timeout) if wait is None else wait
+    idle_wait = IdleWait(answer=AnswerWait(seconds=timeout, clock=clock, sleep=sleep)) if wait is None else wait
     status = _print_and_wait(
-        result.data, uri=uri, timeout=timeout, wait=idle_wait, open_printer=open_printer, sleep=sleep, clock=clock
+        result.data, uri=uri, timeout=timeout, wait=idle_wait, open_printer=open_printer, sleep=sleep
     )
     sleep(camera.settle_seconds)
     photo = capture(camera, output_dir=output_dir)
