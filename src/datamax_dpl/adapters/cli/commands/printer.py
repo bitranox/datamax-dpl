@@ -21,7 +21,7 @@ from ....application.use_cases import (
     render_label,
     send_command,
 )
-from ....application.verify import verify_print
+from ....application.verify import IdleWait, verify_print
 from ....domain.enums import StatusProblem
 from ....domain.memory import MemoryDirectory, MemoryKind
 from ....domain.preview import canvas_for
@@ -120,6 +120,16 @@ def _answer_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> AnswerWait:
         wait_longer=WAIT_LONGER,
         clock=cli_ctx.services.clock,
         sleep=cli_ctx.services.sleep,
+    )
+
+
+def _idle_wait(settings: PrinterSettings) -> IdleWait:
+    """How long ``verify`` waits for the printer to finish: ``status_wait`` in all, as ``status`` does."""
+    return IdleWait(
+        seconds=settings.status_wait,
+        poll_interval=settings.verify_poll_interval,
+        one_way_settle=settings.one_way_settle,
+        wait_longer=WAIT_LONGER,
     )
 
 
@@ -356,6 +366,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
             capture=services.capture_image,
             sleep=services.sleep,
             clock=services.clock,
+            wait=_idle_wait(settings),
         )
         expected = folder / f"expected-{datetime.now(tz=timezone.utc):%Y%m%dT%H%M%S%fZ}.png"
         expected.write_bytes(report.expected_png)

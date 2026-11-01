@@ -44,8 +44,9 @@ cut off part way says to power-cycle the printer, which may be waiting for the r
    --data one.csv --model MODEL --printer tcp://HOST:9100`. Scan the barcode. Then print the
    remaining rows (leave out the one already printed).
 5. With a camera configured (`[camera]` in the config), `datamax-dpl --json verify label.json
-   --printer ... --output-dir out` prints, waits, photographs, and returns `photo` and
-   `expected` PNG paths: open both and compare.
+   --printer ... --output-dir out` prints, waits (up to `status_wait`, polling every
+   `verify_poll_interval`), photographs, and returns `photo` and `expected` PNG paths: open both
+   and compare.
 
 ## Label JSON
 

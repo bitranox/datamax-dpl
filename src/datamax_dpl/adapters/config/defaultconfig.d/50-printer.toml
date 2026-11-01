@@ -100,6 +100,21 @@ timeout = 10.0
 # Environment Variable: DATAMAX_DPL___PRINTER__SEND_CHUNK_BYTES=512
 # send_chunk_bytes = 1024
 
+# Purpose: Seconds between two status polls while 'verify' waits for the printer
+#          to finish its job. The whole wait is status_wait (or --timeout); each
+#          poll waits timeout for its answer, never past the end of that wait.
+# Type: float, greater than 0, at most 2147483
+# Default: 0.5
+# Environment Variable: DATAMAX_DPL___PRINTER__VERIFY_POLL_INTERVAL=1.0
+# verify_poll_interval = 0.5
+
+# Purpose: Seconds 'verify' waits after sending, instead of polling, on a channel
+#          that cannot read the printer's status (file, device file).
+# Type: float, 0 or more, at most 2147483
+# Default: 5.0
+# Environment Variable: DATAMAX_DPL___PRINTER__ONE_WAY_SETTLE=10
+# one_way_settle = 5.0
+
 # Purpose: Whether the printer has its cutter installed and enabled.
 #          yes:     cut commands are sent as the label asks
 #          no:      a label that asks for cutting is refused

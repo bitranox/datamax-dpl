@@ -366,9 +366,10 @@ datamax-dpl capture --output-dir photos
 datamax-dpl verify examples/product-label.json --model dmx-600 --printer tcp://192.0.2.60:9100 --output-dir photos
 ```
 
-`verify` sends the job, polls the printer status until it is idle (on a one-way channel it waits
-five seconds instead), waits `settle_seconds`, takes one photo, and writes `expected-<time>.png`
-next to it. It does not judge the photo; a person, or an LLM given both pictures, compares them.
+`verify` sends the job, polls the printer status every `[printer] verify_poll_interval` seconds
+until it is idle, for up to `status_wait` seconds in all (or `--timeout`; on a one-way channel it
+waits `[printer] one_way_settle` seconds instead), waits `settle_seconds`, takes one photo, and
+writes `expected-<time>.png` next to it. It does not judge the photo; a person, or an LLM given both pictures, compares them.
 This loop has only run against a simulated printer and camera so far.
 
 ## Claude Code skill

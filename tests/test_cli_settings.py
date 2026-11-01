@@ -458,7 +458,13 @@ def test_a_send_chunk_bytes_not_above_zero_is_refused_with_the_key_named(
 
 #: Keys the shipped file documents with their default and leaves commented out, so a later layer's
 #: change of the default reaches every installation that never set them.
-_COMMENTED_OUT_DEFAULTS = ("status_wait", "status_retry_interval", "send_chunk_bytes")
+_COMMENTED_OUT_DEFAULTS = (
+    "status_wait",
+    "status_retry_interval",
+    "send_chunk_bytes",
+    "verify_poll_interval",
+    "one_way_settle",
+)
 
 
 def _shipped_printer_toml() -> str:
@@ -505,3 +511,50 @@ def test_a_named_printers_send_chunk_bytes_reaches_the_printer_opener(cli_runner
 
     assert result.exit_code == 0, result.output
     assert [tuning.send_chunk_bytes for tuning in printer.tunings] == [2048]
+
+
+@pytest.mark.os_agnostic
+def test_verify_polls_every_half_second_and_settles_five_seconds_on_a_one_way_channel_by_default() -> None:
+    settings = _settings({})
+
+    assert (settings.verify_poll_interval, settings.one_way_settle) == (0.5, 5.0)
+
+
+@pytest.mark.os_agnostic
+def test_a_configured_verify_poll_interval_and_one_way_settle_reach_the_settings() -> None:
+    settings = _settings({"printer": {"verify_poll_interval": 1, "one_way_settle": 0}})
+
+    assert (settings.verify_poll_interval, settings.one_way_settle) == (1.0, 0.0)
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printers_verify_poll_interval_and_one_way_settle_win_over_the_printer_section() -> None:
+    config = {
+        "printer": {"verify_poll_interval": 1, "one_way_settle": 2},
+        "printers": {"x": {"verify_poll_interval": 0.25, "one_way_settle": 8}},
+    }
+
+    named = _settings(config, printer="x")
+
+    assert (named.verify_poll_interval, named.one_way_settle) == (0.25, 8.0)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("key", "value", "reason"),
+    [
+        ("verify_poll_interval", 0, "Input should be greater than 0"),
+        ("verify_poll_interval", -1.0, "Input should be greater than 0"),
+        ("one_way_settle", -1.0, "Input should be greater than or equal to 0"),
+        ("verify_poll_interval", float("inf"), "Input should be less than or equal to 2147483"),
+        ("one_way_settle", float("inf"), "Input should be less than or equal to 2147483"),
+    ],
+)
+@pytest.mark.parametrize(("section", "printer"), [("printer", None), ("printers.x", "x")])
+def test_a_verify_wait_value_out_of_range_is_refused_with_the_key_named(
+    key: str, value: float, reason: str, section: str, printer: str | None
+) -> None:
+    config = {"printer": {key: value}} if printer is None else {"printers": {"x": {key: value}}}
+
+    with pytest.raises(ConfigurationError, match=rf"^{re.escape(section)}\.{key}: {reason}"):
+        _settings(config, printer=printer)
