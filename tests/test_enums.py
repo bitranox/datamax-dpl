@@ -22,6 +22,7 @@ _PUBLIC_ENUMS = (
     "ImageModule",
     "MediaSensor",
     "MediaType",
+    "PrinterSetting",
     "QrError",
     "Rotation",
     "Severity",

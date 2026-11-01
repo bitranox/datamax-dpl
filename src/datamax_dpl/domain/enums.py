@@ -196,6 +196,25 @@ class MediaSensor(str, Enum):
     CONTINUOUS = "continuous"
 
 
+class PrinterSetting(str, Enum):
+    """A persistent printer setting a job can send before its format.
+
+    The printer keeps each of these until it is changed or switched off, so a job that relies on
+    one sends it rather than trusting what another program or the front panel left behind.
+
+    Example:
+        >>> PrinterSetting("start_of_print") is PrinterSetting.START_OF_PRINT
+        True
+    """
+
+    MEDIA = "media"
+    STOP = "stop"
+    START_OF_PRINT = "start_of_print"
+    MAX_LABEL_LENGTH = "max_label_length"
+    FEED_RATE = "feed_rate"
+    SOFTWARE_SWITCHES = "software_switches"
+
+
 class FallbackPolicy(str, Enum):
     """What happens when a label asks for a feature the chosen model does not have.
 
@@ -495,6 +514,7 @@ __all__ = [
     "MediaType",
     "ModelFamily",
     "OutputFormat",
+    "PrinterSetting",
     "QrError",
     "Rotation",
     "Severity",

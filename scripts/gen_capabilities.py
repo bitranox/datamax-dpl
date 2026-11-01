@@ -42,7 +42,7 @@ STALE = 1
 #: Exit code when the document cannot be read or lacks its markers.
 CANNOT_RUN = 2
 
-# The feature matrix is split in two so that neither table is wider than a screen.
+# The feature matrix is split in three so that no table is wider than a screen.
 _JOB_FEATURES = (
     Feature.CUT_BY,
     Feature.CUT_NOW,
@@ -66,6 +66,14 @@ _FORMAT_FEATURES = (
     Feature.PDF417,
     Feature.DATAMATRIX,
     Feature.DEFAULT_BAR_WIDTHS,
+)
+_SETTING_FEATURES = (
+    Feature.START_OF_PRINT,
+    Feature.MAX_LABEL_LENGTH,
+    Feature.FEED_RATE,
+    Feature.SOFTWARE_SWITCHES,
+    Feature.CLEAR_MODULE,
+    Feature.REMOVE_IMAGE,
 )
 
 
@@ -185,6 +193,28 @@ def _calibration_table(profiles: list[PrinterProfile]) -> list[str]:
     return _table(header, rows)
 
 
+def _printer_settings_table(profiles: list[PrinterProfile]) -> list[str]:
+    """The persistent settings a job sets where nothing configures them; "printer setting" sends none."""
+    header = ["Model", "Start of print (mm)", "Max label length (mm)", "Feed rate", "Software switch bits"]
+    rows = [
+        [
+            f"`{p.id}`",
+            _optional_mm(p.start_of_print_mm),
+            _optional_mm(p.max_label_length_mm),
+            "printer setting"
+            if p.feed_rate is None
+            else f"{p.feed_rate.value} ({_number(SPEED_IPS[p.feed_rate])} ips)",
+            "unknown, never sent" if p.software_switches is None else p.software_switches.describe(),
+        ]
+        for p in profiles
+    ]
+    return _table(header, rows)
+
+
+def _optional_mm(value: float | None) -> str:
+    return "printer setting" if value is None else _number(value)
+
+
 def _image_memory_table(profiles: list[PrinterProfile]) -> list[str]:
     """Only models that ship an image memory budget: every other model has none."""
     header = ["Model", "Image memory budget (bytes)", "Source"]
@@ -212,6 +242,8 @@ def generated_section(profiles: list[PrinterProfile] | None = None) -> str:
         ["### Font 9 point sizes", "", *_font_table(chosen)],
         ["### Features: job, media and printer settings", "", *_feature_table(chosen, _JOB_FEATURES)],
         ["### Features: format, graphics and barcodes", "", *_feature_table(chosen, _FORMAT_FEATURES)],
+        ["### Features: printer state and graphics memory", "", *_feature_table(chosen, _SETTING_FEATURES)],
+        ["### Printer setting defaults", "", *_printer_settings_table(chosen)],
         ["### Calibration defaults", "", *_calibration_table(chosen)],
         ["### Image memory budget", "", *_image_memory_table(chosen)],
     ]

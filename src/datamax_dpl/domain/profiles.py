@@ -15,8 +15,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TypeVar
 
 from .enums import HardwareOption, ImageModule, ModelFamily, SpeedCode
+from .units import MM_PER_INCH
 
 
 class Feature(str, Enum):
@@ -47,6 +49,12 @@ class Feature(str, Enum):
     DEFAULT_BAR_WIDTHS = "default_bar_widths"
     STORED_FORMATS = "stored_formats"
     TIME_DATE = "time_date"
+    CLEAR_MODULE = "clear_module"
+    REMOVE_IMAGE = "remove_image"
+    START_OF_PRINT = "start_of_print"
+    MAX_LABEL_LENGTH = "max_label_length"
+    FEED_RATE = "feed_rate"
+    SOFTWARE_SWITCHES = "software_switches"
 
 
 Firmware = tuple[int, int]
@@ -179,6 +187,50 @@ class CalibrationDefaults:
 
 
 @dataclass(frozen=True)
+class SoftwareSwitchBits:
+    """Which bit of the ``<STX>V`` value sets which printer option on one model (manual p.41).
+
+    ``<STX>V`` overrides every bit at once until the next power-up, so a value can only be built
+    where datamax-dpl knows what each bit means: a bit no setting describes (a ribbon option)
+    would be switched off blindly.
+
+    Attributes:
+        cutter: Bit of the cutter option.
+        internal_batch: Bit of internal batch mode, or None where the model has no such bit.
+        label_present: Bit of the label-present sensor, or None where the model has no such bit.
+        undescribed: Bits whose option no datamax-dpl setting describes, each with the option
+            the manual names; any makes the layout unbuildable.
+
+    Example:
+        >>> SoftwareSwitchBits(cutter=0, internal_batch=1).buildable
+        True
+    """
+
+    cutter: int
+    internal_batch: int | None = None
+    label_present: int | None = None
+    undescribed: tuple[tuple[int, str], ...] = ()
+
+    @property
+    def buildable(self) -> bool:
+        """True when every bit of the layout maps to something datamax-dpl sets."""
+        return not self.undescribed
+
+    def describe(self) -> str:
+        """Short text for tables: the bits in order, or why no value is ever sent.
+
+        Example:
+            >>> SoftwareSwitchBits(cutter=0, label_present=2).describe()
+            '0 cutter, 2 label present'
+        """
+        if not self.buildable:
+            return "never sent: " + ", ".join(f"bit {bit} {option}" for bit, option in self.undescribed)
+        bits = ((self.cutter, "cutter"), (self.internal_batch, "internal batch"), (self.label_present, "label present"))
+        named = sorted((bit, option) for bit, option in bits if bit is not None)
+        return ", ".join(f"{bit} {option}" for bit, option in named)
+
+
+@dataclass(frozen=True)
 class PrinterProfile:
     """Everything the encoder needs to know about one printer model.
 
@@ -211,6 +263,15 @@ class PrinterProfile:
             counted as the encoder commands it (calibration scale and offset included), past
             which the printer may cut it; a label dot_size of height h multiplies it by h. None
             where no limit is known.
+        start_of_print_mm: The manual's default start of print (``<STX>O``) in mm, which a job
+            sets so it does not inherit another program's; None where the default depends on a
+            DIP switch (Prodigy Max) or the models differ (``generic``), and the job sends none.
+        max_label_length_mm: The manual's default maximum label length (``<STX>M``) in mm; None
+            where no single default applies.
+        feed_rate: Speed the feed button feeds at (``<STX>S``); the model's slew default, since
+            the manual gives no feed rate default. None where no single default applies.
+        software_switches: Bit layout of ``<STX>V`` on this model, or None where the manual's
+            table has no column for it.
     """
 
     id: str
@@ -233,17 +294,25 @@ class PrinterProfile:
     calibration: CalibrationDefaults = CalibrationDefaults()
     image_module: str | None = "A"
     max_format_rows: int | None = None
+    start_of_print_mm: float | None = None
+    max_label_length_mm: float | None = None
+    feed_rate: SpeedCode | None = None
+    software_switches: SoftwareSwitchBits | None = None
 
     def support(self, feature: Feature) -> Support:
         """Return how this model supports ``feature`` (missing entries mean no)."""
         return self.features.get(feature, NO)
 
 
-# Feature columns of docs/dpl-reference.md section 2, one set per model family.
+# Feature columns of docs/dpl-reference.md section 2, one set per model family. Removing one
+# image by name (<STX>R<name>) is "only available on the standard Prodigy" (manual p.36), which
+# instead has no clear module (<STX>q, p.35); the Prodigy 152 is its 152 dpi variant (Appendix K),
+# not a Prodigy Plus, so it shares both. <STX>O, M, S and V carry no "not available" note at all.
 _ALL_FEATURES_YES: dict[Feature, Support] = dict.fromkeys(Feature, YES) | {
     Feature.CUTTER_PULSE: NO,
     Feature.PRESENT_DISTANCE: NO,
     Feature.DATAMATRIX: DATAMATRIX_OPTION,
+    Feature.REMOVE_IMAGE: NO,
 }
 
 _FAMILY_FEATURES: dict[ModelFamily, dict[Feature, Support]] = {
@@ -265,6 +334,11 @@ _FAMILY_FEATURES: dict[ModelFamily, dict[Feature, Support]] = {
         Feature.DEFAULT_BAR_WIDTHS: YES,
         Feature.PDF417: from_firmware(3, 20),
         Feature.DATAMATRIX: DATAMATRIX_OPTION,
+        Feature.REMOVE_IMAGE: YES,
+        Feature.START_OF_PRINT: YES,
+        Feature.MAX_LABEL_LENGTH: YES,
+        Feature.FEED_RATE: YES,
+        Feature.SOFTWARE_SWITCHES: YES,
     },
     ModelFamily.PRODIGY_PLUS: _ALL_FEATURES_YES
     | {
@@ -544,6 +618,106 @@ _IMAGE_MODULE: dict[str, str | None] = {
 _MAX_FORMAT_ROWS: dict[str, int] = {"allegro-2": 1648}
 
 
+def _mm(hundredths: int) -> float:
+    """Return a distance the manual gives in hundredths of an inch as mm, to the thousandth."""
+    # Rounded so 0220 reads 55.88, not its float noise; the job sends it back in inch mode,
+    # where it converts to the manual's 0220 exactly.
+    return round(hundredths / 100 * MM_PER_INCH, 3)
+
+
+#: The default start of print, ``<STX>O``, from the manual's table (p.31), in hundredths of an
+#: inch: Prodigy 0250; "Prodigy Plus, 6200" 0110; "All others" 0220. The table's "Prodigy Max" is
+#: "110/250, DIP switch selectable", so which a printer uses is not known: None sends none and
+#: keeps the printer's own. The Prodigy 152 and Prodigy Plus 152 are the 152 dpi variants of the
+#: Prodigy and Prodigy Plus (Appendix K), so they take those rows; Ovation! 300 takes "all others".
+_START_OF_PRINT: dict[str, int | None] = {
+    "allegro": 220,
+    "allegro-2": 220,
+    "prodigy": 250,
+    "prodigy-152": 250,
+    "prodigy-plus": 110,
+    "prodigy-plus-152": 110,
+    "dmx-400": 220,
+    "dmx-430": 220,
+    "dmx-600": 220,
+    "dmx-800": 220,
+    "prodigy-max-203": None,
+    "prodigy-max-300": None,
+    "pe42": 220,
+    "pe43": 220,
+    "ovation": 220,
+    "ovation-300": 220,
+    "ovation-2": 220,
+    "titan-6200": 110,
+}
+
+#: The default maximum label length, ``<STX>M``, from the manual's table (p.30), in hundredths of
+#: an inch: 12 in for "Prodigy Plus, Prodigy, 400, 430, Allegro, Allegro 2, Ovation, and Ovation
+#: 2", 16 in for "Prodigy Max, PE42, PE43, 600, 800 and 6200". The 152 dpi variants take their
+#: model's row, and Ovation! 300 the Ovation's.
+_TWELVE_INCHES = 1200
+_SIXTEEN_INCHES = 1600
+_MAX_LABEL_LENGTH: dict[str, int] = {
+    "allegro": _TWELVE_INCHES,
+    "allegro-2": _TWELVE_INCHES,
+    "prodigy": _TWELVE_INCHES,
+    "prodigy-152": _TWELVE_INCHES,
+    "prodigy-plus": _TWELVE_INCHES,
+    "prodigy-plus-152": _TWELVE_INCHES,
+    "dmx-400": _TWELVE_INCHES,
+    "dmx-430": _TWELVE_INCHES,
+    "dmx-600": _SIXTEEN_INCHES,
+    "dmx-800": _SIXTEEN_INCHES,
+    "prodigy-max-203": _SIXTEEN_INCHES,
+    "prodigy-max-300": _SIXTEEN_INCHES,
+    "pe42": _SIXTEEN_INCHES,
+    "pe43": _SIXTEEN_INCHES,
+    "ovation": _TWELVE_INCHES,
+    "ovation-300": _TWELVE_INCHES,
+    "ovation-2": _TWELVE_INCHES,
+    "titan-6200": _SIXTEEN_INCHES,
+}
+
+#: The ``<STX>V`` bit layouts of the manual's table (p.41), one per column.
+_SWITCHES_400_600_800_6200 = SoftwareSwitchBits(cutter=0, internal_batch=1, label_present=2)
+_SWITCHES_PRODIGY_PLUS = SoftwareSwitchBits(cutter=0, label_present=2, undescribed=((1, "insert ribbon sense"),))
+_SWITCHES_PRODIGY = SoftwareSwitchBits(
+    cutter=0, internal_batch=3, label_present=2, undescribed=((1, "invert ribbon saver"),)
+)
+_SWITCHES_ALLEGRO = SoftwareSwitchBits(cutter=0, internal_batch=1)
+_SWITCHES_MAX_OVATION_PE = SoftwareSwitchBits(cutter=0, label_present=2)
+
+#: The ``<STX>V`` layout per model. The table has no DMX 430 column, so the 430 has None rather
+#: than the 400's layout: a value built from a guessed bit must never be sent. The 152 dpi
+#: variants take their model's column, Ovation! 300 the Ovation's.
+_SOFTWARE_SWITCHES: dict[str, SoftwareSwitchBits | None] = {
+    "allegro": _SWITCHES_ALLEGRO,
+    "allegro-2": _SWITCHES_ALLEGRO,
+    "prodigy": _SWITCHES_PRODIGY,
+    "prodigy-152": _SWITCHES_PRODIGY,
+    "prodigy-plus": _SWITCHES_PRODIGY_PLUS,
+    "prodigy-plus-152": _SWITCHES_PRODIGY_PLUS,
+    "dmx-400": _SWITCHES_400_600_800_6200,
+    # Manual p.41: the STX V bit table has no DMX 430 column; no bit is guessed for it.
+    "dmx-430": None,
+    "dmx-600": _SWITCHES_400_600_800_6200,
+    "dmx-800": _SWITCHES_400_600_800_6200,
+    "prodigy-max-203": _SWITCHES_MAX_OVATION_PE,
+    "prodigy-max-300": _SWITCHES_MAX_OVATION_PE,
+    "pe42": _SWITCHES_MAX_OVATION_PE,
+    "pe43": _SWITCHES_MAX_OVATION_PE,
+    "ovation": _SWITCHES_MAX_OVATION_PE,
+    "ovation-300": _SWITCHES_MAX_OVATION_PE,
+    "ovation-2": _SWITCHES_MAX_OVATION_PE,
+    "titan-6200": _SWITCHES_400_600_800_6200,
+}
+
+
+def _start_of_print_mm(model: str) -> float | None:
+    hundredths = _START_OF_PRINT[model]
+    return None if hundredths is None else _mm(hundredths)
+
+
 def _build(row: _Row) -> PrinterProfile:
     print_speed, slew_speed, backup_speed = row.speeds
     return PrinterProfile(
@@ -566,16 +740,30 @@ def _build(row: _Row) -> PrinterProfile:
         calibration=_CALIBRATION.get(row.id, CalibrationDefaults()),
         image_module=_IMAGE_MODULE[row.id],
         max_format_rows=_MAX_FORMAT_ROWS.get(row.id),
+        start_of_print_mm=_start_of_print_mm(row.id),
+        max_label_length_mm=_mm(_MAX_LABEL_LENGTH[row.id]),
+        # The manual gives no feed rate default; the feed button feeding at the slew speed the
+        # printer uses anyway is the reading that changes nothing a user would notice.
+        feed_rate=_speeds(slew_speed).default,
+        software_switches=_SOFTWARE_SWITCHES[row.id],
     )
 
 
 MODEL_PROFILES: dict[str, PrinterProfile] = {row.id: _build(row) for row in _ROWS}
 
 
+_T = TypeVar("_T")
+
+
 def _common_support(feature: Feature) -> Support:
     """Support every model has unconditionally, else none (firmware/option gates count as no)."""
     every = all(p.support(feature) == YES for p in MODEL_PROFILES.values())
     return YES if every else NO
+
+
+def _common_value(values: list[_T]) -> _T | None:
+    """Return the value every model has, or None when two models differ."""
+    return values[0] if values and all(value == values[0] for value in values) else None
 
 
 def _intersect_speeds(ranges: list[SpeedRange]) -> SpeedRange:
@@ -606,6 +794,12 @@ def _generic() -> PrinterProfile:
         # Not the common subset: the Prodigy family has no built-in module, so a strict subset
         # would refuse every image. A is the built-in module of most models.
         image_module=ImageModule.A.value,
+        # A setting goes out only where every model shares the default: a job for an unknown
+        # model must not move another model's start of print or feed rate off its own default.
+        start_of_print_mm=_common_value([p.start_of_print_mm for p in models]),
+        max_label_length_mm=_common_value([p.max_label_length_mm for p in models]),
+        feed_rate=_common_value([p.feed_rate for p in models]),
+        software_switches=_common_value([p.software_switches for p in models]),
     )
 
 
@@ -700,6 +894,7 @@ __all__ = [
     "Feature",
     "Firmware",
     "PrinterProfile",
+    "SoftwareSwitchBits",
     "Source",
     "SpeedRange",
     "Support",

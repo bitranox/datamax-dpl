@@ -350,6 +350,56 @@ DPL letters, A = 1.0 inch per second up to S = 10.0, in steps of 0.5.
 | `ovation-2`        | yes             | yes         | yes      | yes                | yes              | no               | yes                 | yes      | option datamatrix | yes                  |
 | `titan-6200`       | yes             | yes         | yes      | yes                | yes              | yes              | yes                 | yes      | option datamatrix | yes                  |
 
+### Features: printer state and graphics memory
+
+| Model              | `start_of_print` | `max_label_length` | `feed_rate` | `software_switches` | `clear_module` | `remove_image` |
+|--------------------|------------------|--------------------|-------------|---------------------|----------------|----------------|
+| `generic`          | yes              | yes                | yes         | yes                 | no             | no             |
+| `permissive`       | yes              | yes                | yes         | yes                 | yes            | yes            |
+| `allegro`          | yes              | yes                | yes         | yes                 | yes            | no             |
+| `allegro-2`        | yes              | yes                | yes         | yes                 | yes            | no             |
+| `prodigy`          | yes              | yes                | yes         | yes                 | no             | yes            |
+| `prodigy-152`      | yes              | yes                | yes         | yes                 | no             | yes            |
+| `prodigy-plus`     | yes              | yes                | yes         | yes                 | yes            | no             |
+| `prodigy-plus-152` | yes              | yes                | yes         | yes                 | yes            | no             |
+| `dmx-400`          | yes              | yes                | yes         | yes                 | yes            | no             |
+| `dmx-430`          | yes              | yes                | yes         | yes                 | yes            | no             |
+| `dmx-600`          | yes              | yes                | yes         | yes                 | yes            | no             |
+| `dmx-800`          | yes              | yes                | yes         | yes                 | yes            | no             |
+| `prodigy-max-203`  | yes              | yes                | yes         | yes                 | yes            | no             |
+| `prodigy-max-300`  | yes              | yes                | yes         | yes                 | yes            | no             |
+| `pe42`             | yes              | yes                | yes         | yes                 | yes            | no             |
+| `pe43`             | yes              | yes                | yes         | yes                 | yes            | no             |
+| `ovation`          | yes              | yes                | yes         | yes                 | yes            | no             |
+| `ovation-300`      | yes              | yes                | yes         | yes                 | yes            | no             |
+| `ovation-2`        | yes              | yes                | yes         | yes                 | yes            | no             |
+| `titan-6200`       | yes              | yes                | yes         | yes                 | yes            | no             |
+
+### Printer setting defaults
+
+| Model              | Start of print (mm) | Max label length (mm) | Feed rate       | Software switch bits                        |
+|--------------------|---------------------|-----------------------|-----------------|---------------------------------------------|
+| `generic`          | printer setting     | printer setting       | printer setting | unknown, never sent                         |
+| `permissive`       | printer setting     | printer setting       | printer setting | unknown, never sent                         |
+| `allegro`          | 55.88               | 304.8                 | C (2 ips)       | 0 cutter, 1 internal batch                  |
+| `allegro-2`        | 55.88               | 304.8                 | C (2 ips)       | 0 cutter, 1 internal batch                  |
+| `prodigy`          | 63.5                | 304.8                 | G (4 ips)       | never sent: bit 1 invert ribbon saver       |
+| `prodigy-152`      | 63.5                | 304.8                 | G (4 ips)       | never sent: bit 1 invert ribbon saver       |
+| `prodigy-plus`     | 27.94               | 304.8                 | K (6 ips)       | never sent: bit 1 insert ribbon sense       |
+| `prodigy-plus-152` | 27.94               | 304.8                 | K (6 ips)       | never sent: bit 1 insert ribbon sense       |
+| `dmx-400`          | 55.88               | 304.8                 | K (6 ips)       | 0 cutter, 1 internal batch, 2 label present |
+| `dmx-430`          | 55.88               | 304.8                 | K (6 ips)       | unknown, never sent                         |
+| `dmx-600`          | 55.88               | 406.4                 | O (8 ips)       | 0 cutter, 1 internal batch, 2 label present |
+| `dmx-800`          | 55.88               | 406.4                 | K (6 ips)       | 0 cutter, 1 internal batch, 2 label present |
+| `prodigy-max-203`  | printer setting     | 406.4                 | O (8 ips)       | 0 cutter, 2 label present                   |
+| `prodigy-max-300`  | printer setting     | 406.4                 | O (8 ips)       | 0 cutter, 2 label present                   |
+| `pe42`             | 55.88               | 406.4                 | O (8 ips)       | 0 cutter, 2 label present                   |
+| `pe43`             | 55.88               | 406.4                 | M (7 ips)       | 0 cutter, 2 label present                   |
+| `ovation`          | 55.88               | 304.8                 | C (2 ips)       | 0 cutter, 2 label present                   |
+| `ovation-300`      | 55.88               | 304.8                 | C (2 ips)       | 0 cutter, 2 label present                   |
+| `ovation-2`        | 55.88               | 304.8                 | C (2 ips)       | 0 cutter, 2 label present                   |
+| `titan-6200`       | 27.94               | 406.4                 | K (6 ips)       | 0 cutter, 1 internal batch, 2 label present |
+
 ### Calibration defaults
 
 | Model       | `scale_across` | `scale_along` | `offset_across` (mm) | `offset_along` (mm) | Stop (mm) | Source                                                                    |

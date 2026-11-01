@@ -13,7 +13,17 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .enums import Attribute, FallbackPolicy, FindingCode, HardwareOption, ImageModule, Unit
+from .enums import (
+    Attribute,
+    FallbackPolicy,
+    FindingCode,
+    HardwareOption,
+    ImageModule,
+    MediaSensor,
+    PrinterSetting,
+    SpeedCode,
+    Unit,
+)
 from .image_budget import HALVING_FACTOR, halve, halved_magnification, image_data_bytes
 from .image_records import CR, MAX_WIDTH, download_command
 from .label import StopPosition
@@ -42,6 +52,12 @@ if TYPE_CHECKING:
 
 #: Largest value of a four-digit DPL distance field.
 MAX_FIELD_VALUE = 9999
+#: Smallest start of print ``<STX>O`` keeps, in mm: "Settings below 50 are adjusted back to
+#: default" (manual p.32), and the job's system commands go out in inch mode, so 50/100 in.
+MIN_START_OF_PRINT_MM = round(50 / 100 * MM_PER_INCH, 3)
+#: Largest distance the four digits of ``<STX>O`` and ``<STX>M`` hold in inch mode, 9999/100 in,
+#: in mm, rounded to the thousandth so a refusal names 2539.746 rather than its float noise.
+MAX_SYSTEM_DISTANCE_MM = round(MAX_FIELD_VALUE / 100 * MM_PER_INCH, 3)
 #: First character of the name of every image the library draws (raster fallbacks, QR Codes).
 DRAWN_IMAGE_PREFIX = "D"
 #: Hex digits of the content hash after the prefix: an image name holds at most 8 characters.
@@ -106,6 +122,21 @@ class RenderOptions(BaseModel):
             the encoder commands them; None takes the model's limit
             (``PrinterProfile.max_format_rows``), which most models do not have. A field past it
             is refused (``format_past_max_length``) under either policy.
+        send_settings: Persistent printer settings a job sends before its format; None sends
+            every one. A setting left out keeps whatever the printer holds.
+        media: Media sensor a job sets when the label names none; the label's own ``media``
+            wins. None leaves the sensor as the label says, or as the printer holds it.
+        start_of_print_mm: Start of print (``<STX>O``) in mm, sent as configured; at least
+            12.7 mm (the printer takes less as its default). None takes the model's default.
+        max_label_length_mm: How far the printer searches for a label edge (``<STX>M``) in mm,
+            sent as configured; None takes the model's default.
+        feed_rate: Speed the feed button feeds at (``<STX>S``); None takes the model's default.
+        label_present: Whether the label-present sensor is on, for the ``<STX>V`` value of a
+            model with that bit; None when unknown, which sends no ``<STX>V`` there.
+        clear_graphics_before_label: Clear the printer's stored graphics before each label
+            downloads its images, so a name the printer already holds cannot drop the format.
+        clear_graphics_after_label: Clear them again after each label, so the next job starts
+            from an empty module whatever program sends it.
 
     Example:
         >>> RenderOptions(model="dmx-600").policy
@@ -130,6 +161,78 @@ class RenderOptions(BaseModel):
     image_memory_bytes: int | None = Field(default=None, gt=0)
     image_module: ImageModule | None = None
     max_format_rows: int | None = Field(default=None, gt=0)
+    send_settings: frozenset[PrinterSetting] | None = None
+    media: MediaSensor | None = None
+    start_of_print_mm: float | None = Field(default=None, ge=MIN_START_OF_PRINT_MM, le=MAX_SYSTEM_DISTANCE_MM)
+    max_label_length_mm: float | None = Field(default=None, ge=0, le=MAX_SYSTEM_DISTANCE_MM)
+    feed_rate: SpeedCode | None = None
+    label_present: bool | None = None
+    clear_graphics_before_label: bool = True
+    clear_graphics_after_label: bool = True
+
+
+@dataclass(frozen=True)
+class PrinterState:
+    """The persistent printer settings one label's job sets, each option resolved over the model.
+
+    Attributes:
+        send: Settings the job sends; every one unless the options name fewer.
+        media: Media sensor to set: the label's own, else the option's; None sets none.
+        start_of_print_mm: Start of print in mm, or None to send none.
+        max_label_length_mm: Maximum label length in mm, or None to send none.
+        feed_rate: Feed button speed, or None to send none.
+        label_present: Whether the label-present sensor is on; None when unknown.
+        clear_graphics_before_label: Clear stored graphics before the label's downloads.
+        clear_graphics_after_label: Clear stored graphics after the label.
+
+    Example:
+        >>> PrinterState().send == frozenset(PrinterSetting)
+        True
+    """
+
+    send: frozenset[PrinterSetting] = frozenset(PrinterSetting)
+    media: MediaSensor | None = None
+    start_of_print_mm: float | None = None
+    max_label_length_mm: float | None = None
+    feed_rate: SpeedCode | None = None
+    label_present: bool | None = None
+    clear_graphics_before_label: bool = True
+    clear_graphics_after_label: bool = True
+
+
+def resolved_printer_state(
+    options: RenderOptions, profile: PrinterProfile, *, label_media: MediaSensor | None
+) -> PrinterState:
+    """Return the printer settings a label's job sets: each option wins over the model's default.
+
+    Args:
+        options: The job's render options.
+        profile: The model profile, whose manual defaults fill what the options leave unset.
+        label_media: The label's own media sensor, which wins over the option's.
+
+    Returns:
+        The resolved settings.
+
+    Example:
+        >>> from datamax_dpl.domain.profiles import get_profile
+        >>> resolved_printer_state(RenderOptions(), get_profile("allegro-2"), label_media=None).start_of_print_mm
+        55.88
+        >>> options = RenderOptions(start_of_print_mm=40)
+        >>> resolved_printer_state(options, get_profile("allegro-2"), label_media=None).start_of_print_mm
+        40.0
+    """
+    return PrinterState(
+        send=frozenset(PrinterSetting) if options.send_settings is None else options.send_settings,
+        media=options.media if label_media is None else label_media,
+        start_of_print_mm=profile.start_of_print_mm if options.start_of_print_mm is None else options.start_of_print_mm,
+        max_label_length_mm=(
+            profile.max_label_length_mm if options.max_label_length_mm is None else options.max_label_length_mm
+        ),
+        feed_rate=profile.feed_rate if options.feed_rate is None else options.feed_rate,
+        label_present=options.label_present,
+        clear_graphics_before_label=options.clear_graphics_before_label,
+        clear_graphics_after_label=options.clear_graphics_after_label,
+    )
 
 
 def resolved_image_module(options: RenderOptions, profile: PrinterProfile) -> str | None:
@@ -266,6 +369,7 @@ class RenderContext:
         halved_elements: Elements whose image was halved, in the order they were encoded.
         emulated_groups: Groups of overlapping elements drawn into one image, because the label
             asks for transparency and the model has no attribute command.
+        printer_state: The persistent printer settings this label's job sets.
     """
 
     profile: PrinterProfile
@@ -292,6 +396,7 @@ class RenderContext:
     halve_images: bool = False
     halved_elements: list[int] = field(default_factory=list[int])
     emulated_groups: list[tuple[int, ...]] = field(default_factory=list[tuple[int, ...]])
+    printer_state: PrinterState = PrinterState()
     module_refused: bool = field(default=False, init=False)
 
     def correction(self, axis: Axis) -> Correction:
@@ -649,11 +754,15 @@ class RenderContext:
 __all__ = [
     "DRAWN_IMAGE_PREFIX",
     "MAX_FIELD_VALUE",
+    "MAX_SYSTEM_DISTANCE_MM",
+    "MIN_START_OF_PRINT_MM",
     "ImageDownload",
     "ImageEdge",
     "PlacedImage",
+    "PrinterState",
     "RenderContext",
     "RenderOptions",
     "drawn_image_name",
     "resolved_image_module",
+    "resolved_printer_state",
 ]
