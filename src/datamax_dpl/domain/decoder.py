@@ -275,14 +275,14 @@ def _scale(value: int, state: _State) -> float:
 def _record(text: bytes, state: _State) -> str:
     state.latest_field = None
     try:
-        element, meaning = _parse_record(text.decode("latin-1"), state)
+        parsed = _parse_record(text.decode("latin-1"), state)
     except (ValueError, KeyError, ValidationError) as exc:
         state.problems.append(f"{readable(text)}: {exc.__class__.__name__}")
         return "record (not understood)"
-    if element is not None:
-        state.elements.append(element)
+    if parsed.element is not None:
+        state.elements.append(parsed.element)
         state.latest_field = len(state.elements) - 1
-    return meaning
+    return parsed.meaning
 
 
 def _counter(text: bytes, state: _State) -> str:
@@ -304,20 +304,30 @@ def _counter(text: bytes, state: _State) -> str:
     return f"count the previous field {'down' if decrement else 'up'} by {counter.step}{letters}"
 
 
-def _parse_record(text: str, state: _State) -> tuple[Element | None, str]:
+@dataclass(frozen=True)
+class _ParsedRecord:
+    """The element a record rebuilds, or None where it rebuilds none, and what the record means."""
+
+    element: Element | None
+    meaning: str
+
+
+def _parse_record(text: str, state: _State) -> _ParsedRecord:
     kind = text[1]
     if kind == "X":
         return _graphic(text, state)
     if kind == "Y":
         return _image(text, state)
     if kind == "W":
-        return _barcode(text, state, identifier="W1c", offset=2), "barcode datamatrix"
+        return _ParsedRecord(_barcode(text, state, identifier="W1c", offset=2), "barcode datamatrix")
     if kind.isdigit():
-        return _text(text, state), f"text font {kind}"
-    return _barcode(text, state, identifier=kind, offset=0), f"barcode {SYMBOLOGY_BY_IDENTIFIER[kind].value}"
+        return _ParsedRecord(_text(text, state), f"text font {kind}")
+    return _ParsedRecord(
+        _barcode(text, state, identifier=kind, offset=0), f"barcode {SYMBOLOGY_BY_IDENTIFIER[kind].value}"
+    )
 
 
-def _image(text: str, state: _State) -> tuple[Element, str]:
+def _image(text: str, state: _State) -> _ParsedRecord:
     """An image placement, its square magnification in the rebuilt Image.
 
     A dot width and height that differ, or one outside the 1-9 an Image holds, is named in the meaning
@@ -332,10 +342,10 @@ def _image(text: str, state: _State) -> tuple[Element, str]:
         magnification=head.width if square else 1,
     )
     if square and head.width == 1:
-        return image, "image"
+        return _ParsedRecord(image, "image")
     if square:
-        return image, f"image at magnification {head.width}"
-    return image, f"image, magnified {head.width}x{head.height}"
+        return _ParsedRecord(image, f"image at magnification {head.width}")
+    return _ParsedRecord(image, f"image, magnified {head.width}x{head.height}")
 
 
 @dataclass(frozen=True)
@@ -368,27 +378,39 @@ def _text(text: str, state: _State) -> Element:
         points = int(text[16:19])
         return ScalableText(text=text[23:], font_id=head.size, height_points=points, x=x, y=y, rotation=head.rotation)
     data = text[15:].encode("latin-1").decode("cp437")
-    points, font_id = _font9_size(head.size) if font == _FONT_9 else (None, None)
+    size = _font9_size(head.size) if font == _FONT_9 else _NO_FONT9_SIZE
     return Text(
         text=data,
         font=font,
         width_multiplier=head.width,
         height_multiplier=head.height,
-        points=points,
-        font_id=font_id,
+        points=size.points,
+        font_id=size.font_id,
         x=x,
         y=y,
         rotation=head.rotation,
     )
 
 
-def _font9_size(code: str) -> tuple[int | None, str | None]:
-    """Return (points, font_id) for a font 9 size code."""
+@dataclass(frozen=True)
+class _Font9Size:
+    """A font 9 size code read back: its point size, or the font id it names instead."""
+
+    points: int | None = None
+    font_id: str | None = None
+
+
+#: The size of a text field in a font other than 9, which names neither.
+_NO_FONT9_SIZE = _Font9Size()
+
+
+def _font9_size(code: str) -> _Font9Size:
+    """Return the point size or the font id a font 9 size code names."""
     if code[0] == "A" and code[1:].isdigit():
-        return int(code[1:]), None
+        return _Font9Size(points=int(code[1:]))
     if code.isdigit() and int(code) < len(OLD_SERIES_POINTS):
-        return OLD_SERIES_POINTS[int(code)], None
-    return None, code
+        return _Font9Size(points=OLD_SERIES_POINTS[int(code)])
+    return _Font9Size(font_id=code)
 
 
 def _barcode(text: str, state: _State, *, identifier: str, offset: int) -> Element:
@@ -408,7 +430,7 @@ def _barcode(text: str, state: _State, *, identifier: str, offset: int) -> Eleme
     )
 
 
-def _graphic(text: str, state: _State) -> tuple[Element, str]:
+def _graphic(text: str, state: _State) -> _ParsedRecord:
     fill = FillPattern(int(text[4:7]))
     row, column = int(text[7:11]), int(text[11:15])
     shape, rest = text[15], text[16:]
@@ -418,19 +440,19 @@ def _graphic(text: str, state: _State) -> tuple[Element, str]:
         h, v = (_scale(int(rest[i : i + width]), state) for i in (0, width))
         horizontal = h >= v
         x2, y2 = (x + h, y) if horizontal else (x, y + v)
-        return Line(x=x, y=y, x2=x2, y2=y2, thickness=v if horizontal else h), "line"
+        return _ParsedRecord(Line(x=x, y=y, x2=x2, y2=y2, thickness=v if horizontal else h), "line")
     if shape in "Bb":
         width = 3 if shape == "B" else 4
         w, h, t, s = (_scale(int(rest[i * width : (i + 1) * width]), state) for i in range(4))
-        return Box(x=x, y=y, width=w, height=h, thickness=t, side_thickness=s), "box"
+        return _ParsedRecord(Box(x=x, y=y, width=w, height=h, thickness=t, side_thickness=s), "box")
     if shape == "C":
-        return Circle(x=x, y=y, radius=_scale(int(rest[7:11]), state), fill=fill), "circle"
+        return _ParsedRecord(Circle(x=x, y=y, radius=_scale(int(rest[7:11]), state), fill=fill), "circle")
     coords = rest[7:]
     points = [Point(x=x, y=y)] + [
         Point(x=_scale(int(coords[i + 4 : i + 8]), state), y=_scale(int(coords[i : i + 4]), state))
         for i in range(0, len(coords) - 7, 8)
     ]
-    return Polygon(points=points, fill=fill), "polygon"
+    return _ParsedRecord(Polygon(points=points, fill=fill), "polygon")
 
 
 def _rebuild(state: _State) -> Label | None:

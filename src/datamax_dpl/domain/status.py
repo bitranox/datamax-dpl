@@ -15,6 +15,7 @@ the printer lost or refused something and the answer behind it says nothing abou
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
@@ -337,14 +338,14 @@ def parse_memory_report(answer: bytes) -> MemoryReport:
     fields = _memory_fields(raw)
     if not fields:
         raise PrinterProtocolError(f"<STX>KQ memory report: no line the manual describes in {show_answer(answer)}")
-    width, length, units = _label_size(fields.get("LABEL SIZE", ""))
+    size = _label_size(fields.get("LABEL SIZE", ""))
     return MemoryReport(
         version=fields.get("VER") or None,
         installed_blocks=_number(fields.get("INSTALLED", "")),
         available_blocks=_number(fields.get("AVAILABLE", "")),
-        label_width=width,
-        label_length=length,
-        units=units,
+        label_width=size.width,
+        label_length=size.length,
+        units=size.units,
         raw=raw,
     )
 
@@ -390,12 +391,21 @@ def _memory_fields(raw: str) -> dict[str, str]:
     return fields
 
 
-def _label_size(value: str) -> tuple[int | None, int | None, Unit | None]:
+@dataclass(frozen=True)
+class _LabelSize:
+    """The ``LABEL SIZE`` line of a memory report; each part None where it is malformed or missing."""
+
+    width: int | None = None
+    length: int | None = None
+    units: Unit | None = None
+
+
+def _label_size(value: str) -> _LabelSize:
     """Split ``wwww:gggg:oo`` into width, length and units; a malformed part reads as None."""
     parts = [part.strip() for part in value.split(":")]
     if len(parts) != _LABEL_SIZE_PARTS:
-        return None, None, None
-    return _number(parts[0]), _number(parts[1]), _LABEL_SIZE_UNITS.get(parts[2])
+        return _LabelSize()
+    return _LabelSize(width=_number(parts[0]), length=_number(parts[1]), units=_LABEL_SIZE_UNITS.get(parts[2]))
 
 
 def _number(text: str) -> int | None:

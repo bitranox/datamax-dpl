@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .barcodes import check_barcode, datamatrix_data_field, pdf417_data_field
@@ -78,21 +79,38 @@ def _data_field(element: Barcode, *, index: int, ctx: RenderContext) -> str:
     return check.data
 
 
-def _ratio_widths(element: Barcode) -> tuple[int, int]:
+@dataclass(frozen=True)
+class BarWidths:
+    """The bar widths a barcode record's header writes, in dots.
+
+    Attributes:
+        wide: The header's ``c`` digit: the wide bar of a ratio code, else the module width.
+        narrow: The header's ``d`` digit: the narrow bar of a ratio code, else the module width.
+    """
+
+    wide: int
+    narrow: int
+
+
+#: Both widths zero: the printer's own default bar widths.
+_PRINTER_DEFAULT_WIDTHS = BarWidths(wide=0, narrow=0)
+
+
+def _ratio_widths(element: Barcode) -> BarWidths:
     narrow = element.narrow_dots or max(1, element.wide_dots // FALLBACK_RATIO)
     wide = element.wide_dots or min(MAX_MULTIPLIER, narrow * FALLBACK_RATIO)
-    return wide, narrow
+    return BarWidths(wide=wide, narrow=narrow)
 
 
-def bar_widths(element: Barcode, *, index: int, ctx: RenderContext) -> tuple[int, int]:
+def bar_widths(element: Barcode, *, index: int, ctx: RenderContext) -> BarWidths:
     """Return the header's ``c`` and ``d`` digits for ``element``.
 
-    Ratio codes take (wide, narrow); module codes and 2-D codes take the module width twice.
-    Both zero asks for the printer default where the model allows it.
+    Ratio codes take the wide and the narrow bar; module codes and 2-D codes take the module
+    width twice. Both zero asks for the printer default where the model allows it.
     """
     wants_default = element.narrow_dots == 0 and element.wide_dots == 0
     if wants_default and ctx.supports(Feature.DEFAULT_BAR_WIDTHS):
-        return 0, 0
+        return _PRINTER_DEFAULT_WIDTHS
     if wants_default:
         ctx.findings.deviate(
             FindingCode.DEFAULT_BAR_WIDTHS_UNSUPPORTED,
@@ -104,7 +122,7 @@ def bar_widths(element: Barcode, *, index: int, ctx: RenderContext) -> tuple[int
     if element.symbology in RATIO_SYMBOLOGIES:
         return _ratio_widths(element)
     module = element.narrow_dots or element.wide_dots
-    return module, module
+    return BarWidths(wide=module, narrow=module)
 
 
 def _height_field(element: Barcode, *, index: int, ctx: RenderContext) -> str:
@@ -135,12 +153,12 @@ def encode_barcode(element: Barcode, *, index: int, ctx: RenderContext) -> list[
     data = _data_field(element, index=index, ctx=ctx)
     limit = MAX_PDF417_DATA if element.symbology is Symbology.PDF417 else MAX_FIELD_DATA
     check_field_length(len(data), limit=limit, index=index, ctx=ctx)
-    wide, narrow = bar_widths(element, index=index, ctx=ctx)
+    widths = bar_widths(element, index=index, ctx=ctx)
     head = Header(
         rotation=element.rotation,
         kind=code.identifier(human_readable=element.human_readable),
-        width=wide,
-        height=narrow,
+        width=widths.wide,
+        height=widths.narrow,
         size=_height_field(element, index=index, ctx=ctx),
         row=row_of(element.y, index=index, ctx=ctx),
         column=column_of(element.x, index=index, ctx=ctx),
@@ -148,4 +166,4 @@ def encode_barcode(element: Barcode, *, index: int, ctx: RenderContext) -> list[
     return [line(head + data.encode("latin-1")), *counter_lines(element.counter)]
 
 
-__all__ = ["FALLBACK_NARROW", "FALLBACK_RATIO", "RATIO_SYMBOLOGIES", "bar_widths", "encode_barcode"]
+__all__ = ["FALLBACK_NARROW", "FALLBACK_RATIO", "RATIO_SYMBOLOGIES", "BarWidths", "bar_widths", "encode_barcode"]

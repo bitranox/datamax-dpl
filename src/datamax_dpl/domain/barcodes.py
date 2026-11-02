@@ -114,6 +114,14 @@ class _Outcome:
 
 
 @dataclass(frozen=True)
+class _FieldBudget:
+    """The record data field of a barcode: the most characters the printer takes, and how many it gets."""
+
+    limit: int
+    length: int
+
+
+@dataclass(frozen=True)
 class _Lengths:
     """Accepted data lengths: an explicit set, or a range with an optional upper bound."""
 
@@ -286,9 +294,9 @@ def _record_problems(
                 code=BarcodeProblemCode.RECORD_TERMINATOR, message="data contains <CR>, which ends the DPL record early"
             )
         )
-    limit, length = _field_budget(symbology, data, pdf417=pdf417, datamatrix=datamatrix)
-    if length > limit:
-        message = f"record data is {length} characters, the printer takes at most {limit}"
+    budget = _field_budget(symbology, data, pdf417=pdf417, datamatrix=datamatrix)
+    if budget.length > budget.limit:
+        message = f"record data is {budget.length} characters, the printer takes at most {budget.limit}"
         problems.append(BarcodeProblem(code=BarcodeProblemCode.TOO_LONG, message=message))
     return tuple(problems)
 
@@ -299,15 +307,15 @@ def _field_budget(
     *,
     pdf417: Pdf417Options | None,
     datamatrix: DataMatrixOptions | None,
-) -> tuple[int, int]:
-    """Return (limit, length) of the whole record data field, parameter header included."""
+) -> _FieldBudget:
+    """Return the limit and length of the whole record data field, parameter header included."""
     if symbology is Symbology.PDF417:
         header = pdf417_data_field("", pdf417 or Pdf417Options())
-        return MAX_PDF417_DATA, len(header) + len(data)
+        return _FieldBudget(limit=MAX_PDF417_DATA, length=len(header) + len(data))
     if symbology is Symbology.DATAMATRIX:
         header = datamatrix_data_field("", datamatrix or DataMatrixOptions())
-        return MAX_FIELD_DATA, len(header) + len(data)
-    return MAX_FIELD_DATA, len(data)
+        return _FieldBudget(limit=MAX_FIELD_DATA, length=len(header) + len(data))
+    return _FieldBudget(limit=MAX_FIELD_DATA, length=len(data))
 
 
 def _render_character(ch: str) -> str:
