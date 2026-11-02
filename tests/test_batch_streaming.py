@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from printer_server import ImageModules, ModulePrinter, module_printer
 
-from datamax_dpl import HeldImages, ReportLimits, check_batch, iter_batch
+from datamax_dpl import ReportLimits, check_batch, iter_batch
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.label_io import load_records, read_input
 from datamax_dpl.adapters.memory.printer import open_recording_printer
@@ -148,9 +148,6 @@ def test_a_checked_send_of_a_report_holds_only_the_current_record() -> None:
     assert records.most_alive <= _MOST_ALIVE
 
 
-_NOT_READ = HeldImages()
-
-
 def _check() -> UploadCheck:
     return UploadCheck(wait=AnswerWait(seconds=1.0), rounds=3)
 
@@ -158,15 +155,13 @@ def _check() -> UploadCheck:
 # ======================== the same answer as a batch held whole ========================
 
 
-def _sent_whole(
-    modules: ImageModules, label: Label, options: RenderOptions, *, names: HeldImages = _NOT_READ
-) -> tuple[bytes, BatchReport, bool]:
+def _sent_whole(modules: ImageModules, label: Label, options: RenderOptions) -> tuple[bytes, BatchReport, bool]:
     """Print the batch held whole; return what went out, its report and whether it all went."""
     printer = ModulePrinter(modules)
     records = _values(5)
-    held = render_batch(label, records, options, held=names)
+    held = render_batch(label, records, options, read_names_at_send=True)
     renders = record_renders(label, records, options)
-    job = CheckedJob(renders=renders, check=_check(), held=names, reset=None)
+    job = CheckedJob(renders=renders, check=_check(), reset=None)
     opened = open_recording_printer(printer)
     try:
         result: BatchResult = print_checked(held, job, uri="tcp://printer", timeout=5.0, open_printer=opened).result
@@ -176,13 +171,11 @@ def _sent_whole(
     return b"".join(printer.sent), report_of(result, limits=ReportLimits()), True
 
 
-def _sent_report(
-    modules: ImageModules, label: Label, options: RenderOptions, *, names: HeldImages = _NOT_READ
-) -> tuple[bytes, BatchReport, bool]:
+def _sent_report(modules: ImageModules, label: Label, options: RenderOptions) -> tuple[bytes, BatchReport, bool]:
     """Print the batch one record at a time; return what went out, its report and whether it all went."""
     printer = ModulePrinter(modules)
-    report = check_batch(label, _values(5), options, held=names)
-    job = CheckedJob(renders=report.renders(), check=_check(), held=names, reset=None)
+    report = check_batch(label, _values(5), options, read_names_at_send=True)
+    job = CheckedJob(renders=report.renders(), check=_check(), reset=None)
     opened = open_recording_printer(printer)
     try:
         result = print_checked(report, job, uri="tcp://printer", timeout=5.0, open_printer=opened).result
@@ -230,11 +223,10 @@ def test_a_report_sends_and_says_what_a_batch_held_whole_does(
 
 @pytest.mark.os_agnostic
 def test_a_refused_batch_with_the_names_read_reports_what_a_batch_held_whole_does() -> None:
-    """The labels past a refusal are rendered once more for the report, with the names the job was given."""
+    """The labels past a refusal are rendered once more for the report, as the job rendered them first."""
     no_clear = RenderOptions(model="allegro-2", image_module=ImageModule.B)
-    names = HeldImages(listed=frozenset())
-    whole = _sent_whole(ImageModules(capacity=0), _QR, no_clear, names=names)
-    streamed = _sent_report(ImageModules(capacity=0), _QR, no_clear, names=names)
+    whole = _sent_whole(ImageModules(capacity=0), _QR, no_clear)
+    streamed = _sent_report(ImageModules(capacity=0), _QR, no_clear)
     assert whole[2] is False
     assert streamed[0] == whole[0]
     assert streamed[2] == whole[2]

@@ -10,15 +10,15 @@ clear of the image module, the image downloads, ``<STX>L``, format settings, one
 ``Q``, ``E``, a final cut when one is needed, and the clear after the label.
 
 A label that no clear precedes leaves out the download of every image name the printer holds
-(:class:`~datamax_dpl.domain.held_images.HeldImages`, read by the caller); :func:`build_jobs`
-renders a batch, where a name an earlier label downloaded counts as held for the later ones.
+(:class:`~datamax_dpl.domain.held_images.HeldImages`, read by the caller). Nothing carries from one
+label of a batch to the next: what the printer holds is what a read of it says, before each label.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -28,14 +28,12 @@ from .encode_text import encode_scalable_text, encode_text
 from .enums import Attribute, FindingCode, ImageModule, PrinterSetting, PrinterStop, Rotation, Severity, Unit
 from .errors import LabelRejectedError
 from .findings import Finding, FindingCollector
-from .held_images import EMPTY_MODULE, CarriedNames, HeldImages
+from .held_images import HeldImages
 from .image_budget import ImageBudget
 from .job import (
     closing_clears,
     format_footer,
     format_header,
-    held_after,
-    held_change,
     image_downloads,
     retry_clear,
     retry_clear_may_go,
@@ -83,9 +81,12 @@ class RenderResult(BaseModel):
         closing: The bytes that end ``data``: the clears after the label. A batch that cuts
             across records puts its cut before them, so they stay the last of each label.
         image_module: The memory module the downloads go to, None where the job has none.
-        names_unread: True when no clear runs before the downloads and the printer's stored names
-            were not known (``image_names_unread``): reading them (``<STX>W``) and rendering again
-            leaves out each held one.
+        uses_held_names: True when no clear runs before the label's downloads, so what it sends
+            depends on the names the printer holds: each one it lists is left out.
+        names_unread: True when the label uses held names and they were not known, whether it
+            says so (``image_names_unread``) or they are to be read right before its downloads
+            (``HeldImages.read_at_send``): reading them (``<STX>W``) and rendering again leaves
+            out each held one.
         upload_end: Where the job's image downloads end in ``data``: everything before it (the
             printer settings, the clear before and the downloads) is the upload a caller can send
             and check (``<STX>W``) before the format that places the images goes out.
@@ -123,6 +124,7 @@ class RenderResult(BaseModel):
     emulated_groups: tuple[tuple[int, ...], ...]
     closing: bytes
     image_module: ImageModule | None = None
+    uses_held_names: bool = False
     names_unread: bool = False
     upload_end: int = 0
     retry_clear: bytes = b""
@@ -148,20 +150,6 @@ class RenderResult(BaseModel):
     def warnings(self) -> tuple[Finding, ...]:
         """The warning findings."""
         return tuple(f for f in self.findings if f.severity is Severity.WARNING)
-
-
-@dataclass(frozen=True)
-class RenderedRecord:
-    """One label of a batch rendered, and what the printer holds in the image module after its job.
-
-    Attributes:
-        result: The label's result.
-        held_after: What the printer holds once the label's job has run; the next label of the
-            batch starts from it.
-    """
-
-    result: RenderResult
-    held_after: HeldImages
 
 
 def _pick(explicit: _Given | None, default: _Default) -> _Given | _Default:
@@ -660,7 +648,7 @@ def build_job(label: Label, options: RenderOptions | None = None, *, held: HeldI
     Raises:
         UnknownModelError: ``options.model`` names no profile.
     """
-    return _build(label, options or RenderOptions(), held=held or HeldImages()).result
+    return _encoded_result(label, options or RenderOptions(), held=held or HeldImages())
 
 
 def build_jobs(
@@ -669,15 +657,16 @@ def build_jobs(
     *,
     held: HeldImages | None = None,
 ) -> tuple[RenderResult, ...]:
-    """Render each label of a batch in turn, as :func:`build_job` does, carrying what the printer holds.
+    """Render each label of a batch in turn, as :func:`build_job` does, each with the same ``held``.
 
-    A label no clear precedes leaves out the download of a name an earlier label downloaded with
-    no clear since: the printer holds it, and a second download would print nothing.
+    Nothing carries from one label to the next: a label no clear precedes downloads every name
+    ``held`` does not list, one an earlier label of the batch downloaded included, since what the
+    printer holds by then is for a read of it to say, not for this batch to remember.
 
     Args:
         labels: The labels, in the order they are sent.
         options: How to render; None renders for ``generic``.
-        held: The image names the printer holds before the first label; None when nobody asked it.
+        held: The image names the printer holds, for every label; None when nobody asked it.
 
     Raises:
         UnknownModelError: ``options.model`` names no profile.
@@ -688,7 +677,7 @@ def build_jobs(
         >>> options = RenderOptions(model="allegro-2", **no_clear)
         >>> jobs = build_jobs([Label(elements=[Qr(x=5, y=5, data="SAME")])] * 2, options)
         >>> [len(job.downloads) for job in jobs]
-        [1, 0]
+        [1, 1]
     """
     return tuple(iter_jobs(labels, options, held=held))
 
@@ -704,17 +693,15 @@ def iter_jobs(
     Args:
         labels: The labels, in the order they are sent; each is taken only when its turn comes.
         options: How to render; None renders for ``generic``.
-        held: The image names the printer holds before the first label; None when nobody asked it.
+        held: The image names the printer holds, for every label; None when nobody asked it.
 
     Yields:
         Each label's result in turn.
     """
     options = options or RenderOptions()
-    state = CarriedNames(held or HeldImages())
+    given = held or HeldImages()
     for label in labels:
-        built = _encoded_result(label, options, held=state.held)
-        yield built.result
-        state.apply(held_change(built.ctx))
+        yield _encoded_result(label, options, held=given)
 
 
 def _halved(label: Label, options: RenderOptions, *, held: HeldImages) -> _Job:
@@ -756,20 +743,12 @@ def _note_skipped_budget(job: _Job, options: RenderOptions) -> None:
     )
 
 
-class _Built(NamedTuple):
-    """A label's result, and the context that says what its job does to what the printer holds."""
-
-    result: RenderResult
-    ctx: RenderContext
+def _uses_held_names(ctx: RenderContext) -> bool:
+    """Whether what the label sends depends on the names the printer holds: no clear goes before its downloads."""
+    return bool(ctx.downloads) and ctx.image_module is not None and not ctx.clear_runs_before
 
 
-def _build(label: Label, options: RenderOptions, *, held: HeldImages, halve: bool = False) -> RenderedRecord:
-    """Render ``label`` and return its result with what the printer holds after its job."""
-    built = _encoded_result(label, options, held=held, halve=halve)
-    return RenderedRecord(result=built.result, held_after=held_after(built.ctx))
-
-
-def _encoded_result(label: Label, options: RenderOptions, *, held: HeldImages, halve: bool = False) -> _Built:
+def _encoded_result(label: Label, options: RenderOptions, *, held: HeldImages, halve: bool = False) -> RenderResult:
     """Render ``label``; ``halve`` sends every image that can be halved at half resolution whatever the budget says."""
     if halve:
         job = _halved(label, options, held=held)
@@ -787,10 +766,10 @@ def _encoded_result(label: Label, options: RenderOptions, *, held: HeldImages, h
     closing = closing_clears(ctx)
     upload = b"".join([*job.prefix, *downloads])
     data = b"".join([upload, *head, *job.body, *foot, *ctx.system_suffix, *closing])
-    findings = ctx.findings.findings()
-    result = RenderResult(
+    uses_held = _uses_held_names(ctx)
+    return RenderResult(
         data=data,
-        findings=findings,
+        findings=ctx.findings.findings(),
         model=ctx.profile.id,
         dpl_unit=ctx.dpl_unit,
         record_count=job.record_count,
@@ -800,13 +779,13 @@ def _encoded_result(label: Label, options: RenderOptions, *, held: HeldImages, h
         emulated_groups=tuple(ctx.emulated_groups),
         closing=b"".join(closing),
         image_module=ctx.image_module,
-        names_unread=any(finding.code is FindingCode.IMAGE_NAMES_UNREAD for finding in findings),
+        uses_held_names=uses_held,
+        names_unread=uses_held and held.listed is None,
         upload_end=len(upload),
         retry_clear=b"".join(retry_clear(ctx)),
         retry_clear_empties=ctx.clears_module,
         retry_clear_may_go=retry_clear_may_go(ctx),
     )
-    return _Built(result=result, ctx=ctx)
 
 
 def build_record(
@@ -815,12 +794,12 @@ def build_record(
     *,
     held: HeldImages | None = None,
     halve: bool = False,
-) -> RenderedRecord:
-    """Render one label of a batch as :func:`build_jobs` does, and return what the printer holds after it.
+) -> RenderResult:
+    """Render one label of a batch as :func:`build_job` does, its images halved when ``halve``.
 
-    A caller that sends a batch label by label, and may render a label again on the way (with the
-    module known empty after a clear, or with its images halved), carries ``held_after`` to the
-    next label.
+    For a caller that sends a batch label by label and may render a label again on the way: with
+    what a read of the printer's directory listed, with the module known empty after a clear, or
+    with its images halved.
 
     Args:
         label: The label.
@@ -831,7 +810,7 @@ def build_record(
             says: for a printer whose module did not store the images at full size.
 
     Returns:
-        The result, and what the printer holds in the image module once the label's job has run.
+        The result.
 
     Raises:
         UnknownModelError: ``options.model`` names no profile.
@@ -839,55 +818,12 @@ def build_record(
     Example:
         >>> from datamax_dpl.domain.label import Image, Label
         >>> label = Label(elements=[Image(x=1, y=1, name="LOGO", bitmap=["##..", "..##"])])
-        >>> full = build_record(label, RenderOptions(model="allegro-2")).result
-        >>> halved = build_record(label, RenderOptions(model="allegro-2"), halve=True).result
+        >>> full = build_record(label, RenderOptions(model="allegro-2"))
+        >>> halved = build_record(label, RenderOptions(model="allegro-2"), halve=True)
         >>> full.halved_elements, halved.halved_elements, full.downloads == halved.downloads
         ((), (0,), False)
     """
-    return _build(label, options or RenderOptions(), held=held or HeldImages(), halve=halve)
-
-
-def held_after_read(result: RenderResult, after: HeldImages, listed: frozenset[str]) -> HeldImages:
-    """Return what the printer holds once ``result``'s job has run, where a read before its format listed ``listed``.
-
-    A sender that reads the module directory between a label's downloads and its format knows
-    more than the render did (``after``, from :func:`build_record`): the listing is what the module
-    holds then, a name the render could only guess at (sent before a read that got no answer, or
-    left by another job) included. The clear after the label then acts on that: ``<STX>q`` empties
-    the module, the plain Prodigy's removes take out the names the label downloaded (its clear
-    after removes those and only those), and with no clear after the listing stays. A name
-    ``after`` carries with its digest stays known, with the digest, where the listing still
-    shows it.
-
-    Args:
-        result: The label as it went out.
-        after: What the render of ``result`` says the printer holds after it, carrying the
-            digests of every name the label and the batch before it sent.
-        listed: What the read before the label's format listed for its image module.
-
-    Returns:
-        What the printer holds in the image module once the label's job has run.
-
-    Example:
-        >>> from datamax_dpl.domain.label import Image, Label
-        >>> label = Label(elements=[Image(x=1, y=1, name="LOGO", bitmap=["##..", "..##"])])
-        >>> keys_off = {"clear_graphics_before_label": False, "clear_graphics_after_label": False}
-        >>> options = RenderOptions(model="allegro-2", **keys_off)
-        >>> kept = build_record(label, options)
-        >>> [logo] = kept.result.downloads
-        >>> listed = frozenset({logo, "OTHER"})
-        >>> kept.held_after.listed is None, held_after_read(kept.result, kept.held_after, listed).holds("OTHER")
-        (True, True)
-        >>> emptied = build_record(label, RenderOptions(model="allegro-2"))
-        >>> held_after_read(emptied.result, emptied.held_after, listed).listed
-        frozenset()
-    """
-    # closing holds only the clears after the label (closing_clears): <STX>q where the module is
-    # one the model may clear, else the Prodigy's removes of the label's own downloads.
-    if result.closing and result.retry_clear_empties:
-        return EMPTY_MODULE
-    removed: frozenset[str] = frozenset(result.downloads) if result.closing else frozenset()
-    return after.as_listed(listed - removed)
+    return _encoded_result(label, options or RenderOptions(), held=held or HeldImages(), halve=halve)
 
 
 def render(label: Label, options: RenderOptions | None = None) -> RenderResult:
@@ -919,13 +855,11 @@ def render(label: Label, options: RenderOptions | None = None) -> RenderResult:
 
 __all__ = [
     "RenderResult",
-    "RenderedRecord",
     "build_job",
     "build_jobs",
     "build_record",
     "effective_calibration",
     "format_row_limit",
-    "held_after_read",
     "iter_jobs",
     "job_context",
     "render",

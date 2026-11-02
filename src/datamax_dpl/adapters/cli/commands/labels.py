@@ -17,9 +17,11 @@ from ....application.use_cases import BatchReport, check_batch, render_label
 from ....domain.decoder import DecodedCommand, explain
 from ....domain.enums import ImageModule
 from ....domain.errors import BatchTooLargeError
+from ....domain.held_images import READ_AT_SEND, HeldImages
 from ....domain.label import Label
 from ....domain.profiles import Feature, PrinterProfile, SpeedRange, get_profile, list_profiles
 from ...config.sections import printer_section
+from ...transport.uri import is_one_way, parse_printer_uri
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
 from ..job_file import write_batch
@@ -34,7 +36,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from ....application.use_cases import BatchEntry
-    from ....domain.held_images import HeldImages
     from ....domain.render import RenderResult
     from ....domain.render_context import RenderOptions
     from ..context import CLIContext
@@ -68,7 +69,7 @@ def check_loaded(
     options: RenderOptions,
     settings: PrinterSettings,
     *,
-    held: HeldImages | None = None,
+    names: HeldImages | None = None,
 ) -> RenderResult | BatchReport:
     """Render an already loaded label, or go over its records one at a time keeping no job.
 
@@ -81,14 +82,36 @@ def check_loaded(
         options: How to render (``render_options`` of the merged settings, or what a command
             makes of them).
         settings: The merged settings, for how much of a batch its answer keeps.
-        held: The image names the printer holds in the job's module; None when it was not asked.
+        names: :data:`READ_AT_SEND` when the job goes to a two-way printer whose stored image
+            names are read right before each label's downloads. Otherwise why they are not read,
+            which a single label's ``image_names_unread`` finding quotes (None: the printer was not
+            asked); a batch whose labels need them is then refused (``batch_image_names_unread``).
 
     Returns:
         The single render, or the batch's report when ``records`` are given.
     """
     if records is None:
-        return render_label(label, options, held=held)
-    return check_batch(label, records, options, held=held, limits=report_limits(settings))
+        return render_label(label, options, held=names)
+    read_at_send = names is not None and names.read_at_send
+    return check_batch(label, records, options, read_names_at_send=read_at_send, limits=report_limits(settings))
+
+
+def two_way_printer_named(settings: PrinterSettings) -> bool:
+    """Whether ``settings`` name a printer whose stored image names can be read: a tcp or serial URI.
+
+    A URI that does not parse names none: ``validate`` never opens it, and ``print`` refuses it.
+
+    Example:
+        >>> from datamax_dpl.adapters.cli.settings import PrinterSettings
+        >>> [two_way_printer_named(PrinterSettings(uri=uri)) for uri in ("tcp://192.0.2.60:9100", "file:job.dpl", "")]
+        [True, False, False]
+    """
+    if not settings.uri:
+        return False
+    try:
+        return not is_one_way(parse_printer_uri(settings.uri))
+    except ValueError:
+        return False
 
 
 class _RenderedJob(NamedTuple):
@@ -237,7 +260,11 @@ def cli_validate(ctx: click.Context, label_source: str, data: str | None, **give
         settings = resolve_settings(cli_ctx, command_overrides(given))
         label = load_label(label_source)
         records = None if data is None else load_batch(data, settings)
-        result = check_loaded(label, records, render_options(settings), settings)
+        # A batch is judged by the link print would take: a two-way printer is read before each
+        # label, so a batch needing that passes; a single label says its names were not read.
+        readable = records is not None and two_way_printer_named(settings)
+        names = READ_AT_SEND if readable else None
+        result = check_loaded(label, records, render_options(settings), settings, names=names)
         payload = render_payload(result, settings=settings)
         verdict = "OK" if result.ok else "REFUSED"
         human = f"{verdict}: {_human(payload, show_dpl=False)}"
@@ -434,4 +461,5 @@ __all__ = [
     "cli_schema",
     "cli_validate",
     "load_batch",
+    "two_way_printer_named",
 ]

@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 from ....application.upload_check import CheckedJob, ResetCheck, UploadCheck, UploadRefusedError, print_checked
 from ....application.use_cases import (
     DIRECTORY_IDLE_SECONDS,
+    ONE_WAY_LINK,
     AnswerWait,
     BatchReport,
     BatchResult,
@@ -25,15 +26,13 @@ from ....application.use_cases import (
     read_memory_directory,
     record_renders,
     render_label,
-    render_with_stored_names,
     report_of,
     send_command,
-    stored_image_names,
 )
 from ....application.verify import IdleWait, verify_print
-from ....domain.enums import ImageModule, MemoryKind, StatusProblem
+from ....domain.enums import MemoryKind, StatusProblem
 from ....domain.errors import CameraError, PreviewTooLongError
-from ....domain.held_images import HeldImages
+from ....domain.held_images import READ_AT_SEND, HeldImages
 from ....domain.memory import NO_MODULES_MEANING, MemoryDirectory
 from ....domain.placeholders import fill_record
 from ....domain.preview import canvas_for, check_preview_length
@@ -73,12 +72,10 @@ from .model_options import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from ....application.use_cases import RenderedJob
     from ....domain.camera import CameraSettings
     from ....domain.label import Label
     from ....domain.render_context import RenderOptions
     from ..context import CLIContext
-    from ..label_io import Records
 
 _DATA_HELP = "Data records (CSV, JSON array or JSON lines) filling {name} placeholders, one label each."
 
@@ -98,8 +95,7 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
         records = None if data is None else load_batch(data, settings)
         link = _link(settings)
         options = _print_options(settings, link=link)
-        rendered = _render_to_print(label, records, options, settings, cli_ctx, link=link)
-        result = rendered.result
+        result = check_loaded(label, records, options, settings, names=_names_at_send(link))
         uri = link.uri
         if not result.ok:
             return _render_refused(result, verdict="REFUSED: nothing sent", settings=settings)
@@ -112,7 +108,6 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
             job = CheckedJob(
                 renders=result.renders() if isinstance(result, BatchReport) else record_renders(label, None, options),
                 check=_upload_check(settings, cli_ctx),
-                held=rendered.held or HeldImages(),
                 reset=_reset_check(settings),
             )
             try:
@@ -125,6 +120,15 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
         return CommandResult(ok=True, payload=payload, human=human)
 
     run_command(ctx, command=CommandName.PRINT, body=body)
+
+
+def _names_at_send(link: _Link) -> HeldImages:
+    """What a job sent over ``link`` knows of the printer's stored image names before it goes.
+
+    A two-way link reads them right before each label's downloads; a one-way link cannot, and a
+    single label says why in its ``image_names_unread`` finding.
+    """
+    return HeldImages(unread_because=ONE_WAY_LINK) if link.one_way else READ_AT_SEND
 
 
 def _render_refused(result: RenderResult | BatchReport, *, verdict: str, settings: PrinterSettings) -> CommandResult:
@@ -254,36 +258,6 @@ def _print_options(settings: PrinterSettings, *, link: _Link) -> RenderOptions:
         True
     """
     return render_options(settings, model_image_budget=link.one_way)
-
-
-def _render_to_print(
-    label: Label,
-    records: Records | None,
-    options: RenderOptions,
-    settings: PrinterSettings,
-    cli_ctx: CLIContext,
-    *,
-    link: _Link,
-) -> RenderedJob[RenderResult | BatchReport]:
-    """Render a job to be printed, reading the printer's stored image names where no clear precedes it.
-
-    The records are loaded once by the caller and every pass goes over them: ``--data -`` is stdin,
-    which cannot be read a second time. A batch is gone over whole here, so that a bad record refuses
-    it before any byte goes to the printer, and comes back as a report holding no job. Returns the
-    job and the names it was rendered with.
-    """
-
-    def read(module: ImageModule) -> HeldImages:
-        return stored_image_names(
-            module=module,
-            uri=link.uri,
-            timeout=settings.timeout,
-            open_printer=printer_opener(cli_ctx, settings),
-            wait=_stored_names_wait(settings, cli_ctx),
-            one_way=link.one_way,
-        )
-
-    return render_with_stored_names(lambda held: check_loaded(label, records, options, settings, held=held), read=read)
 
 
 def wait_longer_hint(settings: PrinterSettings) -> str:
@@ -625,8 +599,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
         options = _print_options(settings, link=link)
         # The expected picture is drawn after the print, so a label too long for it stops here.
         _refuse_long_preview(label, options, limit=_preview_limit(cli_ctx))
-        rendered = _render_to_print(label, None, options, settings, cli_ctx, link=link)
-        result = rendered.result
+        result = check_loaded(label, None, options, settings, names=_names_at_send(link))
         uri = link.uri
         if not isinstance(result, RenderResult) or not result.ok:
             return _render_refused(result, verdict="REFUSED", settings=settings)
@@ -639,7 +612,6 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
             else CheckedJob(
                 renders=record_renders(label, None, options),
                 check=_upload_check(settings, cli_ctx),
-                held=rendered.held or HeldImages(),
                 reset=_reset_check(settings),
             )
         )

@@ -20,7 +20,7 @@ from datamax_dpl.domain.preview import CellMm, FieldArea, canvas_for, widest_cel
 from datamax_dpl.domain.profiles import Feature, Firmware, UndescribedBit, get_profile, parse_firmware
 from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.records import Magnification, RecordPosition
-from datamax_dpl.domain.render import RenderedRecord, build_job, build_record, job_context
+from datamax_dpl.domain.render import build_job, job_context
 from datamax_dpl.domain.render_context import PlacedImage, RenderOptions
 from datamax_dpl.domain.units import Axis
 
@@ -149,15 +149,6 @@ def test_the_widest_cell_comes_back_by_name() -> None:
 
     assert type(cell) is CellMm
     assert (round(cell.advance, 2), round(cell.height, 2)) == (1.14, 1.63)
-
-
-@pytest.mark.os_agnostic
-def test_build_record_returns_the_result_with_what_the_printer_holds_after_it() -> None:
-    record = build_record(Label(elements=[Qr(x=5, y=5, data="SAME")]), RenderOptions(model="allegro-2"))
-
-    assert type(record) is RenderedRecord
-    assert record.result.ok
-    assert record.held_after is not None
 
 
 @pytest.mark.os_agnostic

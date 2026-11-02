@@ -305,6 +305,7 @@ class FindingCode(str, Enum):
     BARCODE_HEIGHT_OUT_OF_RANGE = "barcode_height_out_of_range"
     BATCH_CUT_UNSUPPORTED = "batch_cut_unsupported"
     BATCH_CUT_UNVERIFIED = "batch_cut_unverified"
+    BATCH_IMAGE_NAMES_UNREAD = "batch_image_names_unread"
     CHARACTERS_UNMAPPABLE = "characters_unmappable"
     CHECK_DIGIT_ADDED = "check_digit_added"
     CONFIGURED_SENSOR_SELECT_UNSUPPORTED = "configured_sensor_select_unsupported"

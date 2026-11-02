@@ -54,25 +54,4 @@ class FrozenMapping(Mapping[_K, _V]):
         return (type(self), (dict(self._items),))
 
 
-class SharedMapping(FrozenMapping[_K, _V]):
-    """A read-only view of a dict with no copy, for the one owner that goes on changing it.
-
-    A batch carries a map that grows by a name per record and is read while each record renders: a
-    copy per record makes the batch quadratic in its names.
-
-    Example:
-        >>> names = {"D1": b"one"}
-        >>> view = SharedMapping(names)
-        >>> names["D2"] = b"two"
-        >>> sorted(view)
-        ['D1', 'D2']
-    """
-
-    __slots__ = ()
-
-    def __init__(self, items: dict[_K, _V]) -> None:
-        """Hold ``items`` themselves."""
-        self._items = items
-
-
-__all__ = ["FrozenMapping", "SharedMapping"]
+__all__ = ["FrozenMapping"]

@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING
 
 from .charset import DEFAULT_SYMBOL_SET
 from .enums import FindingCode, MediaSensor, PrinterSetting, PrinterStop, SpeedCode
-from .held_images import HeldChange, HeldImages, command_digest
 from .label import DotSize, ScalableText
 from .profiles import Feature, SpeedRange
 from .records import STX, line
@@ -673,13 +672,16 @@ def _report_held_names(ctx: RenderContext) -> None:
 
     Called only when no clear runs before the downloads. A name the printer listed is left out
     with ``image_name_held``: the format places the image the printer holds, which is what the
-    measured Allegro 2 prints (a second download of a held name prints nothing). A name an earlier
-    label of the batch downloaded is left out silently: the job sent that very picture itself,
-    since a different one is named with the next free salt instead. With the printer's names
-    unknown every other download is kept, and one ``image_names_unread`` says what a held name
-    would do. A name the printer lists only in another letter case is another name
-    (:meth:`HeldImages.holds`) and is downloaded with no finding. Every finding takes the
-    configured severity, which the policy leaves alone.
+    measured Allegro 2 prints (a second download of a held name prints nothing). That holds for a
+    name an earlier label of the same batch downloaded too: nothing is remembered between labels,
+    so the listing is all a label goes by. A name the label's own upload check sent in an earlier
+    round (``HeldImages.uploaded``) is left out silently: it holds the label's own picture. With
+    the printer's names unknown every download is
+    kept, and one ``image_names_unread`` says what a held name would do; nothing is said where the
+    names are read right before the downloads (``HeldImages.read_at_send``), since the label is
+    rendered again with that read. A name the printer lists only in another letter case is
+    another name (:meth:`HeldImages.holds`) and is downloaded with no finding. Every finding takes
+    the configured severity, which the policy leaves alone.
     """
     module = ctx.image_module
     if module is None:
@@ -692,10 +694,10 @@ def _report_held_names(ctx: RenderContext) -> None:
     for download in ctx.downloads:
         first.setdefault(download.name, download)
     for download in first.values():
-        if download.name in held.sent:
+        if download.name in held.uploaded:
             continue
         if held.listed is None:
-            unread = True
+            unread = not held.read_at_send
         elif download.name in held.listed:
             ctx.findings.at(
                 severity,
@@ -817,58 +819,6 @@ def _removed_after(ctx: RenderContext) -> list[str]:
     return list(dict.fromkeys(download.name for download in ctx.sent_downloads))
 
 
-def held_change(ctx: RenderContext) -> HeldChange:
-    """Return what this label's job does to what the printer holds in the image module.
-
-    For the next label of a batch: a clear (``<STX>q``) after the label empties the module; one
-    before it leaves exactly the label's downloads; the Prodigy's removes take out the names the
-    label downloaded; with no clear the label's downloads join what was held.
-
-    Args:
-        ctx: The job's context, after :func:`image_downloads` and :func:`closing_clears`.
-
-    Returns:
-        The change, for :meth:`HeldChange.applied_to` or a batch's one carried map.
-    """
-    state = ctx.printer_state
-    if ctx.clears_module and state.clear_graphics_after_label:
-        return HeldChange(emptied=True)
-    sent = {download.name: command_digest(download.command) for download in ctx.sent_downloads}
-    if ctx.module_cleared_before:
-        return HeldChange(emptied=True, sent=sent)
-    removed: frozenset[str] = frozenset()
-    if ctx.supports(Feature.REMOVE_IMAGE) and state.clear_graphics_after_label:
-        # The removes name only what the job downloaded. That leaves out every listed name, except
-        # where the Prodigy's remove before runs: it downloads a listed name again, and its remove
-        # after takes it out, so ``listed`` may still name it. No later label of the batch reads
-        # ``listed`` then, since each one removes and downloads its own names itself.
-        removed = frozenset(_removed_after(ctx))
-    return HeldChange(sent=sent, removed=removed, placed=_placed_listed(ctx))
-
-
-def held_after(ctx: RenderContext) -> HeldImages:
-    """Return what the printer holds in the image module once this label's job has run (see :func:`held_change`)."""
-    return held_change(ctx).applied_to(ctx.held_images)
-
-
-def _placed_listed(ctx: RenderContext) -> dict[str, bytes]:
-    """The listed names this label placed without downloading, each with the digest of the picture it took them for.
-
-    The label printed the printer's image under each such name as its own picture, so a later
-    label of the batch with a different picture under the name must salt past it, as past a name
-    the batch sent. A listed name is placed only where no clear runs before the downloads; the
-    names the batch itself sent are carried in ``sent`` already.
-    """
-    held = ctx.held_images
-    if ctx.clear_runs_before or held.listed is None:
-        return {}
-    return {
-        download.name: command_digest(download.command)
-        for download in ctx.downloads
-        if download.name in held.listed and download.name not in held.sent
-    }
-
-
 __all__ = [
     "CUT_NOW",
     "INCH_MODE",
@@ -879,8 +829,6 @@ __all__ = [
     "closing_clears",
     "format_footer",
     "format_header",
-    "held_after",
-    "held_change",
     "image_downloads",
     "retry_clear",
     "retry_clear_may_go",

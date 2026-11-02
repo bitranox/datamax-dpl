@@ -34,7 +34,6 @@ from datamax_dpl.application.use_cases import (
     record_renders,
     render_batch,
     render_label,
-    stored_image_names,
 )
 from datamax_dpl.application.verify import verify_print
 from datamax_dpl.composition import build_production, build_testing
@@ -50,7 +49,7 @@ from datamax_dpl.domain.enums import (
     Unit,
 )
 from datamax_dpl.domain.errors import ConfigurationError, PrinterProtocolError
-from datamax_dpl.domain.held_images import held_images_from
+from datamax_dpl.domain.held_images import READ_AT_SEND, held_images_from
 from datamax_dpl.domain.label import Cut, DotSize, Element, Image, Label, Text
 from datamax_dpl.domain.memory import parse_module_directory
 from datamax_dpl.domain.profiles import list_profiles
@@ -774,17 +773,14 @@ def test_a_job_into_the_module_no_directory_lists_reads_nothing_and_prints_nothi
 
 @pytest.mark.os_agnostic
 def test_a_label_in_error_once_rendered_with_the_names_read_prints_no_calibration_label() -> None:
-    """Strict refuses a held name; the first label is rendered again from what the names read listed."""
+    """Strict refuses a held name; the first label's names are read before the reset check, so nothing goes out."""
     strict = PLUG_IN.model_copy(update={"policy": FallbackPolicy.STRICT, "held_image_severity": Severity.ERROR})
-    first = render_label(IMAGE_LABEL, PLUG_IN)
+    first = render_label(IMAGE_LABEL, strict, held=READ_AT_SEND)
     [name] = first.downloads
     modules = ImageModules(reset=POWER_ON, held=[("B", name, 512)])
     printer = ModulePrinter(modules)
     opener = open_recording_printer(printer)
-    held = stored_image_names(module=ImageModule.B, uri=URI, timeout=1.0, open_printer=opener)
-    assert held.reset_reported is True
-    job = CheckedJob(renders=record_renders(IMAGE_LABEL, None, strict), check=_check(), held=held)
-    printer.sent.clear()
+    job = CheckedJob(renders=record_renders(IMAGE_LABEL, None, strict), check=_check())
     link = Link(
         printer=opener(URI, timeout=1.0), uri=URI, timeout=1.0, open_printer=opener, reconnect=AnswerWait(seconds=1.0)
     )
@@ -792,7 +788,9 @@ def test_a_label_in_error_once_rendered_with_the_names_read_prints_no_calibratio
     send = send_checked(link, first, job)
 
     assert send.all_sent is False
-    assert printer.sent == []
+    assert printer.sent == [WG]
+    assert modules.status_requests == 0
+    assert FindingCode.PRINTER_RESET_NOT_CALIBRATED in _codes(send.result)
 
 
 @pytest.mark.os_agnostic
@@ -844,9 +842,8 @@ def test_a_reset_is_never_read_as_an_empty_module() -> None:
     modules = ImageModules(reset=POWER_ON, held=[("B", name, 512)])
     printer = ModulePrinter(modules)
     opener = open_recording_printer(printer)
-    held = stored_image_names(module=ImageModule.B, uri=URI, timeout=1.0, open_printer=opener)
-    result = render_label(IMAGE_LABEL, PLUG_IN, held=held)
-    job = CheckedJob(renders=record_renders(IMAGE_LABEL, None, PLUG_IN), check=_check(), held=held)
+    result = render_label(IMAGE_LABEL, PLUG_IN, held=READ_AT_SEND)
+    job = CheckedJob(renders=record_renders(IMAGE_LABEL, None, PLUG_IN), check=_check())
 
     print_checked(result, job, uri=URI, timeout=1.0, open_printer=opener)
 
@@ -866,9 +863,8 @@ def test_on_built_in_ram_the_calibration_label_leaves_what_the_module_holds_alon
     modules = ImageModules(reset=POWER_ON, held=[("A", name, 512)])
     printer = ModulePrinter(modules)
     opener = open_recording_printer(printer)
-    held = stored_image_names(module=ImageModule.A, uri=URI, timeout=1.0, open_printer=opener)
-    result = render_label(IMAGE_LABEL, keys_off, held=held)
-    job = CheckedJob(renders=record_renders(IMAGE_LABEL, None, keys_off), check=_check(), held=held)
+    result = render_label(IMAGE_LABEL, keys_off, held=READ_AT_SEND)
+    job = CheckedJob(renders=record_renders(IMAGE_LABEL, None, keys_off), check=_check())
 
     print_checked(result, job, uri=URI, timeout=1.0, open_printer=opener)
 
@@ -878,18 +874,19 @@ def test_on_built_in_ram_the_calibration_label_leaves_what_the_module_holds_alon
 
 @pytest.mark.os_agnostic
 def test_a_report_the_names_read_took_counts_and_nothing_more_is_asked() -> None:
+    """The calibration label still goes before the first label's downloads."""
     modules = ImageModules(reset=POWER_ON)
     printer = ModulePrinter(modules)
     opener = open_recording_printer(printer)
-    held = stored_image_names(module=ImageModule.B, uri=URI, timeout=1.0, open_printer=opener)
-    result = render_label(TEXT_LABEL, PLUG_IN, held=held)
-    job = CheckedJob(renders=record_renders(TEXT_LABEL, None, PLUG_IN), check=_check(), held=held)
+    result = render_label(IMAGE_LABEL, PLUG_IN, held=READ_AT_SEND)
+    job = CheckedJob(renders=record_renders(IMAGE_LABEL, None, PLUG_IN), check=_check())
 
     report = print_checked(result, job, uri=URI, timeout=1.0, open_printer=opener)
 
     assert modules.status_requests == 0
     assert printer.data.count(CALIBRATION_TEXT) == 1
-    assert _codes(report.result) == [FindingCode.PRINTER_RESET_CALIBRATED]
+    assert printer.data.index(CALIBRATION_TEXT) < printer.data.index(STX + b"IB")
+    assert FindingCode.PRINTER_RESET_CALIBRATED in _codes(report.result)
 
 
 @pytest.mark.os_agnostic

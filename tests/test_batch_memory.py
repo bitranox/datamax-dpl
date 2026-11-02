@@ -56,8 +56,8 @@ def test_a_render_fills_its_label_when_it_runs_and_gets_the_same_job() -> None:
     records = [{"a": "one"}, {"a": "two"}]
     renders = record_renders(label, records, _DMX)
     batch = render_batch(label, records, _DMX)
-    assert [r(HeldImages(), halve=False).result.data for r in renders] == [r.data for r in batch.results]
-    assert b"two" in renders[1](HeldImages(), halve=False).result.data
+    assert [r(HeldImages(), halve=False).data for r in renders] == [r.data for r in batch.results]
+    assert b"two" in renders[1](HeldImages(), halve=False).data
     assert b"CAL" in renders[1].calibration("CAL").data
 
 

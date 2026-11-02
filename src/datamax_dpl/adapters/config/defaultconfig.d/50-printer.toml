@@ -94,9 +94,9 @@ timeout = 10.0
 # status_retry_interval = 0.25
 
 # Purpose: Seconds 'print' and 'verify' keep trying for each read of the
-#          printer's stored image names (<STX>W): before a job no clear
-#          precedes, and in each round of the upload check after a label's
-#          downloads. The answer's last byte must arrive within it (the 1 s of
+#          printer's stored image names (<STX>W): right before each label's
+#          downloads no clear precedes, and in each round of the upload check
+#          after a label's downloads. The answer's last byte must arrive within it (the 1 s of
 #          silence that ends the answer comes on top); 'status', 'memory' and
 #          verify's wait for the printer use status_wait. A printer was measured
 #          silent for 10-20 s after an image job, so a repeat print right after
@@ -331,11 +331,15 @@ options = []
 # Purpose: Severity of the findings of a label whose image downloads no clear
 #          precedes (a module that is not the model's built-in RAM, a model that
 #          can clear nothing). 'print' and 'verify' then read the printer's stored
-#          image names first and leave out the download of each one it holds
-#          (image_name_held), since downloading a held name again prints nothing;
-#          where the names cannot be read (offline, a one-way link, no answer)
-#          every image is downloaded (image_names_unread). error refuses such a
-#          label under either policy.
+#          image names right before each such label's downloads and leave out the
+#          download of each one it holds (image_name_held), since downloading a
+#          held name again prints nothing; where the names cannot be read
+#          (offline, a one-way link, no answer) a single label downloads every
+#          image (image_names_unread). A --data batch of such labels is refused
+#          where no printer is read before each label: render, validate with no
+#          tcp or serial printer, print to a file (batch_image_names_unread).
+#          error refuses such a label under either policy, a later label of a
+#          batch whose image an earlier label stored included.
 # Type: string, "info", "warning" or "error"
 # Default: "warning"
 # Environment Variable: DATAMAX_DPL___PRINTER__HELD_IMAGE_SEVERITY=error

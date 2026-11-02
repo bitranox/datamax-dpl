@@ -4,8 +4,11 @@ Every use case takes its collaborators (printer opener, camera, clock) as keywor
 the CLI wires production adapters and the tests wire in-memory ones.
 
 A job that no clear precedes must not download an image name the printer already holds (it would
-print nothing), so before such a job is printed :func:`render_with_stored_names` reads the printer's
-graphic directory and renders again; every other render, and every offline one, reads nothing.
+print nothing). Nothing about the printer's images is kept from one label to the next: on a two-way
+link the sender reads the printer's graphic directory right before each such label's downloads and
+renders that label again with what it lists (:mod:`~datamax_dpl.application.upload_check`). Where
+no printer can be asked before each label, a batch of such labels is refused
+(``batch_image_names_unread``); a single label keeps every download and says so.
 """
 
 from __future__ import annotations
@@ -47,11 +50,11 @@ from ..domain.errors import (
     UnsupportedOperationError,
 )
 from ..domain.findings import Finding
-from ..domain.held_images import DEFAULT_MODULE_UNREAD, HeldImages, held_images_from
+from ..domain.held_images import READ_AT_SEND, HeldImages, held_images_from
 from ..domain.label import Cut, Label
 from ..domain.memory import MemoryDirectory, parse_module_directory
 from ..domain.placeholders import fill_record
-from ..domain.render import RenderedRecord, RenderResult, build_job, build_record, iter_jobs
+from ..domain.render import RenderResult, build_job, build_record, iter_jobs
 from ..domain.reset_label import calibration_job
 from ..domain.status import (
     CANCEL,
@@ -81,7 +84,6 @@ if TYPE_CHECKING:
     from .ports import Clock, OpenPrinter, PrinterTransport, Sleep
 
 _T = TypeVar("_T")
-_Rendered = TypeVar("_Rendered", bound="RenderResult | BatchResult | BatchReport")
 
 
 class BatchResult(BaseModel):
@@ -146,7 +148,7 @@ def render_batch(
     records: Iterable[Mapping[str, str]],
     options: RenderOptions,
     *,
-    held: HeldImages | None = None,
+    read_names_at_send: bool = False,
     max_job_bytes: int | None = None,
 ) -> BatchResult:
     """Render ``label`` once per record and hold them all: the convenience over :func:`iter_batch`.
@@ -159,8 +161,10 @@ def render_batch(
         label: The label holding the placeholders.
         records: One mapping of field name to value per label.
         options: The model, fallback policy and job settings.
-        held: What the printer holds in the image module before the first record, None when it
-            was not asked; with no clear, a name an earlier record downloaded counts as held too.
+        read_names_at_send: True when the batch goes to a two-way printer whose stored image names
+            are read right before each label's downloads (``print_checked`` does); False refuses
+            each record that downloads an image with no clear before it
+            (``batch_image_names_unread``), since nothing is kept from one label to the next.
         max_job_bytes: Most bytes the records' jobs may come to, batch cuts left out. None sets no
             limit, and memory then grows with records times label size (390 PDF417 fields took
             1.1 MB per record), so a library caller rendering records it did not write sets one;
@@ -179,7 +183,7 @@ def render_batch(
     results: list[RenderResult] = []
     cuts: list[bool] = []
     total = 0
-    for entry in _entries(label, records, options, held=held):
+    for entry in _entries(label, records, options, read_names_at_send=read_names_at_send):
         total += len(entry.result.data)
         if max_job_bytes is not None and total > max_job_bytes:
             msg = f"the batch passed {max_job_bytes} bytes of job at data record {len(results)}"
@@ -226,9 +230,9 @@ def _with_last(items: Iterable[_T]) -> Iterator[tuple[_T, bool]]:
 
 
 def _entries(
-    label: Label, records: Iterable[Mapping[str, str]], options: RenderOptions, *, held: HeldImages | None
+    label: Label, records: Iterable[Mapping[str, str]], options: RenderOptions, *, read_names_at_send: bool
 ) -> Iterator[BatchEntry]:
-    """Render one record at a time, carrying what the printer holds and the batch's cuts across them."""
+    """Render one record at a time, carrying the batch's cuts across them and nothing about the printer."""
     batch_label = _batch_label(label)
     plan = _plan_of(batch_label, options)
     lasts: list[bool] = []
@@ -238,8 +242,43 @@ def _entries(
             lasts.append(last)
             yield fill_record(batch_label.per_record, record, number=number)
 
+    held = READ_AT_SEND if read_names_at_send else None
     for number, result in enumerate(iter_jobs(labels(), options, held=held), start=1):
-        yield BatchEntry(result=result, cut_after=plan.follows(number, last=lasts.pop()))
+        checked = result if read_names_at_send else _refused_unread(result)
+        yield BatchEntry(result=checked, cut_after=plan.follows(number, last=lasts.pop()))
+
+
+class _FindingsUpdate(TypedDict):
+    """The field a batch record's result changes when the batch refuses it."""
+
+    findings: tuple[Finding, ...]
+
+
+require_update_fields(_FindingsUpdate, RenderResult)
+
+
+def _refused_unread(result: RenderResult) -> RenderResult:
+    """``result`` with ``batch_image_names_unread`` where its names would have to be known and cannot be.
+
+    A label with no clear before its downloads must leave out each name the printer holds, and an
+    earlier label of the same batch may have left any of them: only a read of the printer right
+    before the label can tell, and nothing is kept from one label to the next to stand in for it.
+    """
+    if not result.names_unread or result.image_module is None:
+        return result
+    module = result.image_module.value
+    refusal = Finding(
+        code=FindingCode.BATCH_IMAGE_NAMES_UNREAD,
+        severity=Severity.ERROR,
+        message=(
+            f"the label downloads images into module {module} with no clear before them, and here no printer can "
+            "be asked which names it holds before each label: an earlier label of the batch may leave a name this "
+            "one downloads, and a download of a held name prints nothing. Send the batch to a two-way printer "
+            "(tcp or serial), which is read before each label, or clear the module before each label "
+            "(clear_graphics_before_label, with a module the model may clear)"
+        ),
+    )
+    return result.model_copy(update=_FindingsUpdate(findings=(*result.findings, refusal)))
 
 
 class _DataAndFindingsUpdate(TypedDict):
@@ -253,13 +292,13 @@ require_update_fields(_DataAndFindingsUpdate, RenderResult)
 
 
 def iter_batch(
-    label: Label, records: Iterable[Mapping[str, str]], options: RenderOptions, *, held: HeldImages | None = None
+    label: Label, records: Iterable[Mapping[str, str]], options: RenderOptions, *, read_names_at_send: bool = False
 ) -> Iterator[RenderResult]:
     """Render ``label`` once per record, one at a time: memory does not grow with the records.
 
     Only the current record and the one read ahead (to know the last, for a cut at the end) are
     held, and any iterable does, a generator included. Each result's ``data`` is what to send for
-    that record, its batch cut included. What the printer holds carries across records, as in
+    that record, its batch cut included. Nothing about the printer carries across records, as in
     :func:`render_batch`, whose jobs and findings these are, except that findings about the batch
     as a whole come on the first record's result: stop at the first result that is not ``ok``.
 
@@ -270,8 +309,8 @@ def iter_batch(
         label: The label holding the placeholders.
         records: One mapping of field name to value per label.
         options: The model, fallback policy and job settings.
-        held: What the printer holds in the image module before the first record, None when it
-            was not asked.
+        read_names_at_send: True when a sender reads the printer's stored image names right
+            before each label's downloads (see :func:`render_batch`).
 
     Yields:
         One render per record, in order.
@@ -289,7 +328,7 @@ def iter_batch(
         [True]
     """
     extra = _plan_of(_batch_label(label), options).findings
-    for entry in _entries(label, records, options, held=held):
+    for entry in _entries(label, records, options, read_names_at_send=read_names_at_send):
         findings = (*entry.result.findings, *extra)
         extra = ()
         yield entry.result.model_copy(update=_DataAndFindingsUpdate(data=entry.job, findings=findings))
@@ -330,7 +369,7 @@ class BatchJob:
     label: Label
     records: Iterable[Mapping[str, str]]
     options: RenderOptions
-    held: HeldImages | None
+    read_names_at_send: bool
     limits: ReportLimits
 
 
@@ -363,7 +402,6 @@ class BatchReport:
         batch_findings: The findings about the batch as a whole; always kept.
         finding_counts: How many findings of each code there are in all.
         findings_total: How many findings there are in all.
-        unread_module: The first module whose stored names a record needs and was not given.
         unlisted_at: The first record that downloads into module C, None when no record does.
         plan: Where the batch cuts across its records.
     """
@@ -382,7 +420,6 @@ class BatchReport:
     batch_findings: tuple[Finding, ...]
     finding_counts: Mapping[FindingCode, int]
     findings_total: int
-    unread_module: ImageModule | None
     unlisted_at: int | None
     plan: CutPlan
 
@@ -399,7 +436,7 @@ class BatchReport:
     def entries(self) -> Iterator[BatchEntry]:
         """Render the records again, one at a time, as they were checked."""
         job = self._job()
-        return _entries(job.label, job.records, job.options, held=job.held)
+        return _entries(job.label, job.records, job.options, read_names_at_send=job.read_names_at_send)
 
     def record_jobs(self) -> Iterator[bytes]:
         """Each record's bytes in turn, its batch cut included, refusing records that are not the ones checked.
@@ -475,7 +512,6 @@ class BatchTally:
         self._codes_kept: set[FindingCode] = set()
         self._counts: dict[FindingCode, int] = {}
         self._findings_total = 0
-        self._unread: ImageModule | None = None
         self._unlisted_at: int | None = None
         for finding in plan.findings:
             self._count(finding)
@@ -512,8 +548,6 @@ class BatchTally:
             self._keep(finding, record=record)
         self._downloads_total += len(result.downloads)
         self._downloads.extend(result.downloads[: self._limits.downloads - len(self._downloads)])
-        if self._unread is None and result.names_unread:
-            self._unread = result.image_module
         if self._unlisted_at is None and unlisted_download(result):
             self._unlisted_at = record
 
@@ -541,7 +575,6 @@ class BatchTally:
             batch_findings=self._plan.findings,
             finding_counts=dict(self._counts),
             findings_total=self._findings_total,
-            unread_module=self._unread,
             unlisted_at=self._unlisted_at,
             plan=self._plan,
         )
@@ -552,7 +585,7 @@ def check_batch(
     records: Iterable[Mapping[str, str]],
     options: RenderOptions,
     *,
-    held: HeldImages | None = None,
+    read_names_at_send: bool = False,
     limits: ReportLimits = DEFAULT_REPORT_LIMITS,
     each: Callable[[BatchEntry], None] | None = None,
 ) -> BatchReport:
@@ -568,8 +601,8 @@ def check_batch(
             reads them again, and what it reads then was never checked. One that has gone bad or
             changed in number is refused when its turn comes, after the records before it went out.
         options: The model, fallback policy and job settings.
-        held: What the printer holds in the image module before the first record, None when it
-            was not asked.
+        read_names_at_send: True when a sender reads the printer's stored image names right
+            before each label's downloads (see :func:`render_batch`).
         limits: How much of what grows with the records the report keeps.
         each: Called with each record as it is rendered, for a caller writing the job as it goes.
 
@@ -587,11 +620,12 @@ def check_batch(
         msg = "check_batch reads the records again, and a generator can be read only once; use iter_batch for one"
         raise ValueError(msg)
     tally = BatchTally(limits, plan=_plan_of(_batch_label(label), options))
-    for entry in _entries(label, records, options, held=held):
+    for entry in _entries(label, records, options, read_names_at_send=read_names_at_send):
         tally.add(entry.result, cut=entry.cut_after)
         if each is not None:
             each(entry)
-    return tally.report(BatchJob(label=label, records=records, options=options, held=held, limits=limits))
+    job = BatchJob(label=label, records=records, options=options, read_names_at_send=read_names_at_send, limits=limits)
+    return tally.report(job)
 
 
 class _CutUpdate(TypedDict):
@@ -630,10 +664,14 @@ def _batch_label(label: Label) -> _BatchLabel:
 
 
 class RecordRender(Protocol):
-    """Render one label of a job given what the printer holds before it; see :func:`record_renders`."""
+    """Render one label of a job, as first sent and again for what the printer holds; see :func:`record_renders`."""
 
-    def __call__(self, held: HeldImages, *, halve: bool) -> RenderedRecord:
-        """Return the label's result and what the printer holds after it; ``halve`` halves its images."""
+    def first(self) -> RenderResult:
+        """Return the label as it is first sent: with its stored names to be read before its downloads."""
+        ...
+
+    def __call__(self, held: HeldImages, *, halve: bool) -> RenderResult:
+        """Return the label rendered for what the printer holds; ``halve`` halves its images."""
         ...
 
     def calibration(self, text: str) -> RenderResult:
@@ -646,9 +684,8 @@ def record_renders(
 ) -> tuple[RecordRender, ...]:
     """Return how to render each label of a job again, as :func:`render_label` or :func:`render_batch` rendered it.
 
-    A sender that checks each label's image upload renders a label again with what it then knows
-    the printer holds (an empty module after a clear) or with its images halved, and carries
-    what the printer holds after it to the next label.
+    A sender that checks each label's image upload renders a label again with what a read of the
+    printer then lists, with the module known empty after a clear, or with its images halved.
 
     Every record is filled once here so that a bad one raises before anything goes out, and the
     filled label is dropped: each render fills its label again when it runs. The tuple holds one
@@ -684,7 +721,11 @@ class _LabelRender:
     label: Label
     options: RenderOptions
 
-    def __call__(self, held: HeldImages, *, halve: bool) -> RenderedRecord:
+    def first(self) -> RenderResult:
+        """Render the label as it is first sent, its stored names to be read before its downloads."""
+        return self(READ_AT_SEND, halve=False)
+
+    def __call__(self, held: HeldImages, *, halve: bool) -> RenderResult:
         """Render the label for what the printer holds, its images halved when ``halve``."""
         return build_record(self.label, self.options, held=held, halve=halve)
 
@@ -705,7 +746,11 @@ class _RecordFillRender:
     def _filled(self) -> Label:
         return fill_record(self.label, self.record, number=self.number)
 
-    def __call__(self, held: HeldImages, *, halve: bool) -> RenderedRecord:
+    def first(self) -> RenderResult:
+        """Fill the label and render it as it is first sent, its stored names to be read before its downloads."""
+        return self(READ_AT_SEND, halve=False)
+
+    def __call__(self, held: HeldImages, *, halve: bool) -> RenderResult:
         """Fill the label and render it for what the printer holds, its images halved when ``halve``."""
         return build_record(self._filled(), self.options, held=held, halve=halve)
 
@@ -714,57 +759,8 @@ class _RecordFillRender:
         return calibration_job(self._filled(), self.options, text=text)
 
 
-def _unread_module(result: RenderResult | BatchResult | BatchReport) -> ImageModule | None:
-    """The image module whose stored names a job needs and was not given, or None when it needs none."""
-    if isinstance(result, BatchReport):
-        return result.unread_module
-    results = result.results if isinstance(result, BatchResult) else (result,)
-    return next((r.image_module for r in results if r.names_unread and r.image_module is not None), None)
-
-
 #: Why the stored names are unknown on a channel that cannot read the printer's answer.
 ONE_WAY_LINK = "the link to the printer is one-way"
-
-
-def stored_image_names(
-    *,
-    module: ImageModule,
-    uri: str,
-    timeout: float,
-    open_printer: OpenPrinter,
-    wait: AnswerWait | None = None,
-    one_way: bool = False,
-) -> HeldImages:
-    """Return the image names the printer holds in ``module``, read from its graphic directory (``<STX>W``).
-
-    Never raises for a printer that cannot say: a one-way channel, no answer in time or an answer
-    the parser cannot read gives unknown names with the reason, and the job is then rendered with
-    every download kept and ``image_names_unread`` quoting that reason. A printer that cannot be
-    reached at all is left to the send that follows, which reports it. Nothing is opened for the
-    default module, whose letter no directory lists, nor for a link the caller already knows to be
-    one-way: opening a file or a device to find that out would create it for a job that may yet be
-    refused.
-
-    Args:
-        module: The job's image module.
-        uri: The printer.
-        timeout: Seconds for each connect and write.
-        open_printer: Opens the channel.
-        wait: How long to keep trying for the answer, as ``memory`` does, and by when its last
-            byte must have arrived: an answer still coming when the wait ends counts as no
-            answer. The silence that ends the answer (:data:`DIRECTORY_IDLE_SECONDS`) comes on
-            top. None waits ``timeout``.
-        one_way: True when ``uri`` names a channel that cannot read answers (a file, stdout, a
-            device file), decided from the URI alone.
-    """
-    if module == ImageModule.C:
-        return HeldImages(unread_because=DEFAULT_MODULE_UNREAD)
-    if one_way:
-        return HeldImages(unread_because=ONE_WAY_LINK)
-    read = read_stored_names(None, module=module, uri=uri, timeout=timeout, open_printer=open_printer, wait=wait)
-    if read.channel is not None:
-        read.channel.close()
-    return read.held
 
 
 @dataclass(frozen=True)
@@ -793,10 +789,12 @@ def read_stored_names(
 ) -> StoredNamesRead:
     """Read the image names the printer holds in ``module`` (``<STX>W``), asking on ``printer`` first.
 
-    The read :func:`stored_image_names` makes, on a channel the caller may already have open: a
-    sender that has just downloaded a job's images asks on the connection they went out on, and
-    goes on with the job there. A channel that fails before it takes the request is replaced by a
-    new one within ``wait``, as :func:`query_status` replaces its own.
+    Never raises for a printer that cannot say: a one-way channel, no answer in time or an answer
+    the parser cannot read gives unknown names with the reason. It reads on a channel the caller
+    may already have open: a sender asks right before a label's downloads, and again once they went
+    out, on the connection the job goes out on, and goes on with the job there. A channel that fails
+    before it takes the request is replaced by a new one within ``wait``, as :func:`query_status`
+    replaces its own.
 
     Args:
         printer: The open channel to ask first, or None to open one with ``open_printer``.
@@ -804,8 +802,10 @@ def read_stored_names(
         uri: The printer.
         timeout: Seconds for each connect and write.
         open_printer: Opens a channel when there is none, or the one asked took no request.
-        wait: How long to keep trying, bounding the answer's last byte (see
-            :func:`stored_image_names`); None waits ``timeout``.
+        wait: How long to keep trying for the answer, as ``memory`` does, and by when its last
+            byte must have arrived: an answer still coming when the wait ends counts as no
+            answer. The silence that ends the answer (:data:`DIRECTORY_IDLE_SECONDS`) comes on
+            top. None waits ``timeout``.
 
     Returns:
         The channel that answered and what it says ``module`` holds (see :class:`StoredNamesRead`).
@@ -842,45 +842,6 @@ def _still_arriving(wait: AnswerWait) -> str:
     """
     advice = f"; {wait.wait_longer}" if wait.wait_longer else ""
     return f"the answer was still arriving at the end of the {wait.seconds:g} s wait{advice}"
-
-
-@dataclass(frozen=True)
-class RenderedJob(Generic[_Rendered]):
-    """A job rendered to be printed, and the stored image names it was rendered with.
-
-    Attributes:
-        result: The job to send.
-        held: What the printer was read to hold, None when nothing was read: a sender that
-            renders a label again on the way starts from the same names.
-    """
-
-    result: _Rendered
-    held: HeldImages | None
-
-
-def render_with_stored_names(
-    render: Callable[[HeldImages | None], _Rendered], *, read: Callable[[ImageModule], HeldImages]
-) -> RenderedJob[_Rendered]:
-    """Render a job to be printed, reading the printer's stored image names first where it needs them.
-
-    The job is rendered once without them. Only when no clear precedes its downloads and it
-    downloads an image (``RenderResult.names_unread``) are the names of its module read with
-    ``read`` and the job rendered again with them; a job that clears first reads nothing.
-
-    Args:
-        render: Renders the job with the given names (None: not asked).
-        read: Returns what the printer holds in the module it is given, e.g. via
-            :func:`stored_image_names`.
-
-    Returns:
-        The job to send and what the printer was read to hold (see :class:`RenderedJob`).
-    """
-    result = render(None)
-    module = _unread_module(result)
-    if module is None:
-        return RenderedJob(result=result, held=None)
-    held = read(module)
-    return RenderedJob(result=render(held), held=held)
 
 
 class PrintReport(BaseModel):
@@ -1417,7 +1378,6 @@ __all__ = [
     "PrintReport",
     "PrinterCommand",
     "RecordRender",
-    "RenderedJob",
     "ReportLimits",
     "ReportedFinding",
     "StatusPoll",
@@ -1436,10 +1396,8 @@ __all__ = [
     "record_renders",
     "render_batch",
     "render_label",
-    "render_with_stored_names",
     "report_of",
     "send_bytes",
     "send_command",
-    "stored_image_names",
     "unlisted_download",
 ]

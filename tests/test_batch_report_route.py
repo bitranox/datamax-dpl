@@ -9,12 +9,9 @@ import pytest
 from printer_server import ImageModules, ModulePrinter, module_printer
 
 from datamax_dpl import (
-    BatchReport,
     CheckedJob,
-    HeldImages,
     LabelRejectedError,
     UploadCheck,
-    UploadRefusedError,
     check_batch,
     iter_batch,
     print_checked,
@@ -54,7 +51,7 @@ def _files(tmp_path: Path, label: Label, values: str) -> tuple[str, str]:
 
 def _name_of(value: str, options: RenderOptions) -> str:
     """The image name a QR Code holding ``value`` downloads under."""
-    [name] = build_record(Label(elements=[Qr(x=1, y=1, data=value)]), options).result.downloads
+    [name] = build_record(Label(elements=[Qr(x=1, y=1, data=value)]), options).downloads
     return name
 
 
@@ -71,11 +68,14 @@ def _print(cli_runner: CliRunner, *args: str, printer: str) -> Result:
 def test_print_data_downloads_no_name_the_printer_already_holds(
     cli_runner: CliRunner, tmp_path: Path, serve: Callable[..., PrinterServer]
 ) -> None:
-    """A download over a held name prints nothing and says nothing, with no clear running before it."""
+    """A download over a held name prints nothing and says nothing, with no clear running before it.
+
+    Each label's names are read on the job's own connection, right before its downloads.
+    """
     name = _name_of("r0", RenderOptions(model="allegro-2", image_module=ImageModule.B))
     modules = ImageModules(held=[("B", name, 300)])
     label, data = _files(tmp_path, _QR, "r0\nr1\n")
-    server = serve(module_printer(modules), module_printer(modules), next_connection_within=0.1)
+    server = serve(module_printer(modules))
     sets = ("--set", "printer.image_module=B", "--set", "printer.stored_names_wait=0.5")
     result = _print(cli_runner, *sets, "print", label, "--data", data, "--model", "allegro-2", printer=server.address)
     server.join()
@@ -99,25 +99,6 @@ def test_print_data_into_module_c_sends_nothing_and_names_the_first_record(
     unlisted = [finding for finding in payload["findings"] if finding["code"] == "image_module_unlisted"]
     assert [finding["record"] for finding in unlisted] == [0]
     assert _FORMAT not in server.received
-
-
-@pytest.mark.os_agnostic
-def test_a_module_c_download_past_the_first_record_refuses_before_the_first_label_goes() -> None:
-    """Record 0 is held so it sends a format; only the whole-batch refusal keeps that from going out."""
-    options = RenderOptions(model="allegro-2", image_module=ImageModule.C)
-    held = HeldImages(listed=frozenset({_name_of("r0", options)}))
-    report = check_batch(_QR, _ROWS, options, held=held)
-    assert report.unlisted_at == 1
-    printer = ModulePrinter(ImageModules())
-    job = CheckedJob(renders=report.renders(), check=UploadCheck(wait=AnswerWait(seconds=1.0)), reset=None, held=held)
-    with pytest.raises(UploadRefusedError) as refused:
-        print_checked(report, job, uri="tcp://printer", timeout=5.0, open_printer=open_recording_printer(printer))
-    assert refused.value.bytes_sent == 0
-    assert printer.sent == []
-    answer = refused.value.result
-    assert isinstance(answer, BatchReport)
-    codes = [kept.finding.code.value for kept in answer.findings]
-    assert "image_module_unlisted" in codes
 
 
 @pytest.mark.os_agnostic

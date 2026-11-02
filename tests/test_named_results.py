@@ -17,18 +17,15 @@ from datamax_dpl.application.upload_check import CheckedJob, CheckedSend, Link, 
 from datamax_dpl.application.use_cases import (
     ONE_WAY_LINK,
     AnswerWait,
-    RenderedJob,
     StatusPoll,
     StoredNamesRead,
     poll_status,
     read_stored_names,
     record_renders,
     render_label,
-    render_with_stored_names,
 )
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.enums import ImageModule, MemoryKind
-from datamax_dpl.domain.held_images import HeldImages
 from datamax_dpl.domain.label import Label, Text
 from datamax_dpl.domain.render import RenderResult
 from datamax_dpl.domain.render_context import RenderOptions
@@ -79,22 +76,6 @@ def test_poll_status_returns_the_channel_and_the_status_by_name() -> None:
     assert type(poll) is StatusPoll
     assert poll.channel is printer
     assert poll.status.idle
-
-
-@pytest.mark.os_agnostic
-def test_render_with_stored_names_reads_nothing_for_a_job_that_downloads_nothing() -> None:
-    reads: list[ImageModule] = []
-
-    def read(module: ImageModule) -> HeldImages:
-        reads.append(module)
-        return HeldImages()
-
-    rendered = render_with_stored_names(lambda held: render_label(HELLO, OPTIONS, held=held), read=read)
-
-    assert type(rendered) is RenderedJob
-    assert isinstance(rendered.result, RenderResult)
-    assert rendered.result.ok
-    assert (rendered.held, reads) == (None, [])
 
 
 @pytest.mark.os_agnostic

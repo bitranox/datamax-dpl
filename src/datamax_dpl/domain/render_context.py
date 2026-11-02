@@ -26,7 +26,7 @@ from .enums import (
     Unit,
 )
 from .geometry import Size
-from .held_images import HeldImages, command_digest
+from .held_images import HeldImages
 from .image_budget import HALVING_FACTOR, halve, halved_magnification, image_data_bytes
 from .image_records import CR, MAX_WIDTH, download_command
 from .label import Positive, StopPosition
@@ -885,12 +885,11 @@ class RenderContext:
     def _drawn_name(self, bitmap: Bitmap) -> str:
         """Return the name this job queues ``bitmap`` under: its first salted content name that is free.
 
-        A name is free when no stored-only label ``image`` reserves it and no download holds it,
-        or the download holding it is this very bitmap. A download holds it in this job, or in an
-        earlier label of the batch with no clear since (``HeldImages.sent``), whose picture the
-        printer still has under it; so does a listed name an earlier label placed as its own
-        picture (``HeldImages.placed``), since that label printed the listed image as it. Picked
-        without queuing, so a refusal can name what the job would have sent.
+        A name is free when no stored-only label ``image`` reserves it and no download of this job
+        holds it, or the download holding it is this very bitmap. Only this job's own downloads
+        are known pictures: nothing is remembered from an earlier label, and a name the printer
+        lists is taken to be this picture, since the name is a hash of it. Picked without queuing,
+        so a refusal can name what the job would have sent.
         """
         salt = 0
         while not self._name_is_free(drawn_image_name(bitmap, salt=salt), bitmap):
@@ -902,16 +901,13 @@ class RenderContext:
         if name in self.reserved_image_names:
             return False
         queued = next((download.command for download in self.downloads if download.name == name), None)
-        digest = None if queued is None else command_digest(queued)
-        if digest is None and not self.clear_runs_before:
-            digest = self.held_images.digest_for(name)
-        if digest is None:
+        if queued is None:
             return True
-        # Every download of the job or of its batch fits one row record and goes to the image
-        # module, so an image too wide for a row, or a job without a module, never holds a name.
+        # Every download of the job fits one row record and goes to the image module, so an image
+        # too wide for a row, or a job without a module, never holds a name.
         if bitmap.width > MAX_WIDTH or self.image_module is None:
             return False
-        return digest == command_digest(download_command(name, bitmap, module=self.image_module))
+        return queued == download_command(name, bitmap, module=self.image_module)
 
     def _queue_drawn(
         self, name: str, bitmap: Bitmap, *, module: ImageModule, element: int, label_name: str | None = None

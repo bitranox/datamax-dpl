@@ -15,13 +15,15 @@ after). A name missing, or no answer within ``stored_names_wait``, starts the ne
    never a plug-in module), upload again and read again;
 3. clear again, halve the images 2x2 (the image memory budget's own halving), upload and read.
 
-Where no clear may go (a plug-in module, a model with no clear) a round renders the label again
-with what the last read listed, so a name the module holds is left out rather than downloaded
-again, which would print nothing. Where the read got no answer, each name sent before it may be
-held: round 2 then reads the names again before it uploads anything; with an answer the label is
-rendered again from that listing and the round goes on (a label left with nothing to download
-passes, at full size), with none round 2 is left out. Round 3 runs after a read with no answer
-only where every download gets a new name by halving, which a QR Code never does. On the plain
+A label no clear precedes reads the printer's directory right before its downloads, and is
+rendered again from what it lists, so a name the module holds is placed rather than downloaded
+again, which would print nothing. Where no clear may go (a plug-in module, a model with no clear) a
+round renders the label again with what the last read listed, for the same reason. Where the read
+got no answer, each name sent before it may be held: round 2 then reads the names again before it
+uploads anything; with an answer the label is rendered again from that listing and the round goes
+on (a label left with nothing to download passes, at full size), with none round 2 is left out.
+Round 3 runs after a read with no answer only where every download gets a new name by halving,
+which a QR Code never does. On the plain
 Prodigy, whose removes take out only the label's own names, round 3 renders from what the last
 read that answered listed less those names, so a halved name the module holds is placed, not
 downloaded again. A label that, rendered again for a round, has an error finding (the module it
@@ -30,16 +32,18 @@ now holds leaves too little memory, a held name in error) is refused there
 again, downloads nothing (each image it places is one the module holds) sends no upload and makes
 no read after it in that round: nothing of it can be missing.
 
-Before the first label, once it is known not to be refused, the printer is asked for its status
-once (:class:`ResetCheck`): its first answer after a power cycle reports the reset, and one Allegro 2
+Before the first label's downloads, once it is known not to be refused (where no clear precedes
+them, after the names read before them), the printer is asked for its status once
+(:class:`ResetCheck`): its first answer after a power cycle reports the reset, and one Allegro 2
 printed the first label after one about 12 mm shifted. On such a report one calibration label goes
-first, so that the shift lands on it (``printer_reset_calibrated``). A names read before the job
-may have taken the report already (:attr:`~datamax_dpl.domain.held_images.HeldImages.reset_reported`);
-nothing is asked then. A status read that stays silent can still be followed by a directory read that
-answers with the report: the first label's format has not gone yet then, so the calibration label goes
-at that point, and a label those rounds refuse says the report was taken with nothing printed
-(``printer_reset_not_calibrated``). Nothing here reads a reset as an empty module, and a label the
-upload check refuses later still had its calibration label: only uploading can tell.
+first, so that the shift lands on it (``printer_reset_calibrated``); a names read that already
+carried the report counts, and nothing more is asked. A status read that stays silent can still be
+followed by a directory read that answers with the report
+(:attr:`~datamax_dpl.domain.held_images.HeldImages.reset_reported`): the first label's format has
+not gone yet then, so the calibration label goes at that point, and a label those rounds refuse
+says the report was taken with nothing printed (``printer_reset_not_calibrated``). Nothing here
+reads a reset as an empty module, and a label the upload check refuses later still had its
+calibration label: only uploading can tell.
 
 Still missing: the label is refused (``image_upload_refused``), its format is never sent, nothing
 after it is sent, and the module is cleared again where a clear may go. Each round after the
@@ -49,25 +53,22 @@ A job whose images go to module C, the printer's default module, which no direct
 that letter, is refused before anything is sent (``image_module_unlisted``): the check could never
 pass, and the format may not go out before it has.
 
-In a batch each label is checked on its own and passes on to the next label what its last read
-that answered listed, with every clear sent after that read applied (a retry clear before a later
-round, the clear after the label): a ``<STX>q`` leaves the module empty, the plain Prodigy's
-removes take out the label's own names. Where no read answered it passes on what its render
-says. A name it sent after that read, where no clear may go, may be held: it is passed on with
-the command that sent it, and no later label downloads it again either. A later label whose
-first upload would reads the names once before its round 1: with an answer it is rendered again
-from that listing, where a listed name holds the picture its command sent (the same picture is
-placed at full size, another one under the same content name is downloaded under the next salt,
-and a label left with nothing to download goes out with no further check), and its rounds go on
-as usual; with no answer its round 1 is left out and round 2 reads the names again. A label that,
-rendered with what the printer holds after the labels before it, has an error finding stops the
-batch there: none of it and nothing after it is sent.
+In a batch each label is checked on its own, and nothing passes from one label to the next: the
+printer may have been reset, or another program may have printed, in between, so its directory is
+the one source of what it holds. Each label no clear precedes reads it right before its downloads,
+so such a batch costs one read more per label than its upload check, about a second. Where that
+read gets no answer, the job's first label downloads every image and says the names were not read
+(``image_names_unread``), as a single label does; a later label, which a label before it may have
+left any of its names for, has its round 1 left out, and round 2 reads the names again before it
+uploads any of them (where no clear may go; where one may, round 2 clears first). A label that,
+rendered again with what a read listed, has an error finding stops the batch there: none of it and
+nothing after it is sent.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sized
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from itertools import islice
 from typing import TYPE_CHECKING, Generic, NamedTuple, Protocol, TypedDict, TypeVar, overload
 
@@ -76,10 +77,9 @@ from ..domain.batch import with_cut
 from ..domain.enums import FindingCode, ImageModule, Severity
 from ..domain.errors import ConfigurationError, LabelRejectedError
 from ..domain.findings import Finding
-from ..domain.frozen_mapping import FrozenMapping
-from ..domain.held_images import EMPTY_MODULE, HeldImages
+from ..domain.held_images import EMPTY_MODULE, NOT_ASKED, HeldImages
 from ..domain.profiles import get_profile
-from ..domain.render import RenderResult, held_after_read
+from ..domain.render import RenderResult
 from ..domain.reset_label import (
     CALIBRATE_AFTER_RESET,
     CALIBRATION_LABEL_TEXT,
@@ -102,7 +102,6 @@ from .use_cases import (
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from ..domain.render import RenderedRecord
     from .ports import OpenPrinter, PrinterTransport
     from .use_cases import RecordRender
 
@@ -201,14 +200,11 @@ class CheckedJob(NamedTuple):
             :meth:`~datamax_dpl.application.use_cases.BatchReport.renders`, which builds each one
             only when its turn comes and holds only the current one.
         check: How the upload is checked.
-        held: What the printer holds in the image module before the first label: the names read
-            before rendering, or nothing known.
         reset: How a reset report is asked for before the first label; None asks nothing.
     """
 
     renders: Iterable[RecordRender]
     check: UploadCheck
-    held: HeldImages = HeldImages()
     reset: ResetCheck | None = ResetCheck()
 
 
@@ -380,126 +376,79 @@ def _clear_text(result: RenderResult, module: ImageModule) -> str:
     return f"sent no clear (module {module.value} may not be cleared)"
 
 
-class _PassedOn(NamedTuple):
-    """What a label of a batch leaves the next one: what the printer holds, and what it may hold.
-
-    Attributes:
-        held: What the printer holds in the image module after the label.
-        maybe_held: Names sent, where no clear may go, since the last read that answered, each
-            with the digest of the download command that sent it: each may be held or may be lost,
-            so no later label may download one again; one that would reads the names first
-            (:meth:`_Record.read_first`). A read that then lists one shows the picture its
-            command sent, which a later label's other picture under the same content name is not.
-    """
-
-    held: HeldImages
-    maybe_held: FrozenMapping[str, bytes] = FrozenMapping[str, bytes]({})
-
-
 @dataclass
 class _Record:
-    """One label's rounds: its render, what the printer held before it and the rounds' findings."""
+    """One label's rounds: its render, what the reads made for it found, and the rounds' findings.
+
+    Nothing comes in from the label before it: what the printer holds is what a read of it says.
+    """
 
     render: RecordRender
-    before: _PassedOn
     link: Link
     check: UploadCheck
+    # The job's first label: nothing of this job went out before it.
+    first: bool
     result: RenderResult = field(init=False)
     findings: list[Finding] = field(default_factory=list[Finding])
-    # What the render of ``result`` says the printer holds after it; never passed on as it is
-    # once a read answered, since the read knows more (see :meth:`passed_on`).
-    _rendered_after: HeldImages = field(init=False)
-    # The digest of the download command of every name the label's rounds sent, and of each name
-    # the label before it may have left, for a name a read then lists.
-    _sent: dict[str, bytes] = field(default_factory=dict[str, bytes], init=False)
     _last_read: str = field(default="", init=False)
-    # What the last read that answered listed, less what every clear since took out (see _clear).
-    # Unknown where no read has answered yet: then nothing is known to leave out.
+    # What the last read of this label that answered listed, less what every clear since took out
+    # (see _clear). Unknown where no read has answered yet: then nothing is known to leave out.
     _known: frozenset[str] | None = field(default=None, init=False)
     # Names downloaded since the last read that answered: each may be held, or may be lost.
     _unsure: frozenset[str] = field(default=frozenset(), init=False)
-
-    @property
-    def held(self) -> HeldImages:
-        """What the printer held in the image module before the label."""
-        return self.before.held
+    # The read before the downloads got no answer, on a label after the first, and none has since:
+    # a label before it may have left any name it downloads, so each one may be held.
+    _blind: bool = field(default=False, init=False)
+    # Why the names are unknown, from the last read that got no answer.
+    _unread_because: str = field(default="", init=False)
+    # Names this label's own uploads sent: listed later, each holds the label's own picture.
+    _own_names: frozenset[str] = field(default=frozenset(), init=False)
 
     def __post_init__(self) -> None:
-        """Render the label as it is first sent."""
-        self._unsure = frozenset(self.before.maybe_held)
-        self._sent.update(self.before.maybe_held)
-        self._rendered(self.render(self.held, halve=False))
+        """Take the label as it is first sent."""
+        self.result = self.render.first()
 
-    def _rendered(self, rendered: RenderedRecord) -> None:
-        """Make ``rendered`` the label as it goes out, with what its render says the printer then holds."""
-        self.result, self._rendered_after = rendered.result, rendered.held_after
+    def read_before(self) -> _Skipped | _Refused | None:
+        """Read the printer's names right before the downloads of a label no clear precedes.
 
-    def _as_read(self, known: frozenset[str]) -> HeldImages:
-        """What the printer holds after the label once a read listed ``known``, every round's sent names known.
-
-        The one way a read's listing becomes what the printer holds: for an upload again where no
-        clear went (no clear after the label either, then) and for the next label of a batch.
-        A name a round sent keeps the picture it sent. The render's own digests are only what the
-        label meant to download, which a round left out never sent: a name only those give, once
-        listed, is one the printer held without this batch, not one the batch sent, so a label
-        rendered from the result reports it (``image_name_held``) instead of leaving it out silently.
-        """
-        rendered = self._rendered_after
-        carried = {name: digest for name, digest in rendered.sent.items() if name in self.held.sent}
-        return held_after_read(self.result, replace(rendered, sent={**carried, **self._sent}), known)
-
-    def _held_before(self, known: frozenset[str]) -> HeldImages:
-        """What the module held before the label once a read listed ``known``, each name sent before with its picture.
-
-        A name the label before it may have left is one it sent: listed now, it holds that
-        picture, which this label's other picture under the same content name is not.
-        """
-        before = replace(self.held, sent={**self.held.sent, **self.before.maybe_held})
-        return before.as_listed(known)
-
-    def passed_on(self) -> _PassedOn:
-        """What the printer holds after the label, and what it may hold, for the next label of a batch.
-
-        As the last read that answered listed it, where one did (a name sent before a read that
-        got no answer, then listed by a later read, is held: downloading it again would print
-        nothing), with every clear sent since applied (a retry clear, see :meth:`_clear`, and the
-        clear after the label); as the render says where none did. A
-        name sent since that read stays one the printer may hold, where no clear may go: a label
-        passes with a read that got no answer when its last round downloaded nothing.
-        """
-        held = self._rendered_after if self._known is None else self._as_read(self._known)
-        if self.result.retry_clear_may_go:
-            return _PassedOn(held=held)
-        return _PassedOn(held=held, maybe_held=FrozenMapping({name: self._sent[name] for name in self._unsure}))
-
-    def read_first(self) -> _Skipped | _Refused | None:
-        """Read the names before round 1, where it would download a name an earlier label may have left.
-
-        Such a name was sent before a read that got no answer, where no clear may go. An answer
-        settles it: the label is rendered again from what the module then lists, so a listed name
-        is placed at full size rather than downloaded again, and its rounds go on as usual.
+        With an answer the label is rendered again from it, so each name the printer lists is
+        placed rather than downloaded again, which would print nothing. With none, the job's first
+        label downloads every image and says the names were not read (``image_names_unread``), as
+        a single label does; a later label has round 1 left out, since a label before it may have
+        left any of its names, and round 2 reads again before it uploads any of them.
 
         Returns:
-            None where round 1 may run (or, rendered again, the label downloads nothing);
-            :class:`_Skipped` where the read got no answer too, so round 1 is left out;
-            :class:`_Refused` where the label, rendered again, has an error.
+            None where round 1 may run; :class:`_Skipped` where it is left out; :class:`_Refused`
+            where the label, rendered again, has an error.
         """
-        if not self._downloaded_again(self.result):
+        if not self.result.names_unread:
             return None
         listed = self.link.read(self._module(), wait=self.check.wait)
-        if listed.listed is None:
-            twice = self._downloaded_again(self.result)
-            skipped = _Skipped(
-                f"round 1 skipped, it would download again {self._unread(twice)}; the names read before round 1 "
-                f"got no answer either ({listed.unread_because})"
-            )
-            self._retried(skipped.reason)
-            return skipped
-        self._known, self._unsure = listed.listed, frozenset()
-        again = self.render(self._held_before(listed.listed), halve=False)
-        if not again.result.ok:
-            return _Refused.of(again.result, when="from the names read before round 1")
-        self._rendered(again)
+        if listed.listed is not None:
+            return self._read_answered(listed.listed, when="from the names read before its downloads")
+        self._unread_because = listed.unread_because
+        if self.first:
+            again = self.render(listed, halve=False)
+            if not again.ok:
+                return _Refused.of(again, when="with its names unread")
+            self.result = again
+            return None
+        self._blind = True
+        skipped = _Skipped(
+            f"round 1 skipped: the names read before the label's downloads got no answer ({listed.unread_because}), "
+            "and a label before it in the job may have left any name it downloads, which downloaded again prints "
+            "nothing"
+        )
+        self._retried(skipped.reason)
+        return skipped
+
+    def _read_answered(self, listed: frozenset[str], *, when: str) -> _Refused | None:
+        """Take ``listed`` as what the module holds and render the label again from it."""
+        self._known, self._unsure, self._blind = listed, frozenset(), False
+        again = self.render(self._as_listed(listed), halve=False)
+        if not again.ok:
+            return _Refused.of(again, when=when)
+        self.result = again
         return None
 
     def _module(self) -> ImageModule:
@@ -527,12 +476,13 @@ class _Record:
             return ()
         module = self._module()
         self.link.send(self.result.data[: self.result.upload_end])
-        self._sent.update(self._rendered_after.sent)
+        self._own_names |= frozenset(self.result.downloads)
         listed = self.link.read(module, wait=self.check.wait)
         if listed.listed is None:
             self._unsure |= frozenset(self.result.downloads)
+            self._unread_because = listed.unread_because
         else:
-            self._known, self._unsure = listed.listed, frozenset()
+            self._known, self._unsure, self._blind = listed.listed, frozenset(), False
         found = _found(self.result, listed, module)
         self._last_read = found.text
         return found.missing
@@ -547,7 +497,7 @@ class _Record:
         """
         if self.result.retry_clear_may_go or self._known is None:
             return None
-        return self._as_read(self._known)
+        return self._as_listed(self._known)
 
     def _before_halving(self) -> HeldImages | None:
         """What the module holds before the halved upload, once the round's clear went; None where nothing is known.
@@ -559,25 +509,37 @@ class _Record:
         if self.result.retry_clear_empties:
             return EMPTY_MODULE
         if self.result.retry_clear_may_go and self._known is not None:
-            return self._as_read(self._known - frozenset(self.result.downloads))
+            return self._as_listed(self._known - frozenset(self.result.downloads))
         return self._uncleared()
+
+    def _as_listed(self, listed: frozenset[str]) -> HeldImages:
+        """The module as a read listed it, each name this label's uploads sent marked as its own."""
+        return HeldImages(listed=listed, uploaded=self._own_names)
+
+    def _unknown(self) -> HeldImages:
+        """What a render knows of the module where no read of the label answered: nothing, and why."""
+        return HeldImages(unread_because=self._unread_because or NOT_ASKED, uploaded=self._own_names)
 
     def _downloaded_again(self, result: RenderResult) -> tuple[str, ...]:
         """The names ``result`` would download that may be held already, with no clear before them.
 
-        A name sent since the last read that answered may have arrived; downloading it again, with
-        no clear to empty the module first, would print nothing (one Allegro 2, 2026-11-01).
+        A name sent since the last read that answered may have arrived, and where the read before
+        the downloads got no answer any name may have been left by a label before this one;
+        downloading it again, with no clear to empty the module first, would print nothing (one
+        Allegro 2, 2026-11-01).
         """
         if self.result.retry_clear_may_go:
             return ()
+        if self._blind:
+            return tuple(dict.fromkeys(result.downloads))
         return tuple(name for name in result.downloads if name in self._unsure)
 
     @staticmethod
     def _unread(names: tuple[str, ...]) -> str:
-        """Why ``names`` may be held: no clear may empty the module, and the read after them got no answer."""
+        """Why ``names`` may be held: no clear may empty the module, and no read since said what it holds."""
         held = "it may be held" if len(names) == 1 else "they may be held"
         return (
-            f"{', '.join(names)}: {held} already, since no clear may empty the module and the read after "
+            f"{', '.join(names)}: {held} already, since no clear may empty the module and the last read "
             "got no answer, and a download of a held name prints nothing"
         )
 
@@ -585,10 +547,10 @@ class _Record:
         """Round 2: clear where a clear may go, render again for what the module then holds, upload again.
 
         Where the upload again would download a name the module may hold (no clear may go, and the
-        read after it got no answer), the round first reads the names again, uploading nothing
-        before that read: with an answer the label is rendered again from that listing and the
-        round goes on (a label left with nothing to download passes, at full size); with none the
-        round is left out.
+        last read got no answer), the round first reads the names again, uploading nothing before
+        that read: with an answer the label is rendered again from that listing and the round goes
+        on (a label left with nothing to download passes, at full size); with none the round is
+        left out.
 
         Returns the names the read after it does not list; :class:`_Refused` instead where the
         label, rendered again, has an error, and :class:`_Skipped` where the names read again got
@@ -598,7 +560,7 @@ class _Record:
         if isinstance(again, _Refused):
             return again
         read_again = ""
-        if twice := self._downloaded_again(self.result if again is None else again.result):
+        if twice := self._downloaded_again(self.result if again is None else again):
             listed = self.link.read(self._module(), wait=self.check.wait)
             if listed.listed is None:
                 skipped = _Skipped(
@@ -607,7 +569,7 @@ class _Record:
                 )
                 self._retried(skipped.reason)
                 return skipped
-            self._known, self._unsure = listed.listed, frozenset()
+            self._known, self._unsure, self._blind = listed.listed, frozenset(), False
             found = _found(self.result, listed, self._module())
             module = self._module().value
             read_again = f", read module {module} again first as the read before it gave no listing ({found.text})"
@@ -616,22 +578,25 @@ class _Record:
                 return again
         cleared = self._clear()
         if again is not None:
-            self._rendered(again)
+            self.result = again
         missing = self.upload()
         self._retried(f"round 2: {cleared}{read_again}, then {self._uploaded('the images again', read=not read_again)}")
         return missing
 
-    def _rendered_for_round_2(self) -> RenderedRecord | _Refused | None:
+    def _rendered_for_round_2(self) -> RenderResult | _Refused | None:
         """The label rendered again for what the module holds once round 2's clear went.
 
-        None where it goes again as it was: the plain Prodigy's removes take out its own names, or
+        None where it goes again as it was: a clear runs before its downloads anyway, so what the
+        module holds changes nothing in it; the plain Prodigy's removes take out its own names; or
         no read of it answered where no clear may go. :class:`_Refused` where it has an error.
         """
+        if not self.result.uses_held_names:
+            return None
         base = EMPTY_MODULE if self.result.retry_clear_empties else self._uncleared()
         if base is None:
             return None
         again = self.render(base, halve=False)
-        return again if again.result.ok else _Refused.of(again.result, when="for round 2")
+        return again if again.ok else _Refused.of(again, when="for round 2")
 
     def halve_and_upload(self) -> tuple[str, ...] | _Skipped:
         """Round 3: clear, upload the images halved, and return the names the read after it does not list.
@@ -647,17 +612,16 @@ class _Record:
         # case already past the "about 1.5 minutes" of the upload check decision, and it takes a
         # lost upload and then a silence on one label, which still prints.
         base = self._before_halving()
-        rendered = self.render(self.held if base is None else base, halve=True)
-        halved = rendered.result
+        halved = self.render(self._unknown() if base is None else base, halve=True)
         if not halved.halved_elements or self.result.halved_elements:
             return _Skipped("no image of the label can be halved (a QR Code never is, nor an image halved already)")
         if not halved.ok:
             return _Skipped("halving is refused: " + "; ".join(f.message for f in halved.errors))
         if twice := self._downloaded_again(halved):
-            stays = "a QR Code is never halved, so its name stays"
+            stays = "a QR Code is never halved, so its name stays" if not self._blind else "no read of it answered"
             return _Skipped(f"halving is skipped, it would download again ({stays}) {self._unread(twice)}")
         cleared = self._clear()
-        self._rendered(rendered)
+        self.result = halved
         missing = self.upload()
         self._retried(f"round 3: {cleared}, then {self._uploaded('the images halved 2x2')}")
         return missing
@@ -665,10 +629,9 @@ class _Record:
     def _clear(self) -> str:
         """Send the label's retry clear, apply it to what the last read that answered listed, and say what it did.
 
-        The one place a clear goes out during the rounds, so what a later round or the next label
-        takes the module to hold never keeps a name the clear took out: ``<STX>q`` empties the
-        listing, the plain Prodigy's removes take out the label's own names. A name sent since
-        that read needs nothing here: where a clear may go, none is carried as maybe held.
+        The one place a clear goes out during the rounds, so what a later round takes the module to
+        hold never keeps a name the clear took out: ``<STX>q`` empties the listing, the plain
+        Prodigy's removes take out the label's own names.
         """
         self.link.send(self.result.retry_clear)
         if self._known is not None and self.result.retry_clear:
@@ -754,19 +717,21 @@ class _Refused:
         return cls(f"the label, rendered again {when}, has errors ({errors})")
 
 
-def _check_label(record: _Record) -> bool:
-    """Run a label's rounds; return True when its images are listed and the rest may follow."""
+def _check_label(record: _Record, before: _Skipped | _Refused | None) -> bool:
+    """Run a label's rounds; return True when its images are listed and the rest may follow.
+
+    ``before`` is what the read before the label's downloads (:meth:`_Record.read_before`) made of it.
+    """
     why_not: list[str] = []
-    first = record.read_first()
-    if isinstance(first, _Refused):
-        record.refuse_rendered(first)
+    if isinstance(before, _Refused):
+        record.refuse_rendered(before)
         return False
-    if isinstance(first, _Skipped):
+    if isinstance(before, _Skipped):
         missing, rounds = tuple(dict.fromkeys(record.result.downloads)), 0
-        why_not.append(first.reason)
+        why_not.append(before.reason)
     else:
-        # Rendered again from the names read first, a label may download nothing: its upload
-        # then sends nothing and finds nothing missing.
+        # Rendered again from the names read before its downloads, a label may download nothing:
+        # its upload then sends nothing and finds nothing missing.
         missing, rounds = record.upload(), 1
     if missing and record.check.rounds >= CLEAR_ROUND:
         outcome = record.clear_and_upload()
@@ -860,16 +825,19 @@ def _refuse_mismatch(result: RenderResult | BatchResult | BatchReport, job: Chec
 
 
 def _after_reset(link: Link, render: RecordRender, job: CheckedJob) -> tuple[Finding, ...]:
-    """Ask for a reset report and act on one, before the first label; return what the job should say.
+    """Act on a reset report before the first label's downloads; return what the job should say.
 
-    A read with no answer, like a printer that reports nothing, returns nothing: the job goes on
-    exactly as it would have. Nothing is sent but the status request unless a reset was reported.
+    The names read right before those downloads may already have taken the report, which the
+    printer gives once: nothing more is asked then. Otherwise the status is asked for it. A read
+    with no answer, like a printer that reports nothing, returns nothing: the job goes on exactly
+    as it would have. Nothing is sent but the status request unless a reset was reported.
     """
     reset = job.reset
     if reset is None:
         return ()
-    reported = job.held.reset_reported or read_reset_report(link.channel(), wait=reset.wait)
-    return _on_reset(link, render, reset) if reported else ()
+    if link.reset_seen or read_reset_report(link.channel(), wait=reset.wait):
+        return _on_reset(link, render, reset)
+    return ()
 
 
 def _reset_in_rounds(link: Link, render: RecordRender, job: CheckedJob, *, passed: bool) -> tuple[Finding, ...]:
@@ -918,21 +886,24 @@ def _send_labels(link: Link, job: CheckedJob, *, cuts: Iterable[bool], sink: _La
     Returns:
         True when every label was sent; False when one was refused, which nothing after it follows.
     """
-    before = _PassedOn(held=job.held)
     told: tuple[Finding, ...] = ()
     first = True
     for cut, render in zip(cuts, job.renders, strict=False):
-        record = _Record(render=render, before=before, link=link, check=job.check)
+        record = _Record(render=render, link=link, check=job.check, first=first)
         if not record.result.ok:
             sink.add(record.result, cut=cut)
             return False
         if (unlisted := _unlisted_module(record.result)) is not None:
             sink.add(unlisted, cut=cut)
             return False
-        if first:
+        checked = bool(record.result.downloads)
+        # The first label's names are read before the reset check: a label that the listing makes
+        # an error is refused before anything, a calibration label included, goes out.
+        before = record.read_before() if checked else None
+        if first and not isinstance(before, _Refused):
             told = _after_reset(link, render, job)
             record.findings.extend(told)
-        passed = not record.result.downloads or _check_label(record)
+        passed = not checked or _check_label(record, before)
         if first and not told:
             record.findings.extend(_reset_in_rounds(link, render, job, passed=passed))
         if not passed:
@@ -942,7 +913,6 @@ def _send_labels(link: Link, job: CheckedJob, *, cuts: Iterable[bool], sink: _La
         whole = with_cut(record.result.data, record.result.closing, cut=cut)
         link.send(whole[record.result.upload_end :] if record.result.downloads else whole)
         sink.add(record.as_sent(), cut=cut)
-        before = record.passed_on()
         first = False
     return True
 
@@ -1082,13 +1052,14 @@ def print_checked(
     """Send a rendered job, checking each label's image upload before its format goes out.
 
     On a two-way link the printer is asked for its status once first (``job.reset``, None asks
-    nothing). When it reports a reset, one extra label comes out ahead of the job: the calibration
+    nothing), after the first label's names read where one goes, which can carry the report
+    itself. When it reports a reset, one extra label comes out ahead of the job: the calibration
     label, which takes the shift a first label can print with. A channel that cannot read answers
     gets the whole job at once, as :func:`print_result` sends it.
 
-    A reset never reads as an empty module, so ``job.held`` is trusted where it lists a name. A
-    listing from before a power cycle is then wrong and the label prints without its image; a
-    caller holding one for longer than a job reads the names again (:func:`read_stored_names`).
+    Each label no clear precedes reads the printer's directory right before its downloads and is
+    rendered again from what it lists; nothing about the printer's images is kept from one label
+    to the next.
 
     Args:
         result: The job as first rendered. For a large batch, the report of
