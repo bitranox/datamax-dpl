@@ -7,8 +7,10 @@ configuration display.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import unquote
 
 import lib_log_rich.runtime
 from lib_layered_config import Config
@@ -28,31 +30,44 @@ _URL_KEY = "url"
 # What Config.get returns for a missing key, as a key may hold None.
 _ABSENT = object()
 #: A query parameter whose name holds one of these is taken for a secret.
-_SECRET_QUERY_WORDS = ("pass", "pwd", "secret", "token", "key")
+_SECRET_QUERY_WORDS = ("pass", "pwd", "secret", "token", "key", "auth", "sig", "cred")
+#: Both separate parameters: ``&`` by the URL standard, ``;`` on older servers and cameras.
+_PARAMETER_SEPARATOR = re.compile(r"([&;])")
+
+
+def _redact_parameters(parameters: str) -> str:
+    """Mask each value in ``parameters`` whose name, percent-decoded, holds a secret's word."""
+    parts = _PARAMETER_SEPARATOR.split(parameters)
+    for position, pair in enumerate(parts):
+        name, equals, value = pair.partition("=")
+        if equals and value and any(word in unquote(name).lower() for word in _SECRET_QUERY_WORDS):
+            parts[position] = f"{name}{equals}{REDACTED_PLACEHOLDER}"
+    return "".join(parts)
 
 
 def _redact_query(rest: str) -> str:
-    """Mask the values of the query parameters of ``rest`` whose name holds a secret's word."""
-    before, mark, tail = rest.partition("?")
-    query, hash_mark, fragment = tail.partition("#")
-    if not mark:
-        return rest
-    pairs: list[str] = []
-    for pair in query.split("&"):
-        name, equals, value = pair.partition("=")
-        secret = equals and value and any(word in name.lower() for word in _SECRET_QUERY_WORDS)
-        pairs.append(f"{name}{equals}{REDACTED_PLACEHOLDER}" if secret else pair)
-    return f"{before}{mark}{'&'.join(pairs)}{hash_mark}{fragment}"
+    """Mask the secret values in the query and the fragment of ``rest``, the part after the authority."""
+    head, hash_mark, fragment = rest.partition("#")
+    before, mark, query = head.partition("?")
+    return f"{before}{mark}{_redact_parameters(query)}{hash_mark}{_redact_parameters(fragment)}"
+
+
+def _redact_userinfo(userinfo: str) -> str:
+    """Mask the password of ``userinfo``, or the name when it has none: a token alone sits there."""
+    user, colon, password = userinfo.partition(":")
+    return f"{user}{colon}{REDACTED_PLACEHOLDER}" if password else f"{REDACTED_PLACEHOLDER}{colon}"
 
 
 def redact_url_secrets(url: str) -> str:
-    """Return ``url`` with the password of its userinfo and secret query values masked, the rest as written.
+    """Return ``url`` with the secrets of its userinfo, query and fragment masked, the rest as written.
 
     Splits by hand the way ``urlsplit`` finds the password the HTTP camera uses, rather than by
     calling it: ``urlsplit`` raises on a malformed host, and a display must still mask that.
 
-    A query parameter counts as secret when its name holds one of ``_SECRET_QUERY_WORDS``: a camera
-    behind a token takes it there, and a wrongly masked value costs only what ``config`` shows.
+    A parameter counts as secret when its name holds one of ``_SECRET_QUERY_WORDS``: a camera behind
+    a token takes it there, and a wrongly masked value costs only what ``config`` shows. A name
+    alone before the ``@`` is masked too, because the HTTP camera sends it as the basic-auth user.
+    A token in the path cannot be told from any other path and stays as written.
 
     Args:
         url: The configured value, which need not be a valid URL.
@@ -67,16 +82,17 @@ def redact_url_secrets(url: str) -> str:
         'http://192.0.2.9/a:b@c'
         >>> redact_url_secrets("http://192.0.2.9/s.jpg?size=1&api_token=abc#top")
         'http://192.0.2.9/s.jpg?size=1&api_token=***REDACTED***#top'
+        >>> redact_url_secrets("http://abc@192.0.2.9/s.jpg?a=1;p%77d=x#auth=y")
+        'http://***REDACTED***@192.0.2.9/s.jpg?a=1;p%77d=***REDACTED***#auth=***REDACTED***'
     """
     scheme, slashes, rest = url.partition("//")
     # The authority ends at the first of these; an "@" further on belongs to the path or the query.
     end = min((rest.find(mark) for mark in "/?#" if mark in rest), default=len(rest))
     userinfo, at, host = rest[:end].rpartition("@")
-    user, colon, password = userinfo.partition(":")
     tail = _redact_query(rest[end:])
-    if not (slashes and at and colon and password):
+    if not (slashes and userinfo):
         return f"{scheme}{slashes}{rest[:end]}{tail}"
-    return f"{scheme}{slashes}{user}{colon}{REDACTED_PLACEHOLDER}{at}{host}{tail}"
+    return f"{scheme}{slashes}{_redact_userinfo(userinfo)}{at}{host}{tail}"
 
 
 def _shown_config(config: Config) -> Config:

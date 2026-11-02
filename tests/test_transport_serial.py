@@ -731,6 +731,8 @@ class _GonePort:
 
     def open(self, uri: str, *, timeout: float) -> SerialTransport:
         del uri
+        if sys.platform == "win32":
+            raise AssertionError("a pty exists only on POSIX, and the tests using this say so")
         port = SerialTransport.open(SerialUri(path=os.ttyname(self.slave)), timeout=timeout)
         os.close(self.master)
         return port

@@ -907,8 +907,9 @@ def test_debug_logging_does_not_carry_the_password_in_the_camera_url(
     [
         ("", ""),
         ("http://192.0.2.9/snap.jpg", "http://192.0.2.9/snap.jpg"),
-        ("http://operator@192.0.2.9/snap.jpg", "http://operator@192.0.2.9/snap.jpg"),
-        ("http://operator:@192.0.2.9/", "http://operator:@192.0.2.9/"),
+        ("http://TOKEN@192.0.2.9/snap.jpg", "http://***REDACTED***@192.0.2.9/snap.jpg"),
+        ("http://TOKEN:@192.0.2.9/", "http://***REDACTED***:@192.0.2.9/"),
+        ("http://@192.0.2.9/", "http://@192.0.2.9/"),
         ("http://192.0.2.9:80/a:b@c", "http://192.0.2.9:80/a:b@c"),
         ("http://192.0.2.9/?a=b:c@d", "http://192.0.2.9/?a=b:c@d"),
         ("http://u:p@ss:w@192.0.2.9/", "http://u:***REDACTED***@192.0.2.9/"),
@@ -922,7 +923,14 @@ def test_debug_logging_does_not_carry_the_password_in_the_camera_url(
         ("http://192.0.2.9/s?password=a=b", "http://192.0.2.9/s?password=***REDACTED***"),
         ("http://192.0.2.9/s?secret=", "http://192.0.2.9/s?secret="),
         ("http://192.0.2.9/s?token", "http://192.0.2.9/s?token"),
-        ("http://192.0.2.9/s?size=1#token=abc", "http://192.0.2.9/s?size=1#token=abc"),
+        ("http://192.0.2.9/s?size=1#token=abc", "http://192.0.2.9/s?size=1#token=***REDACTED***"),
+        ("http://192.0.2.9/s#token=abc", "http://192.0.2.9/s#token=***REDACTED***"),
+        ("http://192.0.2.9/s?auth=abc", "http://192.0.2.9/s?auth=***REDACTED***"),
+        ("http://192.0.2.9/s?sig=abc", "http://192.0.2.9/s?sig=***REDACTED***"),
+        ("http://192.0.2.9/s?cred=abc", "http://192.0.2.9/s?cred=***REDACTED***"),
+        ("http://192.0.2.9/s?a=1;pwd=abc", "http://192.0.2.9/s?a=1;pwd=***REDACTED***"),
+        ("http://192.0.2.9/s?p%77d=abc", "http://192.0.2.9/s?p%77d=***REDACTED***"),
+        ("http://192.0.2.9/TOKEN/snap.jpg", "http://192.0.2.9/TOKEN/snap.jpg"),
     ],
 )
 def test_the_url_mask_changes_only_the_secrets(url: str, shown: str) -> None:

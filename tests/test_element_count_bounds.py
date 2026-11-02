@@ -7,12 +7,13 @@ import tracemalloc
 from typing import TYPE_CHECKING, Any
 
 import pytest
+import segno
 from pydantic import ValidationError
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.enums import Attribute, FindingCode
-from datamax_dpl.domain.label import MAX_ELEMENTS, Box, Element, Label, Text
+from datamax_dpl.domain.label import MAX_ELEMENTS, Box, Element, Label, Qr, Text
 from datamax_dpl.domain.profiles import MODEL_PROFILES
 from datamax_dpl.domain.render import RenderResult, build_job
 from datamax_dpl.domain.render_context import RenderOptions
@@ -89,3 +90,23 @@ def test_a_label_with_far_too_many_elements_gets_an_envelope_exit_2(cli_runner: 
     assert document["error"] == "LabelInputError"
     assert str(MAX_ELEMENTS) in document["message"]
     assert len(document["message"]) < 2000
+
+
+@pytest.mark.os_agnostic
+def test_qr_codes_past_the_field_limit_are_not_encoded_again_to_read_their_reach(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Counted at the third-party edge: 2048 large codes would take minutes to reach this refusal."""
+    made: list[str] = []
+    real_make = segno.make
+
+    def counting_make(content: str, **kwargs: Any) -> Any:
+        made.append(content)
+        return real_make(content, **kwargs)
+
+    monkeypatch.setattr(segno, "make", counting_make)
+    profile = MODEL_PROFILES["allegro-2"]
+    elements: list[Element] = [Qr(x=5, y=5, data="A") for _ in range(profile.max_fields + 40)]
+    result = build_job(Label(elements=elements), RenderOptions(model="allegro-2"))
+    assert FindingCode.TOO_MANY_FIELDS in {finding.code for finding in result.findings}
+    assert len(made) <= profile.max_fields + 1

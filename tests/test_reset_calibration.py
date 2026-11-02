@@ -41,7 +41,7 @@ from datamax_dpl.domain.camera import CameraKind, CameraSettings
 from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, MediaSensor, MemoryKind, Severity, Unit
 from datamax_dpl.domain.errors import ConfigurationError, PrinterProtocolError
 from datamax_dpl.domain.held_images import held_images_from
-from datamax_dpl.domain.label import Cut, Image, Label, Text
+from datamax_dpl.domain.label import Cut, Element, Image, Label, Text
 from datamax_dpl.domain.memory import parse_module_directory
 from datamax_dpl.domain.profiles import list_profiles
 from datamax_dpl.domain.render import RenderResult
@@ -1021,7 +1021,7 @@ def _image_print(
 ) -> tuple[RenderResult | BatchResult, ModulePrinter]:
     printer = ModulePrinter(modules)
     filled = None if records is None else [{"a": str(number)} for number in range(records)]
-    elements = [LOGO] if filled is None else [LOGO, Text(x=5, y=30, text="{a}")]
+    elements: list[Element] = [LOGO] if filled is None else [LOGO, Text(x=5, y=30, text="{a}")]
     label = Label(width=100, height=60, elements=elements)
     options = RenderOptions(model="allegro-2", model_image_budget=False)
     _, sent, _ = _print(printer, label, options=options, records=filled, reset=reset)

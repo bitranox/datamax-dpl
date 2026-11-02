@@ -4,15 +4,16 @@ The device is opened write-only and never created: a mistyped device path must f
 leave a regular file holding the job where the device should be. Reading answers back is left out
 because a printer class device does not reliably deliver them.
 
-On POSIX the descriptor is non-blocking and every piece of a job waits under ``select``, so a device
-or FIFO that stops taking data times out, and opening a FIFO nobody reads fails at once instead of
-waiting for a reader. Windows has neither for a file descriptor: there an open or a write takes as
-long as the device takes, and ``timeout`` does not apply. Neither can bound a stuck disk or network
-mount, where the kernel itself blocks the call.
+On POSIX the descriptor is non-blocking and every piece of a job waits until the far end can take
+it, so a device or FIFO that stops taking data times out, and opening a FIFO nobody reads fails at
+once instead of waiting for a reader. Windows has neither for a file descriptor: there an open or a
+write takes as long as the device takes, and ``timeout`` does not apply. Neither can bound a stuck
+disk or network mount, where the kernel itself blocks the call.
 """
 
 from __future__ import annotations
 
+import math
 import os
 import select
 import sys
@@ -22,7 +23,16 @@ from typing import TYPE_CHECKING
 from datamax_dpl.domain.errors import TransportError
 from datamax_dpl.domain.timing import DEFAULT_TRANSPORT_TUNING, MAX_ANSWER_SECONDS, TransportTuning
 
-from .uri import ChannelAction, ClosingTransport, DeviceUri, FileUri, channel_name, transport_error, unsupported_query
+from .uri import (
+    ChannelAction,
+    ClosingTransport,
+    DeviceUri,
+    FileUri,
+    channel_name,
+    transport_error,
+    truncated_job_advice,
+    unsupported_query,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -36,6 +46,29 @@ WRITE_FLAGS = os.O_WRONLY | os.O_APPEND | _BINARY | _NON_BLOCKING
 #: Pause when a device calls itself writable and then refuses the write, as a driver with no poll
 #: of its own does. A hard limit, so no setting: it only keeps that case from spinning a CPU.
 _BUSY_PAUSE_SECONDS = 0.01
+_MILLISECONDS = 1000
+
+
+def _writable_within(fd: int, seconds: float) -> bool:
+    """Whether ``fd`` can take data within ``seconds``; an error on it also reads as yes, for the write to raise.
+
+    ``poll`` has no limit on the descriptor's number, which a long-running caller of the library
+    can pass. macOS's ``poll`` is not trusted with devices, so it keeps ``select`` and its limit,
+    and Windows has neither for a file descriptor and never waits here.
+
+    Raises:
+        OSError: The descriptor is past what ``select`` can wait on.
+    """
+    if sys.platform == "win32":
+        return True
+    if sys.platform == "darwin":
+        try:
+            return bool(select.select([], [fd], [], seconds)[1])
+        except ValueError as exc:
+            raise OSError(f"descriptor {fd} is too high to wait on here") from exc
+    poller = select.poll()
+    poller.register(fd, select.POLLOUT)
+    return bool(poller.poll(math.ceil(seconds * _MILLISECONDS)))
 
 
 class DescriptorTransport(ClosingTransport):
@@ -71,35 +104,42 @@ class DescriptorTransport(ClosingTransport):
 
         Raises:
             PrinterTimeoutError: The far end took nothing for ``timeout`` seconds (POSIX only).
+                Says how much went out, as any failed write of a job does.
             TransportError: The write failed or the transport is closed.
         """
         if self._fd is None:
             raise TransportError(f"{channel_name(self._uri)}: the transport is closed")
         view = memoryview(data)
+        written = 0
         try:
-            while view:
-                view = view[self._write_piece(self._fd, view[: self._chunk]) :]
+            while written < len(data):
+                written += self._write_piece(self._fd, view[written : written + self._chunk])
         except OSError as exc:
-            raise transport_error(self._uri, action=ChannelAction.WRITE, error=exc) from exc
+            advice = truncated_job_advice(written=written, size=len(data))
+            raise transport_error(self._uri, action=ChannelAction.WRITE, error=exc, advice=advice) from exc
 
     def _write_piece(self, fd: int, piece: memoryview) -> int:
         """Write what the far end takes of ``piece``, waiting at most ``timeout`` for it to take any.
+
+        A write that took nothing stays inside the one deadline, whether it refused or returned 0:
+        only a write that took data starts a new one, so a device that keeps taking nothing times out.
 
         Raises:
             TimeoutError: It took nothing in that time.
             OSError: The write failed.
         """
-        if sys.platform == "win32":
-            return os.write(fd, piece)
         deadline = time.monotonic() + self._timeout
         while True:
             left = deadline - time.monotonic()
-            if left <= 0 or not select.select([], [fd], [], left)[1]:
+            if left <= 0 or not _writable_within(fd, left):
                 raise TimeoutError(f"took no data for {self._timeout:g} s")
             try:
-                return os.write(fd, piece)
+                taken = os.write(fd, piece)
             except BlockingIOError:
-                time.sleep(_BUSY_PAUSE_SECONDS)
+                taken = 0
+            if taken:
+                return taken
+            time.sleep(_BUSY_PAUSE_SECONDS)
 
     def query(
         self,

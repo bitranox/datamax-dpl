@@ -19,6 +19,11 @@ All notable changes to this project are documented here. The format follows
   refused up front and not when a printer reports a reset.
 - `print_checked`'s docs say what it does before the job: one status read, and on a reset one calibration label.
 - `docs/label-spec.md` states its limits for filled values per kind, and names the one example `validate` refuses.
+- A label far past the field limit is refused without encoding its QR Codes a second time.
+- `config` also masks a lone user name in a camera URL, the value of a parameter named with `auth`, `sig` or `cred`,
+  a parameter after `;` or with a percent-encoded name, and the same in the fragment. A token in the path still shows.
+- A `device:` or `file:` write that fails says how much of the job went out. A descriptor numbered past 1023 no longer
+  raises `ValueError` from `send`, and a device whose write keeps returning 0 now times out.
 - A reset report that comes with a directory read of the first label, the status read having stayed silent, now gets
   the calibration label too, once. Before, the report was taken and dropped, so the label printed shifted and nothing
   said so. If the upload check refuses that label, it says `printer_reset_not_calibrated`.

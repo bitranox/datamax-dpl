@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import sys
 import threading
 import time
@@ -329,3 +330,72 @@ def test_open_printer_hands_a_device_its_timeout_and_piece_size() -> None:
     finally:
         os.close(slave)
         os.close(master)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows does not wait on a descriptor at all")
+def test_a_descriptor_past_1023_writes_or_says_why_and_never_raises_value_error(tmp_path: Path) -> None:
+    """A long-running caller of the library holds that many; ``select`` raises ValueError past 1023."""
+    resource = pytest.importorskip("resource")
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    high = 1100
+    if hard != resource.RLIM_INFINITY and hard <= high:
+        pytest.skip(f"this host allows only {hard} descriptors")
+    target = tmp_path / "lp0"
+    target.write_bytes(b"")
+    resource.setrlimit(resource.RLIMIT_NOFILE, (max(soft, high + 1), hard))
+    opened = os.open(target, os.O_WRONLY | os.O_APPEND)
+    try:
+        os.dup2(opened, high)
+        printer = DeviceTransport(high, uri=DeviceUri(path=str(target)), timeout=1.0)
+        if sys.platform == "darwin":
+            with pytest.raises(TransportError, match="too high"):
+                printer.send(b"job")
+            printer.close()
+            return
+        printer.send(b"job")
+        printer.close()
+        assert target.read_bytes() == b"job"
+    finally:
+        os.close(opened)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="only POSIX bounds a write to a device")
+def test_a_device_whose_write_keeps_returning_zero_times_out(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """POSIX allows a 0 return for a device; each one must not start a new deadline."""
+    target = tmp_path / "lp0"
+    target.write_bytes(b"")
+    calls: list[int] = []
+
+    def takes_nothing(_fd: int, _data: object) -> int:
+        calls.append(1)
+        if len(calls) > 1000:
+            raise AssertionError("the timeout was not kept")
+        return 0
+
+    with DeviceTransport.open(DeviceUri(path=str(target)), timeout=0.05) as printer, monkeypatch.context() as patch:
+        patch.setattr(os, "write", takes_nothing)
+        with pytest.raises(PrinterTimeoutError, match=r"took no data for 0\.05 s"):
+            printer.send(b"job")
+    assert calls
+
+
+def test_a_stalled_device_says_how_much_of_the_job_went_out(tmp_path: Path) -> None:
+    """A FIFO nobody drains: what went out is what a printer left waiting for the rest has taken."""
+    if sys.platform == "win32":
+        pytest.skip("only POSIX bounds a write to a device, and Windows has no FIFO")
+    fifo = tmp_path / "lp0"
+    os.mkfifo(fifo)
+    reader = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        tuning = TransportTuning(send_chunk_bytes=4096)
+        with (
+            DeviceTransport.open(DeviceUri(path=str(fifo)), timeout=0.1, tuning=tuning) as printer,
+            pytest.raises(PrinterTimeoutError) as caught,
+        ):
+            printer.send(b"x" * 4_000_000)
+    finally:
+        os.close(reader)
+    message = str(caught.value)
+    assert "took no data" in message
+    assert re.search(r"[0-9]+ of 4000000 bytes", message), message
