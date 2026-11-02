@@ -15,15 +15,26 @@ from contextlib import closing
 from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
+from itertools import chain
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Generic, NamedTuple, Protocol, TypedDict, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
 from ..domain._invariants import require_update_fields
-from ..domain.batch import batch_cuts, with_cut
+from ..domain.batch import (
+    CUT_NOW as BATCH_CUT_BYTES,
+)
+from ..domain.batch import (
+    MAX_REPORTED_DOWNLOADS,
+    MAX_REPORTED_FINDINGS,
+    NO_CUTS,
+    CutPlan,
+    cut_plan,
+    with_cut,
+)
 from ..domain.detect import Detection, Evidence, suggest_profiles
-from ..domain.enums import ImageModule, MemoryKind, Severity
+from ..domain.enums import FindingCode, ImageModule, MemoryKind, Severity
 from ..domain.errors import (
     AnswerNotEndedError,
     BatchTooLargeError,
@@ -64,10 +75,11 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 
     from ..domain.render_context import RenderOptions
+    from ..domain.units import DplUnit
     from .ports import Clock, OpenPrinter, PrinterTransport, Sleep
 
 _T = TypeVar("_T")
-_Rendered = TypeVar("_Rendered", bound="RenderResult | BatchResult")
+_Rendered = TypeVar("_Rendered", bound="RenderResult | BatchResult | BatchReport")
 
 
 class BatchResult(BaseModel):
@@ -85,9 +97,8 @@ class BatchResult(BaseModel):
     #: Whether a batch cut (``<STX>o``) follows each record; empty when the batch cuts across none.
     cut_after: tuple[bool, ...] = ()
 
-    # Joined on the first read and not before, and no field: a sender goes label by label and never
-    # needs a second copy of every record's job, which at [printer] max_batch_job_bytes is a second
-    # GiB. JSON holds it through ``results`` and ``cut_after``, which rebuild it.
+    # Joined on the first read and not before, and no field: a caller that sends or dumps this goes
+    # through ``results`` and ``cut_after``, and a joined copy would double all of the job's memory.
     @cached_property
     def data(self) -> bytes:
         """All jobs back to back, in record order, with any batch cut commands between them."""
@@ -110,8 +121,10 @@ class BatchResult(BaseModel):
         return batch_ok and all(result.ok for result in self.results)
 
 
-def error_findings(result: RenderResult | BatchResult) -> tuple[Finding, ...]:
-    """Every error finding of a job: each label's, and a batch's own."""
+def error_findings(result: RenderResult | BatchResult | BatchReport) -> tuple[Finding, ...]:
+    """Every error finding of a job: each label's, and a batch's own; a report has the ones it kept."""
+    if isinstance(result, BatchReport):
+        return tuple(f for f in result.all_findings() if f.severity is Severity.ERROR)
     if not isinstance(result, BatchResult):
         return result.errors
     found = (f for r in result.results for f in r.errors)
@@ -134,9 +147,11 @@ def render_batch(
     held: HeldImages | None = None,
     max_job_bytes: int | None = None,
 ) -> BatchResult:
-    """Render ``label`` once per record, filling its ``{name}`` placeholders.
+    """Render ``label`` once per record and hold them all: the convenience over :func:`iter_batch`.
 
-    An error finding does not raise: the returned result's ``ok`` is False and its findings name it.
+    A large batch goes through :func:`iter_batch` or :func:`check_batch` instead, whose memory does
+    not grow with the records. This one must hold every job: it returns them. An error finding does
+    not raise: the returned result's ``ok`` is False and its findings name it.
 
     Args:
         label: The label holding the placeholders.
@@ -147,7 +162,7 @@ def render_batch(
         max_job_bytes: Most bytes the records' jobs may come to, batch cuts left out. None sets no
             limit, and memory then grows with records times label size (390 PDF417 fields took
             1.1 MB per record), so a library caller rendering records it did not write sets one;
-            the command line takes it from ``[printer] max_batch_job_bytes``.
+            the ``render`` command with no ``-o`` takes it from ``[printer] max_batch_job_bytes``.
 
     Returns:
         One render per record and the job they join to; check ``ok`` before sending it.
@@ -158,30 +173,381 @@ def render_batch(
         UnknownModelError: ``options.model`` names no profile.
         pydantic.ValidationError: A filled value breaks a field limit.
     """
-    batch_label = _batch_label(label)
-    labels = (fill_label(batch_label.per_record, record) for record in records)
-    results = _within_limit(iter_jobs(labels, options, held=held), max_job_bytes=max_job_bytes)
-    if batch_label.cut is None:
-        return BatchResult(results=results)
-    cuts = batch_cuts(len(results), cut=batch_label.cut, options=options)
-    return BatchResult(results=results, batch_findings=cuts.findings, cut_after=cuts.cut_after)
-
-
-def _within_limit(jobs: Iterable[RenderResult], *, max_job_bytes: int | None) -> tuple[RenderResult, ...]:
-    """Collect ``jobs`` in turn, stopping as soon as their bytes pass ``max_job_bytes``.
-
-    Raises:
-        BatchTooLargeError: They passed it; no job after that one was rendered.
-    """
+    plan = _plan_of(_batch_label(label), options)
     results: list[RenderResult] = []
+    cuts: list[bool] = []
     total = 0
-    for job in jobs:
-        total += len(job.data)
+    for entry in _entries(label, records, options, held=held):
+        total += len(entry.result.data)
         if max_job_bytes is not None and total > max_job_bytes:
             msg = f"the batch passed {max_job_bytes} bytes of job at data record {len(results) + 1}"
             raise BatchTooLargeError(msg)
-        results.append(job)
-    return tuple(results)
+        results.append(entry.result)
+        cuts.append(entry.cut_after)
+    if plan is NO_CUTS:
+        return BatchResult(results=tuple(results))
+    return BatchResult(results=tuple(results), batch_findings=plan.findings, cut_after=tuple(cuts))
+
+
+class BatchEntry(NamedTuple):
+    """One record of a batch as first rendered.
+
+    Attributes:
+        result: Its render, the batch cut not in its ``data``.
+        cut_after: Whether a batch cut (``<STX>o``) follows the record.
+    """
+
+    result: RenderResult
+    cut_after: bool
+
+    @property
+    def job(self) -> bytes:
+        """The record's bytes as the batch sends them, its cut included."""
+        return with_cut(self.result.data, self.result.closing, cut=self.cut_after)
+
+
+def _plan_of(batch_label: _BatchLabel, options: RenderOptions) -> CutPlan:
+    return NO_CUTS if batch_label.cut is None else cut_plan(batch_label.cut, options=options)
+
+
+def _with_last(items: Iterable[_T]) -> Iterator[tuple[_T, bool]]:
+    """Yield each of ``items`` and whether it is the last, reading one item ahead and no further."""
+    source = iter(items)
+    try:
+        current = next(source)
+    except StopIteration:
+        return
+    for following in source:
+        yield current, False
+        current = following
+    yield current, True
+
+
+def _entries(
+    label: Label, records: Iterable[Mapping[str, str]], options: RenderOptions, *, held: HeldImages | None
+) -> Iterator[BatchEntry]:
+    """Render one record at a time, carrying what the printer holds and the batch's cuts across them."""
+    batch_label = _batch_label(label)
+    plan = _plan_of(batch_label, options)
+    lasts: list[bool] = []
+
+    def labels() -> Iterator[Label]:
+        for record, last in _with_last(records):
+            lasts.append(last)
+            yield fill_label(batch_label.per_record, record)
+
+    for number, result in enumerate(iter_jobs(labels(), options, held=held), start=1):
+        yield BatchEntry(result=result, cut_after=plan.follows(number, last=lasts.pop()))
+
+
+class _DataAndFindingsUpdate(TypedDict):
+    """The fields a record's result changes when :func:`iter_batch` hands it out."""
+
+    data: bytes
+    findings: tuple[Finding, ...]
+
+
+require_update_fields(_DataAndFindingsUpdate, RenderResult)
+
+
+def iter_batch(
+    label: Label, records: Iterable[Mapping[str, str]], options: RenderOptions, *, held: HeldImages | None = None
+) -> Iterator[RenderResult]:
+    """Render ``label`` once per record, one at a time: memory does not grow with the records.
+
+    Only the current record and the one read ahead (to know the last, for a cut at the end) are
+    held, and any iterable does, a generator included. Each result's ``data`` is what to send for
+    that record, its batch cut included. What the printer holds carries across records, as in
+    :func:`render_batch`, whose jobs and findings these are, except that findings about the batch
+    as a whole come on the first record's result: stop at the first result that is not ``ok``.
+
+    To refuse a batch with any bad record before sending any of it, go over it once first:
+    :func:`check_batch` does.
+
+    Args:
+        label: The label holding the placeholders.
+        records: One mapping of field name to value per label.
+        options: The model, fallback policy and job settings.
+        held: What the printer holds in the image module before the first record, None when it
+            was not asked.
+
+    Yields:
+        One render per record, in order.
+
+    Raises:
+        MissingFieldError: A record lacks a field a placeholder names, when its turn comes.
+        UnknownModelError: ``options.model`` names no profile.
+        pydantic.ValidationError: A filled value breaks a field limit, when its turn comes.
+
+    Example:
+        >>> from datamax_dpl.domain.label import Text
+        >>> from datamax_dpl.domain.render_context import RenderOptions as Options
+        >>> label = Label(elements=[Text(x=5, y=5, text="{name}")])
+        >>> [b"Ann" in r.data for r in iter_batch(label, iter([{"name": "Ann"}]), Options(model="dmx-600"))]
+        [True]
+    """
+    extra = _plan_of(_batch_label(label), options).findings
+    for entry in _entries(label, records, options, held=held):
+        findings = (*entry.result.findings, *extra)
+        extra = ()
+        yield entry.result.model_copy(update=_DataAndFindingsUpdate(data=entry.job, findings=findings))
+
+
+class ReportLimits(NamedTuple):
+    """How much a :class:`BatchReport` keeps of what can grow with the records.
+
+    Attributes:
+        findings: Findings kept in full; past that only their counts. The first error is always kept.
+        downloads: Downloaded image names kept; past that only their total.
+    """
+
+    findings: int = MAX_REPORTED_FINDINGS
+    downloads: int = MAX_REPORTED_DOWNLOADS
+
+
+DEFAULT_REPORT_LIMITS = ReportLimits()
+
+
+class ReportedFinding(NamedTuple):
+    """A finding a report kept, and the record it belongs to, counted from 0.
+
+    Attributes:
+        record: The record's number.
+        finding: The finding.
+    """
+
+    record: int
+    finding: Finding
+
+
+@dataclass(frozen=True)
+class _BatchJob:
+    """What it takes to render a checked batch again: its records are read again, never held."""
+
+    label: Label
+    records: Iterable[Mapping[str, str]]
+    options: RenderOptions
+    held: HeldImages | None
+    limits: ReportLimits
+
+
+def unlisted_download(result: RenderResult) -> bool:
+    """Whether ``result`` downloads into module C, the default module no directory lists by that letter."""
+    return bool(result.downloads) and result.image_module == ImageModule.C
+
+
+@dataclass(frozen=True)
+class BatchReport:
+    """What a batch comes to, without its jobs: its size is bounded, however many records it has.
+
+    The counterpart of :class:`BatchResult` for a batch too large to hold: :func:`check_batch`
+    makes one, and :meth:`entries`, :meth:`record_jobs` and :meth:`renders` render its records
+    again one at a time, from the same records.
+
+    Attributes:
+        job: How to render the records again; None for the report of a batch held whole.
+        limits: How much of what grows with the records it keeps.
+        model: Profile id the jobs were built for.
+        dpl_unit: Distance unit the formats use.
+        records: How many records there are.
+        fields: How many field records their formats hold together.
+        job_bytes: How many bytes the jobs come to, batch cuts included.
+        ok: True when no finding is an error, whether or not its text was kept.
+        downloads: The image names downloaded, in order, the first ``limits.downloads`` of them.
+        downloads_total: How many there are in all.
+        findings: The findings kept, in order: the first ``limits.findings`` and the first error.
+        batch_findings: The findings about the batch as a whole; always kept.
+        finding_counts: How many findings of each code there are in all.
+        findings_total: How many findings there are in all.
+        unread_module: The first module whose stored names a record needs and was not given.
+        unlisted_at: The first record that downloads into module C, None when no record does.
+        plan: Where the batch cuts across its records.
+    """
+
+    job: _BatchJob | None
+    limits: ReportLimits
+    model: str
+    dpl_unit: DplUnit
+    records: int
+    fields: int
+    job_bytes: int
+    ok: bool
+    downloads: tuple[str, ...]
+    downloads_total: int
+    findings: tuple[ReportedFinding, ...]
+    batch_findings: tuple[Finding, ...]
+    finding_counts: Mapping[FindingCode, int]
+    findings_total: int
+    unread_module: ImageModule | None
+    unlisted_at: int | None
+    plan: CutPlan
+
+    def _job(self) -> _BatchJob:
+        if self.job is None:
+            msg = "the report of a batch held whole renders nothing again: its result holds the jobs"
+            raise ValueError(msg)
+        return self.job
+
+    def all_findings(self) -> Iterator[Finding]:
+        """The findings kept, a record's first, then the batch's own."""
+        return chain((kept.finding for kept in self.findings), self.batch_findings)
+
+    def entries(self) -> Iterator[BatchEntry]:
+        """Render the records again, one at a time, as they were checked."""
+        job = self._job()
+        return _entries(job.label, job.records, job.options, held=job.held)
+
+    def record_jobs(self) -> Iterator[bytes]:
+        """Each record's bytes in turn, its batch cut included."""
+        return (entry.job for entry in self.entries())
+
+    def renders(self) -> Iterator[RecordRender]:
+        """How to render each label for a checked send (``CheckedJob.renders``), one at a time."""
+        job = self._job()
+        per_record = _batch_label(job.label).per_record
+        return (_RecordFillRender(label=per_record, record=record, options=job.options) for record in job.records)
+
+    def cuts(self) -> Iterator[bool]:
+        """For each record in turn, whether a batch cut follows it."""
+        return (self.plan.follows(number, last=number == self.records) for number in range(1, self.records + 1))
+
+
+def report_of(result: BatchResult, *, limits: ReportLimits = DEFAULT_REPORT_LIMITS) -> BatchReport:
+    """The report of a batch held whole, so that both kinds of batch report alike.
+
+    Raises:
+        ValueError: The batch holds no record.
+    """
+    tally = BatchTally(limits, plan=CutPlan(every=None, at_end=False, findings=result.batch_findings))
+    for record, cut in zip(result.results, result.cut_after or (False,) * len(result.results), strict=True):
+        tally.add(record, cut=cut)
+    return tally.report(None)
+
+
+class BatchTally:
+    """Adds up a batch record by record into a :class:`BatchReport`, keeping what ``limits`` allows."""
+
+    def __init__(self, limits: ReportLimits, *, plan: CutPlan) -> None:
+        """Start empty, with ``plan``'s findings as the batch's own."""
+        self.records = 0
+        self._limits = limits
+        self._plan = plan
+        self._first: RenderResult | None = None
+        self._fields = 0
+        self._bytes = 0
+        self._ok = True
+        self._downloads: list[str] = []
+        self._downloads_total = 0
+        self._findings: list[ReportedFinding] = []
+        self._error_kept = False
+        self._counts: dict[FindingCode, int] = {}
+        self._findings_total = 0
+        self._unread: ImageModule | None = None
+        self._unlisted_at: int | None = None
+        for finding in plan.findings:
+            self._count(finding)
+
+    def _count(self, finding: Finding) -> None:
+        self._findings_total += 1
+        self._counts[finding.code] = self._counts.get(finding.code, 0) + 1
+        self._ok = self._ok and finding.severity is not Severity.ERROR
+
+    def _keep(self, finding: Finding, *, record: int) -> None:
+        """Keep ``finding`` while there is room; the first error is kept anyway, as a refusal's reason."""
+        error = finding.severity is Severity.ERROR
+        if len(self._findings) < self._limits.findings or (error and not self._error_kept):
+            self._findings.append(ReportedFinding(record=record, finding=finding))
+            self._error_kept = self._error_kept or error
+
+    def add(self, result: RenderResult, *, cut: bool) -> None:
+        """Add the next record, ``cut`` when a batch cut follows it."""
+        record = self.records
+        self.records += 1
+        self._first = self._first or result
+        self._fields += result.record_count
+        self._bytes += len(result.data) + (len(BATCH_CUT_BYTES) if cut else 0)
+        for finding in result.findings:
+            self._count(finding)
+            self._keep(finding, record=record)
+        self._downloads_total += len(result.downloads)
+        self._downloads.extend(result.downloads[: self._limits.downloads - len(self._downloads)])
+        if self._unread is None and result.names_unread:
+            self._unread = result.image_module
+        if self._unlisted_at is None and unlisted_download(result):
+            self._unlisted_at = record
+
+    def report(self, job: _BatchJob | None) -> BatchReport:
+        """Return the report of what was added, ``job`` being how to render it again.
+
+        Raises:
+            ValueError: Nothing was added: a batch with no record has no model to report.
+        """
+        if self._first is None:
+            msg = "a batch needs at least one record"
+            raise ValueError(msg)
+        return BatchReport(
+            job=job,
+            limits=self._limits,
+            model=self._first.model,
+            dpl_unit=self._first.dpl_unit,
+            records=self.records,
+            fields=self._fields,
+            job_bytes=self._bytes,
+            ok=self._ok,
+            downloads=tuple(self._downloads),
+            downloads_total=self._downloads_total,
+            findings=tuple(self._findings),
+            batch_findings=self._plan.findings,
+            finding_counts=dict(self._counts),
+            findings_total=self._findings_total,
+            unread_module=self._unread,
+            unlisted_at=self._unlisted_at,
+            plan=self._plan,
+        )
+
+
+def check_batch(
+    label: Label,
+    records: Iterable[Mapping[str, str]],
+    options: RenderOptions,
+    *,
+    held: HeldImages | None = None,
+    limits: ReportLimits = DEFAULT_REPORT_LIMITS,
+    each: Callable[[BatchEntry], None] | None = None,
+) -> BatchReport:
+    """Go over a whole batch once, one record at a time, and report it without keeping its jobs.
+
+    A batch with any bad record is refused before any of it goes out, so a sender calls this first
+    and only then renders the records a second time from the report (:meth:`BatchReport.renders`).
+
+    Args:
+        label: The label holding the placeholders.
+        records: One mapping of field name to value per label, which can be iterated again (a list,
+            or an object whose ``__iter__`` starts over), since sending reads them again.
+        options: The model, fallback policy and job settings.
+        held: What the printer holds in the image module before the first record, None when it
+            was not asked.
+        limits: How much of what grows with the records the report keeps.
+        each: Called with each record as it is rendered, for a caller writing the job as it goes.
+
+    Returns:
+        The report; check ``ok`` before sending. An error finding does not raise.
+
+    Raises:
+        MissingFieldError: A record lacks a field a placeholder names.
+        UnknownModelError: ``options.model`` names no profile.
+        ValueError: ``records`` can be read only once, or holds no record.
+        pydantic.ValidationError: A filled value breaks a field limit.
+    """
+    if iter(records) is records:
+        msg = "check_batch reads the records again, and a generator can be read only once; use iter_batch for one"
+        raise ValueError(msg)
+    tally = BatchTally(limits, plan=_plan_of(_batch_label(label), options))
+    for entry in _entries(label, records, options, held=held):
+        tally.add(entry.result, cut=entry.cut_after)
+        if each is not None:
+            each(entry)
+    return tally.report(_BatchJob(label=label, records=records, options=options, held=held, limits=limits))
 
 
 class _CutUpdate(TypedDict):
@@ -241,8 +607,8 @@ def record_renders(
     what the printer holds after it to the next label.
 
     Every record is filled once here so that a bad one raises before anything goes out, and the
-    filled label is dropped: each render fills its label again when it runs, since a filled label
-    of 399 fields holds about 360 KB, which over a batch is far more than the job itself.
+    filled label is dropped: each render fills its label again when it runs. The tuple holds one
+    object per record; for a large batch :meth:`BatchReport.renders` yields them one at a time.
 
     Args:
         label: The label.
@@ -297,8 +663,10 @@ class _RecordFillRender:
         return calibration_job(fill_label(self.label, self.record), self.options, text=text)
 
 
-def _unread_module(result: RenderResult | BatchResult) -> ImageModule | None:
+def _unread_module(result: RenderResult | BatchResult | BatchReport) -> ImageModule | None:
     """The image module whose stored names a job needs and was not given, or None when it needs none."""
+    if isinstance(result, BatchReport):
+        return result.unread_module
     results = result.results if isinstance(result, BatchResult) else (result,)
     return next((r.image_module for r in results if r.names_unread and r.image_module is not None), None)
 
@@ -485,7 +853,7 @@ def send_bytes(data: bytes, *, uri: str, timeout: float, open_printer: OpenPrint
 
 
 def print_result(
-    result: RenderResult | BatchResult, *, uri: str, timeout: float, open_printer: OpenPrinter
+    result: RenderResult | BatchResult | BatchReport, *, uri: str, timeout: float, open_printer: OpenPrinter
 ) -> PrintReport:
     """Send a rendered job, refusing one that has error findings; a batch goes one record's bytes at a time.
 
@@ -496,7 +864,7 @@ def print_result(
     if not result.ok:
         msg = "label has errors; nothing was sent"
         raise LabelRejectedError(msg, error_findings(result))
-    if not isinstance(result, BatchResult):
+    if isinstance(result, RenderResult):
         return send_bytes(result.data, uri=uri, timeout=timeout, open_printer=open_printer)
     sent = 0
     with closing(open_printer(uri, timeout=timeout)) as printer:

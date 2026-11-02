@@ -25,6 +25,11 @@ if TYPE_CHECKING:
     from .label import Cut
 
 CUT_NOW = b"\x02o"
+#: Default of ``[printer] max_reported_findings``: a whole batch's findings can pass any memory
+#: (399 warnings x 100000 records), and past this many nobody reads them one by one.
+MAX_REPORTED_FINDINGS = 1000
+#: Default of ``[printer] max_reported_downloads``: one image name per record grows the same way.
+MAX_REPORTED_DOWNLOADS = 1000
 
 
 def _context(options: RenderOptions, findings: FindingCollector) -> RenderContext:
@@ -45,6 +50,29 @@ def _context(options: RenderOptions, findings: FindingCollector) -> RenderContex
 
 
 @dataclass(frozen=True)
+class CutPlan:
+    """Where a batch cuts across its records, decided record by record, so nothing grows with their number.
+
+    Attributes:
+        every: A cut follows every this many records; None when the batch sends no cut.
+        at_end: A cut also follows the last record.
+        findings: The batch-level findings.
+    """
+
+    every: int | None
+    at_end: bool
+    findings: tuple[Finding, ...]
+
+    def follows(self, number: int, *, last: bool) -> bool:
+        """Whether a cut follows record ``number``, counted from 1; ``last`` when it is the last one."""
+        return self.every is not None and (number % self.every == 0 or (last and self.at_end))
+
+
+#: The plan of a batch that cuts across no records.
+NO_CUTS = CutPlan(every=None, at_end=False, findings=())
+
+
+@dataclass(frozen=True)
 class BatchCuts:
     """Where a batch cuts across its records, and the batch-level findings.
 
@@ -60,13 +88,21 @@ class BatchCuts:
 def batch_cuts(count: int, *, cut: Cut, options: RenderOptions) -> BatchCuts:
     """Return, for each of ``count`` records, whether a cut follows it, and the batch-level findings.
 
-    A cut follows every ``cut.every``-th record, and the last one when ``cut.at_end``; none
-    follows any record on a model without the cut-now command, which the findings then report.
-
     Example:
         >>> from datamax_dpl.domain.label import Cut
         >>> batch_cuts(3, cut=Cut(every=2), options=RenderOptions(model="dmx-600")).cut_after
         (False, True, True)
+    """
+    plan = cut_plan(cut, options=options)
+    flags = tuple(plan.follows(number, last=number == count) for number in range(1, count + 1))
+    return BatchCuts(cut_after=flags, findings=plan.findings)
+
+
+def cut_plan(cut: Cut, *, options: RenderOptions) -> CutPlan:
+    """Return where a batch of ``cut`` cuts, whatever its length, and the batch-level findings.
+
+    A cut follows every ``cut.every``-th record, and the last one when ``cut.at_end``; none
+    follows any record on a model without the cut-now command, which the findings then report.
     """
     findings = FindingCollector(options.policy)
     ctx = _context(options, findings)
@@ -77,14 +113,13 @@ def batch_cuts(count: int, *, cut: Cut, options: RenderOptions) -> BatchCuts:
             f"{ctx.requirement(Feature.CUT_NOW)}",
             fallback="the printer cuts as its own cutter setting says",
         )
-        return BatchCuts(cut_after=(False,) * count, findings=findings.findings())
+        return CutPlan(every=None, at_end=False, findings=findings.findings())
     findings.warn(
         FindingCode.BATCH_CUT_UNVERIFIED,
         f"a cut command follows every {cut.every}th label; the printer must not also cut each label "
         "by itself (unverified on hardware)",
     )
-    cuts = tuple(number % cut.every == 0 or (number == count and cut.at_end) for number in range(1, count + 1))
-    return BatchCuts(cut_after=cuts, findings=findings.findings())
+    return CutPlan(every=cut.every, at_end=cut.at_end, findings=findings.findings())
 
 
 def with_cut(job: bytes, closing: bytes, *, cut: bool) -> bytes:
@@ -102,4 +137,14 @@ def with_cut(job: bytes, closing: bytes, *, cut: bool) -> bytes:
     return b"".join([job[: len(job) - len(closing)], CUT_NOW, closing])
 
 
-__all__ = ["CUT_NOW", "BatchCuts", "batch_cuts", "with_cut"]
+__all__ = [
+    "CUT_NOW",
+    "MAX_REPORTED_DOWNLOADS",
+    "MAX_REPORTED_FINDINGS",
+    "NO_CUTS",
+    "BatchCuts",
+    "CutPlan",
+    "batch_cuts",
+    "cut_plan",
+    "with_cut",
+]

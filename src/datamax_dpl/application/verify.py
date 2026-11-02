@@ -260,9 +260,13 @@ def verify_print(
         # The domain's field, not a config key: a library caller passes CameraSettings directly.
         msg = "no camera configured (CameraSettings.kind is none); nothing was printed"
         raise CameraError(msg)
-    if checked is not None and len(checked.renders) != 1:
-        msg = f"verify prints one label; the checked job holds {len(checked.renders)} renders; nothing was printed"
-        raise ConfigurationError(msg)
+    if checked is not None:
+        # Renders may come from a generator, which can be counted and then sent only once in hand.
+        renders = tuple(checked.renders)
+        if len(renders) != 1:
+            msg = f"verify prints one label; the checked job holds {len(renders)} renders; nothing was printed"
+            raise ConfigurationError(msg)
+        checked = checked._replace(renders=renders)
     profile = get_profile(options.model)
     idle_wait = IdleWait(answer=AnswerWait(seconds=timeout, sleep=sleep)) if wait is None else wait
     # Before the job goes out: refused afterwards, it would leave a label printed and not photographed.

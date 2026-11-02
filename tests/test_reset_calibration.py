@@ -28,6 +28,7 @@ from datamax_dpl.application.upload_check import (
 )
 from datamax_dpl.application.use_cases import (
     AnswerWait,
+    BatchReport,
     BatchResult,
     read_reset_report,
     record_renders,
@@ -97,7 +98,8 @@ def _check() -> UploadCheck:
     return UploadCheck(wait=AnswerWait(seconds=1.0))
 
 
-def _findings(result: RenderResult | BatchResult) -> list[Finding]:
+def _findings(result: RenderResult | BatchResult | BatchReport) -> list[Finding]:
+    assert not isinstance(result, BatchReport)
     results = result.results if isinstance(result, BatchResult) else (result,)
     return [finding for r in results for finding in r.findings]
 

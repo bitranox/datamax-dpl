@@ -27,7 +27,14 @@ from datamax_dpl.application.upload_check import (
     print_checked,
     send_checked,
 )
-from datamax_dpl.application.use_cases import AnswerWait, BatchResult, record_renders, render_batch, render_label
+from datamax_dpl.application.use_cases import (
+    AnswerWait,
+    BatchReport,
+    BatchResult,
+    record_renders,
+    render_batch,
+    render_label,
+)
 from datamax_dpl.application.verify import verify_print
 from datamax_dpl.composition import build_production, build_testing
 from datamax_dpl.domain.camera import CameraKind, CameraSettings, CapturedImage
@@ -91,7 +98,7 @@ def _print(
     return printer, report.result
 
 
-def _single(result: RenderResult | BatchResult) -> RenderResult:
+def _single(result: RenderResult | BatchResult | BatchReport) -> RenderResult:
     assert isinstance(result, RenderResult)
     return result
 

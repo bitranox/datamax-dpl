@@ -4,7 +4,8 @@ The library surface, in the order a caller usually needs it:
 
 * the label model (:class:`Label` and its elements) and its enums;
 * :func:`render` (raises on an error finding) and :func:`build_job` (reports every finding);
-* :func:`render_batch` and :func:`fill_label` for one label per data record;
+* :func:`render_batch` and :func:`fill_label` for one label per data record, :func:`iter_batch`
+  and :func:`check_batch` for a batch too large to hold;
 * :func:`open_printer` to send the bytes, :func:`print_checked` to send them checking each label's
   image upload, :func:`explain` to read DPL back;
 * :func:`get_profile` / :func:`list_profiles` for the printer models;
@@ -26,7 +27,18 @@ from .adapters.preview import pillow_available, preview_findings, render_preview
 from .adapters.transport import open_printer
 from .application.ports import PrinterTransport
 from .application.upload_check import CheckedJob, ResetCheck, UploadCheck, UploadRefusedError, print_checked
-from .application.use_cases import AnswerWait, BatchResult, record_renders, render_batch
+from .application.use_cases import (
+    AnswerWait,
+    BatchEntry,
+    BatchReport,
+    BatchResult,
+    ReportedFinding,
+    ReportLimits,
+    check_batch,
+    iter_batch,
+    record_renders,
+    render_batch,
+)
 from .composition import get_config
 from .domain.calibration import (
     ACROSS_INSET_MM,
@@ -109,6 +121,8 @@ __all__ = [
     "Attribute",
     "Barcode",
     "BarcodeProblemCode",
+    "BatchEntry",
+    "BatchReport",
     "BatchResult",
     "BatchTooLargeError",
     "Box",
@@ -155,6 +169,8 @@ __all__ = [
     "QrError",
     "RenderOptions",
     "RenderResult",
+    "ReportLimits",
+    "ReportedFinding",
     "ResetCheck",
     "Rotation",
     "ScalableText",
@@ -176,10 +192,12 @@ __all__ = [
     "along_label",
     "build_job",
     "calibration_labels",
+    "check_batch",
     "explain",
     "fill_label",
     "get_config",
     "get_profile",
+    "iter_batch",
     "list_profiles",
     "open_printer",
     "pillow_available",

@@ -66,8 +66,10 @@ batch there: none of it and nothing after it is sent.
 
 from __future__ import annotations
 
+from collections.abc import Sized
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Generic, NamedTuple, TypedDict, TypeVar
+from itertools import islice
+from typing import TYPE_CHECKING, Generic, NamedTuple, Protocol, TypedDict, TypeVar, overload
 
 from ..domain._invariants import require_update_fields
 from ..domain.batch import with_cut
@@ -85,16 +87,26 @@ from ..domain.reset_label import (
     check_label_text,
 )
 from ..domain.timing import TimeoutName, check_timeout
-from .use_cases import AnswerWait, BatchResult, error_findings, open_within, read_reset_report, read_stored_names
+from .use_cases import (
+    AnswerWait,
+    BatchReport,
+    BatchResult,
+    BatchTally,
+    error_findings,
+    open_within,
+    read_reset_report,
+    read_stored_names,
+    unlisted_download,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable
 
     from ..domain.render import RenderedRecord
     from .ports import OpenPrinter, PrinterTransport
     from .use_cases import RecordRender
 
-_Sent_co = TypeVar("_Sent_co", bound="RenderResult | BatchResult", covariant=True)
+_Sent_co = TypeVar("_Sent_co", bound="RenderResult | BatchResult | BatchReport", covariant=True)
 
 
 class _FindingsUpdate(TypedDict):
@@ -158,8 +170,9 @@ class ResetCheck:
         check_label_text(self.text)
 
 
-class CheckedPrint(NamedTuple):
-    """What a checked send sent where, and the job as it went out.
+@dataclass(frozen=True)
+class CheckedPrint(Generic[_Sent_co]):
+    """What a checked send sent where, and the job as it went out, of the kind that was given.
 
     Attributes:
         uri: The printer.
@@ -170,7 +183,7 @@ class CheckedPrint(NamedTuple):
 
     uri: str
     bytes_sent: int
-    result: RenderResult | BatchResult
+    result: _Sent_co
 
 
 class CheckedJob(NamedTuple):
@@ -181,14 +194,16 @@ class CheckedJob(NamedTuple):
     go at full size and the check, not the model's budget, decides whether they are halved.
 
     Attributes:
-        renders: One render per label, in the order they are sent (``record_renders``).
+        renders: One render per label, in the order they are sent: ``record_renders``, or
+            :meth:`~datamax_dpl.application.use_cases.BatchReport.renders`, which builds each one
+            only when its turn comes and holds only the current one.
         check: How the upload is checked.
         held: What the printer holds in the image module before the first label: the names read
             before rendering, or nothing known.
         reset: How a reset report is asked for before the first label; None asks nothing.
     """
 
-    renders: Sequence[RecordRender]
+    renders: Iterable[RecordRender]
     check: UploadCheck
     held: HeldImages = HeldImages()
     reset: ResetCheck | None = ResetCheck()
@@ -221,7 +236,7 @@ class UploadRefusedError(LabelRejectedError):
             label's uploads and clears).
     """
 
-    def __init__(self, result: RenderResult | BatchResult, *, bytes_sent: int) -> None:
+    def __init__(self, result: RenderResult | BatchResult | BatchReport, *, bytes_sent: int) -> None:
         """Keep the job as far as it went and the bytes it wrote."""
         errors = tuple(f for f in _all_findings(result) if f.severity is Severity.ERROR)
         super().__init__(_refusal_text({f.code for f in errors}), errors)
@@ -246,7 +261,9 @@ def _refusal_text(codes: set[FindingCode]) -> str:
     )
 
 
-def _all_findings(result: RenderResult | BatchResult) -> tuple[Finding, ...]:
+def _all_findings(result: RenderResult | BatchResult | BatchReport) -> tuple[Finding, ...]:
+    if isinstance(result, BatchReport):
+        return tuple(result.all_findings())
     results = result.results if isinstance(result, BatchResult) else (result,)
     return tuple(f for r in results for f in r.findings)
 
@@ -770,7 +787,7 @@ def _unlisted_module(result: RenderResult) -> RenderResult | None:
 
     None for a label that downloads nothing, or whose module a directory lists.
     """
-    if not result.downloads or result.image_module != ImageModule.C:
+    if not unlisted_download(result):
         return None
     built_in = get_profile(result.model).image_module
     letter = "" if built_in is None else f" (module {built_in.value} on the {result.model})"
@@ -786,26 +803,46 @@ def _unlisted_module(result: RenderResult) -> RenderResult | None:
     return result.model_copy(update=_FindingsUpdate(findings=(*result.findings, refusal)))
 
 
-@dataclass(frozen=True)
-class _LabelsSent:
-    """The labels of a checked job reached, each as it went out, and whether every one was sent.
+class _LabelSink(Protocol):
+    """Where a checked send puts each label reached, as it went out.
 
     A label refused (or, rendered again, found in error) is the last one reached, and none of its
     format went out.
     """
 
-    sent: tuple[RenderResult, ...]
-    all_sent: bool
+    def add(self, result: RenderResult, *, cut: bool) -> None:
+        """Take the next label, ``cut`` when a batch cut follows it."""
+        ...
 
 
-def _refuse_mismatch(result: RenderResult | BatchResult, job: CheckedJob) -> None:
+class _SentLabels:
+    """Holds every label reached, for a job whose result holds every label anyway."""
+
+    def __init__(self) -> None:
+        self.sent: list[RenderResult] = []
+
+    def add(self, result: RenderResult, *, cut: bool) -> None:
+        """Keep the next label; a :class:`BatchResult` holds its cuts apart."""
+        del cut
+        self.sent.append(result)
+
+
+def _labels_in(result: RenderResult | BatchResult | BatchReport) -> int:
+    if isinstance(result, BatchReport):
+        return result.records
+    return len(result.results) if isinstance(result, BatchResult) else 1
+
+
+def _refuse_mismatch(result: RenderResult | BatchResult | BatchReport, job: CheckedJob) -> None:
     """Refuse a result and renders describing different batches, before a label of either goes out.
+
+    Renders that are not sized (a generator) can only be counted as they run: see :func:`_send_report`.
 
     Raises:
         ConfigurationError: Their label counts differ.
     """
-    labels = len(result.results) if isinstance(result, BatchResult) else 1
-    if labels != len(job.renders):
+    labels = _labels_in(result)
+    if isinstance(job.renders, Sized) and labels != len(job.renders):
         msg = f"the job holds {labels} labels but {len(job.renders)} renders; nothing was sent"
         raise ConfigurationError(msg)
 
@@ -860,47 +897,106 @@ def _not_calibrated(why: str, *, severity: Severity) -> Finding:
     return Finding(code=FindingCode.PRINTER_RESET_NOT_CALIBRATED, severity=severity, message=message)
 
 
-def _send_labels(link: Link, job: CheckedJob, *, cuts: Sequence[bool]) -> _LabelsSent:
-    """Send each label of ``job`` in turn, with a batch cut after each label ``cuts`` marks."""
-    sent: list[RenderResult] = []
+def _send_labels(link: Link, job: CheckedJob, *, cuts: Iterable[bool], sink: _LabelSink) -> bool:
+    """Send each label of ``job`` in turn, with a batch cut after each label ``cuts`` marks.
+
+    Holds only the current label: each one goes to ``sink`` as it went out. Stops at the shorter of
+    ``cuts`` and ``job.renders``, taking no render past the last cut.
+
+    Returns:
+        True when every label was sent; False when one was refused, which nothing after it follows.
+    """
     before = _PassedOn(held=job.held)
     told: tuple[Finding, ...] = ()
-    for render, cut in zip(job.renders, cuts, strict=True):
+    first = True
+    for cut, render in zip(cuts, job.renders, strict=False):
         record = _Record(render=render, before=before, link=link, check=job.check)
         if not record.result.ok:
-            return _LabelsSent(sent=(*sent, record.result), all_sent=False)
+            sink.add(record.result, cut=cut)
+            return False
         if (unlisted := _unlisted_module(record.result)) is not None:
-            return _LabelsSent(sent=(*sent, unlisted), all_sent=False)
-        if not sent:
+            sink.add(unlisted, cut=cut)
+            return False
+        if first:
             told = _after_reset(link, render, job)
             record.findings.extend(told)
         passed = not record.result.downloads or _check_label(record)
-        if not sent and not told:
+        if first and not told:
             record.findings.extend(_reset_in_rounds(link, render, job, passed=passed))
         if not passed:
-            return _LabelsSent(sent=(*sent, record.as_sent()), all_sent=False)
+            sink.add(record.as_sent(), cut=cut)
+            return False
         # Built after the check: a round may have rendered the label again.
         whole = with_cut(record.result.data, record.result.closing, cut=cut)
         link.send(whole[record.result.upload_end :] if record.result.downloads else whole)
-        sent.append(record.as_sent())
+        sink.add(record.as_sent(), cut=cut)
         before = record.passed_on()
-    return _LabelsSent(sent=tuple(sent), all_sent=True)
+        first = False
+    return True
 
 
 def send_checked_label(link: Link, job: CheckedJob) -> CheckedSend[RenderResult]:
     """Send the one label of ``job`` on ``link`` as :func:`send_checked` sends each label of a batch."""
-    labels = _send_labels(link, job, cuts=(False,))
-    return CheckedSend(result=labels.sent[0], all_sent=labels.all_sent)
+    labels = _SentLabels()
+    all_sent = _send_labels(link, job, cuts=(False,), sink=labels)
+    return CheckedSend(result=labels.sent[0], all_sent=all_sent)
+
+
+def _send_report(link: Link, report: BatchReport, job: CheckedJob) -> CheckedSend[BatchReport]:
+    """Send a checked batch label by label, holding only the current one, and report it as it went out.
+
+    A label refused leaves the labels after it as first rendered: they are rendered once more for
+    the report, as a :class:`BatchResult` would have held them all along.
+
+    Raises:
+        ConfigurationError: ``job.renders`` held another number of labels than ``report``, which only
+            shows once they have gone out.
+    """
+    tally = BatchTally(report.limits, plan=report.plan)
+    if report.unlisted_at is not None:
+        return CheckedSend(result=_refused_as_unlisted(report, tally), all_sent=False)
+    renders = iter(job.renders)
+    all_sent = _send_labels(link, job._replace(renders=renders), cuts=report.cuts(), sink=tally)
+    if all_sent and (tally.records != report.records or next(renders, None) is not None):
+        msg = f"the job holds {report.records} labels, and the renders given hold another number; {tally.records} went"
+        raise ConfigurationError(msg)
+    if not all_sent:
+        reached = tally.records
+        for entry in islice(report.entries(), reached, None):
+            tally.add(entry.result, cut=entry.cut_after)
+    return CheckedSend(result=tally.report(report.job), all_sent=all_sent)
+
+
+def _refused_as_unlisted(report: BatchReport, tally: BatchTally) -> BatchReport:
+    """The report of a batch refused before anything went out, for the first record downloading into module C."""
+    for number, entry in enumerate(report.entries()):
+        unlisted = _unlisted_module(entry.result) if number == report.unlisted_at else None
+        tally.add(entry.result if unlisted is None else unlisted, cut=entry.cut_after)
+    return tally.report(report.job)
+
+
+@overload
+def send_checked(link: Link, result: RenderResult, job: CheckedJob) -> CheckedSend[RenderResult]: ...
+
+
+@overload
+def send_checked(link: Link, result: BatchResult, job: CheckedJob) -> CheckedSend[BatchResult]: ...
+
+
+@overload
+def send_checked(link: Link, result: BatchReport, job: CheckedJob) -> CheckedSend[BatchReport]: ...
 
 
 def send_checked(
-    link: Link, result: RenderResult | BatchResult, job: CheckedJob
-) -> CheckedSend[RenderResult | BatchResult]:
+    link: Link, result: RenderResult | BatchResult | BatchReport, job: CheckedJob
+) -> CheckedSend[RenderResult | BatchResult | BatchReport]:
     """Send ``result`` label by label on ``link``, each label that downloads an image after its upload check.
 
     ``result`` is the job as first rendered, with its batch cuts and findings and the result of
     each label not reached. Each label is rendered again from ``job.renders`` with what the printer
-    holds before it, which gives the render ``result`` holds until a round changes what is held.
+    holds before it, which gives the render ``result`` holds until a round changes what is held. A
+    :class:`~datamax_dpl.application.use_cases.BatchReport` holds no label: only the current one is
+    in memory then.
 
     Returns:
         The job as it went out, each label reached with the rounds' findings, and whether every
@@ -910,22 +1006,26 @@ def send_checked(
         ConfigurationError: ``result`` and ``job.renders`` hold different numbers of labels.
     """
     _refuse_mismatch(result, job)
+    if isinstance(result, BatchReport):
+        return _send_report(link, result, job)
     if not isinstance(result, BatchResult):
         return send_checked_label(link, job)
     # Refused before the first record goes out: a record that downloads nothing would print, and
     # the check of the first one that downloads could never pass.
+    labels = _SentLabels()
     for index, record in enumerate(result.results):
         if (unlisted := _unlisted_module(record)) is not None:
-            labels = _LabelsSent(sent=(*result.results[:index], unlisted), all_sent=False)
+            labels.sent = [*result.results[:index], unlisted]
+            all_sent = False
             break
     else:
-        labels = _send_labels(link, job, cuts=result.cut_after or (False,) * len(result.results))
+        all_sent = _send_labels(link, job, cuts=result.cut_after or (False,) * len(result.results), sink=labels)
     whole = BatchResult(
         results=(*labels.sent, *result.results[len(labels.sent) :]),
         batch_findings=result.batch_findings,
         cut_after=result.cut_after,
     )
-    return CheckedSend(result=whole, all_sent=labels.all_sent)
+    return CheckedSend(result=whole, all_sent=all_sent)
 
 
 def _refuse_bad_check(check: UploadCheck) -> None:
@@ -941,9 +1041,32 @@ def _refuse_bad_check(check: UploadCheck) -> None:
         raise ValueError(msg)
 
 
+@overload
 def print_checked(
-    result: RenderResult | BatchResult, job: CheckedJob, *, uri: str, timeout: float, open_printer: OpenPrinter
-) -> CheckedPrint:
+    result: RenderResult, job: CheckedJob, *, uri: str, timeout: float, open_printer: OpenPrinter
+) -> CheckedPrint[RenderResult]: ...
+
+
+@overload
+def print_checked(
+    result: BatchResult, job: CheckedJob, *, uri: str, timeout: float, open_printer: OpenPrinter
+) -> CheckedPrint[BatchResult]: ...
+
+
+@overload
+def print_checked(
+    result: BatchReport, job: CheckedJob, *, uri: str, timeout: float, open_printer: OpenPrinter
+) -> CheckedPrint[BatchReport]: ...
+
+
+def print_checked(
+    result: RenderResult | BatchResult | BatchReport,
+    job: CheckedJob,
+    *,
+    uri: str,
+    timeout: float,
+    open_printer: OpenPrinter,
+) -> CheckedPrint[RenderResult | BatchResult | BatchReport]:
     """Send a rendered job, checking each label's image upload before its format goes out.
 
     On a two-way link the printer is asked for its status once first (``job.reset``, None asks
@@ -956,7 +1079,9 @@ def print_checked(
     caller holding one for longer than a job reads the names again (:func:`read_stored_names`).
 
     Args:
-        result: The job as first rendered.
+        result: The job as first rendered. For a large batch, the report of
+            :func:`~datamax_dpl.application.use_cases.check_batch` with its ``renders()`` in ``job``:
+            memory does not grow with the records then.
         job: How to render each label again, the upload check and the reset check.
         uri: The printer.
         timeout: Seconds for each connect and write.
@@ -973,7 +1098,7 @@ def print_checked(
             Or the job downloads into module C, which no directory lists
             (``image_module_unlisted``); nothing was sent.
         ConfigurationError: ``result`` and ``job.renders`` hold different numbers of labels; nothing
-            was sent.
+            was sent, unless the renders are not sized (a generator) and only their running out told.
         TransportError: The printer could not be reached or written.
         ValueError: A value of ``job.check`` is not usable; nothing was sent.
     """
@@ -986,16 +1111,16 @@ def print_checked(
     link = Link(printer=printer, uri=uri, timeout=timeout, open_printer=open_printer, reconnect=job.check.wait)
     try:
         if not printer.bidirectional:
-            for piece in result.record_jobs() if isinstance(result, BatchResult) else (result.data,):
+            for piece in (result.data,) if isinstance(result, RenderResult) else result.record_jobs():
                 link.send(piece)
             return CheckedPrint(uri=uri, bytes_sent=link.bytes_sent, result=result)
-        checked = send_checked(link, result, job)
+        sent = send_checked(link, result, job)
     finally:
         printer.close()
         link.close_opened()
-    if not checked.all_sent:
-        raise UploadRefusedError(checked.result, bytes_sent=link.bytes_sent)
-    return CheckedPrint(uri=uri, bytes_sent=link.bytes_sent, result=checked.result)
+    if not sent.all_sent:
+        raise UploadRefusedError(sent.result, bytes_sent=link.bytes_sent)
+    return CheckedPrint(uri=uri, bytes_sent=link.bytes_sent, result=sent.result)
 
 
 __all__ = [
