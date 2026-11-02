@@ -61,7 +61,7 @@ from .render_context import MAX_FIELD_VALUE
 from .units import Axis
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator, Sequence
 
     from .label import Element
     from .render_context import RenderContext
@@ -141,10 +141,13 @@ class OverlapReport:
     Attributes:
         groups: Exact fields that share dots, each group two or more element indices, sorted.
         inexact: Inexact fields whose rectangle meets another field's dots or rectangle, sorted.
+        past_field_limit: More inexact fields than the model takes records, so nothing was compared:
+            each stays its own record and the job is refused whatever overlaps.
     """
 
     groups: tuple[tuple[int, ...], ...] = ()
     inexact: tuple[int, ...] = ()
+    past_field_limit: bool = False
 
 
 def _dots_at(value: float, *, axis: Axis, ctx: RenderContext) -> int:
@@ -351,17 +354,21 @@ class _Groups:
         return tuple(sorted(tuple(sorted(group)) for group in members.values() if len(group) > 1))
 
 
-def _candidates(areas: dict[int, DotArea]) -> list[tuple[int, int]]:
-    """Return every pair of indices whose rectangles share a dot, by a sweep over their left edges."""
+def _candidates(areas: dict[int, DotArea]) -> Iterator[tuple[int, int]]:
+    """Yield every pair of indices whose rectangles share a dot, by a sweep over their left edges.
+
+    Yielded, not collected: fields at one spot make a pair of every two, and those pairs are only
+    ever looked at once.
+    """
     order = sorted(areas, key=lambda index: areas[index].left)
     active: list[int] = []
-    pairs: list[tuple[int, int]] = []
     for index in order:
         area = areas[index]
         active = [other for other in active if areas[other].right >= area.left]
-        pairs.extend((min(other, index), max(other, index)) for other in active if areas[other].meets(area))
+        for other in active:
+            if areas[other].meets(area):
+                yield min(other, index), max(other, index)
         active.append(index)
-    return pairs
 
 
 @dataclass
@@ -406,9 +413,12 @@ def find_overlaps(elements: Sequence[Element], ctx: RenderContext) -> OverlapRep
         ctx: The render context; its calibration scales every length. Nothing is recorded in it.
 
     Returns:
-        The groups and inexact fields, by index into ``elements``.
+        The groups and inexact fields, by index into ``elements``; only ``past_field_limit`` set
+        when more fields stay their own record than the model takes.
     """
     fields = _fields(elements, ctx)
+    if len(fields.inexact) > ctx.profile.max_fields:
+        return OverlapReport(past_field_limit=True)
     groups = _Groups()
     inexact: set[int] = set()
     for first, second in _candidates({index: fields.area(index) for index in (*fields.exact, *fields.inexact)}):

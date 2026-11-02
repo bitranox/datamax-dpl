@@ -217,6 +217,9 @@ def emulate_transparency(label: Label, ctx: RenderContext) -> Emulation:
     if not emulates_transparency(label, ctx):
         return Emulation()
     report = find_overlaps(label.elements, ctx)
+    if report.past_field_limit:
+        # The encoder's field limit refuses the job; nothing here could say what overlaps.
+        return Emulation()
     if not report.groups and not report.inexact:
         ctx.findings.info(
             FindingCode.TRANSPARENCY_NOT_NEEDED,

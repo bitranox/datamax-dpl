@@ -312,6 +312,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A label holds at most 2048 elements, refused when it is read; `attribute` 2
+  on a model without the `A` command no longer holds every pair of overlapping
+  fields in memory, and skips the comparison when more printer-drawn fields
+  than the model's field limit make the refusal certain. A 1 MB label took a
+  minute and ended in `MemoryError`.
 - `explain` reports a record whose width or height byte is no multiplier as a
   problem; a byte such as `0xDF` raised `TypeError` out of it.
 - A camera that answers with anything but a usable image no longer leaves its

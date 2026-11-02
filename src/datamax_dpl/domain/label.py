@@ -58,6 +58,10 @@ FONT_9 = 9
 #: number such as 1e308 away from the arithmetic that turns it into infinity and from every size
 #: worked out from it. A length that passes can still be past what a model prints; findings say so.
 MAX_LENGTH = 100_000.0
+#: Most elements one label may hold. A sanity limit, so no settings key: the largest format any model
+#: takes is 399 records, and every per-element cost (drawing, encoding, comparing fields for
+#: transparency) would otherwise scale with whatever a 16 MiB document can hold, about 190,000.
+MAX_ELEMENTS = 2048
 
 NonNegative = Annotated[float, Field(ge=0, le=MAX_LENGTH, strict=True, allow_inf_nan=False)]
 Positive = Annotated[float, Field(gt=0, le=MAX_LENGTH, strict=True, allow_inf_nan=False)]
@@ -445,7 +449,7 @@ class Label(_Frozen):
     width: Positive | None = Field(default=None, description="Label width; defaults to the model's print width.")
     height: Positive | None = Field(default=None, description="Label length in feed direction.")
     quantity: int = Field(default=1, ge=1, le=MAX_QUANTITY, strict=True)
-    elements: list[Element] = Field(min_length=1)
+    elements: list[Element] = Field(min_length=1, max_length=MAX_ELEMENTS)
     cut: Cut | None = None
     heat: int | None = Field(default=None, ge=0, le=30, strict=True)
     print_speed: SpeedCode | None = None
@@ -486,6 +490,7 @@ class Label(_Frozen):
 
 __all__ = [
     "FONT_9",
+    "MAX_ELEMENTS",
     "MAX_FIELD_DATA",
     "MAX_FORMAT_NAME",
     "MAX_IMAGE_NAME",

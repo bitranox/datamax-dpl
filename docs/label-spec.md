@@ -47,7 +47,7 @@ formats reports the info finding `inch_units`. Check placement without paper wit
 | `width`             | number > 0                             | none    | Label width. Wider than the model's print width gives a warning. The preview uses it as canvas width. |
 | `height`            | number > 0                             | none    | Label length in feed direction. Used by the preview and as the length on continuous media.            |
 | `quantity`          | integer 1-9999                         | 1       | Number of labels to print (`Qnnnn`).                                                                  |
-| `elements`          | list, at least one                     | -       | The fields of the label, described below.                                                             |
+| `elements`          | list, 1 to 2048                        | -       | The fields of the label, described below.                                                             |
 | `cut`               | object                                 | none    | Cutting, see below. Needs a cutter; `--cutter no` refuses a label that sets it.                       |
 | `heat`              | integer 0-30                           | none    | Print head heat (`Hnn`). Above the model's maximum it is lowered to the maximum.                      |
 | `print_speed`       | letter `A`-`S`                         | none    | Print speed (`Pa`): `A` = 1.0 inch per second, each letter 0.5 more, `S` = 10.0.                      |
