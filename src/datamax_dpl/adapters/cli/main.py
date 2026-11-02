@@ -26,7 +26,15 @@ from .context import (
     restore_traceback_state,
     snapshot_traceback_state,
 )
-from .envelope import CommandName, ErrorEnvelope, Outcome, OutputMode, write_envelope
+from .envelope import (
+    CommandName,
+    ErrorEnvelope,
+    Outcome,
+    OutputMode,
+    envelope_started,
+    forget_started_envelope,
+    write_envelope,
+)
 from .exit_codes import ExitCode
 from .gone_reader import is_gone_reader_error
 from .interrupt import noting_interrupts
@@ -240,14 +248,19 @@ def _invoke_cli(args: list[str], *, services_factory: Callable[[], AppServices])
 
 
 def _report_interrupt(args: Sequence[str], root: click.Command) -> None:
-    """Say on stderr, and in the envelope a machine reader asked for, that the run was cut short."""
+    """Say on stderr, and in the envelope a machine reader asked for, that the run was cut short.
+
+    An envelope already begun stays the only one: stdout carries one, and a reader parsing it would
+    fail on a second glued to it, or read a job that went out as one that did not. The exit code and
+    stderr say the rest.
+    """
     flags = _global_flags(args, root)
     mode = OutputMode.of(as_json=_JSON_FLAG in flags, as_json_bare=_JSON_BARE_FLAG in flags)
     command = _named_command(args, root)
     message = _INTERRUPTED + (_JOB_MAY_BE_OUT if command in _SENDING_COMMANDS else "")
     try:
         sys.stderr.write(f"Error: {message}\n")
-        if mode.machine:
+        if mode.machine and not envelope_started():
             write_envelope(ErrorEnvelope(command=command, error="KeyboardInterrupt", message=message), mode=mode)
     except OSError as write_error:
         if not is_gone_reader_error(write_error):
@@ -267,6 +280,7 @@ def _run_cli(argv: Sequence[str] | None, *, services_factory: Callable[[], AppSe
     # Use Click's native invocation with obj parameter since lib_cli_exit_tools.run_cli
     # doesn't support passing obj. We replicate its behavior while adding obj support.
     args = list(argv) if argv is not None else sys.argv[1:]
+    forget_started_envelope()
 
     try:
         return _invoke_cli(args, services_factory=services_factory)

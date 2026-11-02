@@ -18,7 +18,7 @@ from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny
 
-from ...domain.printable import printable
+from ...domain.printable import one_line
 from . import safe_console
 
 
@@ -119,6 +119,22 @@ class ErrorEnvelope(BaseModel):
 _LONE_SURROGATE = re.compile(r"[\ud800-\udfff]")
 
 
+class _Started:
+    """Whether this run has begun writing its envelope: stdout carries one, so no second may follow."""
+
+    envelope = False
+
+
+def forget_started_envelope() -> None:
+    """Start a new run: nothing of its answer has been written."""
+    _Started.envelope = False
+
+
+def envelope_started() -> bool:
+    """Whether this run has begun writing an envelope, whole by now or cut off."""
+    return _Started.envelope
+
+
 def write_envelope(document: BaseModel, *, mode: OutputMode) -> None:
     """Write ``document`` to stdout, encode-safe for consoles that cannot show every character.
 
@@ -130,6 +146,7 @@ def write_envelope(document: BaseModel, *, mode: OutputMode) -> None:
     separators = (",", ": ") if mode.indent is not None else (",", ":")
     dumped = json.dumps(document.model_dump(mode="json"), indent=mode.indent, separators=separators, ensure_ascii=False)
     text = _LONE_SURROGATE.sub(lambda found: f"\\u{ord(found[0]):04x}", dumped)
+    _Started.envelope = True
     sys.stdout.write(safe_console.encode_safe(text, sys.stdout.encoding) + "\n")
     sys.stdout.flush()
 
@@ -147,7 +164,7 @@ def write_error_envelope(exc: BaseException, *, command: CommandName | None, mod
 
 def report_failure(exc: BaseException, *, command: CommandName, mode: OutputMode) -> None:
     """Report a failure: an error envelope on stdout in machine mode, one line on stderr always."""
-    sys.stderr.write(safe_console.encode_safe(f"Error: {printable(_said(exc))}\n", sys.stderr.encoding))
+    sys.stderr.write(safe_console.encode_safe(f"Error: {one_line(_said(exc))}\n", sys.stderr.encoding))
     write_error_envelope(exc, command=command, mode=mode)
 
 
@@ -158,6 +175,8 @@ __all__ = [
     "ErrorEnvelope",
     "Outcome",
     "OutputMode",
+    "envelope_started",
+    "forget_started_envelope",
     "report_failure",
     "write_envelope",
     "write_error_envelope",

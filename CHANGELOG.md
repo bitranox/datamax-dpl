@@ -20,7 +20,8 @@ All notable changes to this project are documented here. The format follows
 - `print_checked`'s docs say what it does before the job: one status read, and on a reset one calibration label.
 - `docs/label-spec.md` states its limits for filled values per kind, and names the one example `validate` refuses.
 - A label far past the field limit is refused without encoding its QR Codes a second time.
-- `config` also masks a lone user name in a camera URL, the value of a parameter named with `auth`, `sig` or `cred`,
+- `config` also masks a lone user name in a camera URL, the value of a parameter named with `auth`, `sig`, `cred` or
+  `session`,
   a parameter after `;` or with a percent-encoded name, and the same in the fragment. A token in the path still shows.
 - A `device:` or `file:` write that fails says how much of the job went out. A descriptor numbered past 1023 no longer
   raises `ValueError` from `send`, and a device whose write keeps returning 0 now times out.
@@ -31,7 +32,20 @@ All notable changes to this project are documented here. The format follows
 - `print`, `verify` and `render -o -` now say why in human mode: errors on a refusal, warnings and errors on success,
   on stderr where the job owns stdout. Before, a refusal printed `REFUSED` with no reason, and `render -o -` nothing.
 - Control characters from a label file, a printer or a camera no longer reach the terminal raw: C0, DEL and C1 print
-  as `\xNN` in the error line and every human view (a `memory` name, an unknown label key, a reason phrase).
+  as `\xNN`, line separators and bidi controls as `\uNNNN`, in the error line and every human view (a `memory` name,
+  an unknown label key, a reason phrase). The error line also escapes newline and tab, so that a label key or a file
+  name cannot forge a line after it.
+- A refused `render` with no `-o` answers with no job: the envelope's `dpl` and `dpl_base64` are null.
+- A Ctrl-C landing where a library swallows it, while a record is filled, still ends a `--data` batch with exit 130 and
+  no job written. A Ctrl-C after the envelope began adds no second envelope: stdout carries one, and exit 130 and the
+  stderr line say the rest.
+- `render -o -` and `print --printer -` exit 141 and say nothing when the reader of the job goes away, as the other
+  commands do; they exited 2 or 120.
+- A record's own failure names its record, counted from 0 as a finding's `record` is: `data record 7 has no field 'v'`,
+  and `data record 7` first in a `ValidationError`'s location. A JSON line still goes by its line in the file.
+- A printer that keeps sending no longer holds up a request: what is dropped before one stops at 1 MiB.
+- `ResetCheck.off_because` is what the finding says when `calibrate` is False; a library caller no longer reads of a
+  settings key it does not have.
 - `LabelRejectedError` from `print_checked` and `print_result` carries the job's error findings; it carried none.
 - A camera URL whose path is not ASCII gives `CameraError` instead of `UnicodeEncodeError`.
 - `preview` refuses more fields than the model takes before it letters any, and letters only what lands on the
@@ -42,7 +56,9 @@ All notable changes to this project are documented here. The format follows
   checked before any byte goes out, so a batch with a bad record is refused as before; `print` renders each record
   twice for that, and on a two-way link each label with a new image costs its directory read, about 1 s plus the
   printer's answer. `render -o FILE` writes a file beside the target and replaces the target only when every record
-  passed, and `render -o -` checks all of them, then streams.
+  passed, and `render -o -` checks all of them, then streams. A target that would not stay what it was if replaced
+  (a device, a pipe, a directory taking no new file, a file another user owns or with another hard link) is written in
+  place after the check.
 - Library: `iter_batch` yields one `RenderResult` at a time, `check_batch` returns a `BatchReport` holding no job, and
   `print_checked` takes the report with `report.renders()`, building each label when its turn comes. `render_batch`
   stays as the way to hold a batch whole. Records that come back different on the second read are refused when their
