@@ -32,7 +32,7 @@ from ...domain.profiles import Firmware, ParsedFirmware
 from ...domain.render_context import RenderOptions
 from ...domain.timing import MAX_SEND_CHUNK_BYTES, MAX_TIMEOUT_SECONDS, SEND_CHUNK_BYTES, TransportTuning
 from ...domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
-from ..config.sections import ConfigSection
+from ..config.sections import CAMERA_SECTION, PRINTER_SECTION, ConfigSection, SectionPath, printer_section
 from ..transport.uri import is_printer_name, is_printer_uri
 
 if TYPE_CHECKING:
@@ -165,8 +165,10 @@ def _section(config: Config, name: ConfigSection) -> Mapping[str, Any]:
     return cast("Mapping[str, Any]", section) if isinstance(section, Mapping) else {}
 
 
-def _describe(exc: ValidationError, *, section: str) -> str:
-    return "; ".join(f"{section}.{'.'.join(str(p) for p in error['loc'])}: {_reason(error)}" for error in exc.errors())
+def _describe(exc: ValidationError, *, section: SectionPath) -> str:
+    return "; ".join(
+        f"{section.key_path('.'.join(str(p) for p in error['loc']))}: {_reason(error)}" for error in exc.errors()
+    )
 
 
 def _reason(error: ErrorDetails) -> str:
@@ -184,7 +186,7 @@ def printer_settings(config: Config, overrides: PrinterOverrides) -> PrinterSett
         ConfigurationError: A configured value is invalid; the message names the key.
     """
     name = overrides.printer if overrides.printer and not is_printer_uri(overrides.printer) else ""
-    section = ConfigSection.PRINTER.value if not name else f"{ConfigSection.PRINTERS.value}.{name}"
+    section = printer_section(name)
     try:
         base = PrinterSettings.model_validate(
             {**_section(config, ConfigSection.PRINTER), **_named(config, name), "name": name}
@@ -220,8 +222,8 @@ def _named(config: Config, name: str) -> Mapping[str, Any]:
     invalid = sorted(key for key in printers if not is_printer_name(key))
     if invalid:
         msg = (
-            f"{ConfigSection.PRINTERS.value}.{invalid[0]}: a printer name takes letters, digits, '_' and '-'"
-            " (not first), no ':'"
+            f"{SectionPath(ConfigSection.PRINTERS, invalid[0]).dotted}: a printer name takes letters, digits,"
+            " '_' and '-' (not first), no ':'"
         )
         raise ConfigurationError(msg)
     if not name:
@@ -229,7 +231,7 @@ def _named(config: Config, name: str) -> Mapping[str, Any]:
     section: object = printers.get(name)
     if not isinstance(section, Mapping):
         configured = ", ".join(sorted(printers)) or "none"
-        msg = f"no printer named '{name}' in [{ConfigSection.PRINTERS.value}]; configured: {configured}"
+        msg = f"no printer named '{name}' in {SectionPath(ConfigSection.PRINTERS).header}; configured: {configured}"
         raise ConfigurationError(msg)
     return cast("Mapping[str, Any]", section)
 
@@ -248,7 +250,7 @@ def camera_settings(config: Config) -> CameraSettings:
     try:
         return CameraSettings.model_validate(dict(_section(config, ConfigSection.CAMERA)))
     except ValidationError as exc:
-        raise ConfigurationError(_describe(exc, section=ConfigSection.CAMERA.value)) from None
+        raise ConfigurationError(_describe(exc, section=CAMERA_SECTION)) from None
 
 
 _CUTTER: Mapping[CutterPresence, bool | None] = MappingProxyType(
@@ -309,7 +311,8 @@ def require_uri(settings: PrinterSettings) -> str:
         ConfigurationError: Neither ``--printer`` nor ``[printer] uri`` names a printer.
     """
     if not settings.uri:
-        msg = "no printer given: pass --printer NAME or URI, or set [printer] uri"
+        # The [printer] uri, also for a named printer: every printer's section falls back to it.
+        msg = f"no printer given: pass --printer NAME or URI, or set {PRINTER_SECTION.setting('uri')}"
         raise ConfigurationError(msg)
     return settings.uri
 

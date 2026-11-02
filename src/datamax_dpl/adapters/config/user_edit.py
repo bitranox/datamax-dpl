@@ -21,7 +21,7 @@ from tomlkit.items import Table
 
 from datamax_dpl import __init__conf__
 from datamax_dpl.adapters.config.loader import get_config, get_default_config_path
-from datamax_dpl.adapters.config.sections import ConfigSection
+from datamax_dpl.adapters.config.sections import printer_section
 from datamax_dpl.domain.enums import DeployTarget
 
 if TYPE_CHECKING:
@@ -80,7 +80,7 @@ def write_printer_values(files: Sequence[Path], *, printer: str, values: Mapping
     Returns:
         The file written.
     """
-    section = (ConfigSection.PRINTERS.value, printer) if printer else (ConfigSection.PRINTER.value,)
+    section = printer_section(printer).keys
     holders = [path for path in files if path.is_file() and _find(_load(path), section) is not None]
     target = holders[-1] if holders else files[0]
     document = _load(target)
