@@ -129,7 +129,8 @@ for finding in result.findings:
 `render` raises `LabelRejectedError` when a finding is an error; `build_job` returns the same
 result without raising. For data records use `render_batch(label, records, options)`, and to send
 bytes open a transport with `open_printer(uri, timeout=10)` and call `send(data)` on it. `explain(data)`
-reads DPL bytes back. All of these are imported from `datamax_dpl`.
+reads DPL bytes back, as the command `datamax-dpl explain job.dpl` does. All of these are imported
+from `datamax_dpl`.
 
 `send(data)` writes the job as it is: it does not check what the printer stored, so an image
 download a full module lost gives a label with that image missing, and no error. On a channel that
@@ -137,7 +138,8 @@ can read answers (tcp, serial), `print_checked(job, CheckedJob(renders=record_re
 options), check=UploadCheck(wait=AnswerWait(seconds=30))),
 uri=uri, timeout=10, open_printer=open_printer)` is the route `print` takes: it reads the printer's
 directory after each label's downloads and raises `UploadRefusedError` before a format would print
-without its image.
+without its image. It also reads the status once first: on a reported reset one calibration label
+goes out before the job, and `CheckedJob(reset=None)` asks nothing.
 
 Everything the package raises on purpose derives from `DatamaxDplError`, also imported from
 `datamax_dpl`, so `except DatamaxDplError` catches it all. Below it, `TransportError` covers what a
@@ -376,9 +378,9 @@ instead of `data`.
 | Exit code | Meaning                                                                                                                                                                                  |
 |-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 0         | Done.                                                                                                                                                                                    |
-| 1         | Refused: at least one finding is an error. Nothing more was printed or written; a `--data` batch may have printed earlier labels, and the `record` of the finding says where it stopped. |
+| 1         | Refused: at least one finding is an error. Nothing more was printed or written; a `--data` batch may have printed earlier labels, and the `record` of the finding says where it stopped. `status` also exits 1 when the printer reports a problem (paper out, for example), `explain` when it could not read part of the job, and `detect` when no model fits. |
 | 2         | Could not run: unreadable or invalid label, unknown model, bad configuration, printer or camera not reachable.                                                                           |
-| 130       | Interrupted (Ctrl-C). Part of a job may already have been sent.                                                                                                                          |
+| 130       | Interrupted (Ctrl-C). For a command that sends, part of a job may already have been sent. On Windows a Ctrl-C during a wait on a silent socket takes effect only when that wait ends, up to its timeout. |
 | 141       | The reader of the output went away (`datamax-dpl schema \| head -1`); nothing more is said.                                                                                              |
 
 `info` and the config commands answer in the same envelopes (`config`: the dict `config --format

@@ -39,10 +39,11 @@ None of the decisions, and none of the accountability, were the AI's.
 to 3.15: Ruff, Pyright in strict mode, import-linter, Bandit, pip-audit and Pytest with coverage,
 including the doctests in the source.
 
-What has NOT been checked: output on a real printer. No Datamax printer and no camera have been
-attached yet. The DPL the code writes follows the manual and passes the tests against simulated
-printers, but nobody has watched a label come out. The README says so too, and this page will
-change when that happens.
+What has been checked on paper: one real printer, an Allegro 2 (text, lines, boxes, images,
+rotation, four barcode types, label lengths). What has NOT been checked: every other model, halved
+images, merged fields and which stop setting wins. No camera has been attached yet. Everything else
+the code writes follows the manual and passes the tests against simulated printers. The README
+says so too, and this page changes when that does.
 
 ## Checking it yourself
 

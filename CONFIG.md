@@ -494,6 +494,9 @@ delivers `1.50` as text. The same holds for `[printers.<name>]`, `[camera]` and 
 | `label_width`            | float, > 0, at most 100000 (mm)                  | unset                                | `DATAMAX_DPL___PRINTER__LABEL_WIDTH`            | Width of the loaded labels; `calibrate print` sizes its labels from it, and `calibrate set` works out from it the along bar length print defaulted to.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `label_height`           | float, > 0, at most 100000 (mm)                  | unset                                | `DATAMAX_DPL___PRINTER__LABEL_HEIGHT`           | Height of the loaded labels, for the across calibration label.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
+`--json` refuses `-` because the job would share stdout with the envelope. `file:/dev/stdout` is
+not refused the way `-` is: it is a path to this check, so do not use it together with `--json`.
+
 The calibration and stop-position keys ship unset, and unset means the model's default: the
 `allegro-2` profile carries values measured on one Allegro 2 (`scale_along` 0.976, `offset_along`
 -0.25 mm, `stop_position` 66.8 mm), every other model prints nominal (scale 1.0, offset 0.0) and
@@ -773,7 +776,8 @@ datamax-dpl config --section camera
 The `[preview]` section (shipped in `config.d/50-printer.toml`) bounds the picture `preview` and
 `verify` draw. One number in a label decides how much memory the picture takes, so a label past the
 limit is refused with exit 2 before anything is drawn, and `verify` refuses it before printing,
-because its expected picture needs the same canvas.
+because its expected picture needs the same canvas. A label that would send more fields than the
+model's format takes is refused the same way; `sent_as` counts a merged group once.
 
 | Key             | Type                       | Default  | Environment variable                   | Meaning                                                                                      |
 |-----------------|----------------------------|----------|----------------------------------------|----------------------------------------------------------------------------------------------|

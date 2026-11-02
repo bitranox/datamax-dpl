@@ -11,7 +11,9 @@ datamax-dpl schema > label.schema.json
 With `--json`, the schema is wrapped in the usual envelope under `data.label_schema`.
 
 Unknown keys are refused, so a typo is an error rather than a silently ignored setting. Every
-example on this page passes `datamax-dpl validate --model dmx-800 --option datamatrix`. A model
+example on this page passes `datamax-dpl validate --model dmx-800 --option datamatrix`, except the
+`image` one, which names a stored `LOGO`: that model clears its image module before the label, so
+it answers exit 1 with `stored_image_cleared`, as described there. A model
 that lacks a feature may refuse or replace an element; [capabilities.md](capabilities.md) lists
 what happens on which model.
 
@@ -512,8 +514,9 @@ label per record:
 Every value is used as text. Only element text is filled: coordinates and settings cannot come
 from a record. Two kinds of problem stop the command with exit 2 before anything is rendered: a
 record that lacks a field a placeholder names, and a filled text longer than the label format
-allows (255 characters, 4296 for qr `data`). A filled value the printer would reject, such as barcode data with the
-wrong number of digits, is an error finding of that record (exit 1), like any other label error.
+allows (255 characters for text, 3000 for barcode `data`, 4296 for qr `data`). A filled value the printer would
+reject, such as barcode data with the wrong number of digits or a barcode other than PDF417 past 255 characters, is an
+error finding of that record (exit 1), like any other label error.
 
 `{{` and `}}` stand for literal braces when the label is filled from records. Without `--data`
 the text is printed exactly as written, `{name}` included, and the warning
