@@ -46,7 +46,10 @@ All notable changes to this project are documented here. The format follows
   (firmware CA02 03.04) only, unverified on other models. An image a 0.4.0
   job left on a module no clear empties is not recognised by its old name
   and is downloaded once more: it costs module memory, never a wrong
-  picture.
+  picture. On a nearly full module that is never cleared that download can
+  be lost with no error, and the label then prints without the image; on a
+  two-way link the upload check of `print` and `verify` catches that before
+  the format goes out.
 - `allegro-2` model values measured on the printer: `max_format_rows` is
   1648 (about 201 mm at `scale_along` 0.976), the lowest row any test
   format was cut at; where the printer cuts depends on the format's

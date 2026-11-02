@@ -184,8 +184,12 @@ different images ever sent there share a name is about 0.0014% (computed, k**2 /
 such a pair prints the earlier picture. A name a job of 0.4.0 left on such a module (`D` and 7 hex
 digits for a drawn image, the element's own `name` for one with a `bitmap`) is not the name this
 version gives that image, so it is downloaded once more under its new name: it costs module memory,
-never a wrong picture. Only an `image` element without a `bitmap` that no element of the label
-downloads names a printer image by its own `name`.
+never a wrong picture. On a nearly full module that is never cleared that download can be lost with
+no error, and the label then prints without that image (one Allegro 2, 2026-10-31); on a two-way
+link the upload check of `print` and `verify` catches that before the format goes out: it uploads
+again (after a clear where one may go) and refuses the label rather than print it without the
+image. Only an `image` element without a `bitmap` that no element of the label downloads names a
+printer image by its own `name`.
 
 Measured on an Allegro 2 (firmware CA02 03.04), not stated in the manual: the printer draws the
 FIRST row record at the BOTTOM of the image, and images holding `0000FFnn` repeat records print
