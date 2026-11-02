@@ -131,20 +131,25 @@ def test_a_cycle_prints_asks_status_three_times_and_connects_bare(
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("accepted_connects", [0, 1])
+@pytest.mark.parametrize("accepted_connects", [0, 1, 3])
 def test_a_port_that_stops_accepting_ends_the_run_and_says_so(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     connections: Callable[[int], ConnectionsServer],
     accepted_connects: int,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The server takes the print, the three status questions and ``accepted_connects``, then stops listening.
 
     A connect made just before the listener closes can still be taken from its backlog, so the
-    accepted connects are a floor; what follows the first refused connect must all be refused. The
-    run stops in cycle 1, only after the port has failed for ``--give-up`` seconds counted from the
-    START of the first refused connect (a Windows refusal alone takes about 2 s).
+    accepted connects are a floor, and on a loaded host a whole cycle's connects can land there (3
+    accepted makes that case every time); what follows the first refused connect must all be refused.
+    The run stops in the cycle of that first refused connect, only after the port has failed for
+    ``--give-up`` seconds counted from its START (a Windows refusal alone takes about 2 s).
     """
+    # A print into the closed port of cycle 2 would otherwise wait out its reads, over a minute.
+    for key in ("STATUS_WAIT", "STORED_NAMES_WAIT", "RESET_CHECK_WAIT"):
+        monkeypatch.setenv(f"DATAMAX_DPL___PRINTER__{key}", "0.1")
     server = connections(1 + 3 + accepted_connects)
 
     code = _main()(_args(server, tmp_path, "--cycles", "2", "--connects", "3", "--give-up", str(_GIVE_UP)))
@@ -154,10 +159,11 @@ def test_a_port_that_stops_accepting_ends_the_run_and_says_so(
     rows = _log_rows(tmp_path / "cycles.jsonl")
     assert [row["step"] for row in rows[:4]] == ["print", "status", "status", "status"]
     stop = rows[-1]
-    assert (stop["step"], stop["cycle"], stop["rc"]) == ("stop", 1, 3)
+    assert (stop["step"], stop["rc"]) == ("stop", 3)
     assert "looks wedged" in stop["error"]
     connects = [row for row in rows if row["step"] == "connect"]
     first_refused = next(index for index, row in enumerate(connects) if row["error"] == "refused")
+    assert stop["cycle"] == connects[first_refused]["cycle"]
     assert first_refused >= accepted_connects
     assert all(row["rc"] == 0 for row in connects[:first_refused])
     assert all(row["error"] == "refused" for row in connects[first_refused:])
