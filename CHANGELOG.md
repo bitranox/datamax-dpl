@@ -44,7 +44,7 @@ All notable changes to this project are documented here. The format follows
   passed, and `render -o -` checks all of them, then streams.
 - Library: `iter_batch` yields one `RenderResult` at a time, `check_batch` returns a `BatchReport` holding no job, and
   `print_checked` takes the report with `report.renders()`, building each label when its turn comes. `render_batch`
-  stays as the way to hold a batch whole. `CheckedPrint` is now a generic dataclass, so a `BatchResult` comes back as one.
+  stays as the way to hold a batch whole.
 - `[printer] max_reported_findings` and `max_reported_downloads` (default 1000 each): a batch's answer keeps that many
   findings and image names in full and always its first error. The JSON envelope gains `findings_total`,
   `findings_by_code`, `downloads_total` and `report_note`, which names the key when something was cut. An error still
