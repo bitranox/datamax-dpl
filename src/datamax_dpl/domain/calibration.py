@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import math
 import textwrap
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from datamax_dpl.domain.charset import CAPITALS_ONLY_FONTS, encode_for_bitmapped_font
@@ -32,6 +33,7 @@ __all__ = [
     "ALONG_LENGTH_MM",
     "MIN_LABEL_MM",
     "TICK_SPACING_MM",
+    "CalibrationLabels",
     "across_frame_width",
     "across_label",
     "along_label",
@@ -240,9 +242,22 @@ def default_along_length(*, width: float, title: str, options: RenderOptions) ->
     return ALONG_LENGTH_MM if fits is None else fits
 
 
+@dataclass(frozen=True)
+class CalibrationLabels:
+    """Both calibration labels for one printer's media.
+
+    Attributes:
+        across: The label that measures lengths across the web.
+        along: The label that measures lengths along the feed.
+    """
+
+    across: Label
+    along: Label
+
+
 def calibration_labels(
     *, width: float, height: float, title: str, along_length: float = ALONG_LENGTH_MM
-) -> tuple[Label, Label]:
+) -> CalibrationLabels:
     """Build both calibration labels for one printer's media.
 
     Args:
@@ -258,13 +273,13 @@ def calibration_labels(
         ValueError: As :func:`across_label` and :func:`along_label`.
 
     Example:
-        >>> across, along = calibration_labels(width=100, height=55, title="LAGER")
-        >>> (across.height, along.height)
+        >>> labels = calibration_labels(width=100, height=55, title="LAGER")
+        >>> (labels.across.height, labels.along.height)
         (55.0, 205.0)
     """
-    return (
-        across_label(width=width, height=height, title=title),
-        along_label(width=width, length=along_length, title=title),
+    return CalibrationLabels(
+        across=across_label(width=width, height=height, title=title),
+        along=along_label(width=width, length=along_length, title=title),
     )
 
 
@@ -362,12 +377,14 @@ def _text_block(text: str, *, x: float, top: float, bottom: float, width: float)
     for font, break_words in attempts:
         if not _prints_as_given(text, font):
             continue
-        advance, height = widest_cell_mm(font)
-        pitch = height + _LINE_GAP_MM
-        lines = _wrap(text, int(width // advance), break_words=break_words)
+        cell = widest_cell_mm(font)
+        pitch = cell.height + _LINE_GAP_MM
+        lines = _wrap(text, int(width // cell.advance), break_words=break_words)
         # No gap is needed below the last line.
-        if lines and top - height - (len(lines) - 1) * pitch >= bottom:
-            return [Text(x=x, y=top - height - row * pitch, text=line, font=font) for row, line in enumerate(lines)]
+        if lines and top - cell.height - (len(lines) - 1) * pitch >= bottom:
+            return [
+                Text(x=x, y=top - cell.height - row * pitch, text=line, font=font) for row, line in enumerate(lines)
+            ]
     raise ValueError(f"the label is too small for its text {text!r}")
 
 

@@ -12,7 +12,7 @@ from .profiles import Feature
 from .qr import QrDataTooLongError, qr_bitmap
 from .raster import Bitmap
 from .raster_fallback import rasterize
-from .records import BoxRecord, circle_record, image_record, line, line_record, polygon_record
+from .records import BoxRecord, RecordPosition, circle_record, image_record, line, line_record, polygon_record
 from .render_context import ImageEdge
 from .units import Axis
 
@@ -24,8 +24,11 @@ def _polygons(ctx: RenderContext) -> bool:
     return ctx.supports(Feature.CIRCLE_POLYGON)
 
 
-def _points(points: list[Point], *, index: int, ctx: RenderContext) -> list[tuple[int, int]]:
-    return [(row_of(p.y, index=index, ctx=ctx), column_of(p.x, index=index, ctx=ctx)) for p in points]
+def _points(points: list[Point], *, index: int, ctx: RenderContext) -> list[RecordPosition]:
+    return [
+        RecordPosition(row=row_of(p.y, index=index, ctx=ctx), column=column_of(p.x, index=index, ctx=ctx))
+        for p in points
+    ]
 
 
 def _thin_quad(element: Line) -> list[Point]:
@@ -113,7 +116,12 @@ def _inset_fill(outline: BoxRecord, *, pattern: FillPattern, ctx: RenderContext)
     right = outline.column + outline.width - outline.side - far
     if top < bottom or right < left:
         return []
-    corners = [(bottom, left), (bottom, right), (top, right), (top, left)]
+    corners = [
+        RecordPosition(row=bottom, column=left),
+        RecordPosition(row=bottom, column=right),
+        RecordPosition(row=top, column=right),
+        RecordPosition(row=top, column=left),
+    ]
     return [line(polygon_record(corners, fill=pattern))]
 
 
@@ -201,8 +209,8 @@ def encode_image(element: Image, *, index: int, ctx: RenderContext) -> list[byte
     return [line(image_record(row=row, column=column, name=placed.name, magnification=placed.dots))]
 
 
-def qr_symbol_position(element: Qr, *, column: int, row: int, ctx: RenderContext) -> tuple[int, int]:
-    """Return the DPL ``(column, row)`` a QR Code's symbol starts at, from its field's own column and row.
+def qr_symbol_position(element: Qr, *, column: int, row: int, ctx: RenderContext) -> RecordPosition:
+    """Return the DPL row and column a QR Code's symbol starts at, from its field's own column and row.
 
     The quiet zone is added in DPL units to the position the field is written at; rounding the
     sum of the two lengths instead can land a unit away. Shared with the overlap detection, which
@@ -216,7 +224,9 @@ def qr_symbol_position(element: Qr, *, column: int, row: int, ctx: RenderContext
         ctx: The render context.
     """
     quiet = ctx.length_of_dots(element.quiet_zone * element.module_dots)
-    return column + ctx.dpl_units(quiet, axis=Axis.ACROSS), row + ctx.dpl_units(quiet, axis=Axis.ALONG)
+    return RecordPosition(
+        row=row + ctx.dpl_units(quiet, axis=Axis.ALONG), column=column + ctx.dpl_units(quiet, axis=Axis.ACROSS)
+    )
 
 
 def encode_qr(element: Qr, *, index: int, ctx: RenderContext) -> list[bytes]:
@@ -235,11 +245,11 @@ def encode_qr(element: Qr, *, index: int, ctx: RenderContext) -> list[bytes]:
         return []
     field_row = row_of(element.y, index=index, ctx=ctx)
     field_column = column_of(element.x, index=index, ctx=ctx)
-    column, row = qr_symbol_position(element, column=field_column, row=field_row, ctx=ctx)
+    symbol_at = qr_symbol_position(element, column=field_column, row=field_row, ctx=ctx)
     # Checked from the symbol's column, but skipped by the FIELD's: the quiet zone can carry a symbol
     # whose field is inside past the last column, and that symbol must still be refused.
     edge = ImageEdge(
-        column=column if field_column <= last_column(ctx) else None,
+        column=symbol_at.column if field_column <= last_column(ctx) else None,
         what=f"{element.type} with its quiet zone",
         code=FindingCode.QR_PAST_PRINT_WIDTH,
         margin_dots=element.quiet_zone * element.module_dots,
@@ -250,7 +260,7 @@ def encode_qr(element: Qr, *, index: int, ctx: RenderContext) -> list[bytes]:
     )
     if placed is None:
         return []
-    return [line(image_record(row=row, column=column, name=placed.name, magnification=placed.dots))]
+    return [line(image_record(row=symbol_at.row, column=symbol_at.column, name=placed.name, magnification=placed.dots))]
 
 
 __all__ = [

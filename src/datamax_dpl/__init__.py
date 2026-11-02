@@ -27,6 +27,7 @@ from .composition import get_config
 from .domain.calibration import (
     ACROSS_INSET_MM,
     ALONG_LENGTH_MM,
+    CalibrationLabels,
     across_frame_width,
     across_label,
     along_label,
@@ -88,6 +89,7 @@ __all__ = [
     "BarcodeProblemCode",
     "BatchResult",
     "Box",
+    "CalibrationLabels",
     "Circle",
     "CommandKind",
     "Counter",

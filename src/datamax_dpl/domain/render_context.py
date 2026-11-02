@@ -25,13 +25,14 @@ from .enums import (
     SpeedCode,
     Unit,
 )
+from .geometry import Size
 from .held_images import HeldImages
 from .image_budget import HALVING_FACTOR, halve, halved_magnification, image_data_bytes
 from .image_records import CR, MAX_WIDTH, download_command
 from .label import StopPosition
 from .profiles import Feature
 from .raster import Bitmap
-from .records import MAX_IMAGE_MAGNIFICATION
+from .records import MAX_IMAGE_MAGNIFICATION, Magnification
 from .units import (
     MAX_OFFSET_MM,
     MAX_SCALE,
@@ -377,12 +378,20 @@ class PlacedImage:
 
     name: str
     magnification: int
-    size: tuple[int, int] | None = None
+    size: Size | None = None
 
     @property
-    def dots(self) -> tuple[int, int]:
-        """The magnification as the placing record's (across, along) pair."""
-        return self.magnification, self.magnification
+    def dots(self) -> Magnification:
+        """The magnification as the placing record writes it, the same across and along."""
+        return Magnification(across=self.magnification, along=self.magnification)
+
+
+@dataclass(frozen=True)
+class _SentForm:
+    """An image as the job sends it, and the magnification it is placed at."""
+
+    bitmap: Bitmap
+    magnification: int
 
 
 @dataclass(frozen=True)
@@ -549,8 +558,8 @@ class RenderContext:
         if not support.available:
             return f"{self.profile.name} does not have it"
         if support.min_firmware is not None:
-            major, minor = support.min_firmware
-            return f"{self.profile.name} needs firmware {major}.{minor:02d} or later (pass --firmware)"
+            needed = support.min_firmware
+            return f"{self.profile.name} needs firmware {needed.major}.{needed.minor:02d} or later (pass --firmware)"
         option = support.option.value if support.option is not None else ""
         return f"{self.profile.name} needs the '{option}' option installed"
 
@@ -657,7 +666,7 @@ class RenderContext:
             )
         return self.image_module
 
-    def _sent_form(self, bitmap: Bitmap, *, what: str, element: int, magnification: int) -> tuple[Bitmap, int]:
+    def _sent_form(self, bitmap: Bitmap, *, what: str, element: int, magnification: int) -> _SentForm:
         """Return the bitmap this job sends and the magnification it is placed at.
 
         Unchanged unless the job halves its images; then halved and placed at double the
@@ -665,7 +674,7 @@ class RenderContext:
         magnification passes the largest a record writes.
         """
         if not self.halve_images:
-            return bitmap, magnification
+            return _SentForm(bitmap, magnification)
         doubled = halved_magnification(magnification)
         if doubled is None:
             self.findings.refuse(
@@ -674,9 +683,9 @@ class RenderContext:
                 f"{magnification * HALVING_FACTOR}, past {MAX_IMAGE_MAGNIFICATION}, the largest image magnification",
                 element=element,
             )
-            return bitmap, magnification
+            return _SentForm(bitmap, magnification)
         self.halved_elements.append(element)
-        return halve(bitmap), doubled
+        return _SentForm(halve(bitmap), doubled)
 
     def _check_print_width(self, placed: PlacedImage, *, edge: ImageEdge, element: int) -> None:
         """Refuse an image whose right edge, magnified, ends past the printhead's last dot.
@@ -689,7 +698,7 @@ class RenderContext:
         """
         if placed.size is None or edge.column is None:
             return
-        end = self.printed_dots(edge.column) + placed.size[0] * placed.magnification + edge.margin_dots
+        end = self.printed_dots(edge.column) + placed.size.width * placed.magnification + edge.margin_dots
         limit = round(self.profile.print_width_in * self.profile.dpi)
         if end > limit:
             self.findings.refuse(
@@ -730,8 +739,10 @@ class RenderContext:
             (``image_module_unknown``): it is then refused, not queued, and the caller places
             nothing for the element.
         """
-        sent, placed_at = self._sent_form(bitmap, what=f"image {name}", element=element, magnification=magnification)
-        return self._download_label_image(name, sent, element=element, edge=edge, magnification=placed_at)
+        sent = self._sent_form(bitmap, what=f"image {name}", element=element, magnification=magnification)
+        return self._download_label_image(
+            name, sent.bitmap, element=element, edge=edge, magnification=sent.magnification
+        )
 
     def _download_label_image(
         self, name: str, sent: Bitmap, *, element: int, edge: ImageEdge, magnification: int
@@ -743,7 +754,7 @@ class RenderContext:
         if module is None:
             return None
         printer_name = self._queue_drawn(self._drawn_name(sent), sent, module=module, element=element, label_name=name)
-        placed = PlacedImage(name=printer_name, magnification=magnification, size=(sent.width, sent.height))
+        placed = PlacedImage(name=printer_name, magnification=magnification, size=Size(sent.width, sent.height))
         return self._checked(placed, edge=edge, element=element)
 
     def image_rows(self, image: Image) -> Sequence[str] | None:
@@ -776,8 +787,10 @@ class RenderContext:
         if rows is None:
             return PlacedImage(name=name, magnification=magnification)
         bitmap = Bitmap.from_rows(rows)
-        sent, placed_at = self._sent_form(bitmap, what=f"image {name}", element=element, magnification=magnification)
-        return self._download_label_image(name, sent, element=element, edge=edge, magnification=placed_at)
+        sent = self._sent_form(bitmap, what=f"image {name}", element=element, magnification=magnification)
+        return self._download_label_image(
+            name, sent.bitmap, element=element, edge=edge, magnification=sent.magnification
+        )
 
     def download_drawn_image(
         self, bitmap: Bitmap, *, element: int, edge: ImageEdge, magnification: int = 1, halvable: bool = True
@@ -805,9 +818,10 @@ class RenderContext:
             to (``image_module_unknown``): it is then refused, not queued, and the caller places
             nothing for the element.
         """
-        sent, placed_at = bitmap, magnification
+        form = _SentForm(bitmap, magnification)
         if halvable:
-            sent, placed_at = self._sent_form(bitmap, what="drawn image", element=element, magnification=magnification)
+            form = self._sent_form(bitmap, what="drawn image", element=element, magnification=magnification)
+        sent = form.bitmap
         # Named before the check, so a refusal gives the name the job would queue it under.
         name = self._drawn_name(sent)
         described = f"{self._described(edge, element=element)} drawn as image {name}"
@@ -818,8 +832,8 @@ class RenderContext:
             return None
         placed = PlacedImage(
             name=self._queue_drawn(name, sent, module=module, element=element),
-            magnification=placed_at,
-            size=(sent.width, sent.height),
+            magnification=form.magnification,
+            size=Size(sent.width, sent.height),
         )
         return self._checked(placed, edge=edge, element=element)
 

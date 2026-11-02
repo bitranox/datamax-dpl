@@ -24,6 +24,7 @@ import math
 from typing import TYPE_CHECKING
 
 from .enums import CombineMode, FillPattern
+from .geometry import DotPoint, Rect
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -173,7 +174,7 @@ def _walk(start: tuple[int, int], end: tuple[int, int], *, low: int, high: int) 
         yield a, (b0 + _round_div((a - a0) * (b1 - b0), span) if span else b0)
 
 
-def _crossings(points: Sequence[tuple[int, int]], y: int) -> list[int]:
+def _crossings(points: Sequence[DotPoint], y: int) -> list[int]:
     """Return, sorted, the first pixel column at or right of each edge crossing of row ``y``.
 
     An edge counts for rows ``y_low <= y < y_high`` (half-open), so a vertex shared by two edges
@@ -301,12 +302,12 @@ class Bitmap:
         if thickness < 1:
             msg = f"line thickness must be at least 1, got {thickness}"
             raise ValueError(msg)
-        for x, y in self._line_points((x0, y0), (x1, y1), margin=thickness):
+        for x, y in self._line_points(DotPoint(x0, y0), DotPoint(x1, y1), margin=thickness):
             self._stamp(x, y, thickness)
 
     def draw_polygon(
         self,
-        points: Sequence[tuple[int, int]],
+        points: Sequence[DotPoint],
         *,
         outline: int = 1,
         fill: FillPattern = FillPattern.NONE,
@@ -323,7 +324,8 @@ class Bitmap:
 
         Example:
             >>> bitmap = Bitmap(10, 10)
-            >>> bitmap.draw_polygon([(1, 1), (8, 1), (8, 8), (1, 8)], fill=FillPattern.SOLID)
+            >>> corners = [DotPoint(1, 1), DotPoint(8, 1), DotPoint(8, 8), DotPoint(1, 8)]
+            >>> bitmap.draw_polygon(corners, fill=FillPattern.SOLID)
             >>> bitmap.black_pixels()
             64
         """
@@ -444,15 +446,15 @@ class Bitmap:
                 return True
         return False
 
-    def bounds(self) -> tuple[int, int, int, int] | None:
-        """Return (left, top, width, height) of the smallest rectangle holding every black pixel.
+    def bounds(self) -> Rect | None:
+        """Return the smallest rectangle holding every black pixel.
 
         Returns:
             The rectangle, or None for a blank bitmap.
 
         Example:
             >>> Bitmap.from_rows(["....", ".#..", "..#."]).bounds()
-            (1, 1, 2, 2)
+            Rect(left=1, top=1, width=2, height=2)
         """
         filled = [y for y, row in enumerate(self._rows) if row]
         if not filled:
@@ -462,7 +464,7 @@ class Bitmap:
             union |= row
         left = self.width - union.bit_length()
         right = self.width - (union & -union).bit_length()
-        return left, filled[0], right - left + 1, filled[-1] - filled[0] + 1
+        return Rect(left=left, top=filled[0], width=right - left + 1, height=filled[-1] - filled[0] + 1)
 
     def rows(self) -> list[bytes]:
         """Return each row, top row first, packed MSB-first and padded with white to whole bytes.
@@ -569,8 +571,8 @@ class Bitmap:
 
     def _line_points(
         self,
-        start: tuple[int, int],
-        end: tuple[int, int],
+        start: DotPoint,
+        end: DotPoint,
         *,
         margin: int,
     ) -> Iterator[tuple[int, int]]:
@@ -591,14 +593,14 @@ class Bitmap:
         for row in range(max(y - before, 0), min(y + after, self.height - 1) + 1):
             self._rows[row] |= mask
 
-    def _fill_polygon(self, points: Sequence[tuple[int, int]], pattern: FillPattern) -> None:
+    def _fill_polygon(self, points: Sequence[DotPoint], pattern: FillPattern) -> None:
         """Fill the polygon's interior with ``pattern`` by the even-odd rule.
 
         A pixel is inside when its column lies in ``[left crossing, right crossing)``, so a
         rectangle from (0, 0) to (4, 4) fills exactly the 4 x 4 pixels ``fill_rect(0, 0, 4, 4)``
         would, and the outline drawn afterwards covers the right and bottom edges.
         """
-        rows = [y for _, y in points]
+        rows = [point.y for point in points]
         for y in range(max(min(rows), 0), min(max(rows), self.height - 1) + 1):
             crossings = _crossings(points, y)
             for left, right in zip(crossings[0::2], crossings[1::2], strict=True):

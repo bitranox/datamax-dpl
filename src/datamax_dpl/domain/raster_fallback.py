@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, get_args
 
 from .encode_common import column_of, image_edge, row_of
 from .enums import FillPattern, FindingCode
+from .geometry import DotPoint, Size
 from .label import Box, Circle, Line, Polygon
 from .raster import Bitmap
 from .records import image_record, line
@@ -45,39 +46,51 @@ class Frame:
     height_dots: int
 
 
-def _extent(element: Graphic) -> tuple[float, float, float, float]:
-    """Return ``(left, bottom, right, top)`` of the graphic in label units."""
+@dataclass(frozen=True)
+class _Extent:
+    """The edges of a graphic in label units, unclipped; the y axis grows up."""
+
+    left: float
+    bottom: float
+    right: float
+    top: float
+
+
+def _extent(element: Graphic) -> _Extent:
+    """Return the edges of the graphic in label units."""
     if isinstance(element, Circle):
         r = element.radius
-        return element.x - r, element.y - r, element.x + r, element.y + r
+        return _Extent(left=element.x - r, bottom=element.y - r, right=element.x + r, top=element.y + r)
     if isinstance(element, Box):
-        return element.x, element.y, element.x + element.width, element.y + element.height
+        return _Extent(
+            left=element.x, bottom=element.y, right=element.x + element.width, top=element.y + element.height
+        )
     if isinstance(element, Line):
         half = element.thickness / 2
         xs, ys = (element.x, element.x2), (element.y, element.y2)
-        return min(xs) - half, min(ys) - half, max(xs) + half, max(ys) + half
+        return _Extent(left=min(xs) - half, bottom=min(ys) - half, right=max(xs) + half, top=max(ys) + half)
     xs = [p.x for p in element.points]
     ys = [p.y for p in element.points]
-    return min(xs), min(ys), max(xs), max(ys)
+    return _Extent(left=min(xs), bottom=min(ys), right=max(xs), top=max(ys))
 
 
 def frame_of(element: Graphic, ctx: RenderContext) -> Frame:
     """Return the graphic's bounding box in label units (clipped at 0) and its size in dots at this job's scale."""
-    left, bottom, right, top = _extent(element)
-    left, bottom = max(left, 0.0), max(bottom, 0.0)
+    extent = _extent(element)
+    left, bottom = max(extent.left, 0.0), max(extent.bottom, 0.0)
     return Frame(
         left,
         bottom,
-        ctx.offset_dots(right - left, axis=Axis.ACROSS) + 1,
-        ctx.offset_dots(top - bottom, axis=Axis.ALONG) + 1,
+        ctx.offset_dots(extent.right - left, axis=Axis.ACROSS) + 1,
+        ctx.offset_dots(extent.top - bottom, axis=Axis.ALONG) + 1,
     )
 
 
-def _pixel(x: float, y: float, frame: Frame, ctx: RenderContext) -> tuple[int, int]:
-    """Map a label point to bitmap pixel coordinates (bitmap row 0 is the top)."""
+def _pixel(x: float, y: float, frame: Frame, ctx: RenderContext) -> DotPoint:
+    """Map a label point to its bitmap pixel (bitmap row 0 is the top)."""
     column = ctx.offset_dots(x - frame.left, axis=Axis.ACROSS)
     from_bottom = ctx.offset_dots(y - frame.bottom, axis=Axis.ALONG)
-    return column, frame.height_dots - 1 - from_bottom
+    return DotPoint(column, frame.height_dots - 1 - from_bottom)
 
 
 def draw_graphic(element: Graphic, bitmap: Bitmap, frame: Frame, ctx: RenderContext) -> None:
@@ -110,7 +123,7 @@ def _draw_box(element: Box, bitmap: Bitmap, ctx: RenderContext) -> None:
 
 def _sent_size(placed: PlacedImage, frame: Frame) -> str:
     """Describe the image as sent: its size in dots, and its magnification when it was halved."""
-    width, height = placed.size or (frame.width_dots, frame.height_dots)
+    width, height = placed.size or Size(frame.width_dots, frame.height_dots)
     if placed.magnification == 1:
         return f"{width}x{height} dots"
     return f"{width}x{height} dots, placed at magnification {placed.magnification}"

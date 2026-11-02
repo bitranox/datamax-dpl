@@ -8,7 +8,7 @@ Field layouts are in ``docs/dpl-reference.md`` section 5.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from .enums import FillPattern, Rotation
 
@@ -104,6 +104,38 @@ def line(text: str | bytes) -> bytes:
     return raw + CR
 
 
+@dataclass(frozen=True)
+class RecordPosition:
+    """Where a record puts a point: its DPL row (up from the label's bottom edge) and column.
+
+    A dataclass rather than a pair, so a row can never be read as a column: records write the
+    row first, the label's coordinates put ``x`` (the column) first.
+
+    Example:
+        >>> RecordPosition(row=10, column=40).column
+        40
+    """
+
+    row: int
+    column: int
+
+
+class Magnification(NamedTuple):
+    """Printer dots per image dot of an image record: across (its dot width) and along (its dot height).
+
+    Example:
+        >>> Magnification(across=3, along=2).along
+        2
+    """
+
+    across: int
+    along: int
+
+
+#: An image record that prints each image dot as one printer dot.
+UNMAGNIFIED = Magnification(across=1, along=1)
+
+
 def _graphic_header(*, row: int, column: int, fill: FillPattern = FillPattern.NONE) -> str:
     return f"1X11{fill.value:03d}{row:04d}{column:04d}"
 
@@ -146,16 +178,17 @@ class BoxRecord:
         return (head + "b" + "".join(f"{v:04d}" for v in sizes)).encode("ascii")
 
 
-def polygon_record(points: Sequence[tuple[int, int]], *, fill: FillPattern) -> bytes:
-    """A polygon through ``points`` given as ``(row, column)``; the printer closes it.
+def polygon_record(points: Sequence[RecordPosition], *, fill: FillPattern) -> bytes:
+    """A polygon through ``points``; the printer closes it.
 
     Example:
-        >>> polygon_record([(10, 10), (40, 25), (10, 40)], fill=FillPattern.NONE)
+        >>> corners = [RecordPosition(row=row, column=column) for row, column in [(10, 10), (40, 25), (10, 40)]]
+        >>> polygon_record(corners, fill=FillPattern.NONE)
         b'1X1100000100010P00100010040002500100040'
     """
-    first_row, first_column = points[0]
-    head = _graphic_header(row=first_row, column=first_column, fill=fill)
-    vertices = "".join(f"{row:04d}{column:04d}" for row, column in points[1:])
+    first = points[0]
+    head = _graphic_header(row=first.row, column=first.column, fill=fill)
+    vertices = "".join(f"{point.row:04d}{point.column:04d}" for point in points[1:])
     return f"{head}P0010001{vertices}".encode("ascii")
 
 
@@ -170,7 +203,7 @@ def circle_record(*, row: int, column: int, radius: int, fill: FillPattern) -> b
     return f"{head}C0010001{radius:04d}".encode("ascii")
 
 
-def image_record(*, row: int, column: int, name: str, magnification: tuple[int, int] = (1, 1)) -> bytes:
+def image_record(*, row: int, column: int, name: str, magnification: Magnification = UNMAGNIFIED) -> bytes:
     """Place a stored image (rotation 1 only), each image dot printed as ``across x along`` dots.
 
     The manual's image fields (Table 7-8) make ``c`` the dot width and ``d`` the dot height,
@@ -191,7 +224,7 @@ def image_record(*, row: int, column: int, name: str, magnification: tuple[int, 
     Example:
         >>> image_record(row=0, column=0, name="LOGO")
         b'1Y1100000000000LOGO'
-        >>> image_record(row=0, column=0, name="QR", magnification=(3, 3))
+        >>> image_record(row=0, column=0, name="QR", magnification=Magnification(across=3, along=3))
         b'1Y3300000000000QR'
     """
     across, along = magnification
@@ -208,8 +241,11 @@ __all__ = [
     "MAX_SHORT_FIELD",
     "SOH",
     "STX",
+    "UNMAGNIFIED",
     "BoxRecord",
     "Header",
+    "Magnification",
+    "RecordPosition",
     "circle_record",
     "image_record",
     "line",

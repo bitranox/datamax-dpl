@@ -7,6 +7,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from datamax_dpl.domain.enums import CombineMode, FillPattern
+from datamax_dpl.domain.geometry import DotPoint
 from datamax_dpl.domain.raster import TILE_SIZE, Bitmap, pattern_pixel
 
 HUGE = 10**12
@@ -339,7 +340,7 @@ def test_line_rejects_thickness_below_one(thickness: int) -> None:
 # ======================== polygons ========================
 
 
-TRIANGLE = [(10, 10), (50, 10), (30, 40)]
+TRIANGLE = [DotPoint(10, 10), DotPoint(50, 10), DotPoint(30, 40)]
 
 
 @pytest.mark.os_agnostic
@@ -365,14 +366,16 @@ def test_unfilled_triangle_has_white_centroid_and_black_vertices() -> None:
 def test_polygon_without_outline_draws_fill_only() -> None:
     """``outline=0`` fills the half-open interior and draws no edge."""
     bitmap = Bitmap(10, 10)
-    bitmap.draw_polygon([(0, 0), (4, 0), (4, 4), (0, 4)], outline=0, fill=FillPattern.SOLID)
+    bitmap.draw_polygon(
+        [DotPoint(0, 0), DotPoint(4, 0), DotPoint(4, 4), DotPoint(0, 4)], outline=0, fill=FillPattern.SOLID
+    )
     assert black_set(bitmap) == {(x, y) for x in range(4) for y in range(4)}
 
 
 @pytest.mark.os_agnostic
 def test_polygon_fill_uses_even_odd_rule() -> None:
     """A self-overlapping pentagram leaves its centre white under the even-odd rule."""
-    star = [(50, 0), (79, 90), (2, 34), (98, 34), (21, 90)]
+    star = [DotPoint(50, 0), DotPoint(79, 90), DotPoint(2, 34), DotPoint(98, 34), DotPoint(21, 90)]
     bitmap = Bitmap(100, 100)
     bitmap.draw_polygon(star, outline=0, fill=FillPattern.SOLID)
     assert not bitmap.get(50, 50)
@@ -383,7 +386,9 @@ def test_polygon_fill_uses_even_odd_rule() -> None:
 def test_polygon_with_shared_vertex_rows_fills_cleanly() -> None:
     """A diamond whose left and right vertices share a row has no gap on that row."""
     bitmap = Bitmap(21, 21)
-    bitmap.draw_polygon([(10, 0), (20, 10), (10, 20), (0, 10)], outline=0, fill=FillPattern.SOLID)
+    bitmap.draw_polygon(
+        [DotPoint(10, 0), DotPoint(20, 10), DotPoint(10, 20), DotPoint(0, 10)], outline=0, fill=FillPattern.SOLID
+    )
     assert all(bitmap.get(x, 10) for x in range(20))
 
 
@@ -398,14 +403,17 @@ def test_polygon_rejects_empty_points() -> None:
 def test_polygon_rejects_negative_outline() -> None:
     """The outline thickness cannot be negative."""
     with pytest.raises(ValueError, match="outline must not be negative"):
-        Bitmap(5, 5).draw_polygon([(0, 0), (4, 0), (4, 4)], outline=-1)
+        Bitmap(5, 5).draw_polygon([DotPoint(0, 0), DotPoint(4, 0), DotPoint(4, 4)], outline=-1)
 
 
 @pytest.mark.os_agnostic
 def test_huge_polygon_clips_without_raising() -> None:
     """A polygon far larger than the image fills all of it."""
     bitmap = Bitmap(12, 8)
-    bitmap.draw_polygon([(-HUGE, -HUGE), (HUGE, -HUGE), (HUGE, HUGE), (-HUGE, HUGE)], fill=FillPattern.SOLID)
+    bitmap.draw_polygon(
+        [DotPoint(-HUGE, -HUGE), DotPoint(HUGE, -HUGE), DotPoint(HUGE, HUGE), DotPoint(-HUGE, HUGE)],
+        fill=FillPattern.SOLID,
+    )
     assert bitmap.black_pixels() == 12 * 8
 
 

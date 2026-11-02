@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 from .encode_graphics import encode_box, encode_circle, encode_image, encode_line, encode_polygon, encode_qr
 from .enums import Attribute, FallbackPolicy, FindingCode, Severity
 from .findings import FindingCollector
+from .geometry import Size
 from .label import Box, Circle, Image, Line, Polygon, Qr
 from .overlap import find_overlaps, printed_dots
 from .profiles import Feature
@@ -177,7 +178,7 @@ def _emulate_group(label: Label, group: tuple[int, ...], ctx: RenderContext) -> 
     if placed.magnification != 1:
         ctx.halved_elements.extend(group[1:])
     ctx.emulated_groups.append(group)
-    width, height = placed.size or (merged.bitmap.width, merged.bitmap.height)
+    width, height = placed.size or Size(merged.bitmap.width, merged.bitmap.height)
     ctx.findings.deviate(
         FindingCode.TRANSPARENCY_EMULATED,
         f"elements {', '.join(map(str, group))} overlap; {ctx.profile.name} has no attribute command "

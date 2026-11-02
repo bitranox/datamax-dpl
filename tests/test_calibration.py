@@ -156,10 +156,10 @@ def test_a_lower_case_title_keeps_its_case_in_font_two_instead_of_capitals_only_
 
 @pytest.mark.os_agnostic
 def test_the_widest_cell_of_a_font_is_its_largest_at_any_resolution() -> None:
-    advance, height = widest_cell_mm(3)
+    cell = widest_cell_mm(3)
     # font 3: the 289.56 dpi cell (39 dots) is the tallest, the 300 dpi one (21 + 3 dots) the widest
-    assert height == pytest.approx(39 / 289.56 * 25.4)
-    assert advance == pytest.approx(24 / 300 * 25.4)
+    assert cell.height == pytest.approx(39 / 289.56 * 25.4)
+    assert cell.advance == pytest.approx(24 / 300 * 25.4)
 
 
 @pytest.mark.os_agnostic

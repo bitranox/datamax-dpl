@@ -50,11 +50,13 @@ operator panel instead, which the preview cannot know.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from .encode_common import position_units
 from .encode_graphics import qr_symbol_position
 from .enums import Attribute, CombineMode, FillPattern, Rotation, Unit
+from .geometry import DotPoint, Rect, Size, Span
 from .image_budget import HALVING_FACTOR, halve, magnify
 from .label import FONT_9, Barcode, Box, Circle, Element, Image, Label, Line, Polygon, Qr, ScalableText, Text
 from .profiles import Feature, get_profile
@@ -69,20 +71,53 @@ if TYPE_CHECKING:
     from .profiles import PrinterProfile
     from .render_context import RenderContext
 
-#: Character cell (height, width, gap) in dots at 203 / 300 / 289.56 dpi, for fonts 0-8.
-_CELLS: dict[int, tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]] = {
-    0: ((7, 5, 1), (10, 7, 1), (10, 7, 1)),
-    1: ((13, 7, 2), (19, 10, 3), (18, 10, 3)),
-    2: ((18, 10, 2), (27, 15, 3), (26, 14, 3)),
-    3: ((27, 14, 2), (40, 21, 3), (39, 20, 3)),
-    4: ((36, 18, 3), (53, 27, 4), (52, 26, 4)),
-    5: ((52, 18, 3), (77, 27, 4), (75, 26, 4)),
-    6: ((64, 32, 4), (95, 47, 6), (92, 46, 6)),
-    7: ((32, 15, 5), (47, 22, 7), (46, 22, 7)),
-    8: ((28, 15, 5), (41, 22, 7), (40, 22, 7)),
-}
+_DPI_203 = 203
 _DPI_300 = 300
 _DPI_289 = 289
+#: The DMX 430's resolution, the one the third column of the font tables is for.
+_DPI_289_56 = 289.56
+
+
+@dataclass(frozen=True)
+class _CharCell:
+    """One character of a font in dots: its height, its width and the gap after it."""
+
+    height: int
+    width: int
+    gap: int
+
+
+@dataclass(frozen=True)
+class _FontCells:
+    """A bitmapped font's character cell at each resolution the font tables list."""
+
+    dpi_203: _CharCell
+    dpi_300: _CharCell
+    dpi_289: _CharCell
+
+    def at(self, dpi: float) -> _CharCell:
+        """The cell at ``dpi``: 300 dpi and up, 289.56 dpi (the DMX 430), else 203 dpi."""
+        if dpi >= _DPI_300:
+            return self.dpi_300
+        if dpi >= _DPI_289:
+            return self.dpi_289
+        return self.dpi_203
+
+
+#: Character cell (height, width, gap) in dots at 203 / 300 / 289.56 dpi, for fonts 0-8.
+_CELLS: Mapping[int, _FontCells] = MappingProxyType(
+    {
+        0: _FontCells(_CharCell(7, 5, 1), _CharCell(10, 7, 1), _CharCell(10, 7, 1)),
+        1: _FontCells(_CharCell(13, 7, 2), _CharCell(19, 10, 3), _CharCell(18, 10, 3)),
+        2: _FontCells(_CharCell(18, 10, 2), _CharCell(27, 15, 3), _CharCell(26, 14, 3)),
+        3: _FontCells(_CharCell(27, 14, 2), _CharCell(40, 21, 3), _CharCell(39, 20, 3)),
+        4: _FontCells(_CharCell(36, 18, 3), _CharCell(53, 27, 4), _CharCell(52, 26, 4)),
+        5: _FontCells(_CharCell(52, 18, 3), _CharCell(77, 27, 4), _CharCell(75, 26, 4)),
+        6: _FontCells(_CharCell(64, 32, 4), _CharCell(95, 47, 6), _CharCell(92, 46, 6)),
+        7: _FontCells(_CharCell(32, 15, 5), _CharCell(47, 22, 7), _CharCell(46, 22, 7)),
+        8: _FontCells(_CharCell(28, 15, 5), _CharCell(41, 22, 7), _CharCell(40, 22, 7)),
+    }
+)
 _POINTS_PER_INCH = 72
 _MM_PER_INCH = 25.4
 #: Average glyph width of a proportional font as a share of its point size.
@@ -186,17 +221,27 @@ class Canvas:
         """Return how many dots a label length on ``axis`` takes on the paper (a size)."""
         return self.geometry.length(value, axis=axis)
 
-    def point(self, x: float, y: float) -> tuple[int, int]:
+    def point(self, x: float, y: float) -> DotPoint:
         """Label point (origin bottom-left) to pixel (origin top-left)."""
-        return self.geometry.dots(x, axis=Axis.ACROSS), self.height - 1 - self.geometry.dots(y, axis=Axis.ALONG)
+        return DotPoint(
+            self.geometry.dots(x, axis=Axis.ACROSS), self.height - 1 - self.geometry.dots(y, axis=Axis.ALONG)
+        )
 
 
-def _cell(font: int, dpi: float) -> tuple[int, int, int]:
-    column = 1 if dpi >= _DPI_300 else 2 if dpi >= _DPI_289 else 0
-    return _CELLS[font][column]
+@dataclass(frozen=True)
+class CellMm:
+    """A character cell of a bitmapped font in mm.
+
+    Attributes:
+        advance: Cell width plus the gap after it.
+        height: Cell height.
+    """
+
+    advance: float
+    height: float
 
 
-def widest_cell_mm(font: int) -> tuple[float, float]:
+def widest_cell_mm(font: int) -> CellMm:
     """Return the largest character advance and height in mm of bitmapped font 0-8 at any resolution.
 
     Text sized with these fits on every printer, since bitmapped fonts are sized in dots.
@@ -205,30 +250,31 @@ def widest_cell_mm(font: int) -> tuple[float, float]:
         font: Font number 0-8.
 
     Returns:
-        The advance (cell width plus gap) and the cell height, in mm.
+        The largest advance and the largest cell height.
 
     Example:
-        >>> [round(mm, 2) for mm in widest_cell_mm(1)]
-        [1.14, 1.63]
+        >>> cell = widest_cell_mm(1)
+        >>> round(cell.advance, 2), round(cell.height, 2)
+        (1.14, 1.63)
     """
-    resolutions = (203, _DPI_300, 289.56)
-    cells = [(cell, dpi) for cell, dpi in zip(_CELLS[font], resolutions, strict=True)]
-    advance = max((width + gap) / dpi for (_, width, gap), dpi in cells)
-    height = max(height / dpi for (height, _, _), dpi in cells)
-    return advance * _MM_PER_INCH, height * _MM_PER_INCH
+    font_cells = _CELLS[font]
+    cells = ((font_cells.dpi_203, _DPI_203), (font_cells.dpi_300, _DPI_300), (font_cells.dpi_289, _DPI_289_56))
+    advance = max((cell.width + cell.gap) / dpi for cell, dpi in cells)
+    height = max(cell.height / dpi for cell, dpi in cells)
+    return CellMm(advance=advance * _MM_PER_INCH, height=height * _MM_PER_INCH)
 
 
-def _text_size(element: Text, dpi: float) -> tuple[int, int, int]:
-    """Return (height, cell width, gap) in dots of one character."""
+def _text_size(element: Text, dpi: float) -> _CharCell:
+    """Return the cell in dots of one character, multiplied as the field asks."""
     if element.font == FONT_9:
         height = round((element.points or 10) * dpi / _POINTS_PER_INCH)
-        return height, round(height * _PROPORTIONAL_WIDTH), 0
-    height, width, gap = _cell(element.font, dpi)
-    return height * element.height_multiplier, width * element.width_multiplier, gap * element.width_multiplier
-
-
-#: A rectangle in pixels: (left, top, width, height).
-Rect = tuple[int, int, int, int]
+        return _CharCell(height=height, width=round(height * _PROPORTIONAL_WIDTH), gap=0)
+    cell = _CELLS[element.font].at(dpi)
+    return _CharCell(
+        height=cell.height * element.height_multiplier,
+        width=cell.width * element.width_multiplier,
+        gap=cell.gap * element.width_multiplier,
+    )
 
 
 @dataclass(frozen=True)
@@ -257,36 +303,37 @@ class FieldArea:
 
         Example:
             >>> FieldArea(x=10, y=50, length=30, height=8, rotation=Rotation.DEG_90).box()
-            (10, 50, 8, 30)
+            Rect(left=10, top=50, width=8, height=30)
         """
         return self.part()
 
-    def part(self, *, along: tuple[int, int] | None = None, up: tuple[int, int] | None = None) -> Rect:
+    def part(self, *, along: Span | None = None, up: Span | None = None) -> Rect:
         """Return a part of the upright field, turned.
 
         Args:
-            along: ``(start, length)`` of the part along the reading direction; all of it when None.
-            up: ``(lift, height)`` of the part above the upright field's bottom edge; all of it
+            along: Where the part starts along the reading direction, and its length; all of it
                 when None.
+            up: How far the part is lifted above the upright field's bottom edge, and its height;
+                all of it when None.
 
         Returns:
-            The part's (left, top, width, height) in pixels after the turn.
+            The part in pixels after the turn.
 
         Example:
             >>> area = FieldArea(x=10, y=50, length=30, height=8, rotation=Rotation.DEG_180)
-            >>> area.part(along=(0, 10))
-            (1, 50, 10, 8)
+            >>> area.part(along=Span(start=0, length=10))
+            Rect(left=1, top=50, width=10, height=8)
         """
-        start, length = along if along is not None else (0, self.length)
-        lift, height = up if up is not None else (0, self.height)
+        start, length = along if along is not None else Span(0, self.length)
+        lift, height = up if up is not None else Span(0, self.height)
         x, y = self.x, self.y
         if self.rotation is Rotation.DEG_90:
-            return x + lift, y + start, height, length
+            return Rect(left=x + lift, top=y + start, width=height, height=length)
         if self.rotation is Rotation.DEG_180:
-            return x - start - length + 1, y + lift, length, height
+            return Rect(left=x - start - length + 1, top=y + lift, width=length, height=height)
         if self.rotation is Rotation.DEG_270:
-            return x - lift - height + 1, y - start - length + 1, height, length
-        return x + start, y - lift - height + 1, length, height
+            return Rect(left=x - lift - height + 1, top=y - start - length + 1, width=height, height=length)
+        return Rect(left=x + start, top=y - lift - height + 1, width=length, height=height)
 
     def strip(self, *, lift: int, height: int) -> FieldArea:
         """Return the part ``lift`` dots above the upright field's bottom edge, ``height`` tall, as a field.
@@ -295,7 +342,7 @@ class FieldArea:
 
         Example:
             >>> area = FieldArea(x=10, y=50, length=30, height=8, rotation=Rotation.DEG_90)
-            >>> area.strip(lift=6, height=2).box() == area.part(up=(6, 2))
+            >>> area.strip(lift=6, height=2).box() == area.part(up=Span(start=6, length=2))
             True
         """
         x, y = {
@@ -315,25 +362,28 @@ class FieldArea:
         return 1
 
 
-def _barcode_size(element: Barcode, canvas: Canvas) -> tuple[int, int]:
+def _barcode_size(element: Barcode, canvas: Canvas) -> Size:
+    """The barcode's estimated upright size: its width along the bars' run, its bar height."""
     module = element.narrow_dots or _DEFAULT_MODULE_DOTS
     width = len(element.data) * _MODULES_PER_CHAR * module
     if not element.height:
-        return width, round(_DEFAULT_BARCODE_HEIGHT_IN * canvas.dpi)
+        return Size(width=width, height=round(_DEFAULT_BARCODE_HEIGHT_IN * canvas.dpi))
     # The height runs along the feed unless the field is turned a quarter turn (``encode_barcode``).
     axis = Axis.ACROSS if element.rotation in (Rotation.DEG_90, Rotation.DEG_270) else Axis.ALONG
-    return width, canvas.length(element.height, axis=axis)
+    return Size(width=width, height=canvas.length(element.height, axis=axis))
 
 
 def field_area(element: Text | ScalableText | Barcode, canvas: Canvas) -> FieldArea:
     """Return the reference point, upright size and rotation of a text field's line or a barcode."""
     x, y = canvas.point(element.x, element.y)
     if isinstance(element, Barcode):
-        length, height = _barcode_size(element, canvas)
-        return FieldArea(x=x, y=y, length=length, height=height, rotation=element.rotation)
+        size = _barcode_size(element, canvas)
+        return FieldArea(x=x, y=y, length=size.width, height=size.height, rotation=element.rotation)
     text = _as_text(element) if isinstance(element, ScalableText) else element
-    height, cell, gap = _text_size(text, canvas.dpi)
-    return FieldArea(x=x, y=y, length=len(text.text) * (cell + gap), height=height, rotation=text.rotation)
+    cell = _text_size(text, canvas.dpi)
+    return FieldArea(
+        x=x, y=y, length=len(text.text) * (cell.width + cell.gap), height=cell.height, rotation=text.rotation
+    )
 
 
 def mask_area(element: Text | ScalableText | Barcode, canvas: Canvas) -> FieldArea:
@@ -352,33 +402,35 @@ def mask_area(element: Text | ScalableText | Barcode, canvas: Canvas) -> FieldAr
 
 
 def text_box(element: Text | ScalableText | Barcode, canvas: Canvas) -> Rect:
-    """Return (left, top, width, height) in pixels of a text field's whole line or a barcode's area."""
+    """Return the rectangle in pixels of a text field's whole line or a barcode's area."""
     return field_area(element, canvas).box()
 
 
 def _draw_text(element: Text, bitmap: Bitmap, canvas: Canvas) -> None:
     """Draw one grey cell per character, advancing from the reference point the way the field turns."""
     area = field_area(element, canvas)
-    _, cell, gap = _text_size(element, canvas.dpi)
+    cell = _text_size(element, canvas.dpi)
     for index, char in enumerate(element.text):
         if not char.isspace():
-            bitmap.fill_rect(*area.part(along=(index * (cell + gap), cell)), pattern=FillPattern.SHADE_50)
+            along = Span(start=index * (cell.width + cell.gap), length=cell.width)
+            bitmap.fill_rect(*area.part(along=along), pattern=FillPattern.SHADE_50)
 
 
 def _draw_barcode(element: Barcode, bitmap: Bitmap, canvas: Canvas) -> None:
     left, top, w, h = text_box(element, canvas)
     bitmap.fill_rect(left, top, w, h, pattern=FillPattern.RIGHT_DIAGONAL)
-    bitmap.draw_polygon([(left, top), (left + w - 1, top), (left + w - 1, top + h - 1), (left, top + h - 1)])
+    right, bottom = left + w - 1, top + h - 1
+    bitmap.draw_polygon([DotPoint(left, top), DotPoint(right, top), DotPoint(right, bottom), DotPoint(left, bottom)])
 
 
 def _draw_masked(element: Text | ScalableText | Barcode, mask: Bitmap, bitmap: Bitmap, canvas: Canvas) -> None:
     """Draw a text field as its mask's dots, or a barcode hatched with its band whitened under its mask."""
-    left, top, _, _ = mask_area(element, canvas).box()
+    box = mask_area(element, canvas).box()
     if isinstance(element, Barcode):
         _draw_barcode(element, bitmap, canvas)
-        bitmap.combine(mask, left, top, mode=CombineMode.OPAQUE)
+        bitmap.combine(mask, box.left, box.top, mode=CombineMode.OPAQUE)
     else:
-        bitmap.blit(mask, x=left, y=top)
+        bitmap.blit(mask, x=box.left, y=box.top)
 
 
 def _draw_box(element: Box, bitmap: Bitmap, canvas: Canvas) -> None:
@@ -493,15 +545,15 @@ def _draw_qr(element: Qr, bitmap: Bitmap, canvas: Canvas) -> None:
     if symbol is None:
         return
     geometry = canvas.geometry
-    column, row = qr_symbol_position(
+    symbol_at = qr_symbol_position(
         element,
         column=position_units(element.x, axis=Axis.ACROSS, ctx=geometry.ctx),
         row=position_units(element.y, axis=Axis.ALONG, ctx=geometry.ctx),
         ctx=geometry.ctx,
     )
     size = element.module_dots
-    left = geometry.at_units(column, axis=Axis.ACROSS)
-    top = canvas.height - 1 - geometry.at_units(row, axis=Axis.ALONG) - symbol.height * size + 1
+    left = geometry.at_units(symbol_at.column, axis=Axis.ACROSS)
+    top = canvas.height - 1 - geometry.at_units(symbol_at.row, axis=Axis.ALONG) - symbol.height * size + 1
     for row in range(symbol.height):
         for column in range(symbol.width):
             if symbol.get(column, row):
@@ -694,9 +746,9 @@ def _check_masks(label: Label, canvas: Canvas, masks: Mapping[int, Bitmap]) -> N
         if element is None:
             msg = f"element {index} is not a text field or barcode, so it takes no mask"
             raise ValueError(msg)
-        _, _, width, height = mask_area(element, canvas).box()
-        if (mask.width, mask.height) != (width, height):
-            msg = f"mask for element {index} is {mask.width}x{mask.height}, its area {width}x{height}"
+        box = mask_area(element, canvas).box()
+        if (mask.width, mask.height) != (box.width, box.height):
+            msg = f"mask for element {index} is {mask.width}x{mask.height}, its area {box.width}x{box.height}"
             raise ValueError(msg)
 
 
@@ -752,16 +804,17 @@ def preview_bitmap(
         mode = _combine_mode(element, label) if attributes else CombineMode.XOR
         _combine_layer(bitmap, layer, mode=mode)
     # The frame is not printed, so it goes on last and no field's XOR can erase it.
-    bitmap.draw_polygon([(0, 0), (canvas.width - 1, 0), (canvas.width - 1, canvas.height - 1), (0, canvas.height - 1)])
+    right, bottom = canvas.width - 1, canvas.height - 1
+    bitmap.draw_polygon([DotPoint(0, 0), DotPoint(right, 0), DotPoint(right, bottom), DotPoint(0, bottom)])
     return bitmap
 
 
 __all__ = [
     "STORED_IMAGE_DOTS",
     "Canvas",
+    "CellMm",
     "FieldArea",
     "PreviewGeometry",
-    "Rect",
     "SentAs",
     "canvas_for",
     "draw_element",

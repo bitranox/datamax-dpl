@@ -206,13 +206,13 @@ def _qr_dots(element: Qr, ctx: RenderContext) -> PrintedDots | None:
         symbol = qr_bitmap(element.data, error=element.error)
     except QrDataTooLongError:
         return None
-    column, row = qr_symbol_position(
+    symbol_at = qr_symbol_position(
         element,
         column=position_units(element.x, axis=Axis.ACROSS, ctx=ctx),
         row=position_units(element.y, axis=Axis.ALONG, ctx=ctx),
         ctx=ctx,
     )
-    return _at_units(magnify(symbol, element.module_dots), column=column, row=row, ctx=ctx)
+    return _at_units(magnify(symbol, element.module_dots), column=symbol_at.column, row=symbol_at.row, ctx=ctx)
 
 
 def _image_dots(element: Image, ctx: RenderContext) -> PrintedDots | None:
@@ -250,8 +250,8 @@ def _field_rectangle(element: Text | ScalableText | Barcode, ctx: RenderContext)
     # A one-pixel canvas puts the reference point's row at minus its height above the bottom.
     area = field_area(element, Canvas(width=1, height=1, geometry=PreviewGeometry(ctx)))
     x, y = _dots_at(element.x, axis=Axis.ACROSS, ctx=ctx), _dots_at(element.y, axis=Axis.ALONG, ctx=ctx)
-    left, top, width, height = dataclasses.replace(area, x=x, y=-y).box()
-    return DotArea(left=left, bottom=-(top + height - 1), width=width, height=height)
+    box = dataclasses.replace(area, x=x, y=-y).box()
+    return DotArea(left=box.left, bottom=-(box.top + box.height - 1), width=box.width, height=box.height)
 
 
 def inexact_rectangle(element: Element, ctx: RenderContext) -> DotArea | None:

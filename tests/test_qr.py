@@ -42,7 +42,7 @@ from datamax_dpl.domain.preview import preview_bitmap
 from datamax_dpl.domain.profiles import get_profile, list_profiles
 from datamax_dpl.domain.qr import qr_bitmap
 from datamax_dpl.domain.raster import Bitmap
-from datamax_dpl.domain.records import image_record
+from datamax_dpl.domain.records import Magnification, image_record
 from datamax_dpl.domain.render import RenderResult, build_job, render
 from datamax_dpl.domain.render_context import (
     NAME_ALPHABET,
@@ -296,12 +296,15 @@ def test_any_short_ascii_data_renders_one_download(data: str) -> None:
 @pytest.mark.os_agnostic
 def test_image_record_writes_the_magnification_as_its_width_and_height_digits() -> None:
     assert image_record(row=0, column=0, name="LOGO") == b"1Y1100000000000LOGO"
-    assert image_record(row=12, column=34, name="QR", magnification=(3, 2)) == b"1Y3200000120034QR"
+    assert (
+        image_record(row=12, column=34, name="QR", magnification=Magnification(across=3, along=2))
+        == b"1Y3200000120034QR"
+    )
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("magnification", [(0, 1), (1, 10), (10, 10)])
-def test_image_record_refuses_a_magnification_outside_1_to_9(magnification: tuple[int, int]) -> None:
+@pytest.mark.parametrize("magnification", [Magnification(0, 1), Magnification(1, 10), Magnification(10, 10)])
+def test_image_record_refuses_a_magnification_outside_1_to_9(magnification: Magnification) -> None:
     with pytest.raises(ValueError, match="image magnification must be 1-9"):
         image_record(row=0, column=0, name="LOGO", magnification=magnification)
 

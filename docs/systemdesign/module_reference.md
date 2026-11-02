@@ -76,6 +76,7 @@ turn the outcome into output and an exit code.
 - `encode_text.py` - text and scalable text fields and their font fallbacks.
 - `encode_graphics.py` - lines, boxes, circles, polygons, images, QR Codes (`encode_qr`).
 - `encode_barcode.py` - barcode fields, symbology gates, bar widths.
+- `geometry.py` - pixel points, rectangles, sizes and spans on the grid of printer dots.
 - `raster.py` - 1-bit raster drawing.
 - `raster_fallback.py` - graphics a model cannot draw, as downloaded images.
 - `overlap.py` - which fields share printed dots (`find_overlaps`): groups of exact fields, and text,

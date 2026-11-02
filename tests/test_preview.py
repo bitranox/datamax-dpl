@@ -13,6 +13,7 @@ import pytest
 
 from datamax_dpl.domain.decoder import explain
 from datamax_dpl.domain.enums import Attribute, Rotation, Unit
+from datamax_dpl.domain.geometry import DotPoint
 from datamax_dpl.domain.label import Barcode, Box, Element, Image, Label, Line, ScalableText, Text
 from datamax_dpl.domain.preview import canvas_for, mask_area, preview_bitmap, text_box
 from datamax_dpl.domain.profiles import get_profile
@@ -38,7 +39,8 @@ def framed(label: Label, model: str = MODEL) -> Bitmap:
     """The preview of an empty label: just the one-dot frame, to subtract from a drawing."""
     canvas = canvas_for(label, get_profile(model))
     frame = Bitmap(canvas.width, canvas.height)
-    frame.draw_polygon([(0, 0), (canvas.width - 1, 0), (canvas.width - 1, canvas.height - 1), (0, canvas.height - 1)])
+    right, bottom = canvas.width - 1, canvas.height - 1
+    frame.draw_polygon([DotPoint(0, 0), DotPoint(right, 0), DotPoint(right, bottom), DotPoint(0, bottom)])
     return frame
 
 
