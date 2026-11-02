@@ -297,7 +297,8 @@ class ReportLimits(NamedTuple):
     """How much a :class:`BatchReport` keeps of what can grow with the records.
 
     Attributes:
-        findings: Findings kept in full; past that only their counts. The first error is always kept.
+        findings: Findings kept in full; past that the first of each code, and of the rest their
+            counts. The first error is always kept. So what is kept is bounded by the codes that exist.
         downloads: Downloaded image names kept; past that only their total.
     """
 
@@ -355,7 +356,8 @@ class BatchReport:
         ok: True when no finding is an error, whether or not its text was kept.
         downloads: The image names downloaded, in order, the first ``limits.downloads`` of them.
         downloads_total: How many there are in all.
-        findings: The findings kept, in order: the first ``limits.findings`` and the first error.
+        findings: The findings kept, in order: the first ``limits.findings``, past those the first
+            of each code, and the first error.
         batch_findings: The findings about the batch as a whole; always kept.
         finding_counts: How many findings of each code there are in all.
         findings_total: How many findings there are in all.
@@ -443,6 +445,7 @@ class BatchTally:
         self._downloads_total = 0
         self._findings: list[ReportedFinding] = []
         self._error_kept = False
+        self._codes_kept: set[FindingCode] = set()
         self._counts: dict[FindingCode, int] = {}
         self._findings_total = 0
         self._unread: ImageModule | None = None
@@ -456,10 +459,18 @@ class BatchTally:
         self._ok = self._ok and finding.severity is not Severity.ERROR
 
     def _keep(self, finding: Finding, *, record: int) -> None:
-        """Keep ``finding`` while there is room; the first error is kept anyway, as a refusal's reason."""
+        """Keep ``finding`` while there is room, and past that the first of its code.
+
+        Past the room a code seen for the first time is what a reader cannot get from the counts: an
+        Allegro 2 gives three infos per record, so the first findings alone would fill any limit before
+        the record whose warning says what prints wrong. The first error is kept whatever its code, as
+        a refusal's reason.
+        """
         error = finding.severity is Severity.ERROR
-        if len(self._findings) < self._limits.findings or (error and not self._error_kept):
+        room = len(self._findings) < self._limits.findings
+        if room or finding.code not in self._codes_kept or (error and not self._error_kept):
             self._findings.append(ReportedFinding(record=record, finding=finding))
+            self._codes_kept.add(finding.code)
             self._error_kept = self._error_kept or error
 
     def add(self, result: RenderResult, *, cut: bool) -> None:

@@ -172,9 +172,10 @@ timeout = 10.0
 # Environment Variable: DATAMAX_DPL___PRINTER__MAX_BATCH_JOB_BYTES=268435456
 # max_batch_job_bytes = 67108864
 
-# Purpose: How many findings a --data batch's answer shows in full; the answer
-#          counts all of them, per code and in total, and says so when it cuts.
-#          The first error is always shown, and any error refuses the job.
+# Purpose: How many findings a --data batch's answer keeps in full; past that it
+#          keeps the first of each code and the first error. The answer counts
+#          all of them, per code and in total, says so when it cuts, and human
+#          mode then prints the counts per code. Any error refuses the job.
 # Type: integer, greater than 0, at most 100000000
 # Default: 1000
 # Environment Variable: DATAMAX_DPL___PRINTER__MAX_REPORTED_FINDINGS=5000

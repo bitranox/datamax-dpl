@@ -29,7 +29,7 @@ from ....application.use_cases import (
     stored_image_names,
 )
 from ....application.verify import IdleWait, verify_print
-from ....domain.enums import FindingCode, ImageModule, MemoryKind, Severity, StatusProblem
+from ....domain.enums import ImageModule, MemoryKind, StatusProblem
 from ....domain.errors import CameraError, PreviewTooLongError
 from ....domain.held_images import HeldImages
 from ....domain.memory import NO_MODULES_MEANING, MemoryDirectory
@@ -45,7 +45,7 @@ from ...transport.uri import is_one_way, unsupported_query
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
 from ..label_io import STDIN, LabelInputError, load_label, load_records
-from ..payloads import FindingOut, RenderPayload, SentTo, findings_text, payload_findings_text, render_payload
+from ..payloads import FindingOut, SentTo, findings_text, refused_text, render_payload, went_out_text
 from ..runner import CommandResult, run_command
 from ..settings import (
     PrinterOverrides,
@@ -119,7 +119,7 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
                 return _upload_refused(exc, uri=uri, settings=settings)
             sent, bytes_sent = checked.result, checked.bytes_sent
         payload = render_payload(sent, sent=SentTo(uri, bytes_sent), settings=settings)
-        human = "\n".join([f"sent {bytes_sent} bytes to {uri}", *_reported_lines(payload)])
+        human = "\n".join(part for part in (f"sent {bytes_sent} bytes to {uri}", went_out_text(payload)) if part)
         return CommandResult(ok=True, payload=payload, human=human)
 
     run_command(ctx, command=CommandName.PRINT, body=body)
@@ -128,15 +128,13 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
 def _render_refused(result: RenderResult | BatchReport, *, verdict: str, settings: PrinterSettings) -> CommandResult:
     """The result of a print or verify whose label has an error finding: nothing went out, and why."""
     payload = render_payload(result, settings=settings)
-    errors = [finding for finding in payload.findings if finding.severity is Severity.ERROR]
-    return CommandResult(ok=False, payload=payload, human=f"{verdict}\n{payload_findings_text(payload, errors)}")
+    return CommandResult(ok=False, payload=payload, human=f"{verdict}\n{refused_text(payload)}")
 
 
 def _upload_refused(exc: UploadRefusedError, *, uri: str, settings: PrinterSettings) -> CommandResult:
     """The result of a print or verify whose upload check refused a label: its findings, what was sent."""
     payload = render_payload(exc.result, sent=SentTo(uri, exc.bytes_sent), settings=settings)
-    errors = [finding for finding in payload.findings if finding.severity is Severity.ERROR]
-    return CommandResult(ok=False, payload=payload, human=f"REFUSED: {exc}\n{payload_findings_text(payload, errors)}")
+    return CommandResult(ok=False, payload=payload, human=f"REFUSED: {exc}\n{refused_text(payload)}")
 
 
 def _upload_check(settings: PrinterSettings, cli_ctx: CLIContext) -> UploadCheck:
@@ -151,21 +149,6 @@ def _reset_check(settings: PrinterSettings) -> ResetCheck:
         calibrate=settings.calibrate_after_reset,
         text=settings.calibration_label_text,
     )
-
-
-def _reported_lines(payload: RenderPayload) -> list[str]:
-    """The human view of a job that went out: every warning, and what a reset changed even as an info.
-
-    A fallback the job took is what a reader would otherwise find only on the paper, and an extra
-    label or a shift to expect after a reset is one too.
-    """
-    text = payload_findings_text(payload, [f for f in payload.findings if _worth_telling(f)])
-    return [text] if text else []
-
-
-def _worth_telling(finding: FindingOut) -> bool:
-    reset = (FindingCode.PRINTER_RESET_CALIBRATED, FindingCode.PRINTER_RESET_NOT_CALIBRATED)
-    return finding.severity is not Severity.INFO or finding.code in reset
 
 
 def _told_lines(told: list[FindingOut]) -> list[str]:

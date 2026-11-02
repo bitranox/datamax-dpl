@@ -24,7 +24,7 @@ from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
 from ..job_file import write_batch
 from ..label_io import STDIN, LabelInputError, Records, load_label, load_records, read_input
-from ..payloads import RenderPayload, payload_findings_text, render_payload
+from ..payloads import RenderPayload, payload_findings_text, refused_text, render_payload, went_out_text
 from ..runner import CommandResult, run_command
 from ..settings import render_options, report_limits
 from ..typed_click import argument, option
@@ -180,7 +180,8 @@ def cli_render(ctx: click.Context, label_source: str, data: str | None, output: 
         payload = render_payload(result, job=rendered.job, with_base64=machine, output=written, settings=settings)
         if output == STDIN:
             # The job owns stdout, so what a reader must know about it goes to stderr, refused or not.
-            return CommandResult(ok=result.ok, payload=payload, notes=payload_findings_text(payload))
+            notes = went_out_text(payload) if result.ok else refused_text(payload)
+            return CommandResult(ok=result.ok, payload=payload, notes=notes)
         return CommandResult(ok=result.ok, payload=payload, human=_human(payload, show_dpl=output is None))
 
     run_command(ctx, command=CommandName.RENDER, body=body)

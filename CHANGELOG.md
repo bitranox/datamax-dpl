@@ -46,9 +46,10 @@ All notable changes to this project are documented here. The format follows
   `print_checked` takes the report with `report.renders()`, building each label when its turn comes. `render_batch`
   stays as the way to hold a batch whole.
 - `[printer] max_reported_findings` and `max_reported_downloads` (default 1000 each): a batch's answer keeps that many
-  findings and image names in full and always its first error. The JSON envelope gains `findings_total`,
-  `findings_by_code`, `downloads_total` and `report_note`, which names the key when something was cut. An error still
-  refuses the job whether or not its text was kept.
+  findings and image names in full, past that the first finding of each code, and always its first error. The JSON
+  envelope gains `findings_total`, `findings_by_code`, `downloads_total` and `report_note`, which names the key when
+  something was cut; human mode then prints the counts per code. An error still refuses the job whether or not its
+  text was kept.
 - `[printer] max_batch_job_bytes` (default 64 MiB): `render --data` with no `-o`, the one command that holds the whole
   job, stops with exit 2 and `BatchTooLargeError` naming the key and `-o FILE`, before the memory goes. `render_batch` takes
   `max_job_bytes`, no limit when it is left out: a library caller rendering records it did not write sets one.

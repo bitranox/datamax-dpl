@@ -88,17 +88,22 @@ class SentTo(NamedTuple):
 
 
 def _report_note(report: BatchReport, *, settings: PrinterSettings) -> str | None:
-    """Say what a report left out and which key keeps more; None when it left out nothing."""
+    """Say what a report keeps and which key keeps more; None when it left out nothing.
+
+    It speaks of the answer, not of a view: ``print`` shows only part of what the answer keeps, and
+    the envelope all of it, and the sentence is true in both.
+    """
     section = printer_section(settings.name)
     # The first error stays past the limit, and the batch's own findings always stay.
     kept = len(report.findings) + len(report.batch_findings)
     notes: list[str] = []
     if kept < report.findings_total:
         keep_more = section.setting("max_reported_findings")
-        notes.append(f"{kept} of {report.findings_total} findings shown; {keep_more} shows more")
+        notes.append(f"the answer keeps {kept} of {report.findings_total} findings; {keep_more} keeps more")
     if len(report.downloads) < report.downloads_total:
         keep_more = section.setting("max_reported_downloads")
-        notes.append(f"{len(report.downloads)} of {report.downloads_total} image names shown; {keep_more} shows more")
+        kept_names = len(report.downloads)
+        notes.append(f"the answer keeps {kept_names} of {report.downloads_total} image names; {keep_more} keeps more")
     return "; ".join(notes) or None
 
 
@@ -200,7 +205,33 @@ require_same_keys(_SEVERITY_ORDER, Severity, what="a rank in _SEVERITY_ORDER")
 def payload_findings_text(payload: RenderPayload, findings: list[FindingOut] | None = None) -> str:
     """Human lines for a payload's findings (or just ``findings`` of them), then what the payload left out."""
     text = findings_text(payload.findings if findings is None else findings)
-    return "\n".join(part for part in (text, payload.report_note) if part)
+    return "\n".join(part for part in (text, payload.report_note, _counts_of_a_cut(payload)) if part)
+
+
+def _counts_of_a_cut(payload: RenderPayload) -> str:
+    """How many of each code there are, once the answer has cut some: what the lines above cannot say."""
+    if len(payload.findings) >= payload.findings_total:
+        return ""
+    counts = ", ".join(f"{code.value} {count}" for code, count in payload.findings_by_code.items())
+    return f"findings by code: {counts}"
+
+
+#: The infos a person is told about all the same: an extra label, or a shift to expect after a reset.
+_TOLD_INFOS = (FindingCode.PRINTER_RESET_CALIBRATED, FindingCode.PRINTER_RESET_NOT_CALIBRATED)
+
+
+def _worth_telling(finding: FindingOut) -> bool:
+    return finding.severity is not Severity.INFO or finding.code in _TOLD_INFOS
+
+
+def went_out_text(payload: RenderPayload) -> str:
+    """The human view of a job that went out: what a reader would otherwise find only on the paper."""
+    return payload_findings_text(payload, [f for f in payload.findings if _worth_telling(f)])
+
+
+def refused_text(payload: RenderPayload) -> str:
+    """The human view of a job refused: why."""
+    return payload_findings_text(payload, [f for f in payload.findings if f.severity is Severity.ERROR])
 
 
 def findings_text(findings: list[FindingOut]) -> str:
@@ -214,4 +245,13 @@ def findings_text(findings: list[FindingOut]) -> str:
     return "\n".join(lines)
 
 
-__all__ = ["FindingOut", "RenderPayload", "SentTo", "findings_text", "payload_findings_text", "render_payload"]
+__all__ = [
+    "FindingOut",
+    "RenderPayload",
+    "SentTo",
+    "findings_text",
+    "payload_findings_text",
+    "refused_text",
+    "render_payload",
+    "went_out_text",
+]

@@ -226,8 +226,8 @@ def test_a_report_sends_and_says_what_a_batch_held_whole_does(
 def test_a_report_keeps_the_first_findings_and_counts_them_all() -> None:
     report = check_batch(_WARNS, _values(10), _DMX, limits=ReportLimits(findings=3))
     whole = report_of(render_batch(_WARNS, _values(10), _DMX), limits=ReportLimits(findings=10**6))
-    assert len(report.findings) == 3
-    assert report.findings == whole.findings[:3]
+    assert report.findings[:3] == whole.findings[:3]
+    assert {kept.finding.code for kept in report.findings} == set(whole.finding_counts)
     assert report.findings_total == whole.findings_total > 3
     assert dict(report.finding_counts) == dict(whole.finding_counts)
     assert sum(report.finding_counts.values()) == report.findings_total
@@ -238,7 +238,6 @@ def test_an_error_past_the_limit_still_refuses_and_is_kept() -> None:
     records = [*_values(4), {"a": _TOO_LONG}, *_values(2)]
     report = check_batch(_QR, records, _ALLEGRO, limits=ReportLimits(findings=1))
     assert report.ok is False
-    assert len(report.findings) == 2
     assert report.findings[-1].record == 4
     assert report.findings[-1].finding.severity.value == "error"
 
@@ -270,7 +269,7 @@ def test_the_envelope_says_what_it_left_out_and_names_the_keys(cli_runner: CliRu
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)["data"]
     assert payload["records"] == 6
-    assert len(payload["findings"]) == 2 < payload["findings_total"]
+    assert len(payload["findings"]) == len(payload["findings_by_code"]) < payload["findings_total"]
     assert sum(payload["findings_by_code"].values()) == payload["findings_total"]
     assert len(payload["downloads"]) == 3
     assert payload["downloads_total"] == 6
@@ -283,7 +282,7 @@ def test_the_human_output_says_what_it_left_out(cli_runner: CliRunner, tmp_path:
     label, data = _files(tmp_path, _WARNS, "".join(f"r{n}\n" for n in range(6)))
     limit = ("--set", "printer.max_reported_findings=2")
     result = _run(cli_runner, *limit, "validate", label, "--data", data, "--model", "dmx-600")
-    assert "findings shown" in result.stdout
+    assert "the answer keeps" in result.stdout
     assert "[printer] max_reported_findings" in result.stdout
 
 
