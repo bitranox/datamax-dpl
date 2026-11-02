@@ -27,6 +27,7 @@ from urllib.parse import SplitResult, unquote, urlsplit
 
 from ...domain.enums import MediaType
 from ...domain.errors import CameraError
+from ...domain.printable import printable
 from ..config.sections import CAMERA_SECTION
 from .stored import MAX_IMAGE_BYTES, StoredImage
 
@@ -252,6 +253,12 @@ def _get(
         response = connection.getresponse()
     except TimeoutError as exc:
         raise CameraError(f"camera at {target.hostname!r} did not answer in time") from exc
+    except UnicodeError as exc:
+        # http.client sends the request line in ASCII; the URL itself stays out of the message, as a
+        # URL may carry a secret.
+        raise CameraError(
+            f"camera URL for {target.hostname!r} has a path that is not ASCII; percent-encode it"
+        ) from exc
     except (OSError, http.client.HTTPException) as exc:
         raise CameraError(f"camera at {target.hostname!r} is unreachable: {type(exc).__name__}") from exc
     return response
@@ -260,7 +267,8 @@ def _get(
 def _require_ok(response: http.client.HTTPResponse, *, target: SplitResult) -> None:
     """Refuse any answer but 200."""
     if response.status != _HTTP_OK:
-        raise CameraError(f"camera at {target.hostname!r} answered HTTP {response.status} {response.reason}")
+        # The reason phrase is whatever the far end sent, and this message reaches a terminal.
+        raise CameraError(f"camera at {target.hostname!r} answered HTTP {response.status} {printable(response.reason)}")
 
 
 def _media_type(response: http.client.HTTPResponse) -> MediaType:

@@ -18,6 +18,7 @@ from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny
 
+from ...domain.printable import printable
 from . import safe_console
 
 
@@ -145,7 +146,7 @@ def write_error_envelope(exc: BaseException, *, command: CommandName | None, mod
 
 def report_failure(exc: BaseException, *, command: CommandName, mode: OutputMode) -> None:
     """Report a failure: an error envelope on stdout in machine mode, one line on stderr always."""
-    sys.stderr.write(safe_console.encode_safe(f"Error: {_said(exc)}\n", sys.stderr.encoding))
+    sys.stderr.write(safe_console.encode_safe(f"Error: {printable(_said(exc))}\n", sys.stderr.encoding))
     write_error_envelope(exc, command=command, mode=mode)
 
 

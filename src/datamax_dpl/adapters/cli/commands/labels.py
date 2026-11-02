@@ -137,8 +137,10 @@ def cli_render(ctx: click.Context, label_source: str, data: str | None, output: 
         if written is not None:
             _write_output(written, result.data, raw_stdout_allowed=not cli_ctx.mode.machine)
         payload = render_payload(result, include_dpl=output is None, output=written)
-        human = "" if output == STDIN else _human(payload, show_dpl=output is None)
-        return CommandResult(ok=result.ok, payload=payload, human=human)
+        if output == STDIN:
+            # The job owns stdout, so what a reader must know about it goes to stderr, refused or not.
+            return CommandResult(ok=result.ok, payload=payload, notes=findings_text(payload.findings))
+        return CommandResult(ok=result.ok, payload=payload, human=_human(payload, show_dpl=output is None))
 
     run_command(ctx, command=CommandName.RENDER, body=body)
 

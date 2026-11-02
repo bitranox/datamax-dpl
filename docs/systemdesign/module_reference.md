@@ -72,6 +72,8 @@ turn the outcome into output and an exit code.
 - `frozen_mapping.py` - the read-only mapping frozen value objects hold (`FrozenMapping`); it copies
   and pickles.
 - `held_images.py` - the image names a printer already holds in a job's image module.
+- `printable.py` - text from outside the program made safe to show on a terminal.
+- `reset_label.py` - the calibration label that takes the shift after a printer reset.
 - `findings.py` - findings and the collector that applies the fallback policy.
 - `render_context.py` - render options, the per-render context, content names of drawn images
   (`drawn_image_name`).

@@ -37,6 +37,8 @@ from typing import IO, TYPE_CHECKING, Any, Final, TextIO
 
 import rich_click as click
 
+from ...domain.printable import printable
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -217,7 +219,7 @@ def encode_safe(text: str, encoding: str | None, errors: str | None = None) -> s
 
 
 def echo(message: object = "", *, file: IO[Any] | None = None, err: bool = False, nl: bool = True) -> None:
-    """Write `message` to the console, degrading anything it cannot encode.
+    """Write `message` to the console, control characters made visible, degrading anything it cannot encode.
 
     Drop-in for :func:`click.echo` for the arguments this project uses.
 
@@ -236,7 +238,7 @@ def echo(message: object = "", *, file: IO[Any] | None = None, err: bool = False
     ------------
     Writes to the given stream.
     """
-    text = message if isinstance(message, str) else str(message)
+    text = printable(message if isinstance(message, str) else str(message))
     errors = _stream_errors(_target_stream(file, err=err))
     click.echo(encode_safe(text, _stream_encoding(file, err=err), errors), file=file, err=err, nl=nl)
 

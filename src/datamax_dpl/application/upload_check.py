@@ -82,7 +82,7 @@ from ..domain.reset_label import (
     check_label_text,
 )
 from ..domain.timing import TimeoutName, check_timeout
-from .use_cases import AnswerWait, BatchResult, open_within, read_reset_report, read_stored_names
+from .use_cases import AnswerWait, BatchResult, error_findings, open_within, read_reset_report, read_stored_names
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -919,7 +919,7 @@ def print_checked(
     """
     if not result.ok:
         msg = "label has errors; nothing was sent"
-        raise LabelRejectedError(msg)
+        raise LabelRejectedError(msg, error_findings(result))
     _refuse_mismatch(result, job)
     printer = open_printer(uri, timeout=timeout)
     link = Link(printer=printer, uri=uri, timeout=timeout, open_printer=open_printer, reconnect=job.check.wait)

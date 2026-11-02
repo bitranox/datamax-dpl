@@ -61,12 +61,14 @@ class CommandResult:
         payload: The envelope's ``data``.
         human: Text printed on stdout in human mode.
         skipped: Inputs the command passed over.
+        notes: Text printed on stderr in human mode, for a command whose job owns stdout.
     """
 
     ok: bool
     payload: BaseModel
     human: str = ""
     skipped: list[str] = field(default_factory=list[str])
+    notes: str = ""
 
 
 def _fail(exc: BaseException, *, command: CommandName, cli_ctx: CLIContext) -> Outcome:
@@ -97,6 +99,8 @@ def run_command(ctx: rich_click.Context, *, command: CommandName, body: Callable
         write_envelope(envelope, mode=cli_ctx.mode)
     elif result.human:
         safe_console.echo(result.human, err=cli_ctx.job_on_stdout)
+    if result.notes and not cli_ctx.mode.machine:
+        safe_console.echo(result.notes, err=True)
     ctx.exit(Outcome.OK if result.ok else Outcome.REFUSED)
 
 

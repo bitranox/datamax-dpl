@@ -98,9 +98,7 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
         result = rendered.result
         uri = link.uri
         if not result.ok:
-            return CommandResult(
-                ok=False, payload=render_payload(result, include_dpl=False), human="REFUSED: nothing sent"
-            )
+            return _render_refused(result, verdict="REFUSED: nothing sent")
         open_printer = printer_opener(cli_ctx, settings)
         if link.one_way:
             # A one-way link cannot read the directory: the job goes out at once, as it always did.
@@ -119,10 +117,17 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
                 return _upload_refused(exc, uri=uri)
             sent, bytes_sent = checked.result, checked.bytes_sent
         payload = render_payload(sent, include_dpl=False, printer=uri, bytes_sent=bytes_sent)
-        human = "\n".join([f"sent {bytes_sent} bytes to {uri}", *_reset_lines(payload.findings)])
+        human = "\n".join([f"sent {bytes_sent} bytes to {uri}", *_reported_lines(payload.findings)])
         return CommandResult(ok=True, payload=payload, human=human)
 
     run_command(ctx, command=CommandName.PRINT, body=body)
+
+
+def _render_refused(result: RenderResult | BatchResult, *, verdict: str) -> CommandResult:
+    """The result of a print or verify whose label has an error finding: nothing went out, and why."""
+    payload = render_payload(result, include_dpl=False)
+    errors = [finding for finding in payload.findings if finding.severity is Severity.ERROR]
+    return CommandResult(ok=False, payload=payload, human=f"{verdict}\n{findings_text(errors)}")
 
 
 def _upload_refused(exc: UploadRefusedError, *, uri: str) -> CommandResult:
@@ -146,14 +151,15 @@ def _reset_check(settings: PrinterSettings) -> ResetCheck:
     )
 
 
-def _reset_lines(findings: list[FindingOut]) -> list[str]:
-    """The human view of what a reset changed: an extra label a person will find, or a shift to expect."""
-    reset = [
-        f
-        for f in findings
-        if f.code in (FindingCode.PRINTER_RESET_CALIBRATED, FindingCode.PRINTER_RESET_NOT_CALIBRATED)
-    ]
-    return [findings_text(reset)] if reset else []
+def _reported_lines(findings: list[FindingOut]) -> list[str]:
+    """The human view of a job that went out: every warning, and what a reset changed even as an info.
+
+    A fallback the job took is what a reader would otherwise find only on the paper, and an extra
+    label or a shift to expect after a reset is one too.
+    """
+    reset = (FindingCode.PRINTER_RESET_CALIBRATED, FindingCode.PRINTER_RESET_NOT_CALIBRATED)
+    told = [f for f in findings if f.severity is not Severity.INFO or f.code in reset]
+    return [findings_text(told)] if told else []
 
 
 class StatusPayload(BaseModel):
@@ -623,7 +629,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
         result = rendered.result
         uri = link.uri
         if not isinstance(result, RenderResult) or not result.ok:
-            return CommandResult(ok=False, payload=render_payload(result, include_dpl=False), human="REFUSED")
+            return _render_refused(result, verdict="REFUSED")
         folder = Path(output_dir)
         services = cli_ctx.services
         camera = _printable_camera(camera_settings(loaded_config(cli_ctx)))
@@ -665,7 +671,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
             findings=[] if report.result is None else [FindingOut.of(f) for f in report.result.findings],
         )
         human = "\n".join(
-            [f"photo:    {payload.photo}", f"expected: {payload.expected}", *_reset_lines(payload.findings)]
+            [f"photo:    {payload.photo}", f"expected: {payload.expected}", *_reported_lines(payload.findings)]
         )
         return CommandResult(ok=True, payload=payload, human=human)
 

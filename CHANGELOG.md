@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `print`, `verify` and `render -o -` now say why in human mode: errors on a refusal, warnings and errors on success,
+  on stderr where the job owns stdout. Before, a refusal printed `REFUSED` with no reason, and `render -o -` nothing.
+- Control characters from a label file, a printer or a camera no longer reach the terminal raw: C0, DEL and C1 print
+  as `\xNN` in the error line and every human view (a `memory` name, an unknown label key, a reason phrase).
+- `LabelRejectedError` from `print_checked` and `print_result` carries the job's error findings; it carried none.
+- A camera URL whose path is not ASCII gives `CameraError` instead of `UnicodeEncodeError`.
 - `preview` refuses more fields than the model takes before it letters any, and letters only what lands on the
   canvas: 399 text fields of 255 characters at 24 times the size took more than 6.7 GB and 281 s, and now take about
   a second. `render_preview_png` names the field limit under `Raises`.

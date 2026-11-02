@@ -19,6 +19,7 @@ from pydantic import ValidationError
 
 from ...domain.errors import DatamaxDplError
 from ...domain.label import Label
+from ...domain.printable import printable
 
 #: Largest label or data file accepted, so a wrong path (a disk image) fails fast.
 MAX_INPUT_BYTES = 16 * 1024 * 1024
@@ -58,7 +59,8 @@ def validation_lines(exc: ValidationError) -> str:
         ...     print(validation_lines(exc))
         elements: List should have at least 1 item after validation, not 0
     """
-    return "; ".join(f"{'.'.join(str(p) for p in e['loc']) or 'label'}: {e['msg']}" for e in exc.errors())
+    lines = (f"{'.'.join(str(p) for p in e['loc']) or 'label'}: {e['msg']}" for e in exc.errors())
+    return printable("; ".join(lines))
 
 
 def parse_label(data: bytes, *, source: str = "label") -> Label:

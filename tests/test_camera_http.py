@@ -437,3 +437,20 @@ def test_a_url_urlsplit_refuses_is_a_camera_error_that_keeps_its_password(tmp_pa
     with pytest.raises(CameraError, match="malformed") as caught:
         capture_with_http(settings, stem=tmp_path / "s")
     assert PASSWORD not in str(caught.value)
+
+
+@pytest.mark.os_agnostic
+def test_a_reason_phrase_stays_off_the_terminal(tmp_path: Path) -> None:
+    payload = b"HTTP/1.1 500 x\x1b]0;PWN\x07\r\nContent-Length: 0\r\n\r\n"
+    with _RawCamera(payload) as camera, pytest.raises(CameraError) as failed:
+        capture_with_http(_settings(camera.url), stem=tmp_path / "s")
+    assert "\x1b" not in str(failed.value)
+    assert "\\x1b]0;PWN\\x07" in str(failed.value)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("letter", [chr(0xE4), chr(0xDCFF)], ids=["umlaut", "lone-surrogate"])
+def test_a_camera_url_with_a_path_outside_ascii_is_refused_naming_no_url(tmp_path: Path, letter: str) -> None:
+    with _RawCamera(b"") as camera, pytest.raises(CameraError, match="percent-encode") as failed:
+        capture_with_http(_settings(f"{camera.url}{letter}.jpg"), stem=tmp_path / "s")
+    assert "snap" not in str(failed.value)

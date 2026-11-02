@@ -111,6 +111,14 @@ class BatchResult(BaseModel):
         return batch_ok and all(result.ok for result in self.results)
 
 
+def error_findings(result: RenderResult | BatchResult) -> tuple[Finding, ...]:
+    """Every error finding of a job: each label's, and a batch's own."""
+    if not isinstance(result, BatchResult):
+        return result.errors
+    found = (f for r in result.results for f in r.errors)
+    return (*found, *(f for f in result.batch_findings if f.severity is Severity.ERROR))
+
+
 def render_label(label: Label, options: RenderOptions, *, held: HeldImages | None = None) -> RenderResult:
     """Render one label and report every finding (never raises for a finding).
 
@@ -488,7 +496,7 @@ def print_result(
     """
     if not result.ok:
         msg = "label has errors; nothing was sent"
-        raise LabelRejectedError(msg)
+        raise LabelRejectedError(msg, error_findings(result))
     if not isinstance(result, BatchResult):
         return send_bytes(result.data, uri=uri, timeout=timeout, open_printer=open_printer)
     sent = 0
@@ -991,6 +999,7 @@ __all__ = [
     "StatusPoll",
     "StoredNamesRead",
     "detect_printer",
+    "error_findings",
     "open_within",
     "poll_status",
     "print_result",
