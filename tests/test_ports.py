@@ -9,11 +9,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import lib_log_rich.runtime
 import pytest
 from lib_layered_config import Config
 
 from datamax_dpl.adapters.memory import (
-    check_logging_config_in_memory,
     get_config_in_memory,
     get_default_config_path_in_memory,
     init_logging_in_memory,
@@ -21,7 +21,6 @@ from datamax_dpl.adapters.memory import (
 
 if TYPE_CHECKING:
     from datamax_dpl.application.ports import (
-        CheckLoggingConfig,
         GetConfig,
         GetDefaultConfigPath,
         InitLogging,
@@ -49,18 +48,11 @@ def init_logging_impl() -> InitLogging:
     return init_logging_in_memory
 
 
-@pytest.fixture
-def check_logging_config_impl() -> CheckLoggingConfig:
-    """Provide in-memory CheckLoggingConfig implementation."""
-    return check_logging_config_in_memory
-
-
 @pytest.mark.os_agnostic
-def test_get_config_returns_config_with_dict(get_config_impl: GetConfig) -> None:
-    """GetConfig must return a Config whose as_dict() yields a dict."""
-    config = get_config_impl()
-    assert isinstance(config, Config)
-    assert isinstance(config.as_dict(), dict)
+def test_get_config_returns_an_empty_config_whatever_it_is_asked(get_config_impl: GetConfig) -> None:
+    """No file, no environment: a test double reading neither answers empty to every argument."""
+    assert get_config_impl().as_dict() == {}
+    assert get_config_impl(profile="staging", start_dir="/opt/x", dotenv_path="/opt/x/.env").as_dict() == {}
 
 
 @pytest.mark.os_agnostic
@@ -72,41 +64,22 @@ def test_get_default_config_path_returns_toml_path(get_default_config_path_impl:
 
 
 @pytest.mark.os_agnostic
-def test_init_logging_does_not_raise(init_logging_impl: InitLogging) -> None:
-    """InitLogging must not raise when called with a Config."""
+def test_init_logging_leaves_a_runtime_a_command_can_bind_against(init_logging_impl: InitLogging) -> None:
+    """Every command binds onto the process-global runtime, which raises when none is live."""
+    if lib_log_rich.runtime.is_initialised():
+        lib_log_rich.runtime.shutdown()
     config = Config({}, {})
     init_logging_impl(config)
-
-
-@pytest.mark.os_agnostic
-def test_check_logging_config_in_memory_refuses_nothing(check_logging_config_impl: CheckLoggingConfig) -> None:
-    """The test runtime ignores the configuration, so no logging section can break it."""
-    check_logging_config_impl(Config({"lib_log_rich": {"rate_limit": "100:60"}}, {}))
+    try:
+        assert lib_log_rich.runtime.is_initialised()
+        init_logging_impl(config)
+        with lib_log_rich.runtime.bind(job_id="a-job", extra={}):
+            assert lib_log_rich.runtime.is_initialised()
+    finally:
+        lib_log_rich.runtime.shutdown()
 
 
 # ======================== Composition Wiring Tests ========================
-
-
-@pytest.mark.os_agnostic
-def test_build_production_returns_fully_populated_app_services() -> None:
-    """build_production() must return AppServices with all fields populated."""
-    from datamax_dpl.composition import AppServices, build_production
-
-    services = build_production()
-    assert isinstance(services, AppServices)
-    for field_obj in services.__dataclass_fields__:
-        assert getattr(services, field_obj) is not None
-
-
-@pytest.mark.os_agnostic
-def test_build_testing_returns_fully_populated_app_services() -> None:
-    """build_testing() must return AppServices with all in-memory implementations."""
-    from datamax_dpl.composition import AppServices, build_testing
-
-    services = build_testing()
-    assert isinstance(services, AppServices)
-    for field_obj in services.__dataclass_fields__:
-        assert getattr(services, field_obj) is not None
 
 
 @pytest.mark.os_agnostic

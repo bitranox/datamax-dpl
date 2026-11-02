@@ -38,13 +38,13 @@ def test_when_profile_contains_slash_it_rejects(clear_config_cache: None) -> Non
 
 
 @pytest.mark.os_agnostic
-def test_when_profile_is_valid_alphanumeric_it_accepts(clear_config_cache: None) -> None:
-    """Alphanumeric profiles with hyphens and underscores must be accepted."""
+@pytest.mark.usefixtures("no_ambient_configuration")
+@pytest.mark.parametrize("profile", ["staging-v2", "under_score", "A1", "x"])
+def test_when_profile_is_valid_it_is_accepted_and_loads_what_it_names(profile: str) -> None:
+    """No file exists for the profile, so it reads what the defaults hold and nothing is refused."""
     from datamax_dpl.adapters.config.loader import get_config
 
-    # Should not raise - the config may or may not exist, but validation passes
-    config = get_config(profile="staging-v2")
-    assert config is not None
+    assert get_config(profile=profile).as_dict() == get_config().as_dict()
 
 
 @pytest.mark.os_agnostic

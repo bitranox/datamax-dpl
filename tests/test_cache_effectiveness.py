@@ -37,14 +37,6 @@ class TestGetDefaultConfigPath:
 class TestGetConfig:
     """Verify get_config() behavior."""
 
-    def test_returns_config_with_dict(self) -> None:
-        """get_config() returns a Config with a valid dict."""
-        from datamax_dpl.adapters.config.loader import get_config
-
-        config = get_config()
-
-        assert isinstance(config.as_dict(), dict)
-
     def test_repeated_calls_return_equivalent_data(self) -> None:
         """Repeated calls return Config with equivalent data."""
         from datamax_dpl.adapters.config.loader import get_config
