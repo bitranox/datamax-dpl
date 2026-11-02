@@ -142,8 +142,8 @@ All notable changes to this project are documented here. The format follows
   the first reports `image_upload_retried` (info); a label that, rendered
   again for a round, has an error finding is refused there
   (`image_upload_render_refused`, error) before anything of that round is
-  sent. Each label of a `--data` batch is checked on its own and passes on to
-  the next what its last answered read listed. A job whose images go to module
+  sent. Each label of a `--data` batch is checked on its own, and nothing
+  passes from one label to the next. A job whose images go to module
   `C` is refused on a two-way link before anything is sent
   (`image_module_unlisted`, error): no directory lists the default module by
   that letter. A one-way link (a file, stdout, a device file) and
@@ -155,9 +155,9 @@ All notable changes to this project are documented here. The format follows
   W for `stored_names_wait` and R for `reset_check_wait`, is
   3 + R + 2 x `upload_check_rounds` x W, 186 s with the defaults, for the first
   label on built-in RAM or on a plug-in module; 216 s on built-in RAM where the
-  names are read before the job; for a later
-  label of a batch 180 s on built-in RAM and 150 s on a plug-in module (180 s
-  when it reads the names before its round 1). CONFIG.md breaks these down.
+  names are read before the label's downloads; for a later label of a batch
+  180 s (210 s on built-in RAM with no clear before the downloads). CONFIG.md
+  breaks these down.
   Library: `RenderResult.upload_end`, `retry_clear`, `retry_clear_empties` and
   `retry_clear_may_go` carry what a caller needs to run the check,
   `RenderOptions.model_image_budget` (default True) leaves the model's budget
@@ -169,18 +169,30 @@ All notable changes to this project are documented here. The format follows
   adds the clear and the second upload, 3 the halved upload.
 - `[printer] stored_names_wait` (default 30 s, more than 0, at most 2147483
   s): how long `print` and `verify` keep trying for each read of the printer's
-  stored image names, before a job no clear precedes and in every round of the
-  upload check, pausing `status_retry_interval` between two connections. The
+  stored image names, before each label's downloads no clear precedes and in
+  every round of the upload check, pausing `status_retry_interval` between two connections. The
   answer's last byte must arrive within it; the 1 s of silence that ends the
   answer comes on top. `--timeout` leaves it.
 - `[printer] held_image_severity` (`info`, `warning` or `error`, default
   `warning`). Where no clear precedes a label's downloads (a module that is
   not the model's built-in RAM, a model that can clear nothing), `print` and
-  `verify` first read the printer's stored graphic names and leave out the
-  download of each name it holds (`image_name_held`); where the names cannot
-  be read every image is downloaded (`image_names_unread`). The key sets the
+  `verify` read the printer's stored graphic names right before each such
+  label's downloads, on the job's own connection, and leave out the download
+  of each name it holds (`image_name_held`); where the names cannot be read a
+  single label downloads every image (`image_names_unread`). Nothing is kept
+  from one label of a batch to the next: the printer may have been reset, or
+  another program may have printed, in between, so a label whose image an
+  earlier one stored places it with `image_name_held` too. The key sets the
   severity of both findings, and `error` refuses such a label whatever
   `policy` says. `RenderOptions.held_image_severity` carries it.
+- `batch_image_names_unread` (error): a `--data` batch whose labels download
+  images with no clear before them is refused before anything is sent or
+  written where no printer is read before each label: `render`, `validate`
+  with no tcp or serial printer named, and `print` to a file, stdout or a
+  device file. `validate --data` with a tcp or serial printer named is not
+  refused. Library: `render_batch`, `iter_batch` and `check_batch` take
+  `read_names_at_send` (True where a two-way sender reads the names before
+  each label).
 - `[printer] image_module` (`A` to `E`, unset by default): the memory module
   images are downloaded to. Unset takes the model's built-in module
   (`datamax-dpl capabilities MODEL` shows it): A on most models, E on the DMX

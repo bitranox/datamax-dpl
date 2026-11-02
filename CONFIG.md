@@ -530,19 +530,33 @@ other module may be flash, which every clear wears (manual p.35), so its clear i
 
 A printer that already holds an image name prints nothing for a job that downloads that name again
 (one Allegro 2, 2026-11-01). So where no clear precedes a label's downloads, `print` and `verify`
-first read the printer's stored graphic names (`<STX>W`, as `datamax-dpl memory --kind graphic`
-does) and leave out the download of each name it holds; the label then prints the stored image
-(`image_name_held`). Where the names cannot be read (`render`, `validate` and `preview` never ask;
-a one-way link cannot answer, so a file, stdout or a device file is not opened to ask; `C` is the
-default module, whose real letter a directory does not show; the printer did not answer within
-`stored_names_wait`; its answer did not list the job's module, which an answer cut short looks
-like; it answered `No Modules Available`, which the manual reads as a corrupt or worn-out module,
-not as an empty one) every image is downloaded and `image_names_unread` says so. A name the printer
-lists only in another letter case is another name: one Allegro 2 kept a name as it was sent and
-printed no image for a format naming it in another case. In a `--data` batch a name an earlier
-label downloaded is not downloaded again, and a different picture whose content name an earlier
-label sent, or placed as a name the printer listed, is downloaded under another name.
-`held_image_severity` sets the severity of both findings.
+read the printer's stored graphic names (`<STX>W`, as `datamax-dpl memory --kind graphic` does)
+right before that label's downloads, on the connection the job goes out on, and leave out the
+download of each name it holds; the label then prints the stored image (`image_name_held`). Each
+label of a `--data` batch reads them again, and nothing is kept from one label to the next: the
+printer may have been reset, or another program may have printed, in between, so its memory is the
+one record of what it holds. A later label that uses an image an earlier label of the batch stored
+therefore places it with `image_name_held` too, and a different picture under a content name the
+printer lists is taken to be that picture (two pictures share a content name about once in 2**42
+pairs; see [docs/dpl-reference.md](docs/dpl-reference.md)). Where the names cannot be read a single
+label downloads every image and `image_names_unread` says so: `render`, `validate` and `preview`
+never ask; a one-way link cannot answer, so a file, stdout or a device file is not opened to ask;
+`C` is the default module, whose real letter a directory does not show; the printer did not answer
+within `stored_names_wait`; its answer did not list the job's module, which an answer cut short
+looks like; it answered `No Modules Available`, which the manual reads as a corrupt or worn-out
+module, not as an empty one. A `--data` batch whose labels download images with no clear before
+them is refused before anything is sent or written where no printer is read before each label
+(`batch_image_names_unread`, error): `render`, `validate` with no tcp or serial printer named, and
+`print` to a file, stdout or a device file. Print to a tcp or serial printer, or turn
+`clear_graphics_before_label` on. `validate --data` with a tcp or serial printer named reads
+nothing and is not refused, as `print` there reads the names before each label. Where the read
+before a later label of a batch gets no answer, that label skips its first upload, since a label
+before it may have left any of its names, and its round 2 reads the names again before it uploads
+any of them; the job's first label downloads every image, as a single label does. A name the
+printer lists only in another letter case is another name: one Allegro 2 kept a name as it was
+sent and printed no image for a format naming it in another case. `held_image_severity` sets the
+severity of both findings, so `error` also refuses a later label whose image an earlier label of
+the batch stored.
 
 A download into a full module is lost with no error, and the format then prints without that image
 (one Allegro 2, 2026-10-31); how much of the module an image takes depends on its content, not on
@@ -566,22 +580,14 @@ name); else the label is refused. On the plain Prodigy round 3 starts from what 
 answered listed less the label's own names its `<STX>R` removed, so a halved name the module
 already holds is placed, not downloaded again. A round that, rendered again, has nothing left to
 download (every image it places is one the module holds) sends no upload and makes no read after
-it. Each label of a `--data` batch is checked on its own and tells
-the next one what its last read that answered listed, with every clear sent after that read
-applied, a round's clear as well as the clear after the label: an empty module after a `<STX>q`,
-the listing without the label's own names after the plain Prodigy's removes. So no label
-downloads a name an earlier one stored, and none places a name a clear took out, which would
-print without that image. A name sent after a read with no answer, where no clear may go, may be
-held too, and it is passed on with the picture it sent: a later label that would download it again
-first reads the names once more. With an answer it is rendered again from that listing (a listed
-name holds the picture that was sent under it, so the same picture prints at full size and
-another picture with the same content name is downloaded under another name, and a label left
-with nothing to download goes out with no further check) and its rounds go on as usual; with no
-answer it skips its first upload and its round 2 reads the names again, as above. A label that,
-rendered again for a round, from the names read before its round 1, or with what the labels before
-it left, has an error finding (too little image memory left, say) is refused there
-(`image_upload_render_refused` for a round's render), before anything more of it goes out, and
-the batch stops. A one-way
+it. A name the label's own upload sent in an earlier round is its own picture: placed with no
+finding. Each label of a `--data` batch is checked on its own, and nothing passes from one label
+to the next. A label that, rendered again from the names read before its downloads or for a
+round, has an error finding (too little image memory left, a held name at `error`) is refused
+there (`image_upload_render_refused`), before anything more of it goes out, and the batch stops.
+A configured `image_memory_bytes` counts every download of the render made before that read, so
+under `strict` a label that fits only because the printer holds some of its names is refused
+before anything is sent. A one-way
 link (a file, stdout, a device file) cannot read the directory and sends the job at once, as
 `render` writes it. A job that downloads into module `C` is refused on a two-way link before
 anything is sent (`image_module_unlisted`): the directory never lists the default module by that
@@ -601,24 +607,23 @@ gets no answer or one that ends just before W runs out (the 1 s of silence that 
 comes on top). After a read with no answer the channel is closed: the next send opens a new
 connection, tried again within W, and a read made right after one opens its own within its own W.
 The first connect tries refusals again for up to 3 s. The first label's reset read waits R on the
-job's own connection, which stays open after it (no R where the names read before the job took
-the report).
+job's own connection, which stays open after it (no R where the names read before the first
+label's downloads took the report).
 
 - Built-in RAM (`<STX>q`) and the plain Prodigy (`<STX>R` for the label's own names), where a
   clear goes before each round and after the refusal. First label: 3 + R + W for round 1's read +
   2 W for round 2 (the new connection for its clear, its read) + 2 W for round 3 + W for the
   connection of the clear after the refusal = 3 + 3 + 6 x 30 = 186 s, 3 + R + 2 x
-  `upload_check_rounds` x W in general; W more, 216 s, where the names are read before the job (no
-  clear before the downloads). A later label of a batch starts on the channel the label before it left open:
-  6 W = 180 s. No label reads the names first or again in round 2: a clear may go.
+  `upload_check_rounds` x W in general; W more, 216 s, where the names are read before the
+  downloads (no clear before them). A later label of a batch starts on the channel the label before
+  it left open: 6 W = 180 s, W more, 210 s, where its names are read before its downloads. No label
+  reads the names again in round 2: a clear may go.
 - A plug-in module, or a model that can clear nothing (neither `<STX>q` nor `<STX>R`, as the
-  `generic` profile), where no clear may go and the names are always read before the job. First
-  label: W for that read + 3 + R + W for round 1's read (no answer) + W for round 2's read again
+  `generic` profile), where no clear may go and the names are always read before each label's
+  downloads. First label: 3 + W for that read + R + W for round 1's read (no answer) + W for round 2's read again
   (an answer, a name missing) + W for its read after the upload (no answer) + 2 W for round 3 (the
   new connection, its read) = 3 + 3 + 6 x 30 = 186 s, 3 + R + 2 x `upload_check_rounds` x W in
-  general; the refusal sends nothing. A later label: the same without the first two terms, 5 W = 150 s; one
-  that reads the names before its round 1 (it would download a name sent before a read with no
-  answer) adds that read, which answers just before W runs out: 6 W = 180 s.
+  general; the refusal sends nothing. A later label: the same without 3 and R, 6 W = 180 s.
 
 These figures count a read that answers as keeping its channel; a print server that closes it
 after the answer adds the new connection, up to W more. A batch can wait that long for each label
@@ -659,11 +664,9 @@ The data file is read whole, up to 16 MiB. CSV rows and JSON lines are then pars
 comes, while a JSON array is parsed whole and held, which takes up to about 35 times its size: a large batch
 belongs in a CSV or JSON lines file.
 
-One thing still grows with the records: the image names the printer holds, where no clear runs after
-each label: about 150 bytes a name, a full hash of its download command, whatever the size of the image
-(measured with 1 to 4 QR Codes per record of 10 to 1000 characters, 142 to 216 bytes). So 100000 names
-come to about 15 MB. It stays because forgetting a name would send it again, which prints nothing, and
-a module holds far fewer names than that. The counts per finding code grow only with the codes that exist, not with the
+The image names the printer holds do not grow with the records either: where no clear runs before a
+label's downloads, the label reads them right before those downloads and keeps that one answer only
+until it has gone out. The counts per finding code grow only with the codes that exist, not with the
 records. What the answer keeps of the findings and image names is bounded by `max_reported_findings` and
 `max_reported_downloads`.
 
@@ -681,7 +684,9 @@ So before the first label of a two-way `print`, `print --data` or `verify`, and 
 `print_checked`, the job asks `<SOH>A` once, within `reset_check_wait`, on the connection it goes
 out on. No answer, or one that cannot be read, means nothing: the job goes on as it would have, and
 no finding is added. A job that is refused when it renders asks nothing and prints nothing extra.
-A names read before the job may have taken the report; it counts, and nothing is asked then.
+Where no clear precedes the first label's downloads, its names are read before the status: a label
+that read makes an error is refused with nothing printed, and a names read that carried the report
+counts, so nothing more is asked and the calibration label goes before that label's downloads.
 
 On a report, with `calibrate_after_reset` true, one calibration label goes first: the job's own
 printer settings (media, start of print, stop position and the other `send_settings`), its label

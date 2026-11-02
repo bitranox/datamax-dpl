@@ -378,8 +378,11 @@ names, as `datamax-dpl memory` shows). Where the job clears the image module bef
 such a stored image, so the label is refused with `stored_image_cleared`.
 Where no clear runs before the downloads, the printer's stored names decide instead: a printer
 that already holds a name prints nothing for a second download of it, so `print` and `verify`
-read its names first and leave out the download of each held one (`image_name_held`), or keep
-every download when they cannot be read (`image_names_unread`).
+read its names right before each such label's downloads and leave out the download of each held
+one (`image_name_held`), or keep every download of a single label when they cannot be read
+(`image_names_unread`). A `--data` batch of such labels is refused where no printer is read before
+each label: `render`, `validate` with no tcp or serial printer named, and `print` to a file
+(`batch_image_names_unread`).
 An image with `bitmap` that ends past the model's printable width, its width times its
 magnification counted from the column it starts at, is refused with `image_past_print_width`
 under both policies; so is a raster fallback or a merged transparency image that does. A stored

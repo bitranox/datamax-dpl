@@ -175,9 +175,10 @@ other model was checked; a model that folds case could take two names that diffe
 one. The printer keeps an image in its module across jobs and answers BELL when a job loads a name
 it already holds (Appendix D), without saying the new image replaces the old; one Allegro 2 printed
 nothing for a format that downloaded a name it held (0 of 3 rounds). With the name following the
-content, a held name is the same picture. When that name is already taken in the job (another image
-with the same hash, or an `image` element without a `bitmap` that names it), the hash is salted
-until it is free. Across separate jobs two different bitmaps share a name only on a hash collision,
+content, a held name is the same picture. When that name is already taken in the label (another
+image with the same hash, or an `image` element without a `bitmap` that names it), the hash is
+salted until it is free. Across labels, of one batch or of separate jobs, two different bitmaps
+share a name only on a hash collision,
 about 1 in 62**7 (3.5e12, about 2**42) per pair. On a module no clear ever empties, where a job
 finds a name the printer lists and places it without downloading, the chance that any two of 10000
 different images ever sent there share a name is about 0.0014% (computed, k**2 / (2 * 62**7)), and
@@ -188,11 +189,10 @@ never a wrong picture. On a nearly full module that is never cleared that downlo
 no error, and the label then prints without that image (one Allegro 2, 2026-10-31); on a two-way
 link the upload check of `print` and `verify` catches that before the format goes out: where a clear
 may go it clears and uploads again, where none may go it uploads only the images the directory did
-not list (a name the module holds is never downloaded again, by that label or a later one of a
-`--data` batch; after a read with no answer it reads the names again before uploading any of the
-same names, places at full size what the module then lists, and with no answer there uploads only
-halved images under new names; a later label of the batch that would download such a name first
-reads the names once more in the same way), and it refuses the label rather than print it without
+not list (a name the module holds is never downloaded again: each label of a `--data` batch reads
+the names before its downloads; after a read with no answer it reads the names again before
+uploading any of the same names, places at full size what the module then lists, and with no answer
+there uploads only halved images under new names), and it refuses the label rather than print it without
 the image. Only an `image` element without a `bitmap` that no element of the label downloads names
 a printer image by its own `name`.
 
