@@ -112,7 +112,7 @@ def cli_config(ctx: click.Context, output_format: str, section: str | None, prof
     with lib_log_rich.runtime.bind(job_id="cli-config", extra=extra):
         logger.info(
             "Displaying configuration",
-            extra={"format": fmt.value, "section": section, "profile": effective_profile},
+            extra={"format": fmt.value, "section": _loggable(section), "profile": effective_profile},
         )
         try:
             if cli_ctx.mode.machine:
@@ -126,6 +126,18 @@ def cli_config(ctx: click.Context, output_format: str, section: str | None, prof
             safe_console.echo(f"\nError: {exc}", err=True)
             write_error_envelope(exc, command=CommandName.CONFIG, mode=cli_ctx.mode)
             ctx.exit(ExitCode.INVALID_ARGUMENT)
+
+
+def _loggable(text: str | None) -> str | None:
+    """``text`` with the lone surrogates of an undecodable argument escaped.
+
+    lib_log_rich's encoder refuses them and prints a stack per log line, however harmless the value.
+
+    Example:
+        >>> _loggable("ex\\udcff")
+        'ex\\\\udcff'
+    """
+    return None if text is None else text.encode("utf-8", "backslashreplace").decode("utf-8")
 
 
 def _answer_config(config: Config, *, section: str | None, mode: OutputMode) -> None:
@@ -556,9 +568,10 @@ def cli_config_generate_examples(ctx: click.Context, destination: str, force: bo
         >>> # Real invocation tested in test_cli_config.py
     """
     mode = output_mode(ctx)
-    extra = {"command": "config-generate-examples", "destination": destination, "force": force}
+    logged_destination = _loggable(destination)
+    extra = {"command": "config-generate-examples", "destination": logged_destination, "force": force}
     with lib_log_rich.runtime.bind(job_id="cli-config-generate-examples", extra=extra):
-        logger.info("Generating example configuration files", extra={"destination": destination, "force": force})
+        logger.info("Generating example configuration files", extra={"destination": logged_destination, "force": force})
         try:
             paths = generate_examples(
                 destination=destination,
@@ -576,7 +589,7 @@ def cli_config_generate_examples(ctx: click.Context, destination: str, force: bo
             else:
                 safe_console.echo("\nNo files generated (all already exist). Use --force to overwrite.")
         except Exception as exc:
-            logger.error("Failed to generate examples", extra={"error": str(exc)})
+            logger.error("Failed to generate examples", extra={"error": _loggable(str(exc))})
             safe_console.echo(f"\nError: {exc}", err=True)
             write_error_envelope(exc, command=CommandName.CONFIG_GENERATE_EXAMPLES, mode=mode)
             ctx.exit(ExitCode.GENERAL_ERROR)

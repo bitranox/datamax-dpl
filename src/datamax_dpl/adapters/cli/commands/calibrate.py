@@ -174,9 +174,13 @@ class CalibrateSetPayload(BaseModel):
     warnings: list[str]
 
 
-@click.group("calibrate", context_settings=CLICK_CONTEXT_SETTINGS)
-def cli_calibrate() -> None:
+@click.group("calibrate", context_settings=CLICK_CONTEXT_SETTINGS, invoke_without_command=True)
+@click.pass_context
+def cli_calibrate(ctx: click.Context) -> None:
     """Print calibration labels to measure a printer's scale factors."""
+    if ctx.invoked_subcommand is None:
+        # click's own no-arguments path exits past main's handling: no envelope, a stray "SystemExit: 2".
+        raise click.UsageError("calibrate needs a subcommand: print or set", ctx=ctx)
 
 
 @cli_calibrate.command("print", context_settings=CLICK_CONTEXT_SETTINGS)

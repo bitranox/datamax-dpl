@@ -13,7 +13,7 @@ import errno
 import os
 import sys
 import threading
-from typing import TYPE_CHECKING, TextIO
+from typing import TYPE_CHECKING, NamedTuple, TextIO
 
 import click
 import lib_cli_exit_tools
@@ -27,7 +27,7 @@ from .context import (
     restore_traceback_state,
     snapshot_traceback_state,
 )
-from .envelope import CommandName, ErrorEnvelope, OutputMode, write_envelope
+from .envelope import CommandName, ErrorEnvelope, Outcome, OutputMode, write_envelope
 from .exit_codes import ExitCode
 
 if TYPE_CHECKING:
@@ -162,28 +162,49 @@ def _discard_stream(stream: TextIO) -> None:
         os.close(null)
 
 
-def _flush_streams() -> bool:
-    """Flush stdout and stderr; return whether a reader had gone.
+class _Flushed(NamedTuple):
+    """How the final flush of stdout and stderr went.
+
+    Attributes:
+        gone: A reader had gone.
+        failure: The first failure that was not a gone reader (a full disk behind a redirect).
+    """
+
+    gone: bool
+    failure: OSError | None
+
+
+def _flush_streams() -> _Flushed:
+    """Flush stdout and stderr, pointing a stream that fails at the null device.
 
     Output smaller than the stream's buffer has reached nothing until here: its command returned
     normally, so this is the one place every size passes through.
-
-    Raises:
-        OSError: A flush failed for another reason (a full disk behind a redirect).
     """
     streams: tuple[TextIO | None, ...] = (sys.stdout, sys.stderr)
     gone = False
+    failure: OSError | None = None
     for stream in streams:
         if stream is None:
             continue
         try:
             stream.flush()
         except OSError as exc:
-            if not _is_gone_reader_error(exc):
-                raise
             _discard_stream(stream)
-            gone = True
-    return gone
+            if _is_gone_reader_error(exc):
+                gone = True
+            elif failure is None:
+                failure = exc
+    return _Flushed(gone=gone, failure=failure)
+
+
+def _report_lost_output(failure: OSError) -> None:
+    """Say on stderr that the answer did not get out; stderr itself may be what failed."""
+    try:
+        sys.stderr.write(f"Error: could not write the output: {failure}\n")
+        sys.stderr.flush()
+    except OSError:
+        # Nothing is left to tell; the exit code still says it.
+        _discard_stream(sys.stderr)
 
 
 def _invoke_cli(args: list[str], *, services_factory: Callable[[], AppServices]) -> int:
@@ -253,6 +274,12 @@ def _run_cli(argv: Sequence[str] | None, *, services_factory: Callable[[], AppSe
     except BaseException as exc:
         if _reader_left(exc):
             return ExitCode.BROKEN_PIPE
+        if isinstance(exc, OSError) and exc.filename is None:
+            # run_command reports what a command's work raises, so a nameless one here comes from
+            # writing its answer; the buffer still holds it, and the final flush must not fail again.
+            _discard_stream(sys.stdout)
+            _report_lost_output(exc)
+            return Outcome.ERROR
         # Catch BaseException (not just Exception) to handle SystemExit, KeyboardInterrupt,
         # and all errors at the CLI boundary. This ensures consistent error formatting via
         # lib_cli_exit_tools regardless of exception type. Intentional, not a bug.
@@ -308,8 +335,12 @@ def main(
             lib_log_rich.runtime.shutdown()
     # After the logging shutdown, which writes too. A failure outranks the broken pipe: a refusal
     # must not read as "the reader left" to a pipeline that reads the status.
-    gone = _flush_streams()
-    return ExitCode.BROKEN_PIPE if gone and code == ExitCode.SUCCESS else code
+    flushed = _flush_streams()
+    if flushed.failure is not None:
+        _report_lost_output(flushed.failure)
+        # A success whose answer was lost must not read as one; a command's own failure says more.
+        return code or Outcome.ERROR
+    return ExitCode.BROKEN_PIPE if flushed.gone and code == ExitCode.SUCCESS else code
 
 
 __all__ = ["main"]

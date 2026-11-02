@@ -18,7 +18,7 @@ from datamax_dpl import __init__conf__
 from . import safe_console
 from .config_load import load_config, start_logging
 from .constants import CLICK_CONTEXT_SETTINGS
-from .context import apply_traceback_preferences, store_cli_context
+from .context import apply_traceback_preferences, output_mode, store_cli_context
 from .envelope import OutputMode
 from .typed_click import option, version_option
 
@@ -118,6 +118,10 @@ def cli(
     apply_traceback_preferences(traceback)
 
     if ctx.invoked_subcommand is None:
+        if output_mode(ctx).machine:
+            # Help is no envelope, and the reader asked for one: a command line naming no command
+            # answers as any other usage error, with a null command.
+            raise click.UsageError("no command given", ctx=ctx)
         safe_console.echo(ctx.get_help())
 
 

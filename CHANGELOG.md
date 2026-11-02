@@ -319,6 +319,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- An answer that cannot be written (a full disk behind a redirect) is one line
+  on stderr and exit 2, never a traceback. `calibrate` alone and `--json` with
+  no command are usage errors with an envelope where one was asked for.
+  `config --section ''` is "not found" in every mode. An undecodable
+  `--destination` or `--section` no longer prints logging stacks.
+- `calibrate set` reads a config file that starts with a byte order mark, and
+  a file it cannot read or write is a `ConfigurationError` naming that file.
+- `config` also masks the value of a camera URL query parameter whose name
+  holds `pass`, `pwd`, `secret`, `token` or `key`. `preview.max_length_mm` is
+  refused above 100000, and `check_preview_length` raises `ValueError` for a
+  limit that is not a finite length.
 - A status poll that opened a new connection closes it when the answer is not
   a status string.
 - `verify_print` takes the model from `options` and has lost its `profile` and

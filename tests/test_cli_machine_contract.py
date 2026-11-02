@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import click
@@ -16,6 +20,7 @@ from lib_layered_config import Config, ConfigError
 
 from datamax_dpl import __init__conf__
 from datamax_dpl.adapters.cli.main import main
+from datamax_dpl.adapters.config.display import display_config
 from datamax_dpl.composition import AppServices, build_testing
 
 if TYPE_CHECKING:
@@ -59,6 +64,7 @@ USAGE_ERRORS = [
     (["no-such-command"], None, "NoSuchCommand"),
     (["--no-such-global", "validate"], None, "NoSuchOption"),
     (["config-generate-examples"], "config-generate-examples", "MissingParameter"),
+    (["calibrate"], None, "UsageError"),
 ]
 
 
@@ -360,3 +366,82 @@ def test_the_end_of_a_prompt_s_input_is_not_an_interrupt(capsys: pytest.CaptureF
     """click spells it as Abort too, and nothing was interrupted, so it must not read as Ctrl-C."""
     code, _out, _err = _run(_calibrate_set(), capsys, set_printer_values=_raising(EOFError()))
     assert code != 130
+
+
+@pytest.mark.os_agnostic
+def test_a_group_with_no_subcommand_says_so_without_a_stray_exit_line(capsys: pytest.CaptureFixture[str]) -> None:
+    code, out, err = _run(["calibrate"], capsys)
+    assert (code, out) == (2, "")
+    assert "calibrate needs a subcommand" in err
+    assert "SystemExit" not in err
+
+
+@pytest.mark.os_agnostic
+def test_no_command_stays_help_for_a_person(capsys: pytest.CaptureFixture[str]) -> None:
+    code, out, _err = _run([], capsys)
+    assert code == 0
+    assert "Usage:" in out
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("flag", ["--json", "--json-bare"])
+def test_no_command_is_a_usage_error_envelope_for_a_machine(flag: str, capsys: pytest.CaptureFixture[str]) -> None:
+    code, out, _err = _run([flag], capsys)
+    assert code == 2
+    document = json.loads(out)
+    assert (document["ok"], document["command"], document["error"]) == (False, None, "UsageError")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("mode", [[], ["--json"]], ids=["human", "json"])
+def test_an_empty_config_section_is_not_found_in_both_modes(
+    mode: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, _out, err = _run([*mode, "config", "--section", ""], capsys, display_config=display_config)
+    assert code == 22
+    assert "Section '' not found" in err
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"), reason="Windows and APFS refuse a filename that is not valid UTF-8"
+)
+@pytest.mark.parametrize(
+    "args", [["config", "--section", "\udcff\udcfe"], ["config-generate-examples"]], ids=["section", "dest"]
+)
+def test_an_undecodable_argument_reaches_the_log_without_a_logging_error(args: list[str], tmp_path: Path) -> None:
+    """A real process: the failure was 112 lines from the logging system, whatever the exit code said."""
+    words = [*args, "--destination", str(tmp_path) + "/ex\udcff"] if args[0] == "config-generate-examples" else args
+    done = subprocess.run(
+        [sys.executable, "-m", "datamax_dpl", *words],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="surrogateescape",
+        timeout=120,
+        check=False,
+        cwd=tmp_path,
+        env={**os.environ, "DATAMAX_DPL___LIB_LOG_RICH__CONSOLE_LEVEL": "INFO"},
+    )
+    assert "Logging error" not in done.stderr
+
+
+@pytest.mark.skipif(not Path("/dev/full").exists(), reason="only Linux has a device that refuses every write")
+def test_an_answer_that_cannot_be_written_is_a_failure_with_one_line(tmp_path: Path) -> None:
+    """Short output reaches the disk only at the final flush, past every command's own handling."""
+    label = tmp_path / "ok.json"
+    label.write_text(json.dumps({"elements": [{"type": "text", "x": 5, "y": 5, "text": "A"}]}), encoding="utf-8")
+    with Path("/dev/full").open("w", encoding="utf-8") as full:
+        done = subprocess.run(
+            [sys.executable, "-m", "datamax_dpl", "--json", "validate", str(label)],
+            stdout=full,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            timeout=120,
+            check=False,
+        )
+    assert done.returncode == 2
+    assert "could not write the output" in done.stderr
+    assert "Traceback" not in done.stderr
+    assert "Exception ignored" not in done.stderr
