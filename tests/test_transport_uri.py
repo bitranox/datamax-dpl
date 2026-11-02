@@ -306,3 +306,52 @@ def test_a_plain_word_is_a_name_and_not_a_uri(text: str) -> None:
 @pytest.mark.parametrize("text", ["a:b", "lager.x", "", "-x", "x" * 65, "lager "])
 def test_other_text_is_not_a_name(text: str) -> None:
     assert not is_printer_name(text)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "file:///tmp/x%00y",
+        "file:///tmp/a%0Ab.dpl",
+        "file:///tmp/a%0Db.dpl",
+        "file:///tmp/a%09b.dpl",
+        "serial:///dev/tty%00S0",
+        "serial://CO%0AM1",
+        "device:///dev/usb%0Alp0",
+    ],
+)
+def test_a_control_character_hidden_by_percent_encoding_is_refused(uri: str) -> None:
+    """Decoded after the first check, it reached open() as an embedded null or a newline in a file name."""
+    with pytest.raises(ValueError, match="control characters are not allowed"):
+        parse_printer_uri(uri)
+
+
+@pytest.mark.os_agnostic
+def test_a_percent_encoded_space_in_a_file_url_still_decodes() -> None:
+    """The control: only control characters are refused."""
+    assert parse_printer_uri("file:///tmp/a%20b.dpl").target == "/tmp/a b.dpl"
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "serial:///dev/ttyS0?baud=" + "9" * 3000,
+        "serial:///dev/ttyS0?parity=" + "Q" * 3000,
+        "tcp://" + "h" * 3000 + "!",
+        "bogus://" + "x" * 3000,
+    ],
+    ids=["baud", "parity", "host", "scheme"],
+)
+def test_a_refusal_quotes_only_the_start_of_a_huge_value(uri: str) -> None:
+    with pytest.raises(ValueError, match="accepted forms") as caught:
+        parse_printer_uri(uri)
+    assert len(str(caught.value)) < 1000
+
+
+@pytest.mark.os_agnostic
+def test_a_refusal_quotes_a_short_uri_whole() -> None:
+    with pytest.raises(ValueError, match=r"'serial:///dev/ttyS0\?baud=abc'") as caught:
+        parse_printer_uri("serial:///dev/ttyS0?baud=abc")
+    assert "'abc'" in str(caught.value)

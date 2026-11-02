@@ -60,6 +60,10 @@ _HOST_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?")
 _BAUD = re.compile(r"[0-9]{1,7}")
 _WINDOWS_DRIVE = re.compile(r"/[A-Za-z]:[/\\]")
 _FLAGS = {"0": False, "1": True}
+#: How much of a refused value a message quotes. No setting: it shapes a message, not a behaviour,
+#: and well past any real URI, so what was refused stays readable.
+_MAX_ECHOED_CHARS = 200
+
 _BYTESIZES: Mapping[str, Literal[7, 8]] = FrozenMapping({"7": 7, "8": 8})
 _STOPBITS: Mapping[str, Literal[1, 2]] = FrozenMapping({"1": 1, "2": 2})
 _T = TypeVar("_T")
@@ -241,7 +245,7 @@ def parse_printer_uri(uri: str) -> PrinterUri:
     try:
         return _parse(uri)
     except ValueError as exc:
-        raise ValueError(f"printer URI {uri!r}: {exc}; accepted forms: {ACCEPTED_FORMS}") from exc
+        raise ValueError(f"printer URI {_echoed(uri)}: {exc}; accepted forms: {ACCEPTED_FORMS}") from exc
 
 
 def transport_error(
@@ -479,10 +483,29 @@ def channel_name(uri: PrinterUri) -> str:
     return uri.kind if isinstance(uri, StdoutUri) else f"{uri.kind} {uri.target}"
 
 
+def _echoed(value: str) -> str:
+    """``value`` as a refusal quotes it: its start only, so a huge value cannot flood a log or envelope.
+
+    Example:
+        >>> _echoed("abc")
+        "'abc'"
+        >>> _echoed("9" * 3000).endswith("...(3000 characters)")
+        True
+    """
+    if len(value) <= _MAX_ECHOED_CHARS:
+        return repr(value)
+    return f"{value[:_MAX_ECHOED_CHARS]!r}...({len(value)} characters)"
+
+
+def _refuse_control_characters(text: str) -> None:
+    """Refuse the characters that split a log line or a job, or that ``open`` cannot take."""
+    if any(char in text for char in "\x00\r\n\t"):
+        raise ValueError("control characters are not allowed")
+
+
 def _parse(uri: str) -> PrinterUri:
     """Dispatch on the scheme prefix."""
-    if any(char in uri for char in "\x00\r\n\t"):
-        raise ValueError("control characters are not allowed")
+    _refuse_control_characters(uri)
     if uri == _STDOUT:
         return StdoutUri()
     if uri.startswith(_TCP_PREFIX):
@@ -506,7 +529,7 @@ def _parse_tcp(uri: str) -> TcpUri:
     if parts.netloc.startswith("["):
         ipaddress.IPv6Address(host)
     elif _HOST_NAME.fullmatch(host) is None:
-        raise ValueError(f"invalid host {host!r}")
+        raise ValueError(f"invalid host {_echoed(host)}")
     if port == 0 or parts.netloc.endswith(":"):
         raise ValueError("the port must be a number from 1 to 65535")
     return TcpUri(host=host, port=DEFAULT_TCP_PORT if port is None else port)
@@ -548,6 +571,8 @@ def _port_path(uri: str, *, what: str) -> str:
     path = unquote(parts.netloc or parts.path)
     if not path:
         raise ValueError(f"{what} is missing")
+    # Checked again decoded: %00 and %0A pass the check on the URI as written.
+    _refuse_control_characters(path)
     return path
 
 
@@ -562,6 +587,8 @@ def _file_path(uri: str) -> str:
     if parts.netloc or parts.query or parts.fragment or not parts.path:
         raise ValueError("a file URL must be file:///abs/path")
     path = unquote(parts.path)
+    # Checked again decoded: %00 and %0A pass the check on the URI as written.
+    _refuse_control_characters(path)
     # file:///C:/x names the Windows path C:/x; the slash in front belongs to the URL syntax.
     return path[1:] if _WINDOWS_DRIVE.match(path) else path
 
@@ -569,14 +596,14 @@ def _file_path(uri: str) -> str:
 def _baud(text: str) -> int:
     """Return a positive baud rate."""
     if _BAUD.fullmatch(text) is None or int(text) == 0:
-        raise ValueError(f"baud must be a positive whole number, got {text!r}")
+        raise ValueError(f"baud must be a positive whole number, got {_echoed(text)}")
     return int(text)
 
 
 def _choice(text: str, choices: Mapping[str, _T], *, setting: _SerialSetting) -> _T:
     """Return ``choices[text]`` or refuse with the allowed spellings of ``setting``."""
     if text not in choices:
-        raise ValueError(f"{setting.value} must be one of {'/'.join(choices)}, got {text!r}")
+        raise ValueError(f"{setting.value} must be one of {'/'.join(choices)}, got {_echoed(text)}")
     return choices[text]
 
 

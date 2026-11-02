@@ -355,6 +355,11 @@ All notable changes to this project are documented here. The format follows
   it kept sending.
 - The `file` camera refuses an image over 50 MiB, as the `http` camera does; a
   symlink in the folder is followed and counts by its target.
+- A `file:`, `serial:` or `device:` URI holding `%00`, `%0A`, `%0D` or `%09`
+  is refused as a control character: `%00` gave "embedded null character" and
+  `%0A` created a file with a newline in its name.
+- A refused printer URI or value is quoted up to 200 characters with its
+  length: a 3000-digit baud rate gave a 6 KB message.
 
 ## [0.4.0] - 2026-10-30
 
