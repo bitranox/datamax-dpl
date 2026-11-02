@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import stat
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -127,3 +129,50 @@ def test_the_written_value_is_what_the_next_configuration_load_reads(clear_confi
 @pytest.mark.os_agnostic
 def test_the_config_sections_are_spelled_as_the_file_spells_them() -> None:
     assert [section.value for section in ConfigSection] == ["printer", "printers", "camera", "preview"]
+
+
+@pytest.mark.os_agnostic
+def test_a_written_file_is_replaced_whole_and_no_temp_file_stays(tmp_path: Path) -> None:
+    """A write in place truncates first: a crash then loses every other setting, a camera password included."""
+    target = tmp_path / "config.toml"
+    target.write_text('[printer]\nmodel = "allegro-2"\n', encoding="utf-8")
+    before = target.stat().st_ino
+    write_printer_values([target], printer="", values={CalibrationKey.SCALE_ACROSS: 1.01})
+    assert target.stat().st_ino != before
+    assert _table(target, "printer")["model"] == "allegro-2"
+    assert [path.name for path in tmp_path.iterdir()] == ["config.toml"]
+
+
+@pytest.mark.os_posix
+@pytest.mark.skipif(os.name != "posix", reason="POSIX modes")
+@pytest.mark.parametrize("mode", [0o600, 0o640, 0o644])
+def test_a_rewritten_file_keeps_its_mode(tmp_path: Path, mode: int) -> None:
+    target = tmp_path / "config.toml"
+    target.write_text('[printer]\nmodel = "allegro-2"\n', encoding="utf-8")
+    target.chmod(mode)
+    write_printer_values([target], printer="", values={CalibrationKey.SCALE_ACROSS: 1.01})
+    assert stat.S_IMODE(target.stat().st_mode) == mode
+
+
+@pytest.mark.os_posix
+@pytest.mark.skipif(os.name != "posix", reason="POSIX modes")
+def test_a_new_file_is_private_since_it_may_come_to_hold_a_password(tmp_path: Path) -> None:
+    target = tmp_path / "sub" / "config.toml"
+    write_printer_values([target], printer="", values={CalibrationKey.SCALE_ACROSS: 1.01})
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+
+@pytest.mark.os_agnostic
+def test_a_symlinked_config_stays_a_link_and_its_target_gets_the_value(tmp_path: Path) -> None:
+    """A replace on the link's own path would turn a dotfiles link into a plain copy."""
+    real = tmp_path / "dotfiles" / "config.toml"
+    real.parent.mkdir()
+    real.write_text('[printer]\nmodel = "allegro-2"\n', encoding="utf-8")
+    link = tmp_path / "config.toml"
+    try:
+        link.symlink_to(real)
+    except OSError as exc:
+        pytest.skip(f"this account cannot create a symlink: {exc}")
+    write_printer_values([link], printer="", values={CalibrationKey.SCALE_ACROSS: 1.01})
+    assert link.is_symlink()
+    assert _table(real, "printer")["scale_across"] == 1.01

@@ -12,6 +12,10 @@ caller re-reads the configuration to find out.
 
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
 
 import tomlkit
@@ -26,7 +30,6 @@ from datamax_dpl.domain.enums import DeployTarget
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
-    from pathlib import Path
 
     from tomlkit.toml_document import TOMLDocument
 
@@ -87,9 +90,31 @@ def write_printer_values(files: Sequence[Path], *, printer: str, values: Mapping
     table = _ensure(document, section)
     for key, value in values.items():
         table[key.value] = value
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(tomlkit.dumps(document), encoding="utf-8")
+    _replace_file(target, tomlkit.dumps(document))
     return target
+
+
+def _replace_file(target: Path, text: str) -> None:
+    """Write ``text`` to ``target`` whole or not at all, keeping its mode and following a symlink.
+
+    A write in place truncates first, so a crash would lose every other setting of the user's file.
+    A new file stays at the temporary file's owner-only mode: it may come to hold a camera password.
+    """
+    final = target.resolve()
+    final.parent.mkdir(parents=True, exist_ok=True)
+    handle, temporary = tempfile.mkstemp(dir=final.parent, prefix=f".{final.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as file:
+            file.write(text)
+            file.flush()
+            os.fsync(file.fileno())
+        if final.exists():
+            shutil.copymode(final, temporary)
+        Path(temporary).replace(final)
+    except BaseException:
+        # BaseException: a Ctrl-C during the write must not leave the temporary file behind either.
+        Path(temporary).unlink(missing_ok=True)
+        raise
 
 
 def set_user_printer_values(

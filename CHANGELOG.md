@@ -368,6 +368,9 @@ All notable changes to this project are documented here. The format follows
   its stderr, where it held both in memory; a helper the program left running
   no longer holds a finished capture open until the timeout. On a timeout on
   Windows it ends the whole process tree with `taskkill /T /F`.
+- `calibrate set` writes the user configuration through a temporary file and a
+  rename, keeping its mode and following a symlink, so a crash mid-write loses
+  no other setting; a file it creates is owner-only.
 
 ## [0.4.0] - 2026-10-30
 
