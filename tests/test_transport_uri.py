@@ -8,6 +8,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from datamax_dpl.adapters.transport import open_printer
 from datamax_dpl.adapters.transport.uri import (
     ACCEPTED_FORMS,
     MAX_TIMEOUT_SECONDS,
@@ -25,7 +26,12 @@ from datamax_dpl.adapters.transport.uri import (
     transport_error,
     unsupported_query,
 )
-from datamax_dpl.domain.errors import PrinterTimeoutError, TransportError, UnsupportedOperationError
+from datamax_dpl.domain.errors import (
+    ConfigurationError,
+    PrinterTimeoutError,
+    TransportError,
+    UnsupportedOperationError,
+)
 from datamax_dpl.domain.timing import TimeoutName
 
 # --- tcp ---------------------------------------------------------------------------------------
@@ -355,3 +361,37 @@ def test_a_refusal_quotes_a_short_uri_whole() -> None:
     with pytest.raises(ValueError, match=r"'serial:///dev/ttyS0\?baud=abc'") as caught:
         parse_printer_uri("serial:///dev/ttyS0?baud=abc")
     assert "'abc'" in str(caught.value)
+
+
+# ======================== Host names ========================
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "host",
+    ["a..b", "example..com", ".example", "example.", "a" * 64, f"{'a' * 64}.com", "-a.com", "a-.com", "a.-b", "a.b-"],
+    ids=lambda host: host[:12],
+)
+def test_a_host_name_with_a_bad_label_is_refused_as_configuration(host: str) -> None:
+    """Each of these reached the socket, whose idna codec refused it as a raw UnicodeEncodeError."""
+    with pytest.raises(ConfigurationError, match="invalid host"):
+        open_printer(f"tcp://{host}:9100", timeout=1.0)
+
+
+@pytest.mark.os_agnostic
+def test_a_host_name_over_253_characters_is_refused() -> None:
+    long_host = ".".join(["a" * 63] * 4)  # 255 characters
+    assert len(long_host) > 253
+    with pytest.raises(ConfigurationError, match="invalid host"):
+        open_printer(f"tcp://{long_host}:9100", timeout=1.0)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "host",
+    ["a", "printer-1", "a.b.c", "a" * 63, f"{'a' * 63}.com", ".".join(["a" * 63, "b" * 63, "c" * 63, "d" * 61])],
+    ids=lambda host: f"{host[:10]}-{len(host)}",
+)
+def test_a_host_name_at_the_limits_still_parses(host: str) -> None:
+    assert len(host) <= 253
+    assert parse_printer_uri(f"tcp://{host}:9100") == TcpUri(host=host, port=9100)

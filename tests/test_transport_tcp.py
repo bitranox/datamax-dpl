@@ -1007,3 +1007,10 @@ def test_peer_closed_over_tcp_reads_a_half_close_as_closed() -> None:
         _readable(ours)
 
         assert printer.peer_closed()
+
+
+@pytest.mark.os_agnostic
+def test_a_zone_id_the_socket_cannot_encode_is_a_transport_error() -> None:
+    """The URI check passes it, since a zone is free text; the socket's codec is what refuses it."""
+    with pytest.raises(TransportError, match="cannot be encoded"):
+        open_printer("tcp://[fe80::1%25\udcff]:9100", timeout=1.0)

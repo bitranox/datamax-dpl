@@ -297,6 +297,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A host name with an empty or over-long label (`tcp://a..b:9100`, a
+  64-character label, more than 253 characters in all) is refused with
+  `ConfigurationError` when the printer is opened, and a camera URL nothing
+  can connect to (`http://exa mple/`, `http://a..b/x`) raises `CameraError`,
+  exit 2. They escaped as `UnicodeEncodeError` and `http.client.InvalidURL`,
+  the second at exit 1.
 - Any failure of a label or printer command now exits 2 with an error envelope
   under `--json`/`--json-bare`, and `--traceback` shows where it came from. A
   failure the code did not foresee used to exit 1, which documents a refusal,

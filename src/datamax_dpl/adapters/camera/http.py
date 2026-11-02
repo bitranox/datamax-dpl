@@ -131,9 +131,12 @@ def _connect(url: _CameraUrl, *, timeout: float) -> http.client.HTTPConnection:
     except ValueError as exc:
         raise CameraError(f"camera URL has an invalid port for host {target.hostname!r}") from exc
     host = target.hostname or ""
-    if url.scheme is _Scheme.HTTPS:
-        return http.client.HTTPSConnection(host, port, timeout=timeout, context=ssl.create_default_context())
-    return http.client.HTTPConnection(host, port, timeout=timeout)
+    try:
+        if url.scheme is _Scheme.HTTPS:
+            return http.client.HTTPSConnection(host, port, timeout=timeout, context=ssl.create_default_context())
+        return http.client.HTTPConnection(host, port, timeout=timeout)
+    except http.client.InvalidURL as exc:
+        raise CameraError(f"camera URL has an invalid host {host!r}") from exc
 
 
 def _headers(settings: CameraSettings, *, target: SplitResult) -> dict[str, str]:
@@ -162,6 +165,9 @@ def _get(
         response = connection.getresponse()
     except TimeoutError as exc:
         raise CameraError(f"camera at {target.hostname!r} did not answer in time") from exc
+    except UnicodeError as exc:
+        # The connection opens here, and the socket's idna codec is what refuses a bad host name.
+        raise CameraError(f"camera URL has an invalid host {target.hostname!r}") from exc
     except (OSError, http.client.HTTPException) as exc:
         raise CameraError(f"camera at {target.hostname!r} is unreachable: {type(exc).__name__}") from exc
     if response.status != _HTTP_OK:

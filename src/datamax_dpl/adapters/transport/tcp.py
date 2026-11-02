@@ -96,6 +96,11 @@ class TcpTransport(ClosingTransport):
             # is the reset. An unknown or unreachable host is not worth asking again.
             no_request = isinstance(exc, TimeoutError) or _is_hang_up(exc)
             raise transport_error(uri, action=ChannelAction.CONNECT, error=exc, unanswered=no_request) from exc
+        except UnicodeError as exc:
+            # A host name that passed the URI check still goes through the socket's idna codec, and an
+            # IPv6 zone id is free text it cannot always encode. No connection was attempted.
+            reason = OSError(errno.EINVAL, "the host name cannot be encoded")
+            raise transport_error(uri, action=ChannelAction.CONNECT, error=reason) from exc
         return cls(sock, uri=uri, timeout=timeout, tuning=tuning)
 
     @property

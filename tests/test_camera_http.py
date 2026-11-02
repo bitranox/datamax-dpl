@@ -301,3 +301,15 @@ def test_a_body_at_the_cap_is_taken(camera: Camera, tmp_path: Path) -> None:
 
     image = capture_with_http(_settings(f"{camera.base}/full"), stem=tmp_path / "s")
     assert image.path.stat().st_size == MAX_IMAGE_BYTES
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "url",
+    ["http://exa mple/", "http://a..b/x", f"http://{'a' * 300}/x", "https://exa mple/", "https://a..b/x"],
+    ids=["space", "empty-label", "long-host", "https-space", "https-empty-label"],
+)
+def test_a_url_nothing_can_connect_to_is_a_camera_error(url: str, tmp_path: Path) -> None:
+    """A config typo: http.client's own refusal or the idna codec's must not reach the caller."""
+    with pytest.raises(CameraError):
+        capture_with_http(_settings(url), stem=tmp_path / "s")

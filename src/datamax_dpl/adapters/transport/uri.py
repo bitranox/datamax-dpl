@@ -56,7 +56,10 @@ _SERIAL_PREFIX = "serial://"
 _DEVICE_PREFIX = "device://"
 _FILE_PREFIX = "file:"
 _FILE_URL_PREFIX = "file://"
-_HOST_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?")
+_HOST_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+#: A DNS name: dot-separated labels of 1-63 characters, 253 in all. Checked here because the socket's
+#: idna codec refuses anything else with a UnicodeError, far from the setting that holds the typo.
+_HOST_NAME = re.compile(rf"(?=.{{1,253}}\Z){_HOST_LABEL}(?:\.{_HOST_LABEL})*")
 _BAUD = re.compile(r"[0-9]{1,7}")
 _WINDOWS_DRIVE = re.compile(r"/[A-Za-z]:[/\\]")
 _FLAGS = {"0": False, "1": True}
