@@ -126,8 +126,11 @@ turn the outcome into output and an exit code.
 - `transport/tcp.py`, `transport/serial.py`, `transport/device.py`, `transport/file.py` - the transports.
 - `transport/__init__.py` - `open_printer(uri, timeout=...)`.
 - `camera/command.py`, `camera/http.py`, `camera/file.py` - the camera kinds; `camera/__init__.py` picks one.
+- `camera/stored.py` - the image a camera kind stored and its media type (`StoredImage`).
 - `preview/__init__.py` - lettered preview with Pillow when the `preview` extra is installed.
 - `config/loader.py`, `config/deploy.py`, `config/display.py`, `config/overrides.py` - layered configuration.
+- `config/sections.py` - the `[printer]`, `[printers.<name>]` and `[camera]` section names (`ConfigSection`).
+- `config/user_edit.py` - writes a printer's values into the user layer (`calibrate set`).
 - `config/defaultconfig.toml`, `config/defaultconfig.d/*.toml` - bundled defaults (`50-printer`, `60-camera`, `90-logging` ...).
 - `logging/setup.py` - lib_log_rich initialisation.
 - `memory/printer.py` (`RecordingPrinter`), `memory/camera.py` (`FakeCamera`), `memory/config.py`, `memory/logging.py` - in-memory doubles.

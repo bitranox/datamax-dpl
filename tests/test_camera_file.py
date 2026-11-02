@@ -57,10 +57,11 @@ def test_the_new_image_is_returned_and_an_old_one_ignored(tmp_path: Path) -> Non
     (watched / "NEW.JPEG").write_bytes(b"new image")
     fake = FakeTime()
 
-    path = capture_from_directory(_settings(watched), stem=tmp_path / "shot", sleep=fake.sleep, clock=fake.clock)
+    image = capture_from_directory(_settings(watched), stem=tmp_path / "shot", sleep=fake.sleep, clock=fake.clock)
 
-    assert path == tmp_path / "shot.jpeg"
-    assert path.read_bytes() == b"new image"
+    assert image.path == tmp_path / "shot.jpeg"
+    assert image.media_type is MediaType.JPEG
+    assert image.path.read_bytes() == b"new image"
     assert fake.sleeps == [POLL_INTERVAL_SECONDS]
 
 
@@ -76,10 +77,10 @@ def test_the_newest_of_several_new_images_wins(tmp_path: Path) -> None:
     out = tmp_path / "out"
     out.mkdir()
 
-    path = capture_from_directory(_settings(tmp_path), stem=out / "shot", sleep=fake.sleep, clock=fake.clock)
+    image = capture_from_directory(_settings(tmp_path), stem=out / "shot", sleep=fake.sleep, clock=fake.clock)
 
-    assert path.read_bytes() == b"second"
-    assert path.suffix == ".png"
+    assert image.path.read_bytes() == b"second"
+    assert image.path.suffix == ".png"
 
 
 @pytest.mark.os_agnostic
@@ -94,9 +95,9 @@ def test_an_image_appearing_while_polling_is_picked_up(tmp_path: Path) -> None:
 
     fake = FakeTime(on_sleep=drop)
 
-    path = capture_from_directory(_settings(watched), stem=tmp_path / "shot", sleep=fake.sleep, clock=fake.clock)
+    image = capture_from_directory(_settings(watched), stem=tmp_path / "shot", sleep=fake.sleep, clock=fake.clock)
 
-    assert path.read_bytes() == b"late image"
+    assert image.path.read_bytes() == b"late image"
     assert len(fake.sleeps) == 4
 
 
@@ -114,9 +115,9 @@ def test_a_file_still_growing_is_not_taken_until_its_size_settles(tmp_path: Path
     out = tmp_path / "out"
     out.mkdir()
 
-    path = capture_from_directory(_settings(tmp_path), stem=out / "shot", sleep=fake.sleep, clock=fake.clock)
+    copy = capture_from_directory(_settings(tmp_path), stem=out / "shot", sleep=fake.sleep, clock=fake.clock)
 
-    assert path.read_bytes() == b"part and the rest"
+    assert copy.path.read_bytes() == b"part and the rest"
     assert len(fake.sleeps) == 2
 
 
@@ -135,9 +136,9 @@ def test_a_file_whose_time_moves_while_its_size_stays_is_taken_after_two_polls(t
     out = tmp_path / "out"
     out.mkdir()
 
-    path = capture_from_directory(_settings(tmp_path), stem=out / "shot", sleep=fake.sleep, clock=fake.clock)
+    copy = capture_from_directory(_settings(tmp_path), stem=out / "shot", sleep=fake.sleep, clock=fake.clock)
 
-    assert path.read_bytes() == b"whole"
+    assert copy.path.read_bytes() == b"whole"
     assert len(fake.sleeps) == 1
 
 

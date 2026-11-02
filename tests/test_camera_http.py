@@ -108,6 +108,17 @@ def test_a_png_snapshot_is_stored_as_png(camera: Camera, tmp_path: Path) -> None
 
 
 @pytest.mark.os_agnostic
+def test_the_non_standard_image_jpg_is_stored_as_a_jpeg(camera: Camera, tmp_path: Path) -> None:
+    """``image/jpg``, which cameras send though no such media type is registered, means a JPEG."""
+    camera.routes["/snap"] = Route(content_type="image/jpg", body=b"\xff\xd8\xff-jpeg")
+
+    stored = capture_with_http(_settings(f"{camera.base}/snap"), stem=tmp_path / "s")
+
+    assert (stored.path, stored.media_type) == (tmp_path / "s.jpg", MediaType.JPEG)
+    assert stored.path.read_bytes() == b"\xff\xd8\xff-jpeg"
+
+
+@pytest.mark.os_agnostic
 def test_the_scheme_is_read_in_any_letter_case(camera: Camera, tmp_path: Path) -> None:
     """``HTTP://`` is the plain http scheme: the snapshot is fetched as for ``http://``."""
     camera.routes["/snap.png"] = Route()
@@ -153,9 +164,9 @@ def test_basic_auth_with_the_right_password_succeeds(camera: Camera, tmp_path: P
     """User and password from the settings are sent as basic auth."""
     camera.routes["/snap"] = Route(credentials=("admin", PASSWORD))
 
-    path = capture_with_http(_settings(f"{camera.base}/snap", user="admin", password=PASSWORD), stem=tmp_path / "s")
+    image = capture_with_http(_settings(f"{camera.base}/snap", user="admin", password=PASSWORD), stem=tmp_path / "s")
 
-    assert path.read_bytes() == TINY_PNG
+    assert image.path.read_bytes() == TINY_PNG
 
 
 @pytest.mark.os_agnostic
@@ -178,7 +189,7 @@ def test_credentials_in_the_url_are_used_and_not_leaked(camera: Camera, tmp_path
     camera.routes["/snap"] = Route(credentials=("admin", PASSWORD))
     url = camera.base.replace("http://", f"http://admin:{PASSWORD}@")
 
-    assert capture_with_http(_settings(f"{url}/snap"), stem=tmp_path / "ok").read_bytes() == TINY_PNG
+    assert capture_with_http(_settings(f"{url}/snap"), stem=tmp_path / "ok").path.read_bytes() == TINY_PNG
     with pytest.raises(CameraError) as caught:
         capture_with_http(_settings(f"{url}/missing"), stem=tmp_path / "bad")
     assert PASSWORD not in str(caught.value)

@@ -6,9 +6,9 @@ class is chosen from the scheme, so only ``http`` and ``https`` can ever be open
 header can never be replayed to another host. A redirect is reported as an error naming the
 status; configure the final snapshot URL instead.
 
-The response ``Content-Type`` decides the extension: ``image/jpeg`` (and the common
-non-standard ``image/jpg``) give ``.jpg``, ``image/png`` gives ``.png``; anything else is
-refused. The password is never logged and never appears in an error message.
+The response ``Content-Type`` decides the media type and so the extension: ``image/jpeg`` (and
+the common non-standard ``image/jpg``) give a JPEG stored as ``.jpg``, ``image/png`` a PNG stored
+as ``.png``; anything else is refused. The password is never logged and never appears in an error message.
 """
 
 from __future__ import annotations
@@ -18,13 +18,16 @@ import http.client
 import ssl
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 from urllib.parse import SplitResult, unquote, urlsplit
 
 from ...domain.enums import MediaType
 from ...domain.errors import CameraError
+from .stored import StoredImage
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
     from ...domain.camera import CameraSettings
@@ -32,13 +35,19 @@ if TYPE_CHECKING:
 #: Largest image body accepted, in bytes (50 MiB).
 MAX_IMAGE_BYTES = 50 * 1024 * 1024
 
-#: Media types accepted from the camera and the extension each one is stored with. Keyed by the
-#: raw header text because cameras also send ``image/jpg``, which is no registered media type.
-EXTENSION_BY_CONTENT_TYPE: dict[str, str] = {
-    MediaType.JPEG.value: ".jpg",
-    "image/jpg": ".jpg",
-    MediaType.PNG.value: ".png",
-}
+#: The media type each accepted ``Content-Type`` names, in the order the request's ``Accept`` lists
+#: them. Keyed by the header text because cameras also send ``image/jpg``, which is no registered
+#: media type: it is an alias of ``image/jpeg``.
+MEDIA_TYPE_BY_CONTENT_TYPE: Mapping[str, MediaType] = MappingProxyType(
+    {
+        MediaType.JPEG.value: MediaType.JPEG,
+        "image/jpg": MediaType.JPEG,
+        MediaType.PNG.value: MediaType.PNG,
+    }
+)
+
+#: The extension an image of each media type is stored with.
+EXTENSION_BY_MEDIA_TYPE: Mapping[MediaType, str] = MappingProxyType({MediaType.JPEG: ".jpg", MediaType.PNG: ".png"})
 
 _HTTP_OK = 200
 
@@ -58,7 +67,7 @@ class _CameraUrl:
     scheme: _Scheme
 
 
-def capture_with_http(settings: CameraSettings, *, stem: Path) -> Path:
+def capture_with_http(settings: CameraSettings, *, stem: Path) -> StoredImage:
     """GET ``settings.url`` and store the image it returns.
 
     Args:
@@ -66,7 +75,7 @@ def capture_with_http(settings: CameraSettings, *, stem: Path) -> Path:
         stem: Output path without extension; the extension follows the response's media type.
 
     Returns:
-        The path of the image written.
+        The image written, with the media type the response named.
 
     Raises:
         CameraError: The URL is not ``http``/``https``, the camera is unreachable, answers a
@@ -78,16 +87,16 @@ def capture_with_http(settings: CameraSettings, *, stem: Path) -> Path:
     target = url.parts
     try:
         response = _get(connection, target=target, headers=_headers(settings, target=target))
-        extension = _extension(response)
+        media_type = _media_type(response)
         body = _read_body(response)
     finally:
         connection.close()
-    output = stem.with_suffix(extension)
+    output = stem.with_suffix(EXTENSION_BY_MEDIA_TYPE[media_type])
     try:
         output.write_bytes(body)
     except OSError as exc:
         raise CameraError(f"camera image could not be written to {output}: {exc.strerror or exc}") from exc
-    return output
+    return StoredImage(path=output, media_type=media_type)
 
 
 def _parse_url(url: str) -> _CameraUrl:
@@ -124,7 +133,7 @@ def _headers(settings: CameraSettings, *, target: SplitResult) -> dict[str, str]
 
     Credentials in the URL's userinfo are used only when ``[camera] user`` is empty.
     """
-    headers = {"Accept": ", ".join(EXTENSION_BY_CONTENT_TYPE)}
+    headers = {"Accept": ", ".join(MEDIA_TYPE_BY_CONTENT_TYPE)}
     user = settings.user or unquote(target.username or "")
     password = settings.password.get_secret_value() or unquote(target.password or "")
     if user or password:
@@ -152,14 +161,14 @@ def _get(
     return response
 
 
-def _extension(response: http.client.HTTPResponse) -> str:
-    """Return the file extension for the response's media type, refusing a non-image."""
+def _media_type(response: http.client.HTTPResponse) -> MediaType:
+    """Return the media type the response names, refusing a non-image."""
     content_type = response.headers.get_content_type()
-    extension = EXTENSION_BY_CONTENT_TYPE.get(content_type)
-    if extension is None:
+    media_type = MEDIA_TYPE_BY_CONTENT_TYPE.get(content_type)
+    if media_type is None:
         expected = f"{MediaType.JPEG.value} or {MediaType.PNG.value}"
         raise CameraError(f"camera sent media type {content_type!r}, expected {expected}")
-    return extension
+    return media_type
 
 
 def _read_body(response: http.client.HTTPResponse) -> bytes:
@@ -178,4 +187,4 @@ def _read_body(response: http.client.HTTPResponse) -> bytes:
     return body
 
 
-__all__ = ["EXTENSION_BY_CONTENT_TYPE", "MAX_IMAGE_BYTES", "capture_with_http"]
+__all__ = ["EXTENSION_BY_MEDIA_TYPE", "MAX_IMAGE_BYTES", "MEDIA_TYPE_BY_CONTENT_TYPE", "capture_with_http"]

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Protocol
 from ...domain.camera import CameraKind, CapturedImage
 from ...domain.errors import CameraError
 from .command import capture_with_command
-from .file import MEDIA_TYPE_BY_SUFFIX, capture_from_directory
+from .file import capture_from_directory
 from .http import capture_with_http
 
 if TYPE_CHECKING:
@@ -28,13 +28,13 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from ...domain.camera import CameraSettings
-    from ...domain.enums import MediaType
+    from .stored import StoredImage
 
 
 class _Capture(Protocol):
-    """One capture strategy: write the image next to ``stem`` and return its path."""
+    """One capture strategy: write the image next to ``stem`` and return it with its media type."""
 
-    def __call__(self, settings: CameraSettings, *, stem: Path) -> Path: ...
+    def __call__(self, settings: CameraSettings, *, stem: Path) -> StoredImage: ...
 
 
 #: The strategy of every camera kind but ``none``, which takes no photo.
@@ -80,31 +80,8 @@ def capture_image(settings: CameraSettings, *, output_dir: Path) -> CapturedImag
     except OSError as exc:
         raise CameraError(f"image folder {output_dir} cannot be created: {exc.strerror or exc}") from exc
     stem = output_dir / f"capture-{datetime.now(timezone.utc).strftime(CAPTURE_STAMP_FORMAT)}"
-    path = capture(settings, stem=stem)
-    return CapturedImage(path=path, media_type=media_type_for(path), captured_at=datetime.now(timezone.utc))
-
-
-def media_type_for(path: Path) -> MediaType:
-    """Return the media type of an image file from its suffix.
-
-    Args:
-        path: An image path ending in ``.jpg``, ``.jpeg`` or ``.png`` (any case).
-
-    Returns:
-        ``MediaType.JPEG`` or ``MediaType.PNG``.
-
-    Raises:
-        CameraError: The suffix is not an image suffix this package writes.
-
-    Example:
-        >>> from pathlib import Path
-        >>> media_type_for(Path("capture.PNG"))
-        <MediaType.PNG: 'image/png'>
-    """
-    media_type = MEDIA_TYPE_BY_SUFFIX.get(path.suffix.lower())
-    if media_type is None:
-        raise CameraError(f"{path.name} is not a JPEG or PNG file name")
-    return media_type
+    stored = capture(settings, stem=stem)
+    return CapturedImage(path=stored.path, media_type=stored.media_type, captured_at=datetime.now(timezone.utc))
 
 
 if TYPE_CHECKING:
@@ -119,5 +96,4 @@ __all__ = [
     "capture_image",
     "capture_with_command",
     "capture_with_http",
-    "media_type_for",
 ]

@@ -52,10 +52,10 @@ def test_a_png_suffix_after_the_placeholder_makes_a_png(tmp_path: Path) -> None:
 def test_the_placeholder_is_replaced_inside_a_larger_argument(tmp_path: Path) -> None:
     """``--out={output}`` hands the program the path after the equals sign."""
     script = "import sys; open(sys.argv[1].split('=', 1)[1], 'wb').write(b'x')"
-    path = capture_with_command(_settings(sys.executable, "-c", script, "--out={output}"), stem=tmp_path / "shot")
+    image = capture_with_command(_settings(sys.executable, "-c", script, "--out={output}"), stem=tmp_path / "shot")
 
-    assert path == tmp_path / "shot.jpg"
-    assert path.read_bytes() == b"x"
+    assert image.path == tmp_path / "shot.jpg"
+    assert image.path.read_bytes() == b"x"
 
 
 @pytest.mark.os_agnostic
@@ -153,6 +153,6 @@ def test_a_path_with_backslashes_is_substituted_literally(tmp_path: Path) -> Non
     directory = tmp_path / "a\\1b" if sys.platform != "win32" else tmp_path / "a1b"
     directory.mkdir()
 
-    path = capture_with_command(_settings(sys.executable, "-c", WRITE_IMAGE, "{output}"), stem=directory / "shot")
+    image = capture_with_command(_settings(sys.executable, "-c", WRITE_IMAGE, "{output}"), stem=directory / "shot")
 
-    assert path.read_bytes() == b"\xff\xd8\xff-image"
+    assert image.path.read_bytes() == b"\xff\xd8\xff-image"

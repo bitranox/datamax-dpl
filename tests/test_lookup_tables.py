@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from datamax_dpl.adapters.camera import capture_image
+from datamax_dpl.adapters.camera.file import MEDIA_TYPE_BY_SUFFIX
+from datamax_dpl.adapters.camera.http import EXTENSION_BY_MEDIA_TYPE, MEDIA_TYPE_BY_CONTENT_TYPE
 from datamax_dpl.adapters.cli.payloads import FindingOut, findings_text
 from datamax_dpl.adapters.cli.settings import PrinterSettings, render_options
 from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
@@ -25,6 +27,7 @@ from datamax_dpl.domain.enums import (
     CutterPresence,
     FillPattern,
     FindingCode,
+    MediaType,
     Severity,
     SpeedCode,
     Unit,
@@ -151,6 +154,35 @@ def test_an_inverse_field_shows_in_the_preview_as_xor() -> None:
 
     assert drawn(Attribute.INVERSE) == drawn(Attribute.XOR)
     assert drawn(Attribute.INVERSE) != drawn(Attribute.TRANSPARENT)
+
+
+@pytest.mark.os_agnostic
+def test_every_media_type_has_a_read_only_extension_it_is_read_back_as() -> None:
+    assert set(EXTENSION_BY_MEDIA_TYPE) == set(MediaType)
+    for media_type, extension in EXTENSION_BY_MEDIA_TYPE.items():
+        assert MEDIA_TYPE_BY_SUFFIX[extension] is media_type
+    with pytest.raises(TypeError):
+        cast("dict[MediaType, str]", EXTENSION_BY_MEDIA_TYPE)[MediaType.PNG] = ".gif"
+
+
+@pytest.mark.os_agnostic
+def test_the_camera_content_types_name_every_media_type_and_image_jpg_as_an_alias() -> None:
+    assert dict(MEDIA_TYPE_BY_CONTENT_TYPE) == {
+        "image/jpeg": MediaType.JPEG,
+        "image/jpg": MediaType.JPEG,
+        "image/png": MediaType.PNG,
+    }
+    assert set(MEDIA_TYPE_BY_CONTENT_TYPE.values()) == set(MediaType)
+    with pytest.raises(TypeError):
+        cast("dict[str, MediaType]", MEDIA_TYPE_BY_CONTENT_TYPE)["image/gif"] = MediaType.PNG
+
+
+@pytest.mark.os_agnostic
+def test_the_picked_up_suffixes_are_read_only_and_name_every_media_type() -> None:
+    assert dict(MEDIA_TYPE_BY_SUFFIX) == {".jpg": MediaType.JPEG, ".jpeg": MediaType.JPEG, ".png": MediaType.PNG}
+    assert set(MEDIA_TYPE_BY_SUFFIX.values()) == set(MediaType)
+    with pytest.raises(TypeError):
+        cast("dict[str, MediaType]", MEDIA_TYPE_BY_SUFFIX)[".gif"] = MediaType.PNG
 
 
 @pytest.mark.os_agnostic

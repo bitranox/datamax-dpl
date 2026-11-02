@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING
 
 from ...domain.camera import OUTPUT_PLACEHOLDER
 from ...domain.errors import CameraError
+from .file import MEDIA_TYPE_BY_SUFFIX
+from .stored import StoredImage
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -36,7 +38,7 @@ STDERR_TAIL_CHARS = 500
 _PLACEHOLDER_PATTERN = re.compile(re.escape(OUTPUT_PLACEHOLDER) + r"(\.(?:png|jpe?g))?", re.IGNORECASE)
 
 
-def capture_with_command(settings: CameraSettings, *, stem: Path) -> Path:
+def capture_with_command(settings: CameraSettings, *, stem: Path) -> StoredImage:
     """Run ``settings.command`` and return the image it wrote.
 
     Args:
@@ -45,7 +47,7 @@ def capture_with_command(settings: CameraSettings, *, stem: Path) -> Path:
             docstring.
 
     Returns:
-        The path of the non-empty image file the program wrote.
+        The non-empty image file the program wrote, with the media type its extension names.
 
     Raises:
         CameraError: The argv is empty or lacks the placeholder, the program is missing, it
@@ -58,17 +60,19 @@ def capture_with_command(settings: CameraSettings, *, stem: Path) -> Path:
         >>> script = "import sys; open(sys.argv[1], 'wb').write(b'img')"
         >>> settings = CameraSettings(kind=CameraKind.COMMAND, command=[sys.executable, "-c", script, "{output}"])
         >>> with tempfile.TemporaryDirectory() as tmp:
-        ...     capture_with_command(settings, stem=Path(tmp) / "capture").name
-        'capture.jpg'
+        ...     image = capture_with_command(settings, stem=Path(tmp) / "capture")
+        >>> image.path.name, image.media_type.value
+        ('capture.jpg', 'image/jpeg')
     """
     argv = list(settings.command)
     if not argv:
         raise CameraError("no camera command configured: set [camera] command")
-    output = stem.with_suffix(_extension(argv))
+    extension = _extension(argv)
+    output = stem.with_suffix(extension)
     resolved = [_resolve_program(argv[0]), *(_substitute(arg, output=output) for arg in argv[1:])]
     _run(resolved, program=argv[0], timeout=settings.timeout)
     _require_image(output, program=argv[0])
-    return output
+    return StoredImage(path=output, media_type=MEDIA_TYPE_BY_SUFFIX[extension])
 
 
 def _extension(argv: list[str]) -> str:

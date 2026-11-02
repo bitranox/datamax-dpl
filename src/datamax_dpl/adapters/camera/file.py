@@ -15,22 +15,26 @@ import stat
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from ...domain.enums import MediaType
 from ...domain.errors import CameraError
+from .stored import StoredImage
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from ...domain.camera import CameraSettings
 
-#: Image file suffixes picked up, and the media type each one is reported with.
-MEDIA_TYPE_BY_SUFFIX: dict[str, MediaType] = {
-    ".jpg": MediaType.JPEG,
-    ".jpeg": MediaType.JPEG,
-    ".png": MediaType.PNG,
-}
+#: Image file suffixes (lower case) picked up, and the media type each one is reported with.
+MEDIA_TYPE_BY_SUFFIX: Mapping[str, MediaType] = MappingProxyType(
+    {
+        ".jpg": MediaType.JPEG,
+        ".jpeg": MediaType.JPEG,
+        ".png": MediaType.PNG,
+    }
+)
 
 #: A file this many seconds older than the start of the capture still counts as new.
 MTIME_GRACE_SECONDS = 1.0
@@ -48,6 +52,8 @@ class _Candidate:
     # Picks the newest file only: two polls that saw the same path at the same size count as one
     # finished upload, as they did before the time was kept here, whether or not it moved.
     mtime: float = field(compare=False)
+    # Follows from the path's suffix, so it never decides whether two polls saw the same file.
+    media_type: MediaType = field(compare=False)
 
 
 def capture_from_directory(
@@ -56,7 +62,7 @@ def capture_from_directory(
     stem: Path,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
-) -> Path:
+) -> StoredImage:
     """Wait for a new image in ``settings.directory`` and copy it next to ``stem``.
 
     Args:
@@ -68,7 +74,7 @@ def capture_from_directory(
         clock: Monotonic seconds for the deadline; injected so tests control time.
 
     Returns:
-        The path of the copy.
+        The copy, with the media type its suffix names.
 
     Raises:
         CameraError: No directory is configured, it cannot be read, or no new complete image
@@ -81,7 +87,7 @@ def capture_from_directory(
     while True:
         current = _newest_image(directory, since=since)
         if current is not None and current == previous:
-            return _copy(current.path, stem=stem)
+            return StoredImage(path=_copy(current.path, stem=stem), media_type=current.media_type)
         if clock() >= deadline:
             raise CameraError(f"no new complete image appeared in {directory} within {settings.timeout:g} s")
         previous = current
@@ -114,7 +120,8 @@ def _newest_image(directory: Path, *, since: float) -> _Candidate | None:
 
 def _image_stat(entry: Path, *, since: float) -> _Candidate | None:
     """Return the candidate for a new, non-empty image file, else None."""
-    if entry.suffix.lower() not in MEDIA_TYPE_BY_SUFFIX:
+    media_type = MEDIA_TYPE_BY_SUFFIX.get(entry.suffix.lower())
+    if media_type is None:
         return None
     try:
         info = entry.stat()
@@ -123,7 +130,7 @@ def _image_stat(entry: Path, *, since: float) -> _Candidate | None:
         return None
     if not stat.S_ISREG(info.st_mode) or info.st_mtime < since or info.st_size == 0:
         return None
-    return _Candidate(path=entry, size=info.st_size, mtime=info.st_mtime)
+    return _Candidate(path=entry, size=info.st_size, mtime=info.st_mtime, media_type=media_type)
 
 
 def _copy(source: Path, *, stem: Path) -> Path:
