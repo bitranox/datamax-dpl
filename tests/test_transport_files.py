@@ -239,14 +239,17 @@ _LARGE_JOB = bytes(4 * 1024 * 1024)
 #: Far above the 0.5 s timeout, far below what a write with no timeout would wait: for ever.
 _WELL_PAST_THE_TIMEOUT = 3.0
 
-_NO_NON_BLOCKING_DESCRIPTOR = pytest.mark.skipif(
-    sys.platform == "win32", reason="Windows has no select or non-blocking open for a file descriptor"
-)
+#: Each test repeats the check in its body too: the type checker, which also reads this file for
+#: Windows, narrows on ``sys.platform`` there and not on a marker.
+_WHY_NO_DESCRIPTOR = "Windows has no select or non-blocking open for a file descriptor"
+_NO_NON_BLOCKING_DESCRIPTOR = pytest.mark.skipif(sys.platform == "win32", reason=_WHY_NO_DESCRIPTOR)
 
 
 @_NO_NON_BLOCKING_DESCRIPTOR
 def test_a_device_nobody_reads_times_out_instead_of_hanging() -> None:
     """A terminal stands in for a stalled printer: both stop taking data with no error."""
+    if sys.platform == "win32":
+        pytest.skip(_WHY_NO_DESCRIPTOR)
     master, slave = os.openpty()
     try:
         started = time.monotonic()
@@ -264,6 +267,8 @@ def test_a_device_nobody_reads_times_out_instead_of_hanging() -> None:
 @_NO_NON_BLOCKING_DESCRIPTOR
 def test_a_device_that_takes_the_job_slowly_gets_all_of_it(tmp_path: Path) -> None:
     """A FIFO with a slow reader: the timeout bounds a stall, not the job, as on tcp and serial."""
+    if sys.platform == "win32":
+        pytest.skip(_WHY_NO_DESCRIPTOR)
     fifo = tmp_path / "lp0"
     os.mkfifo(fifo)
     received = bytearray()
@@ -297,6 +302,8 @@ def test_a_device_that_takes_the_job_slowly_gets_all_of_it(tmp_path: Path) -> No
 @pytest.mark.parametrize("scheme", ["device://", "file:"])
 def test_a_fifo_nobody_reads_is_refused_at_once(tmp_path: Path, scheme: str) -> None:
     """A blocking open would wait for a reader for ever, past any timeout."""
+    if sys.platform == "win32":
+        pytest.skip(_WHY_NO_DESCRIPTOR)
     fifo = tmp_path / "lp0"
     os.mkfifo(fifo)
     started = time.monotonic()
@@ -307,6 +314,8 @@ def test_a_fifo_nobody_reads_is_refused_at_once(tmp_path: Path, scheme: str) -> 
 
 @_NO_NON_BLOCKING_DESCRIPTOR
 def test_open_printer_hands_a_device_its_timeout_and_piece_size() -> None:
+    if sys.platform == "win32":
+        pytest.skip(_WHY_NO_DESCRIPTOR)
     master, slave = os.openpty()
     try:
         printer = open_printer(

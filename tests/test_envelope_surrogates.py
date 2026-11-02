@@ -65,7 +65,7 @@ def test_an_error_naming_such_a_file_is_an_envelope(tmp_path: Path, capsys: pyte
 @pytest.mark.os_agnostic
 def test_the_envelope_keeps_every_other_character_as_it_is(capsys: pytest.CaptureFixture[str]) -> None:
     """An escape only for what no encoding can write: readable text stays readable."""
-    code, out = _run(["--json-bare", "validate", "Für-\udcfc.json"], capsys)
+    code, out = _run(["--json-bare", "validate", "F\u00fcr-\udcfc.json"], capsys)
     assert code == 2, out
-    assert "Für-" in out
+    assert "F\u00fcr-" in out
     assert "\\udcfc" in out
