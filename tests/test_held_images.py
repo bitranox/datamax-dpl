@@ -40,7 +40,7 @@ from datamax_dpl.domain.label import Image, Label, Qr
 from datamax_dpl.domain.memory import parse_module_directory
 from datamax_dpl.domain.profiles import MODEL_PROFILES
 from datamax_dpl.domain.raster import Bitmap
-from datamax_dpl.domain.render import RenderResult, build_job, build_jobs, render
+from datamax_dpl.domain.render import RenderResult, build_job, build_jobs, build_record, held_after_read, render
 from datamax_dpl.domain.render_context import RenderOptions, drawn_image_name
 from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS
 
@@ -757,6 +757,44 @@ def test_a_label_for_the_default_module_keeps_its_download_and_says_its_names_ar
     assert "C is the printer's default module" in finding.message
     # Nothing the directory could say would name the module, so it is not asked.
     assert printer.queries == []
+
+
+# ======================== what a read before the format says is held after it ========================
+
+
+#: The listing a read made after the label's downloads: LOGO, and a name another job left there.
+_READ = frozenset({LOGO_SENT, "OTHER"})
+
+
+@pytest.mark.os_agnostic
+def test_with_no_clear_after_the_label_what_the_read_listed_stays_held_with_the_command_sent() -> None:
+    result, after = build_record(Label(elements=[_LOGO]), _options(**_NO_CLEAR))
+
+    held = held_after_read(result, after, _READ)
+
+    assert held.listed == _READ
+    assert held.command_for(LOGO_SENT) == after.command_for(LOGO_SENT) is not None
+    assert held.command_for("OTHER") is None
+
+
+@pytest.mark.os_agnostic
+def test_a_clear_module_after_the_label_leaves_nothing_the_read_listed() -> None:
+    result, after = build_record(
+        Label(elements=[_LOGO]), _options(model="allegro-2", clear_graphics_before_label=False)
+    )
+
+    assert held_after_read(result, after, _READ) == HeldImages(listed=frozenset())
+
+
+@pytest.mark.os_agnostic
+def test_the_prodigy_s_removes_after_the_label_take_out_only_its_own_names_from_what_the_read_listed() -> None:
+    options = _options(model="prodigy", image_module=ImageModule.B, clear_graphics_before_label=False)
+    result, after = build_record(Label(elements=[_LOGO]), options)
+
+    held = held_after_read(result, after, _READ)
+
+    assert held.listed == {"OTHER"}
+    assert not held.holds(LOGO_SENT)
 
 
 # ======================== the CLI over a real channel ========================

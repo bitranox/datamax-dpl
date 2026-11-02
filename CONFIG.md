@@ -545,8 +545,11 @@ only the images the last read did not list: a name the module holds is never dow
 which would print nothing. Where that read got no answer, any name it followed may have arrived, so
 round 2, which would send the same names, is skipped, and round 3 runs only where halving gives
 every download a new name (a QR Code keeps its name); else the label is refused. Each label of a
-`--data` batch is checked on its own, and a label that needed a clear tells the next one that the
-module was emptied, one that needed no clear what the module listed. A label that, rendered again
+`--data` batch is checked on its own and tells the next one what its last read that answered
+listed (an empty module where a `<STX>q` follows the label), so no label downloads a name an
+earlier one stored. A name sent after a read with no answer, where no clear may go, may be held
+too: a later label that would download it again skips its first upload as round 2 is skipped and
+goes on with round 3. A label that, rendered again
 for a round or with what the labels before it left, has an error finding (too little image memory
 left, say) is refused there, before anything more of it goes out, and the batch stops. A one-way
 link (a file, stdout, a device file) cannot read the directory and sends the job at once, as

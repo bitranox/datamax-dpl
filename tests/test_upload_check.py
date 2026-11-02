@@ -29,8 +29,9 @@ from datamax_dpl.domain.errors import LabelRejectedError, PrinterTimeoutError, T
 from datamax_dpl.domain.held_images import HeldImages
 from datamax_dpl.domain.label import Image, Label, Qr
 from datamax_dpl.domain.profiles import get_profile
-from datamax_dpl.domain.render import RenderResult, build_record
-from datamax_dpl.domain.render_context import RenderOptions
+from datamax_dpl.domain.raster import Bitmap
+from datamax_dpl.domain.render import RenderResult, build_jobs, build_record
+from datamax_dpl.domain.render_context import RenderOptions, drawn_image_name
 from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS, STATUS_REQUEST
 
 if TYPE_CHECKING:
@@ -329,6 +330,205 @@ def test_such_a_module_halves_from_the_last_answered_read_when_the_round_2_read_
     assert result.halved_elements == (1,)
     assert printer.queries == [WG, WG, WG]
     assert printer.data.count(FORMAT) == 1
+
+
+#: A plug-in module rendered for a two-way print: the check, not the model's budget, decides halving.
+PLUG_IN_TWO_WAY = PLUG_IN.model_copy(update={"model_image_budget": False})
+#: The module read before the job listed nothing there.
+READ_EMPTY = HeldImages(listed=frozenset())
+
+
+def _print_batch(modules: ImageModules, renders: Sequence[RenderResult], job: CheckedJob) -> BatchResult:
+    """Print a batch of ``renders`` with ``job``'s upload check; return the batch as it went out."""
+    printer = ModulePrinter(modules)
+    batch = BatchResult(data=b"".join(r.data for r in renders), results=tuple(renders))
+    report = print_checked(batch, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    assert isinstance(report.result, BatchResult)
+    assert printer.data.count(FORMAT) == len(renders)
+    return report.result
+
+
+def _assert_each_format_places_a_stored_image(sent: BatchResult, modules: ImageModules, module: str) -> None:
+    """Every record's format names an image, and the module holds each one it names (nothing removes one here)."""
+    candidates = set(modules.downloads) | set(modules.names(module))
+    for record in sent.results:
+        rest = record.data[record.upload_end :]
+        placed = {name for name in candidates if name.encode("ascii") in rest}
+        assert placed, "a format went out naming no image"
+        assert placed <= set(modules.names(module))
+
+
+@pytest.mark.os_agnostic
+def test_a_batch_record_that_passed_after_a_read_with_no_answer_passes_on_what_its_last_read_listed() -> None:
+    """Record 1's first download arrived though its read got no answer; record 2 must not download it again."""
+    label = Label(elements=[LOGO])
+    records = [{"n": "1"}, {"n": "2"}]
+    modules = ImageModules(silent={0})
+    renders = render_batch(label, records, PLUG_IN_TWO_WAY, held=READ_EMPTY).results
+    job = CheckedJob(renders=record_renders(label, records, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
+
+    sent = _print_batch(modules, renders, job)
+
+    assert modules.downloaded_held == []
+    assert sent.results[0].halved_elements == (0,)
+    _assert_each_format_places_a_stored_image(sent, modules, "B")
+
+
+@pytest.mark.os_agnostic
+def test_a_batch_record_whose_round_2_read_got_no_answer_passes_on_the_names_round_3_found_listed() -> None:
+    """Round 2 sent ICON again and its read got no answer; record 2 must not download that ICON again."""
+    label = Label(elements=[LOGO, ICON])
+    records = [{"n": "1"}, {"n": "2"}]
+    modules = ImageModules(lose={1}, silent={1})
+    renders = render_batch(label, records, PLUG_IN_TWO_WAY, held=READ_EMPTY).results
+    job = CheckedJob(renders=record_renders(label, records, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
+
+    sent = _print_batch(modules, renders, job)
+
+    assert modules.downloaded_held == []
+    _assert_each_format_places_a_stored_image(sent, modules, "B")
+
+
+@pytest.mark.os_agnostic
+def test_a_name_a_record_sent_before_a_read_with_no_answer_is_not_downloaded_by_the_next_record() -> None:
+    """Record 2 sends LOGO full size, its read gets no answer, and it passes placing the halved LOGO.
+
+    Record 3 would download that full-size LOGO again, which the module may hold: its round 1 is
+    left out like round 2, and it places the halved LOGO too.
+    """
+    label = Label(elements=[LOGO])
+    records = [{"n": "1"}, {"n": "2"}, {"n": "3"}]
+    [logo] = render_label(label, PLUG_IN_TWO_WAY).downloads
+    modules = ImageModules(lose={0}, silent={0, 2, 3})
+    renders = render_batch(label, records, PLUG_IN_TWO_WAY, held=READ_EMPTY).results
+    job = CheckedJob(renders=record_renders(label, records, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
+
+    sent = _print_batch(modules, renders, job)
+
+    assert modules.downloaded_held == []
+    assert modules.downloads.count(logo) == 2
+    assert [record.downloads for record in sent.results[1:]] == [(), ()]
+    first, *_ = (f.message for f in sent.results[2].findings if f.code is FindingCode.IMAGE_UPLOAD_RETRIED)
+    assert first.startswith(f"round 1 skipped, it would download again {logo}:")
+    _assert_each_format_places_a_stored_image(sent, modules, "B")
+
+
+@pytest.mark.os_agnostic
+def test_a_record_whose_every_round_is_left_out_is_refused_saying_no_round_ran() -> None:
+    """As above, but record 3 is strict, so its images cannot be halved either: nothing of it is sent."""
+    label = Label(elements=[LOGO])
+    [logo] = render_label(label, PLUG_IN_TWO_WAY).downloads
+    strict = PLUG_IN_TWO_WAY.model_copy(update={"policy": FallbackPolicy.STRICT})
+    modules = ImageModules(lose={0}, silent={0, 2, 3})
+    printer = ModulePrinter(modules)
+    renders = (*render_batch(label, [{"n": "1"}, {"n": "2"}], PLUG_IN_TWO_WAY, held=READ_EMPTY).results,)
+    renders = (*renders, render_label(label, strict, held=READ_EMPTY))
+    batch = BatchResult(data=b"".join(r.data for r in renders), results=renders)
+    job = CheckedJob(
+        renders=(
+            *record_renders(label, [{"n": "1"}, {"n": "2"}], PLUG_IN_TWO_WAY),
+            *record_renders(label, None, strict),
+        ),
+        check=_check(),
+        held=READ_EMPTY,
+    )
+
+    with pytest.raises(UploadRefusedError) as caught:
+        print_checked(batch, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+
+    assert modules.downloaded_held == []
+    assert modules.downloads.count(logo) == 2
+    assert printer.data.count(FORMAT) == 2
+    sent = caught.value.result
+    assert isinstance(sent, BatchResult)
+    message = _message(sent.results[2], FindingCode.IMAGE_UPLOAD_REFUSED)
+    assert message.startswith(f"images {logo} not sent: no round ran: round 1 skipped, it would download again {logo}:")
+    assert "round 2 skipped," in message
+    assert "halving is refused" in message
+
+
+@pytest.mark.os_agnostic
+def test_a_batch_whose_names_read_got_no_answer_renders_the_next_record_from_the_first_records_read() -> None:
+    """The names read before the job got no answer; record 1's read lists ICON, which record 2 then places."""
+    options = TWO_WAY.model_copy(update={"clear_graphics_before_label": False, "clear_graphics_after_label": False})
+    first, second = Label(elements=[LOGO]), Label(elements=[ICON])
+    renders = build_jobs([first, second], options, held=HeldImages())
+    [icon] = renders[1].downloads
+    modules = ImageModules(held=[("A", icon, 512)])
+    job = CheckedJob(
+        renders=(*record_renders(first, None, options), *record_renders(second, None, options)),
+        check=_check(),
+        held=HeldImages(),
+    )
+
+    sent = _print_batch(modules, renders, job)
+
+    assert modules.downloaded_held == []
+    assert sent.results[1].downloads == ()
+    _assert_each_format_places_a_stored_image(sent, modules, "A")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "options",
+    [
+        RenderOptions(model="allegro-2", clear_graphics_before_label=False, model_image_budget=False),
+        RenderOptions(
+            model="prodigy", image_module=ImageModule.B, clear_graphics_before_label=False, model_image_budget=False
+        ),
+    ],
+    ids=["clear-module", "prodigy-remove"],
+)
+def test_the_clear_after_a_record_empties_what_its_read_listed_so_the_next_record_downloads_again(
+    options: RenderOptions,
+) -> None:
+    """Record 1's read lists LOGO, then its clear after takes LOGO out: record 2 must download it again."""
+    label = Label(elements=[LOGO])
+    records = [{"n": "1"}, {"n": "2"}]
+    [logo] = render_label(label, options).downloads
+    modules = ImageModules()
+    renders = render_batch(label, records, options, held=READ_EMPTY).results
+    job = CheckedJob(renders=record_renders(label, records, options), check=_check(), held=READ_EMPTY)
+
+    sent = _print_batch(modules, renders, job)
+
+    assert [record.downloads for record in sent.results] == [(logo,), (logo,)]
+    assert modules.downloaded_held == []
+
+
+#: Two bitmaps whose content names collide (from test_held_images: a brute-force search of 24x1 dots).
+_COLLIDING = (["....###.####...#..###..."], ["..#.###.###.##....#....#"])
+
+
+@pytest.mark.os_agnostic
+def test_a_name_an_earlier_round_sent_keeps_its_picture_so_another_picture_under_it_is_salted() -> None:
+    """Round 1 of record 1 sends the first bitmap's name before a read with no answer, round 3 passes.
+
+    Record 2's other bitmap has that same content name: the printer holds the first picture under
+    it, so record 2 must download its own under the next salt, not place the listed name.
+    """
+    first = Label(elements=[Image(x=1, y=1, name="C0", bitmap=_COLLIDING[0]), LOGO])
+    second = Label(elements=[Image(x=1, y=1, name="C1", bitmap=_COLLIDING[1])])
+    collided = drawn_image_name(Bitmap.from_rows(_COLLIDING[0]))
+    assert drawn_image_name(Bitmap.from_rows(_COLLIDING[1])) == collided
+    salted = drawn_image_name(Bitmap.from_rows(_COLLIDING[1]), salt=1)
+    modules = ImageModules(silent={0})
+    renders = build_jobs([first, second], PLUG_IN_TWO_WAY, held=READ_EMPTY)
+    job = CheckedJob(
+        renders=(*record_renders(first, None, PLUG_IN_TWO_WAY), *record_renders(second, None, PLUG_IN_TWO_WAY)),
+        check=_check(),
+        held=READ_EMPTY,
+    )
+
+    sent = _print_batch(modules, renders, job)
+
+    assert sent.results[0].halved_elements == (0, 1)
+    assert collided in modules.names("B")
+    assert sent.results[1].downloads == (salted,)
+    rest = sent.results[1].data[sent.results[1].upload_end :]
+    assert salted.encode("ascii") in rest
+    assert collided.encode("ascii") not in rest
+    assert modules.downloaded_held == []
 
 
 @pytest.mark.os_agnostic

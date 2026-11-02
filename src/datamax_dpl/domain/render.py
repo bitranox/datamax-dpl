@@ -27,7 +27,7 @@ from .encode_text import encode_scalable_text, encode_text
 from .enums import Attribute, FindingCode, PrinterSetting, Severity, Unit
 from .errors import LabelRejectedError
 from .findings import Finding, FindingCollector
-from .held_images import HeldImages
+from .held_images import EMPTY_MODULE, HeldImages
 from .image_budget import ImageBudget
 from .job import (
     PRINTER_STOP,
@@ -716,6 +716,48 @@ def build_record(
     return _build(label, options or RenderOptions(), filled=filled, held=held or HeldImages(), halve=halve)
 
 
+def held_after_read(result: RenderResult, after: HeldImages, listed: frozenset[str]) -> HeldImages:
+    """Return what the printer holds once ``result``'s job has run, where a read before its format listed ``listed``.
+
+    A sender that reads the module directory between a label's downloads and its format knows
+    more than the render did (``after``, from :func:`build_record`): the listing is what the module
+    holds then, a name the render could only guess at (sent before a read that got no answer, or
+    left by another job) included. The clear after the label then acts on that: ``<STX>q`` empties
+    the module, the plain Prodigy's removes take out the names the label downloaded (its clear
+    after removes those and only those), and with no clear after the listing stays. A name
+    ``after`` carries with its command stays known, with the command, where the listing still
+    shows it.
+
+    Args:
+        result: The label as it went out.
+        after: What the render of ``result`` says the printer holds after it, carrying the
+            commands of every name the label and the batch before it sent.
+        listed: What the read before the label's format listed for its image module.
+
+    Returns:
+        What the printer holds in the image module once the label's job has run.
+
+    Example:
+        >>> from datamax_dpl.domain.label import Image, Label
+        >>> label = Label(elements=[Image(x=1, y=1, name="LOGO", bitmap=["##..", "..##"])])
+        >>> keys_off = {"clear_graphics_before_label": False, "clear_graphics_after_label": False}
+        >>> options = RenderOptions(model="allegro-2", **keys_off)
+        >>> result, after = build_record(label, options)
+        >>> [logo] = result.downloads
+        >>> after.listed is None, held_after_read(result, after, frozenset({logo, "OTHER"})).holds("OTHER")
+        (True, True)
+        >>> emptied, after = build_record(label, RenderOptions(model="allegro-2"))
+        >>> held_after_read(emptied, after, frozenset({logo, "OTHER"})).listed
+        frozenset()
+    """
+    # closing holds only the clears after the label (closing_clears): <STX>q where the module is
+    # one the model may clear, else the Prodigy's removes of the label's own downloads.
+    if result.closing and result.retry_clear_empties:
+        return EMPTY_MODULE
+    removed: frozenset[str] = frozenset(result.downloads) if result.closing else frozenset()
+    return after.as_listed(listed - removed)
+
+
 def render(label: Label, options: RenderOptions | None = None) -> RenderResult:
     """Render ``label`` and refuse it when any finding is an error.
 
@@ -741,6 +783,7 @@ __all__ = [
     "build_record",
     "effective_calibration",
     "format_row_limit",
+    "held_after_read",
     "job_context",
     "render",
 ]
