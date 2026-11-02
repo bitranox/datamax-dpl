@@ -19,7 +19,10 @@ Global options (`--json` / `--json-bare`, `--set SECTION.KEY=VALUE`, `--profile`
 `--traceback`) go BEFORE the command; every other option goes after it. Machine-readable output: `datamax-dpl --json validate label.json`. stdout is then one envelope
 `{"ok", "command", "data", "skipped"}`; errors are `{"ok": false, "command", "error", "message"}`
 (`command` null when none was named). Exit codes: 0 done, 1 refused (an error finding), 2 could not
-run (a usage error, bad JSON, unknown model, printer unreachable or silent, broken config);
+run (a usage error, bad JSON, unknown model, printer unreachable or silent, broken config), 130
+interrupted (Ctrl-C; for a command that sends, part of a job may already have gone), 141 the reader
+of the output went away. `status` also exits 1 when the printer reports a problem, `explain` when
+it could not read part of the job, and `detect` when no model fits;
 `config` and `config-deploy` also use 13 (no permission), 22 (no such `--section`), 78 (config does
 not load or permissions refused), and `config-deploy` and `config-generate-examples` 1. A printer that does not answer in time says how
 long it was given (`no complete answer within 0.5 s`): raise `--timeout` (seconds) or
@@ -39,7 +42,10 @@ cut off part way says to power-cycle the printer, which may be waiting for the r
 2. `datamax-dpl --json validate label.json --model MODEL [--data rows.csv] [--cutter yes]`
    (with `--data` every record is checked). Read EVERY finding in `data.findings` (`code`,
    `severity`, `message`, `element`, `record`, `fallback`): `error` will not print; `warning` with
-   `fallback` says what prints instead; `info` notes an assumption. Fix and repeat.
+   `fallback` says what prints instead; `info` notes an assumption. Fix and repeat. A batch keeps
+   the first 1000 findings and always its first error: `data.findings_total` and
+   `data.findings_by_code` count all of them, and `data.report_note` says what was cut and which key
+   (`[printer] max_reported_findings`) shows more.
 3. `datamax-dpl preview label.json -o preview.png --model MODEL [--data rows.csv]` and LOOK at
    the PNG. It shows the FIRST record only, so also preview a one-row data file holding the
    longest values. There is no automatic text wrapping or shrinking: long text runs off the edge.
@@ -76,7 +82,8 @@ cut off part way says to power-cycle the printer, which may be waiting for the r
 - **y counts from the BOTTOM edge**, x from the left; a field's reference point is its
   lower-left corner (a circle's is its centre). "At the top" means a HIGH `y`.
 - `{name}` placeholders take values from `--data` (CSV header names, a JSON array of objects or
-  JSON lines; UTF-8, a BOM is fine), one label per record. `{{` and `}}` are literal braces.
+  JSON lines; UTF-8, a BOM is fine), one label per record. A JSON array is parsed whole, so a large
+  batch belongs in CSV or JSON lines. `{{` and `}}` are literal braces.
 - Fonts 0-8 are fixed bitmaps scaled by `width_multiplier`/`height_multiplier`; 3-6 print
   capitals only. Font 9 needs `points`. Umlauts work in fonts 1, 2 and 9, capital umlauts and
   sharp s also in 3-6; the euro sign in none.
@@ -269,14 +276,23 @@ Settings live in a layered config: `datamax-dpl config` shows the merged result,
 
 `render` raises `LabelRejectedError` on an error finding; `build_job` returns the result with
 `.findings` instead. `render_batch(label, records, options)` does the `--data` case and never
-raises on an error finding: it returns a `BatchResult`, so check `.ok`.
+raises on an error finding: it returns a `BatchResult`, so check `.ok`. It holds every label: pass
+`max_job_bytes=` to bound its job (past it, `BatchTooLargeError`). For a large batch use
+`iter_batch(label, records, options)`, which takes a generator and yields one `RenderResult` at a
+time (the job's bytes in `.data`, the verdict in `.ok`: a record in error is yielded too, so check
+each before writing it), or `check_batch(label, records, options)`, which returns a `BatchReport`
+holding no job and needs records it can read again (a generator raises `ValueError`). Pass that report with `CheckedJob(renders=report.renders(), ...)` to
+`print_checked`, or write `report.record_jobs()`. Memory does not grow with the records; each record
+is rendered once to check and again to send, so such a batch takes up to about twice as long.
+`[printer] max_batch_job_bytes` (1 GiB) applies only to `render --data` with no `-o`.
 `send(data)` writes the job as it is: it does not check what the printer stored, so an image
 download a full module lost gives a label with that image missing, and no error. On a channel that
 can read answers (tcp, serial), `print_checked(job, CheckedJob(renders=record_renders(label, None,
 options), check=UploadCheck(wait=AnswerWait(seconds=30))),
 uri=uri, timeout=10, open_printer=open_printer)` is the route `print` takes: it reads the printer's
 directory after each label's downloads and raises `UploadRefusedError` before a format would print
-without its image.
+without its image. It also reads the status once first: on a reported reset one calibration label
+goes out before the job, and `CheckedJob(reset=None)` asks nothing.
 
 The element types are the classes `Text`, `ScalableText`, `Barcode`, `Qr`, `Line`, `Box`, `Circle`,
 `Polygon` and `Image`, with `Cut`, `Counter`, `Pdf417Options` and `DataMatrixOptions` for their
@@ -290,7 +306,9 @@ package raises, except pydantic's `ValidationError` and a plain `ValueError` for
 `render_preview_png(label, get_profile(model), sent_as=job.sent_as, options=options)`, with
 `job = build_job(label, options)`, returns the preview PNG bytes (without `sent_as` it draws no
 halving or merging; without `options` it places fields as a job with the model defaults would,
-not as your calibrated job does), and `preview_findings(label)` lists what that picture
+not as your calibrated job does; a label sending more fields than the model takes raises
+`PreviewTooLongError`, and `sent_as` counts a merged group once), and `preview_findings(label)`
+lists what that picture
 approximates (`preview_text_approximated` when Pillow is missing);
 `explain(data)` reads DPL bytes back (`.commands`, `.label`, `.problems`). Every name on this page
 imports from `datamax_dpl`.
