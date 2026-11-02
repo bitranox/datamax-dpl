@@ -17,6 +17,7 @@ import base64
 import http.client
 import ssl
 import time
+from contextlib import closing
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
@@ -94,9 +95,12 @@ def capture_with_http(
     connection = _connect(url, timeout=settings.timeout)
     target = url.parts
     try:
-        response = _get(connection, target=target, headers=_headers(settings, target=target))
-        media_type = _media_type(response)
-        body = _read_body(response, time_left=lambda: deadline - clock(), timeout=settings.timeout)
+        # Closed on its own: a camera that ends the connection after answering hands the socket to
+        # the response, and closing the connection then no longer reaches it.
+        with closing(_get(connection, target=target, headers=_headers(settings, target=target))) as response:
+            _require_ok(response, target=target)
+            media_type = _media_type(response)
+            body = _read_body(response, time_left=lambda: deadline - clock(), timeout=settings.timeout)
     finally:
         connection.close()
     output = stem.with_suffix(EXTENSION_BY_MEDIA_TYPE[media_type])
@@ -156,7 +160,7 @@ def _headers(settings: CameraSettings, *, target: SplitResult) -> dict[str, str]
 def _get(
     connection: http.client.HTTPConnection, *, target: SplitResult, headers: dict[str, str]
 ) -> http.client.HTTPResponse:
-    """Send the GET request and return a 200 response, or raise :class:`CameraError`."""
+    """Send the GET request and return the response, or raise :class:`CameraError` if none came."""
     path = target.path or "/"
     if target.query:
         path = f"{path}?{target.query}"
@@ -170,9 +174,13 @@ def _get(
         raise CameraError(f"camera URL has an invalid host {target.hostname!r}") from exc
     except (OSError, http.client.HTTPException) as exc:
         raise CameraError(f"camera at {target.hostname!r} is unreachable: {type(exc).__name__}") from exc
+    return response
+
+
+def _require_ok(response: http.client.HTTPResponse, *, target: SplitResult) -> None:
+    """Refuse any answer but 200."""
     if response.status != _HTTP_OK:
         raise CameraError(f"camera at {target.hostname!r} answered HTTP {response.status} {response.reason}")
-    return response
 
 
 def _media_type(response: http.client.HTTPResponse) -> MediaType:

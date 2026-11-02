@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import gc
 import re
 import threading
 import time
+import warnings
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING
@@ -313,3 +315,36 @@ def test_a_url_nothing_can_connect_to_is_a_camera_error(url: str, tmp_path: Path
     """A config typo: http.client's own refusal or the idna codec's must not reach the caller."""
     with pytest.raises(CameraError):
         capture_with_http(_settings(url), stem=tmp_path / "s")
+
+
+# ======================== Nothing stays open ========================
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("route", "answer"),
+    [
+        (Route(status=404), "HTTP 404"),
+        (Route(credentials=("admin", PASSWORD)), "HTTP 401"),
+        (Route(body=b"<html>", content_type="text/html"), "media type"),
+        (Route(body=b""), "empty image"),
+        (Route(body=b"x" * (MAX_IMAGE_BYTES + 1)), "larger than"),
+    ],
+    ids=["status", "unauthorised", "media-type", "empty", "too-large"],
+)
+def test_a_refused_answer_leaves_no_socket_for_the_garbage_collector(
+    route: Route, answer: str, camera: Camera, tmp_path: Path
+) -> None:
+    """The test server ends the connection after answering, as many cameras do: the response holds the socket."""
+    camera.routes["/snap"] = route
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", ResourceWarning)
+        # Not pytest.raises: its ExceptionInfo would keep the traceback, the frames and so the socket alive.
+        message = ""
+        try:
+            capture_with_http(_settings(f"{camera.base}/snap"), stem=tmp_path / "s")
+        except CameraError as exc:
+            message = str(exc)
+        gc.collect()
+    assert answer in message
+    assert [str(warning.message) for warning in caught if warning.category is ResourceWarning] == []

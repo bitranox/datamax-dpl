@@ -214,6 +214,10 @@ markers = [
 ]
 timeout = 300 # a hung test fails with a stack dump instead of holding a CI runner for hours
 testpaths = ["src", "tests"]
+filterwarnings = [
+    "error::ResourceWarning",
+    "error::pytest.PytestUnraisableExceptionWarning", # a warning raised in a destructor is unraisable: without this the line above fails nothing
+]
 
 [tool.coverage.run]
 branch = true

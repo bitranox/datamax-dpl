@@ -310,6 +310,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A camera that answers with anything but a usable image no longer leaves its
+  socket to the garbage collector; `capture_with_http` closes the response on
+  every route.
 - `check_timeout` (and so `open_printer`) refuses a timeout too large for a
   float with its documented `ValueError`; `10**400` escaped as
   `OverflowError`.
