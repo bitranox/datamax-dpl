@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 from .charset import DEFAULT_SYMBOL_SET
 from .enums import FindingCode, MediaSensor, PrinterSetting, PrinterStop, SpeedCode
-from .held_images import EMPTY_MODULE, HeldImages
+from .held_images import HeldChange, HeldImages, command_digest
 from .label import DotSize, ScalableText
 from .profiles import Feature, SpeedRange
 from .records import STX, line
@@ -817,8 +817,8 @@ def _removed_after(ctx: RenderContext) -> list[str]:
     return list(dict.fromkeys(download.name for download in ctx.sent_downloads))
 
 
-def held_after(ctx: RenderContext) -> HeldImages:
-    """Return what the printer holds in the image module once this label's job has run.
+def held_change(ctx: RenderContext) -> HeldChange:
+    """Return what this label's job does to what the printer holds in the image module.
 
     For the next label of a batch: a clear (``<STX>q``) after the label empties the module; one
     before it leaves exactly the label's downloads; the Prodigy's removes take out the names the
@@ -828,29 +828,31 @@ def held_after(ctx: RenderContext) -> HeldImages:
         ctx: The job's context, after :func:`image_downloads` and :func:`closing_clears`.
 
     Returns:
-        The names known to be held after the job, and whether the printer's own were read.
+        The change, for :meth:`HeldChange.applied_to` or a batch's one carried map.
     """
     state = ctx.printer_state
     if ctx.clears_module and state.clear_graphics_after_label:
-        return EMPTY_MODULE
-    sent = {download.name: download.command for download in ctx.sent_downloads}
+        return HeldChange(emptied=True)
+    sent = {download.name: command_digest(download.command) for download in ctx.sent_downloads}
     if ctx.module_cleared_before:
-        return HeldImages(listed=frozenset(), sent=sent)
-    held = ctx.held_images
-    kept = {**held.sent, **sent}
+        return HeldChange(emptied=True, sent=sent)
+    removed: frozenset[str] = frozenset()
     if ctx.supports(Feature.REMOVE_IMAGE) and state.clear_graphics_after_label:
         # The removes name only what the job downloaded. That leaves out every listed name, except
         # where the Prodigy's remove before runs: it downloads a listed name again, and its remove
         # after takes it out, so ``listed`` may still name it. No later label of the batch reads
         # ``listed`` then, since each one removes and downloads its own names itself.
         removed = frozenset(_removed_after(ctx))
-        kept = {name: command for name, command in kept.items() if name not in removed}
-    placed = {**held.placed, **_placed_listed(ctx)}
-    return HeldImages(listed=held.listed, unread_because=held.unread_because, sent=kept, placed=placed)
+    return HeldChange(sent=sent, removed=removed, placed=_placed_listed(ctx))
+
+
+def held_after(ctx: RenderContext) -> HeldImages:
+    """Return what the printer holds in the image module once this label's job has run (see :func:`held_change`)."""
+    return held_change(ctx).applied_to(ctx.held_images)
 
 
 def _placed_listed(ctx: RenderContext) -> dict[str, bytes]:
-    """The listed names this label placed without downloading, each with the command of the picture it took them for.
+    """The listed names this label placed without downloading, each with the digest of the picture it took them for.
 
     The label printed the printer's image under each such name as its own picture, so a later
     label of the batch with a different picture under the name must salt past it, as past a name
@@ -861,7 +863,7 @@ def _placed_listed(ctx: RenderContext) -> dict[str, bytes]:
     if ctx.clear_runs_before or held.listed is None:
         return {}
     return {
-        download.name: download.command
+        download.name: command_digest(download.command)
         for download in ctx.downloads
         if download.name in held.listed and download.name not in held.sent
     }
@@ -878,6 +880,7 @@ __all__ = [
     "format_footer",
     "format_header",
     "held_after",
+    "held_change",
     "image_downloads",
     "retry_clear",
     "retry_clear_may_go",

@@ -649,8 +649,10 @@ comes, while a JSON array is parsed whole and held, which takes several times it
 belongs in a CSV or JSON lines file.
 
 One thing still grows with the records: the image names the printer holds, where no clear runs after
-each label: about 0.4 KB a name (one QR Code per record with both clears off: 1.2 MB at 1000 records,
-4 MB at 8000, measured). The counts per finding code grow only with the codes that exist, not with the
+each label: about 150 bytes a name, a full hash of its download command, whatever the size of the image
+(measured with 1 to 4 QR Codes per record of 10 to 1000 characters, 142 to 216 bytes). So 100000 names
+come to about 15 MB. It stays because forgetting a name would send it again, which prints nothing, and
+a module holds far fewer names than that. The counts per finding code grow only with the codes that exist, not with the
 records. What the answer keeps of the findings and image names is bounded by `max_reported_findings` and
 `max_reported_downloads`.
 

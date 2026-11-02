@@ -9,11 +9,12 @@ module directory (``<STX>W``), which the application reads; the domain only weig
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 from .enums import ImageModule
-from .frozen_mapping import FrozenMapping
+from .frozen_mapping import FrozenMapping, SharedMapping
 from .memory import NO_MODULES_MEANING
 
 if TYPE_CHECKING:
@@ -29,7 +30,22 @@ NOT_ASKED = "the printer was not asked"
 DEFAULT_MODULE_UNREAD = "C is the printer's default module; which letter it is was not read"
 
 
-def _no_commands() -> dict[str, bytes]:
+def command_digest(command: bytes) -> bytes:
+    """What a batch keeps of a download command: enough to tell whether two pictures are the same.
+
+    The whole hash: a name is itself a truncated hash of the picture, and two pictures under one
+    name are exactly what this must tell apart, or the second prints as the first.
+
+    Example:
+        >>> command_digest(b"one") == command_digest(b"one"), command_digest(b"one") == command_digest(b"two")
+        (True, False)
+        >>> len(command_digest(b"one"))
+        32
+    """
+    return hashlib.sha256(command).digest()
+
+
+def _no_digests() -> dict[str, bytes]:
     return {}
 
 
@@ -44,11 +60,11 @@ class HeldImages:
         listed: Names the module's directory listed, or None when it was not read.
         unread_because: Why ``listed`` is None, quoted in the ``image_names_unread`` finding.
         sent: Names an earlier label of the same batch downloaded into the module with no clear
-            since, each with the download command that sent it; known to be held, without the
-            printer having said so. The command tells a later label whether its own image under
-            that name is the same picture.
+            since, each with the :func:`command_digest` of the command that sent it; known to be
+            held, without the printer having said so. The digest tells a later label whether its
+            own image under that name is the same picture.
         placed: Names the printer listed that an earlier label of the batch placed without
-            downloading, each with the download command of the picture that label took the
+            downloading, each with the :func:`command_digest` of the picture that label took the
             listed image for. A later label with a different picture under that name names it
             with the next salt instead, as for a name in ``sent``; the printer's own picture under
             the name stays unknown.
@@ -66,16 +82,19 @@ class HeldImages:
     listed: frozenset[str] | None = None
     unread_because: str = NOT_ASKED
     # Left out of the hash, which a dict has none of; equal values still hash alike.
-    sent: Mapping[str, bytes] = field(default_factory=_no_commands, hash=False)
-    placed: Mapping[str, bytes] = field(default_factory=_no_commands, hash=False)
+    sent: Mapping[str, bytes] = field(default_factory=_no_digests, hash=False)
+    placed: Mapping[str, bytes] = field(default_factory=_no_digests, hash=False)
     reset_reported: bool = False
 
     def __post_init__(self) -> None:
         """Hold ``sent`` and ``placed`` as read-only copies."""
         # Frozen stops rebinding a field, not changing the dict it holds; a read-only copy stops
         # both the caller's dict and any reader from changing what a batch carries along.
-        object.__setattr__(self, "sent", FrozenMapping(self.sent))
-        object.__setattr__(self, "placed", FrozenMapping(self.placed))
+        # One that is read-only already stays, not copied: see SharedMapping.
+        if not isinstance(self.sent, FrozenMapping):
+            object.__setattr__(self, "sent", FrozenMapping(self.sent))
+        if not isinstance(self.placed, FrozenMapping):
+            object.__setattr__(self, "placed", FrozenMapping(self.placed))
 
     def holds(self, name: str) -> bool:
         """Return True when the printer is known to hold ``name`` in the module.
@@ -90,15 +109,15 @@ class HeldImages:
         """
         return name in self.sent or (self.listed is not None and name in self.listed)
 
-    def command_for(self, name: str) -> bytes | None:
-        """Return the download command of the picture the batch knows, or took, the printer to hold under ``name``.
+    def digest_for(self, name: str) -> bytes | None:
+        """Return the :func:`command_digest` of the picture the batch knows, or took, the printer to hold under ``name``.
 
-        A name the batch sent gives the command that sent it, a listed name an earlier label
-        placed gives the command of the picture that label took it for; any other name gives None.
+        A name the batch sent gives the digest of the command that sent it, a listed name an earlier
+        label placed gives that of the picture that label took it for; any other name gives None.
 
         Example:
             >>> held = HeldImages(listed=frozenset({"D1"}), sent={"D2": b"two"}, placed={"D1": b"one"})
-            >>> held.command_for("D1"), held.command_for("D2"), held.command_for("D3")
+            >>> held.digest_for("D1"), held.digest_for("D2"), held.digest_for("D3")
             (b'one', b'two', None)
         """
         sent = self.sent.get(name)
@@ -108,7 +127,7 @@ class HeldImages:
         """Return what the job knows once a read of the module listed ``listed``.
 
         The listing is what the module holds now: a name the batch sent or placed stays known,
-        with its command, only where the listing shows it (a download into a full module is lost
+        with its digest, only where the listing shows it (a download into a full module is lost
         with no error), and every name it shows is held, so a label rendered with the result
         leaves out its download.
 
@@ -120,13 +139,74 @@ class HeldImages:
         """
         return HeldImages(
             listed=listed,
-            sent={name: command for name, command in self.sent.items() if name in listed},
-            placed={name: command for name, command in self.placed.items() if name in listed},
+            sent={name: digest for name, digest in self.sent.items() if name in listed},
+            placed={name: digest for name, digest in self.placed.items() if name in listed},
         )
 
 
 #: The module is known to be empty: a clear just emptied it.
 EMPTY_MODULE = HeldImages(listed=frozenset())
+
+
+@dataclass(frozen=True)
+class HeldChange:
+    """What one label's job does to what the printer holds.
+
+    Attributes:
+        emptied: Nothing from before the label is left, the listing included: a clear ran.
+        sent: The names the label downloaded after that, each with its :func:`command_digest`.
+        removed: The names the clear after the label takes out again.
+        placed: The listed names the label placed as its own picture, each with that digest.
+    """
+
+    emptied: bool = False
+    sent: Mapping[str, bytes] = field(default_factory=_no_digests)
+    removed: frozenset[str] = frozenset()
+    placed: Mapping[str, bytes] = field(default_factory=_no_digests)
+
+    def applied_to(self, held: HeldImages) -> HeldImages:
+        """Return what the printer holds after the label, ``held`` being what it held before."""
+        if self.emptied:
+            return HeldImages(listed=frozenset(), sent=self.sent)
+        kept = {name: digest for name, digest in {**held.sent, **self.sent}.items() if name not in self.removed}
+        return HeldImages(
+            listed=held.listed,
+            unread_because=held.unread_because,
+            sent=kept,
+            placed={**held.placed, **self.placed},
+        )
+
+
+class CarriedNames:
+    """What the printer holds across the labels of a batch, in one map changed label by label.
+
+    :meth:`HeldChange.applied_to` copies every name for every label: at 100000 names that is 14 ms a
+    label, and the batch is quadratic. A caller that needs only the state of the current label takes
+    :attr:`held`, which shares the map, and must not keep it past the next :meth:`apply`.
+    """
+
+    def __init__(self, start: HeldImages) -> None:
+        """Start from what the printer holds before the first label."""
+        self._sent = dict(start.sent)
+        self._placed = dict(start.placed)
+        self.held = replace(start, sent=SharedMapping(self._sent), placed=SharedMapping(self._placed))
+
+    def apply(self, change: HeldChange) -> None:
+        """Take in what the label just rendered does to the module."""
+        if change.emptied:
+            self._sent.clear()
+            self._placed.clear()
+        self._sent.update(change.sent)
+        for name in change.removed:
+            self._sent.pop(name, None)
+        self._placed.update(change.placed)
+        before = self.held
+        self.held = replace(
+            before,
+            listed=frozenset() if change.emptied else before.listed,
+            unread_because=NOT_ASKED if change.emptied else before.unread_because,
+            reset_reported=False,
+        )
 
 
 def held_images_from(directory: MemoryDirectory, *, module: ImageModule) -> HeldImages:
@@ -178,4 +258,13 @@ def _listed_in(directory: MemoryDirectory, module: ImageModule) -> HeldImages:
     return HeldImages(listed=frozenset(name for listing in listings for name in listing))
 
 
-__all__ = ["DEFAULT_MODULE_UNREAD", "EMPTY_MODULE", "NOT_ASKED", "HeldImages", "held_images_from"]
+__all__ = [
+    "DEFAULT_MODULE_UNREAD",
+    "EMPTY_MODULE",
+    "NOT_ASKED",
+    "CarriedNames",
+    "HeldChange",
+    "HeldImages",
+    "command_digest",
+    "held_images_from",
+]

@@ -26,7 +26,7 @@ from .enums import (
     Unit,
 )
 from .geometry import Size
-from .held_images import HeldImages
+from .held_images import HeldImages, command_digest
 from .image_budget import HALVING_FACTOR, halve, halved_magnification, image_data_bytes
 from .image_records import CR, MAX_WIDTH, download_command
 from .label import Positive, StopPosition
@@ -901,16 +901,17 @@ class RenderContext:
         """Return True when ``bitmap`` may be queued under ``name`` in this job."""
         if name in self.reserved_image_names:
             return False
-        held = next((download.command for download in self.downloads if download.name == name), None)
-        if held is None and not self.clear_runs_before:
-            held = self.held_images.command_for(name)
-        if held is None:
+        queued = next((download.command for download in self.downloads if download.name == name), None)
+        digest = None if queued is None else command_digest(queued)
+        if digest is None and not self.clear_runs_before:
+            digest = self.held_images.digest_for(name)
+        if digest is None:
             return True
         # Every download of the job or of its batch fits one row record and goes to the image
         # module, so an image too wide for a row, or a job without a module, never holds a name.
         if bitmap.width > MAX_WIDTH or self.image_module is None:
             return False
-        return held == download_command(name, bitmap, module=self.image_module)
+        return digest == command_digest(download_command(name, bitmap, module=self.image_module))
 
     def _queue_drawn(
         self, name: str, bitmap: Bitmap, *, module: ImageModule, element: int, label_name: str | None = None

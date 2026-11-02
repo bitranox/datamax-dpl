@@ -810,8 +810,8 @@ def test_with_no_clear_after_the_label_what_the_read_listed_stays_held_with_the_
     held = held_after_read(record.result, record.held_after, _READ)
 
     assert held.listed == _READ
-    assert held.command_for(LOGO_SENT) == record.held_after.command_for(LOGO_SENT) is not None
-    assert held.command_for("OTHER") is None
+    assert held.digest_for(LOGO_SENT) == record.held_after.digest_for(LOGO_SENT) is not None
+    assert held.digest_for("OTHER") is None
 
 
 @pytest.mark.os_agnostic

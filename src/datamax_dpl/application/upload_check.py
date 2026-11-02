@@ -374,8 +374,8 @@ class _PassedOn(NamedTuple):
     Attributes:
         held: What the printer holds in the image module after the label.
         maybe_held: Names sent, where no clear may go, since the last read that answered, each
-            with the download command that sent it: each may be held or may be lost, so no later
-            label may download one again; one that would reads the names first
+            with the digest of the download command that sent it: each may be held or may be lost,
+            so no later label may download one again; one that would reads the names first
             (:meth:`_Record.read_first`). A read that then lists one shows the picture its
             command sent, which a later label's other picture under the same content name is not.
     """
@@ -397,8 +397,8 @@ class _Record:
     # What the render of ``result`` says the printer holds after it; never passed on as it is
     # once a read answered, since the read knows more (see :meth:`passed_on`).
     _rendered_after: HeldImages = field(init=False)
-    # The download command of every name the label's rounds sent, and of each name the label
-    # before it may have left, for a name a read then lists.
+    # The digest of the download command of every name the label's rounds sent, and of each name
+    # the label before it may have left, for a name a read then lists.
     _sent: dict[str, bytes] = field(default_factory=dict[str, bytes], init=False)
     _last_read: str = field(default="", init=False)
     # What the last read that answered listed, less what every clear since took out (see _clear).
@@ -427,13 +427,13 @@ class _Record:
 
         The one way a read's listing becomes what the printer holds: for an upload again where no
         clear went (no clear after the label either, then) and for the next label of a batch.
-        A name a round sent keeps the picture it sent. The render's own commands are only what the
+        A name a round sent keeps the picture it sent. The render's own digests are only what the
         label meant to download, which a round left out never sent: a name only those give, once
         listed, is one the printer held without this batch, not one the batch sent, so a label
         rendered from the result reports it (``image_name_held``) instead of leaving it out silently.
         """
         rendered = self._rendered_after
-        carried = {name: command for name, command in rendered.sent.items() if name in self.held.sent}
+        carried = {name: digest for name, digest in rendered.sent.items() if name in self.held.sent}
         return held_after_read(self.result, replace(rendered, sent={**carried, **self._sent}), known)
 
     def _held_before(self, known: frozenset[str]) -> HeldImages:

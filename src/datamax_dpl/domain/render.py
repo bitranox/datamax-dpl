@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, NamedTuple, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -28,13 +28,14 @@ from .encode_text import encode_scalable_text, encode_text
 from .enums import Attribute, FindingCode, ImageModule, PrinterSetting, PrinterStop, Rotation, Severity, Unit
 from .errors import LabelRejectedError
 from .findings import Finding, FindingCollector
-from .held_images import EMPTY_MODULE, HeldImages
+from .held_images import EMPTY_MODULE, CarriedNames, HeldImages
 from .image_budget import ImageBudget
 from .job import (
     closing_clears,
     format_footer,
     format_header,
     held_after,
+    held_change,
     image_downloads,
     retry_clear,
     retry_clear_may_go,
@@ -709,11 +710,11 @@ def iter_jobs(
         Each label's result in turn.
     """
     options = options or RenderOptions()
-    state = held or HeldImages()
+    state = CarriedNames(held or HeldImages())
     for label in labels:
-        record = _build(label, options, held=state)
-        yield record.result
-        state = record.held_after
+        built = _encoded_result(label, options, held=state.held)
+        yield built.result
+        state.apply(held_change(built.ctx))
 
 
 def _halved(label: Label, options: RenderOptions, *, held: HeldImages) -> _Job:
@@ -755,11 +756,21 @@ def _note_skipped_budget(job: _Job, options: RenderOptions) -> None:
     )
 
 
-def _build(label: Label, options: RenderOptions, *, held: HeldImages, halve: bool = False) -> RenderedRecord:
-    """Render ``label`` and return its result with what the printer holds after its job.
+class _Built(NamedTuple):
+    """A label's result, and the context that says what its job does to what the printer holds."""
 
-    ``halve`` sends every image that can be halved at half resolution whatever the budget says.
-    """
+    result: RenderResult
+    ctx: RenderContext
+
+
+def _build(label: Label, options: RenderOptions, *, held: HeldImages, halve: bool = False) -> RenderedRecord:
+    """Render ``label`` and return its result with what the printer holds after its job."""
+    built = _encoded_result(label, options, held=held, halve=halve)
+    return RenderedRecord(result=built.result, held_after=held_after(built.ctx))
+
+
+def _encoded_result(label: Label, options: RenderOptions, *, held: HeldImages, halve: bool = False) -> _Built:
+    """Render ``label``; ``halve`` sends every image that can be halved at half resolution whatever the budget says."""
     if halve:
         job = _halved(label, options, held=held)
     else:
@@ -795,7 +806,7 @@ def _build(label: Label, options: RenderOptions, *, held: HeldImages, halve: boo
         retry_clear_empties=ctx.clears_module,
         retry_clear_may_go=retry_clear_may_go(ctx),
     )
-    return RenderedRecord(result=result, held_after=held_after(ctx))
+    return _Built(result=result, ctx=ctx)
 
 
 def build_record(
@@ -845,13 +856,13 @@ def held_after_read(result: RenderResult, after: HeldImages, listed: frozenset[s
     left by another job) included. The clear after the label then acts on that: ``<STX>q`` empties
     the module, the plain Prodigy's removes take out the names the label downloaded (its clear
     after removes those and only those), and with no clear after the listing stays. A name
-    ``after`` carries with its command stays known, with the command, where the listing still
+    ``after`` carries with its digest stays known, with the digest, where the listing still
     shows it.
 
     Args:
         result: The label as it went out.
         after: What the render of ``result`` says the printer holds after it, carrying the
-            commands of every name the label and the batch before it sent.
+            digests of every name the label and the batch before it sent.
         listed: What the read before the label's format listed for its image module.
 
     Returns:
