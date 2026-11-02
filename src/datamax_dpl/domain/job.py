@@ -10,6 +10,7 @@ another program or the front panel may have changed any of them since the last j
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING
 
 from .charset import DEFAULT_SYMBOL_SET
@@ -34,6 +35,14 @@ MAX_STOP_POSITION_MM = hundredths_to_mm(MAX_STOP_POSITION)
 #: Largest present distance ``<STX>Kf`` takes: four digits (manual page 53), hundredths of an inch
 #: because the job's system commands go out in inch mode.
 MAX_PRESENT_DISTANCE = 9999
+
+
+class _SpeedCommand(str, Enum):
+    """The format command letter that sets one of the three speeds; a finding quotes it too."""
+
+    PRINT = "P"
+    SLEW = "S"
+    BACKUP = "p"
 
 
 def _system(command: str) -> bytes:
@@ -422,13 +431,15 @@ def system_prefix(label: Label, ctx: RenderContext) -> list[bytes]:
     return ([INCH_MODE] if needs_inch else []) + commands
 
 
-def _speed_line(prefix: str, wanted: SpeedCode | None, allowed: SpeedRange | None, ctx: RenderContext) -> list[bytes]:
+def _speed_line(
+    command: _SpeedCommand, wanted: SpeedCode | None, allowed: SpeedRange | None, ctx: RenderContext
+) -> list[bytes]:
     if wanted is None:
         return []
     if allowed is None:
         ctx.findings.deviate(
             FindingCode.SPEED_UNSUPPORTED,
-            f"{ctx.profile.name} has no setting for '{prefix}'",
+            f"{ctx.profile.name} has no setting for '{command.value}'",
             fallback="printer default kept",
         )
         return []
@@ -440,7 +451,7 @@ def _speed_line(prefix: str, wanted: SpeedCode | None, allowed: SpeedRange | Non
             fallback=f"speed {clamped.value}",
         )
         wanted = clamped
-    return [line(f"{prefix}{wanted.value}")]
+    return [line(f"{command.value}{wanted.value}")]
 
 
 def _heat_line(label: Label, ctx: RenderContext) -> list[bytes]:
@@ -460,9 +471,9 @@ def _heat_line(label: Label, ctx: RenderContext) -> list[bytes]:
 def _speed_lines(label: Label, ctx: RenderContext) -> list[bytes]:
     backup = ctx.profile.backup_speed if ctx.supports(Feature.BACKUP_SPEED) else None
     return (
-        _speed_line("P", label.print_speed, ctx.profile.print_speed, ctx)
-        + _speed_line("S", label.slew_speed, ctx.profile.slew_speed, ctx)
-        + _speed_line("p", label.backup_speed, backup, ctx)
+        _speed_line(_SpeedCommand.PRINT, label.print_speed, ctx.profile.print_speed, ctx)
+        + _speed_line(_SpeedCommand.SLEW, label.slew_speed, ctx.profile.slew_speed, ctx)
+        + _speed_line(_SpeedCommand.BACKUP, label.backup_speed, backup, ctx)
     )
 
 

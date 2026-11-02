@@ -179,6 +179,19 @@ def test_an_across_label_narrower_than_its_frame_and_text_need_is_refused(
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("width", "length", "refusal"),
+    [
+        (19, 60, "width 19 mm is under 20 mm, too small to calibrate on"),
+        (100, 19, "length 19 mm is under 20 mm, too small to calibrate on"),
+    ],
+)
+def test_an_along_label_too_small_names_the_size_that_is(width: float, length: float, refusal: str) -> None:
+    with pytest.raises(ValueError, match=f"^{refusal}$"):
+        along_label(width=width, length=length, title="X")
+
+
+@pytest.mark.os_agnostic
 def test_an_along_length_over_two_hundred_millimetres_is_refused() -> None:
     with pytest.raises(ValueError, match="200 mm"):
         along_label(width=100, length=201, title="X")

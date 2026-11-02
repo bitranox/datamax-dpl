@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import itertools
 import math
+from enum import Enum
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
@@ -201,10 +202,17 @@ def _merged(base: int, moved: int, *, under: int, mode: CombineMode) -> int:
     return base | moved
 
 
-def _check_non_negative(name: str, value: int) -> None:
+class _Size(str, Enum):
+    """A drawing method's size parameter that must not be negative, named as the refusal names it."""
+
+    OUTLINE = "outline"
+    RADIUS = "radius"
+
+
+def _check_non_negative(size: _Size, value: int) -> None:
     """Raise ValueError when ``value`` is negative."""
     if value < 0:
-        msg = f"{name} must not be negative, got {value}"
+        msg = f"{size.value} must not be negative, got {value}"
         raise ValueError(msg)
 
 
@@ -336,7 +344,7 @@ class Bitmap:
         if not points:
             msg = "a polygon needs at least one point"
             raise ValueError(msg)
-        _check_non_negative("outline", outline)
+        _check_non_negative(_Size.OUTLINE, outline)
         if fill is not FillPattern.NONE:
             self._fill_polygon(points, fill)
         if outline == 0:
@@ -375,8 +383,8 @@ class Bitmap:
             >>> bitmap.get(18, 10), bitmap.get(10, 10)
             (True, False)
         """
-        _check_non_negative("radius", radius)
-        _check_non_negative("outline", outline)
+        _check_non_negative(_Size.RADIUS, radius)
+        _check_non_negative(_Size.OUTLINE, outline)
         outer = radius * radius + radius
         hole_radius = radius - outline
         inner = hole_radius * hole_radius + hole_radius if hole_radius >= 0 else -1

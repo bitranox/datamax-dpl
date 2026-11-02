@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 import textwrap
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING
 
 from datamax_dpl.domain.charset import CAPITALS_ONLY_FONTS, encode_for_bitmapped_font
@@ -70,6 +71,14 @@ _LARGEST_FONT_FIRST = (3, 2, 1)
 _LINE_GAP_MM = 0.9
 
 
+class _Dimension(str, Enum):
+    """A calibration label's size argument, named as the too-small refusal names it."""
+
+    WIDTH = "width"
+    HEIGHT = "height"
+    LENGTH = "length"
+
+
 def across_frame_width(width: float) -> float:
     """Return the outer width of the across label's frame, the length to measure on it.
 
@@ -109,8 +118,8 @@ def across_label(*, width: float, height: float, title: str) -> Label:
         >>> (label.width, label.height)
         (100.0, 55.0)
     """
-    _require_min("width", width, minimum=MIN_LABEL_MM + 2 * ACROSS_INSET_MM)
-    _require_min("height", height, minimum=_ACROSS_MIN_HEIGHT_MM)
+    _require_min(_Dimension.WIDTH, width, minimum=MIN_LABEL_MM + 2 * ACROSS_INSET_MM)
+    _require_min(_Dimension.HEIGHT, height, minimum=_ACROSS_MIN_HEIGHT_MM)
     frame = across_frame_width(width)
     left, right = ACROSS_INSET_MM, ACROSS_INSET_MM + frame
     bottom, top = ACROSS_INSET_MM, height - ACROSS_INSET_MM
@@ -162,8 +171,8 @@ def along_label(*, width: float, length: float = ALONG_LENGTH_MM, title: str) ->
         >>> along_label(width=100, length=60, title="LAGER").height
         65.0
     """
-    _require_min("width", width)
-    _require_min("length", length)
+    _require_min(_Dimension.WIDTH, width)
+    _require_min(_Dimension.LENGTH, length)
     if length > ALONG_LENGTH_MM:
         raise ValueError(f"along length {length:g} mm is over {ALONG_LENGTH_MM:g} mm, the longest one format prints")
     bottom = 2.0
@@ -348,9 +357,9 @@ def offset_from_borders(current: float, *, low: float, high: float) -> float:
     return offset
 
 
-def _require_min(name: str, value: float, *, minimum: float = MIN_LABEL_MM) -> None:
+def _require_min(dimension: _Dimension, value: float, *, minimum: float = MIN_LABEL_MM) -> None:
     if value < minimum:
-        raise ValueError(f"{name} {value:g} mm is under {minimum:g} mm, too small to calibrate on")
+        raise ValueError(f"{dimension.value} {value:g} mm is under {minimum:g} mm, too small to calibrate on")
 
 
 def _across_ticks(*, left: float, right: float, y: float) -> list[Line]:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import string
 from dataclasses import dataclass
+from enum import Enum
 from functools import partial
 from types import MappingProxyType
 from typing import TYPE_CHECKING
@@ -144,6 +145,13 @@ class _Lengths:
 
 
 _ANY_LENGTH = _Lengths()
+
+
+class _LengthUnit(str, Enum):
+    """What a length refusal counts, as it names it: digits for a numeric symbology, else characters."""
+
+    DIGITS = "digits"
+    CHARACTERS = "characters"
 
 
 def _identity(digits: str) -> str:
@@ -344,10 +352,10 @@ def _character_problems(data: str, allowed: Callable[[str], bool], *, descriptio
     return (BarcodeProblem(code=BarcodeProblemCode.BAD_CHARACTER, message=f"{rendered} not allowed; {description}"),)
 
 
-def _length_problems(length: int, lengths: _Lengths, *, unit: str) -> tuple[BarcodeProblem, ...]:
+def _length_problems(length: int, lengths: _Lengths, *, unit: _LengthUnit) -> tuple[BarcodeProblem, ...]:
     if lengths.accepts(length):
         return ()
-    message = f"{length} {unit} given, {lengths.describe()} expected"
+    message = f"{length} {unit.value} given, {lengths.describe()} expected"
     return (BarcodeProblem(code=BarcodeProblemCode.BAD_LENGTH, message=message),)
 
 
@@ -357,7 +365,7 @@ def _check_charset(
     allowed: Callable[[str], bool],
     description: str,
     lengths: _Lengths = _ANY_LENGTH,
-    unit: str = "characters",
+    unit: _LengthUnit = _LengthUnit.CHARACTERS,
 ) -> _Outcome:
     problems = _character_problems(data, allowed, description=description)
     return _Outcome(problems=problems + _length_problems(len(data), lengths, unit=unit))
@@ -365,7 +373,11 @@ def _check_charset(
 
 def _digits(lengths: _Lengths) -> Callable[[str], _Outcome]:
     return partial(
-        _check_charset, allowed=DIGITS.__contains__, description="digits 0-9 only", lengths=lengths, unit="digits"
+        _check_charset,
+        allowed=DIGITS.__contains__,
+        description="digits 0-9 only",
+        lengths=lengths,
+        unit=_LengthUnit.DIGITS,
     )
 
 
@@ -403,7 +415,7 @@ def _gs1_character_problems(data: str, spec: _Gs1) -> tuple[BarcodeProblem, ...]
 
 def _check_gs1(data: str, *, spec: _Gs1) -> _Outcome:
     lengths = _Lengths(allowed=frozenset({spec.body_length, spec.body_length + 1}))
-    problems = _gs1_character_problems(data, spec) + _length_problems(len(data), lengths, unit="digits")
+    problems = _gs1_character_problems(data, spec) + _length_problems(len(data), lengths, unit=_LengthUnit.DIGITS)
     # A price marker makes the printer compute a digit inside the body first, so the overall
     # check digit cannot be known here; the printer works it out.
     if problems or PRICE_MARKER in data:

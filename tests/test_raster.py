@@ -489,10 +489,13 @@ def test_patterned_circle_stays_inside_disc() -> None:
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize(("radius", "outline"), [(-1, 1), (3, -1)])
-def test_circle_rejects_negative_sizes(radius: int, outline: int) -> None:
-    """Radius and outline must not be negative."""
-    with pytest.raises(ValueError, match="must not be negative"):
+@pytest.mark.parametrize(
+    ("radius", "outline", "refusal"),
+    [(-1, 1, "radius must not be negative, got -1"), (3, -1, "outline must not be negative, got -1")],
+)
+def test_circle_rejects_negative_sizes(radius: int, outline: int, refusal: str) -> None:
+    """Radius and outline must not be negative; the refusal names the one that is."""
+    with pytest.raises(ValueError, match=f"^{refusal}$"):
         Bitmap(5, 5).draw_circle(2, 2, radius, outline=outline)
 
 

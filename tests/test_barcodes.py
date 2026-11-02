@@ -83,6 +83,21 @@ def test_upc_a_ten_digits_is_bad_length() -> None:
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("symbology", "data", "message"),
+    [
+        (Symbology.UPC_A, "1234567890", "10 digits given, 11 or 12 expected"),
+        (Symbology.PLESSEY, "1" * 15, "15 digits given, 1 to 14 expected"),
+        (Symbology.MAXICODE, "x" * 85, "85 characters given, 1 to 84 expected"),
+    ],
+)
+def test_a_length_refusal_counts_digits_or_characters_as_the_symbology_takes(
+    symbology: Symbology, data: str, message: str
+) -> None:
+    assert [problem.message for problem in check_barcode(symbology, data).problems] == [message]
+
+
+@pytest.mark.os_agnostic
 def test_ean13_twelve_digits_reports_the_digit_the_printer_adds() -> None:
     """Without a check digit the data stays as given and the computed digit is reported."""
     check = check_barcode(Symbology.EAN13, "012345678901")

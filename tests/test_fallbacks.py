@@ -131,6 +131,20 @@ def test_speed_outside_the_model_range_is_clamped() -> None:
 
 
 @pytest.mark.os_agnostic
+def test_each_speed_goes_out_under_its_own_command_letter() -> None:
+    speeds = label(print_speed=SpeedCode.IPS_2_0, slew_speed=SpeedCode.IPS_3_0, backup_speed=SpeedCode.IPS_2_5)
+    data = build_job(speeds, RenderOptions(model="dmx-600")).data
+    assert (b"\rPC\r" in data, b"\rSE\r" in data, b"\rpD\r" in data) == (True, True, True)
+
+
+@pytest.mark.os_agnostic
+def test_a_speed_the_model_has_no_setting_for_is_named_by_its_command_letter() -> None:
+    result = build_job(label(backup_speed=SpeedCode.IPS_2_0), RenderOptions(model="allegro"))
+    unsupported = [f.message for f in result.findings if f.code is FindingCode.SPEED_UNSUPPORTED]
+    assert unsupported == ["Allegro has no setting for 'p'"]
+
+
+@pytest.mark.os_agnostic
 def test_heat_above_the_model_maximum_is_clamped() -> None:
     assert b"\rH20\r" in build_job(label(heat=30), RenderOptions(model="dmx-400")).data
     assert b"\rH30\r" in build_job(label(heat=30), RenderOptions(model="pe42")).data
