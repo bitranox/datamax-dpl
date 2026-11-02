@@ -34,7 +34,8 @@ class _ReadOnlyCommands(Mapping[str, bytes]):
 
     A ``types.MappingProxyType`` would be read-only too, but it cannot be deep-copied or pickled,
     so neither could a :class:`HeldImages` holding one, nor could ``dataclasses.asdict`` read it.
-    This one copies and pickles by the default protocol, which carries its one slot.
+    This one copies and pickles by every pickle protocol: it is rebuilt from a plain dict, since
+    protocols 0 and 1 refuse an object with ``__slots__`` otherwise.
 
     Example:
         >>> commands = _ReadOnlyCommands({"D1": b"one"})
@@ -63,6 +64,10 @@ class _ReadOnlyCommands(Mapping[str, bytes]):
     def __repr__(self) -> str:
         """Show the names and commands."""
         return f"{type(self).__name__}({self._commands!r})"
+
+    def __reduce__(self) -> tuple[type[_ReadOnlyCommands], tuple[dict[str, bytes]]]:
+        """Rebuild from a plain dict of the names and commands, for copy and every pickle protocol."""
+        return (type(self), (dict(self._commands),))
 
 
 @dataclass(frozen=True)

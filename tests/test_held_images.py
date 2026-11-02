@@ -494,11 +494,13 @@ def test_a_deep_copy_of_a_held_images_value_is_equal_and_stays_read_only(field: 
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize("protocol", range(pickle.HIGHEST_PROTOCOL + 1))
 @pytest.mark.parametrize("field", ["sent", "placed"])
-def test_a_held_images_value_round_trips_through_pickle_and_stays_read_only(field: str) -> None:
+def test_a_held_images_value_round_trips_through_pickle_and_stays_read_only(field: str, protocol: int) -> None:
     held = _carrying()
 
-    restored = pickle.loads(pickle.dumps(held))  # noqa: S301 - unpickles the bytes pickled in the same line
+    pickled = pickle.dumps(held, protocol=protocol)
+    restored = pickle.loads(pickled)  # noqa: S301 - unpickles the bytes pickled on the line above
 
     assert restored == held
     assert dict(getattr(restored, field)) == dict(getattr(held, field))
