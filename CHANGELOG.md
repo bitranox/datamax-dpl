@@ -22,8 +22,9 @@ All notable changes to this project are documented here. The format follows
 - `[printer] max_batch_job_bytes` (default 1 GiB): a `--data` batch whose jobs pass it stops with exit 2 and
   `BatchTooLargeError` naming the key, before the memory goes. `render_batch` takes `max_job_bytes`, no limit when
   it is left out: a library caller rendering records it did not write sets one.
-- `BatchResult.data` is joined when it is first read, so `print` holds one copy of the job; the model no longer takes
-  `data` as an argument (build it from `results`), and `BatchResult.job_bytes` gives its size without joining.
+- `BatchResult.data` is joined when it is first read, so `print` holds one copy of the job. It is no longer a model
+  field: build a `BatchResult` from `results`, and its JSON holds the jobs in `results` only. `BatchResult.job_bytes`
+  gives the size without joining.
 - A QR Code with text outside ASCII now holds UTF-8. Before, segno chose Latin-1 or Shift JIS X 0213
   with no marker and the reader guessed: the zxing-cpp decoder read a degree sign as a half-width
   katakana and a run of `ä` as CJK characters. Such text now takes more room, 2 bytes for `ä` and 3

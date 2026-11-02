@@ -87,9 +87,11 @@ def test_a_batch_sent_one_way_needs_no_joined_copy() -> None:
 
 
 @pytest.mark.os_agnostic
-def test_a_batch_still_serialises_its_joined_job() -> None:
+def test_a_batch_holds_its_joined_job_only_through_its_results() -> None:
+    """Dumping it must not join a job the size of the limit, and JSON still rebuilds the same bytes."""
     label = Label(elements=[Text(x=10, y=10, text="{a}")])
     batch = render_batch(label, [{"a": "0"}], _DMX)
-    assert batch.model_dump()["data"] == batch.data
-    assert isinstance(json.loads(batch.model_dump_json())["data"], str)
+    assert "data" not in batch.model_dump()
+    assert "data" not in batch.__dict__
+    assert BatchResult.model_validate_json(batch.model_dump_json()).data == batch.data
     assert batch == BatchResult(results=batch.results)

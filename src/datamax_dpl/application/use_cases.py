@@ -18,7 +18,7 @@ from functools import cached_property
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Generic, NamedTuple, Protocol, TypedDict, TypeVar
 
-from pydantic import BaseModel, ConfigDict, computed_field
+from pydantic import BaseModel, ConfigDict
 
 from ..domain._invariants import require_update_fields
 from ..domain.batch import batch_cuts, with_cut
@@ -78,17 +78,16 @@ class BatchResult(BaseModel):
         batch_findings: Findings about the batch as a whole (cutting across records).
     """
 
-    # Base64 in JSON for the same reason as RenderResult: the joined jobs are not UTF-8.
-    model_config = ConfigDict(frozen=True, extra="forbid", ser_json_bytes="base64", val_json_bytes="base64")
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     results: tuple[RenderResult, ...]
     batch_findings: tuple[Finding, ...] = ()
     #: Whether a batch cut (``<STX>o``) follows each record; empty when the batch cuts across none.
     cut_after: tuple[bool, ...] = ()
 
-    # Joined on the first read and not before: a sender goes label by label and never needs a second
-    # copy of every record's job in memory, which at [printer] max_batch_job_bytes is a second GiB.
-    @computed_field
+    # Joined on the first read and not before, and no field: a sender goes label by label and never
+    # needs a second copy of every record's job, which at [printer] max_batch_job_bytes is a second
+    # GiB. JSON holds it through ``results`` and ``cut_after``, which rebuild it.
     @cached_property
     def data(self) -> bytes:
         """All jobs back to back, in record order, with any batch cut commands between them."""
