@@ -108,6 +108,26 @@ def test_a_png_snapshot_is_stored_as_png(camera: Camera, tmp_path: Path) -> None
 
 
 @pytest.mark.os_agnostic
+def test_the_scheme_is_read_in_any_letter_case(camera: Camera, tmp_path: Path) -> None:
+    """``HTTP://`` is the plain http scheme: the snapshot is fetched as for ``http://``."""
+    camera.routes["/snap.png"] = Route()
+
+    image = capture_image(_settings(f"{camera.base.replace('http://', 'HTTP://')}/snap.png"), output_dir=tmp_path)
+
+    assert image.path.read_bytes() == TINY_PNG
+
+
+@pytest.mark.os_agnostic
+def test_an_https_url_is_fetched_over_tls_never_as_plain_http(camera: Camera, tmp_path: Path) -> None:
+    """The plain-http camera never sees a request: the client opened TLS, which it cannot speak."""
+    camera.routes["/snap.png"] = Route()
+
+    with pytest.raises(CameraError):
+        capture_with_http(_settings(f"{camera.base.replace('http://', 'https://')}/snap.png"), stem=tmp_path / "s")
+    assert camera.seen_auth == []
+
+
+@pytest.mark.os_agnostic
 def test_a_jpeg_snapshot_with_parameters_is_stored_as_jpg(camera: Camera, tmp_path: Path) -> None:
     """Content-Type parameters are ignored and the query string reaches the camera."""
     camera.routes["/cgi?res=high"] = Route(content_type="image/jpeg; charset=binary", body=b"\xff\xd8\xff-jpeg")

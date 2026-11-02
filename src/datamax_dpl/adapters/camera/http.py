@@ -16,6 +16,8 @@ from __future__ import annotations
 import base64
 import http.client
 import ssl
+from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING
 from urllib.parse import SplitResult, unquote, urlsplit
 
@@ -39,7 +41,21 @@ EXTENSION_BY_CONTENT_TYPE: dict[str, str] = {
 }
 
 _HTTP_OK = 200
-_SCHEMES = ("http", "https")
+
+
+class _Scheme(str, Enum):
+    """The URL schemes a camera may be fetched over."""
+
+    HTTP = "http"
+    HTTPS = "https"
+
+
+@dataclass(frozen=True, slots=True)
+class _CameraUrl:
+    """A camera URL split, with the scheme it was accepted under."""
+
+    parts: SplitResult
+    scheme: _Scheme
 
 
 def capture_with_http(settings: CameraSettings, *, stem: Path) -> Path:
@@ -57,8 +73,9 @@ def capture_with_http(settings: CameraSettings, *, stem: Path) -> Path:
             status other than 200, sends a media type that is not JPEG or PNG, an empty body,
             or more than :data:`MAX_IMAGE_BYTES`.
     """
-    target = _parse_url(settings.url)
-    connection = _connect(target, timeout=settings.timeout)
+    url = _parse_url(settings.url)
+    connection = _connect(url, timeout=settings.timeout)
+    target = url.parts
     try:
         response = _get(connection, target=target, headers=_headers(settings, target=target))
         extension = _extension(response)
@@ -73,26 +90,31 @@ def capture_with_http(settings: CameraSettings, *, stem: Path) -> Path:
     return output
 
 
-def _parse_url(url: str) -> SplitResult:
+def _parse_url(url: str) -> _CameraUrl:
     """Split ``url``, refusing anything but an ``http``/``https`` URL with a host."""
     if not url:
         raise CameraError("no camera URL configured: set [camera] url")
     target = urlsplit(url)
-    if target.scheme.lower() not in _SCHEMES:
-        raise CameraError(f"camera URL scheme {target.scheme or '(none)'!r} is not supported: use http or https")
+    try:
+        scheme = _Scheme(target.scheme.lower())
+    except ValueError:
+        raise CameraError(
+            f"camera URL scheme {target.scheme or '(none)'!r} is not supported: use http or https"
+        ) from None
     if not target.hostname:
         raise CameraError("camera URL has no host")
-    return target
+    return _CameraUrl(parts=target, scheme=scheme)
 
 
-def _connect(target: SplitResult, *, timeout: float) -> http.client.HTTPConnection:
+def _connect(url: _CameraUrl, *, timeout: float) -> http.client.HTTPConnection:
     """Return an unopened connection of the class the scheme asks for."""
+    target = url.parts
     try:
         port = target.port
     except ValueError as exc:
         raise CameraError(f"camera URL has an invalid port for host {target.hostname!r}") from exc
     host = target.hostname or ""
-    if target.scheme.lower() == "https":
+    if url.scheme is _Scheme.HTTPS:
         return http.client.HTTPSConnection(host, port, timeout=timeout, context=ssl.create_default_context())
     return http.client.HTTPConnection(host, port, timeout=timeout)
 
