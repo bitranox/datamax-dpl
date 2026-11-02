@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
 import rich_click as click
@@ -89,16 +89,33 @@ def loaded_config(cli_ctx: CLIContext) -> Config:
     return cli_ctx.config
 
 
-def resolve_settings(cli_ctx: CLIContext, **given: Any) -> PrinterSettings:
-    """Merge the ``[printer]`` configuration with the options this command was given."""
-    config = loaded_config(cli_ctx)
-    # The click options are this command's raw input, so they are validated whole: the model's
-    # extra="forbid" refuses an option name it does not know, where picking known names out of
-    # ``given`` would silently drop a renamed one. ``--option`` is read first so an unknown value
-    # is refused as a configuration error (see hardware_options).
+def command_overrides(given: Mapping[str, Any]) -> PrinterOverrides:
+    """Read the printer options a command was given (its click keyword arguments) into overrides.
+
+    The click options are the command's raw input, so they are validated whole: the model's
+    ``extra="forbid"`` refuses an option name it does not know, where picking known names out of
+    ``given`` would silently drop a renamed one. ``--option`` is read first so an unknown value is
+    refused as a configuration error (see :func:`hardware_options`).
+
+    Raises:
+        ConfigurationError: An ``--option`` value names no :class:`HardwareOption`.
+        pydantic.ValidationError: Another option holds a value of the wrong type.
+
+    Example:
+        >>> command_overrides({"model": "allegro-2", "options": ("datamatrix",)}).model
+        'allegro-2'
+    """
     options = hardware_options(given.get("options") or ())
-    overrides = PrinterOverrides.model_validate({**given, "options": options})
-    return printer_settings(config, overrides)
+    return PrinterOverrides.model_validate({**given, "options": options})
+
+
+def resolve_settings(cli_ctx: CLIContext, overrides: PrinterOverrides) -> PrinterSettings:
+    """Merge the ``[printer]`` configuration with the command-line ``overrides``.
+
+    Raises:
+        ConfigurationError: The configuration could not be loaded, or a configured value is invalid.
+    """
+    return printer_settings(loaded_config(cli_ctx), overrides)
 
 
 def printer_opener(cli_ctx: CLIContext, settings: PrinterSettings) -> OpenPrinter:
@@ -140,6 +157,7 @@ def _alternatives(values: list[str]) -> str:
 
 
 __all__ = [
+    "command_overrides",
     "hardware_options",
     "loaded_config",
     "printer_choice_decorator",

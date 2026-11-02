@@ -33,7 +33,13 @@ from ..constants import CLICK_CONTEXT_SETTINGS
 from ..runner import CommandResult, run_command
 from ..settings import PrinterOverrides, printer_settings, render_options, require_uri
 from ..typed_click import option
-from .model_options import printer_opener, printer_options_decorator, render_options_decorator, resolve_settings
+from .model_options import (
+    command_overrides,
+    printer_opener,
+    printer_options_decorator,
+    render_options_decorator,
+    resolve_settings,
+)
 
 if TYPE_CHECKING:
     from ....domain.label import Label
@@ -174,7 +180,8 @@ def cli_calibrate_print(
     """
 
     def body(cli_ctx: CLIContext) -> CommandResult:
-        settings = resolve_settings(cli_ctx, **given)
+        overrides = command_overrides(given)
+        settings = resolve_settings(cli_ctx, overrides)
         axes = AxisChoice(axis).axes
         options = render_options(settings)
         sizes = _Sizes(width=width, height=height, along_length=along_length)
@@ -208,7 +215,7 @@ def cli_calibrate_print(
         )
         hint = None
         if printed.along_length_mm is not None:
-            measured_against = _set_default_along_length(cli_ctx, given.get("printer"), width=width)
+            measured_against = _set_default_along_length(cli_ctx, overrides.printer, width=width)
             hint = _set_hint(bar=printed.along_length_mm, measured_against=measured_against)
         payload = _print_payload(settings, printed, printer=uri, bytes_sent=report.bytes_sent, hint=hint)
         human = [f"sent {', '.join(axes)} to {uri}"]
@@ -228,7 +235,7 @@ def _set_default_along_length(cli_ctx: CLIContext, printer: str | None, *, width
     if printer is not None and is_printer_uri(printer):
         return None
     try:
-        settings = resolve_settings(cli_ctx, printer=printer)
+        settings = resolve_settings(cli_ctx, PrinterOverrides(printer=printer))
         return _along_bar_length(None, settings=settings, width=width, options=render_options(settings))
     except ConfigurationError:
         return None
@@ -415,7 +422,7 @@ def cli_calibrate_set(
 
     def body(cli_ctx: CLIContext) -> CommandResult:
         name = _printer_name(printer)
-        settings = resolve_settings(cli_ctx, printer=name or None)
+        settings = resolve_settings(cli_ctx, PrinterOverrides(printer=name or None))
         # The labels printed with the effective values, the model's default where none is set,
         # so each new value starts from those.
         options = render_options(settings)

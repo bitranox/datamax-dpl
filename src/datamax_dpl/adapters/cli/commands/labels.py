@@ -22,9 +22,9 @@ from ..constants import CLICK_CONTEXT_SETTINGS
 from ..label_io import STDIN, load_label, load_records, read_input
 from ..payloads import RenderPayload, findings_text, render_payload
 from ..runner import CommandResult, run_command
-from ..settings import render_options
+from ..settings import PrinterOverrides, render_options
 from ..typed_click import argument, option
-from .model_options import printer_choice_decorator, render_options_decorator, resolve_settings
+from .model_options import command_overrides, printer_choice_decorator, render_options_decorator, resolve_settings
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -39,10 +39,10 @@ _DATA_HELP = "Data records (CSV, JSON array or JSON lines) filling {name} placeh
 
 
 def build(
-    label_source: str, data: str | None, settings_given: dict[str, Any], cli_ctx: CLIContext
+    label_source: str, data: str | None, overrides: PrinterOverrides, cli_ctx: CLIContext
 ) -> RenderResult | BatchResult:
-    """Load the label (and records) and render it with the merged printer settings."""
-    settings = resolve_settings(cli_ctx, **settings_given)
+    """Load the label (and records) and render it with the printer settings ``overrides`` merge into."""
+    settings = resolve_settings(cli_ctx, overrides)
     label = load_label(label_source)
     return render_loaded(label, None if data is None else load_records(data), render_options(settings))
 
@@ -101,7 +101,7 @@ def cli_render(ctx: click.Context, label_source: str, data: str | None, output: 
     """
 
     def body(cli_ctx: CLIContext) -> CommandResult:
-        result = build(label_source, data, given, cli_ctx)
+        result = build(label_source, data, command_overrides(given), cli_ctx)
         written = output if output is not None and result.ok else None
         if written is not None:
             _write_output(written, result.data, raw_stdout_allowed=not cli_ctx.mode.machine)
@@ -133,7 +133,7 @@ def cli_validate(ctx: click.Context, label_source: str, data: str | None, **give
     """Check a label against a printer model without printing; exit 1 on an error finding."""
 
     def body(cli_ctx: CLIContext) -> CommandResult:
-        result = build(label_source, data, given, cli_ctx)
+        result = build(label_source, data, command_overrides(given), cli_ctx)
         payload = render_payload(result, include_dpl=False)
         verdict = "OK" if result.ok else "REFUSED"
         human = f"{verdict}: {_human(payload, show_dpl=False)}"

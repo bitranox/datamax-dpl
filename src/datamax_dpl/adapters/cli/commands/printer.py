@@ -41,10 +41,11 @@ from ..constants import CLICK_CONTEXT_SETTINGS
 from ..label_io import load_label, load_records
 from ..payloads import FindingOut, findings_text, render_payload
 from ..runner import CommandResult, run_command
-from ..settings import PrinterSettings, camera_settings, render_options, require_uri
+from ..settings import PrinterOverrides, PrinterSettings, camera_settings, render_options, require_uri
 from ..typed_click import argument, option
 from .labels import render_loaded
 from .model_options import (
+    command_overrides,
     loaded_config,
     printer_opener,
     printer_options_decorator,
@@ -73,7 +74,7 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
     """Render a label and send it to the printer; nothing is sent when a finding is an error."""
 
     def body(cli_ctx: CLIContext) -> CommandResult:
-        settings = resolve_settings(cli_ctx, **given)
+        settings = resolve_settings(cli_ctx, command_overrides(given))
         label = load_label(label_source)
         records = None if data is None else load_records(data)
         link = _link(settings)
@@ -137,7 +138,7 @@ def cli_status(ctx: click.Context, **given: Any) -> None:
     """Ask the printer for its status (needs a channel that can read: tcp or serial)."""
 
     def body(cli_ctx: CLIContext) -> CommandResult:
-        settings = resolve_settings(cli_ctx, **given)
+        settings = resolve_settings(cli_ctx, command_overrides(given))
         uri = require_uri(settings)
         status = query_status(
             uri=uri,
@@ -262,7 +263,7 @@ def cli_detect(ctx: click.Context, **given: Any) -> None:
     """Ask the printer what it answers and suggest which model profiles fit."""
 
     def body(cli_ctx: CLIContext) -> CommandResult:
-        settings = resolve_settings(cli_ctx, **given)
+        settings = resolve_settings(cli_ctx, command_overrides(given))
         report = detect_printer(
             uri=require_uri(settings), timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)
         )
@@ -326,7 +327,7 @@ def cli_memory(ctx: click.Context, kind: str, idle: float, **given: Any) -> None
     """List the printer's memory modules (<STX>W): stored names and free bytes per module."""
 
     def body(cli_ctx: CLIContext) -> CommandResult:
-        settings = resolve_settings(cli_ctx, **given)
+        settings = resolve_settings(cli_ctx, command_overrides(given))
         uri = require_uri(settings)
         directories = read_memory_directory(
             kinds=KindChoice(kind).kinds,
@@ -374,7 +375,7 @@ def _single(command: PrinterCommand, help_text: str) -> click.Command:
     @click.pass_context
     def run(ctx: click.Context, **given: Any) -> None:
         def body(cli_ctx: CLIContext) -> CommandResult:
-            settings = resolve_settings(cli_ctx, **given)
+            settings = resolve_settings(cli_ctx, command_overrides(given))
             uri = require_uri(settings)
             report = send_command(
                 command, uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)
@@ -417,7 +418,7 @@ def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | 
     """Draw the label at the printer's resolution as a PNG (text lettered or grey cells, barcodes hatched)."""
 
     def body(cli_ctx: CLIContext) -> CommandResult:
-        settings = resolve_settings(cli_ctx, model=model)
+        settings = resolve_settings(cli_ctx, PrinterOverrides(model=model))
         label = load_label(label_source)
         if data is not None:
             from ....domain.placeholders import fill_label  # noqa: PLC0415 - only the preview of a batch needs it
@@ -481,7 +482,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
     """Print a label, wait until the printer is done, photograph it, and write the expected preview beside it."""
 
     def body(cli_ctx: CLIContext) -> CommandResult:
-        settings = resolve_settings(cli_ctx, **given)
+        settings = resolve_settings(cli_ctx, command_overrides(given))
         # Loaded once and rendered from that copy: LABEL '-' is stdin, which cannot be read twice.
         label = load_label(label_source)
         link = _link(settings)
