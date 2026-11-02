@@ -544,9 +544,10 @@ sent, and the module is cleared again where allowed. Where no clear may go, each
 only the images the last read did not list: a name the module holds is never downloaded again,
 which would print nothing. Each label of a `--data` batch is checked on its own, and a label that
 needed a clear tells the next one that the module was emptied, one that needed no clear what the
-module listed. A one-way
-link (a file, stdout, a device file) cannot read the directory and sends the job at once, as
-`render` writes it. A job that downloads into module `C` is refused on a two-way link before
+module listed. A label that, rendered again for a round or with what the labels before it left,
+has an error finding (too little image memory left, say) is refused there, before anything more
+of it goes out, and the batch stops. A one-way link (a file, stdout, a device file) cannot read
+the directory and sends the job at once, as `render` writes it. A job that downloads into module `C` is refused on a two-way link before
 anything is sent (`image_module_unlisted`): the directory never lists the default module by that
 letter, so the check could never pass; set `image_module` to the letter the printer lists (A on the
 Allegro 2), or print over a one-way link. The directory read is the one pause in the job, about

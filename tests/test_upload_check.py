@@ -29,7 +29,7 @@ from datamax_dpl.domain.errors import LabelRejectedError, PrinterTimeoutError, T
 from datamax_dpl.domain.held_images import HeldImages
 from datamax_dpl.domain.label import Image, Label, Qr
 from datamax_dpl.domain.profiles import get_profile
-from datamax_dpl.domain.render import RenderResult
+from datamax_dpl.domain.render import RenderResult, build_record
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS, STATUS_REQUEST
 
@@ -290,6 +290,68 @@ def test_under_strict_the_halving_round_is_refused_like_every_fallback() -> None
     message = _message(_single(refused.result), FindingCode.IMAGE_UPLOAD_REFUSED)
     assert "after 2 rounds" in message
     assert "halving is refused" in message
+
+
+#: No clears, and room in a configured budget for one LOGO-sized download and not two, under
+#: strict: rendered from an empty module a label of two images is in error.
+_ONE_IMAGE_BUDGET = RenderOptions(
+    model="allegro-2",
+    clear_graphics_before_label=False,
+    clear_graphics_after_label=False,
+    image_memory_bytes=700,
+    policy=FallbackPolicy.STRICT,
+)
+
+
+@pytest.mark.os_agnostic
+def test_a_label_in_error_once_rendered_again_for_round_2_is_refused_and_its_format_never_sent() -> None:
+    label = Label(elements=[LOGO, ICON])
+    logo, _icon = render_label(label, _ONE_IMAGE_BUDGET).downloads
+    held = HeldImages(listed=frozenset({logo}))
+    result = render_label(label, _ONE_IMAGE_BUDGET, held=held)
+    assert result.ok and len(result.downloads) == 1
+    printer = ModulePrinter(ImageModules(held=[("A", logo, 512)], lose={0}))
+    job = CheckedJob(renders=record_renders(label, None, _ONE_IMAGE_BUDGET), check=_check(), held=held)
+
+    with pytest.raises(UploadRefusedError) as caught:
+        print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+
+    assert FORMAT not in printer.data
+    assert printer.queries == [WG]
+    assert printer.sent.count(STX + b"qA") == 1
+    assert printer.sent[-1] == STX + b"qA"
+    message = _message(_single(caught.value.result), FindingCode.IMAGE_UPLOAD_REFUSED)
+    assert "after 1 round " in message
+    assert "rendered again for round 2" in message
+    assert "image_memory" in message or "700 bytes" in message
+
+
+@pytest.mark.os_agnostic
+def test_a_batch_record_in_error_once_rendered_again_says_so_and_nothing_after_it_is_sent() -> None:
+    first, second = Label(elements=[Qr(x=5, y=150, data="FIRST")]), Label(elements=[LOGO, ICON])
+    logo, _icon = render_label(second, _ONE_IMAGE_BUDGET).downloads
+    held = HeldImages(listed=frozenset({logo}))
+    one, after_one = build_record(first, _ONE_IMAGE_BUDGET, held=held)
+    two, _ = build_record(second, _ONE_IMAGE_BUDGET, held=after_one)
+    assert one.ok and two.ok
+    batch = BatchResult(data=one.data + two.data, results=(one, two))
+
+    def render_first(held: HeldImages, *, halve: bool) -> tuple[RenderResult, HeldImages]:
+        return build_record(first, _ONE_IMAGE_BUDGET, held=held, halve=halve)
+
+    def render_second(held: HeldImages, *, halve: bool) -> tuple[RenderResult, HeldImages]:
+        return build_record(second, _ONE_IMAGE_BUDGET, held=held, halve=halve)
+
+    printer = ModulePrinter(ImageModules(held=[("A", logo, 512)], lose={0}))
+    job = CheckedJob(renders=(render_first, render_second), check=_check(), held=held)
+
+    with pytest.raises(UploadRefusedError) as caught:
+        print_checked(batch, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+
+    assert printer.data.count(FORMAT) == 1
+    assert "rendered again" in str(caught.value)
+    assert "did not store" not in str(caught.value)
+    assert FindingCode.IMAGE_MEMORY_EXCEEDED in [f.code for f in caught.value.findings]
 
 
 @pytest.mark.os_agnostic

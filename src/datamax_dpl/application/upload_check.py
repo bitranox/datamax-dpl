@@ -17,7 +17,9 @@ after). A name missing, or no answer within ``stored_names_wait``, starts the ne
 
 Where no clear may go (a plug-in module, a model with no clear) a round renders the label again
 with what the last read listed, so a name the module holds is left out rather than downloaded
-again, which would print nothing; that listing passes on to the next label of a batch.
+again, which would print nothing; that listing passes on to the next label of a batch. A label
+that, rendered again for a round, has an error finding (the module it now holds leaves too little
+memory, a held name in error) is refused there, before anything of that round is sent.
 
 Still missing: the label is refused (``image_upload_refused``), its format is never sent, nothing
 after it is sent, and the module is cleared again where a clear may go. Each round after the
@@ -28,7 +30,9 @@ that letter, is refused before anything is sent (``image_module_unlisted``): the
 pass, and the format may not go out before it has.
 
 In a batch each label is checked on its own, and a label rendered again (with the module known
-empty after a clear, or halved) passes what the printer then holds on to the next label.
+empty after a clear, or halved) passes what the printer then holds on to the next label. A label
+that, rendered with what the printer holds after the labels before it, has an error finding stops
+the batch there: none of it and nothing after it is sent.
 """
 
 from __future__ import annotations
@@ -120,15 +124,21 @@ class UploadRefusedError(LabelRejectedError):
     def __init__(self, result: RenderResult | BatchResult, *, bytes_sent: int) -> None:
         """Keep the job as far as it went and the bytes it wrote."""
         errors = tuple(f for f in _all_findings(result) if f.severity is Severity.ERROR)
-        unlisted = any(f.code is FindingCode.IMAGE_MODULE_UNLISTED for f in errors)
-        message = (
-            "no directory lists module C, so a label's images could not be checked; nothing was sent"
-            if unlisted
-            else "the printer did not store a label's images; its format was not sent"
-        )
-        super().__init__(message, errors)
+        super().__init__(_refusal_text({f.code for f in errors}), errors)
         self.result = result
         self.bytes_sent = bytes_sent
+
+
+def _refusal_text(codes: set[FindingCode]) -> str:
+    """Say why a checked job stopped, from the codes of its error findings."""
+    if FindingCode.IMAGE_MODULE_UNLISTED in codes:
+        return "no directory lists module C, so a label's images could not be checked; nothing was sent"
+    if FindingCode.IMAGE_UPLOAD_REFUSED in codes:
+        return "the printer did not store a label's images; its format was not sent"
+    return (
+        "a label of the batch, rendered again with what the printer then held, has errors; "
+        "it and the labels after it were not sent"
+    )
 
 
 def _all_findings(result: RenderResult | BatchResult) -> tuple[Finding, ...]:
@@ -264,13 +274,20 @@ class _Record:
             return None
         return self.after.as_listed(self._listed.listed)
 
-    def clear_and_upload(self) -> tuple[str, ...]:
-        """Round 2: clear where a clear may go, render again if it emptied the module, upload again."""
+    def clear_and_upload(self) -> tuple[str, ...] | str:
+        """Round 2: clear where a clear may go, render again for what the module then holds, upload again.
+
+        The reason instead where the label, rendered again, has an error: nothing of the round
+        is sent then.
+        """
+        base = EMPTY_MODULE if self.result.retry_clear_empties else self._uncleared()
+        again = None if base is None else self.render(base, halve=False)
+        if again is not None and not again[0].ok:
+            return "rendered again for round 2 the label is refused: " + "; ".join(f.message for f in again[0].errors)
         self.link.send(self.result.retry_clear)
         cleared = _clear_text(self.result)
-        base = EMPTY_MODULE if self.result.retry_clear_empties else self._uncleared()
-        if base is not None:
-            self.result, self.after = self.render(base, halve=False)
+        if again is not None:
+            self.result, self.after = again
         missing = self.upload()
         self._retried(f"round 2: {cleared}, then uploaded the images again; {self._last_read}")
         return missing
@@ -318,10 +335,14 @@ def _check_label(record: _Record) -> bool:
     """Run a label's rounds; return True when its images are listed and the rest may follow."""
     missing = record.upload()
     rounds = 1
-    if missing and record.check.rounds >= CLEAR_ROUND:
-        missing, rounds = record.clear_and_upload(), CLEAR_ROUND
     why_not = ""
-    if missing and record.check.rounds >= HALVING_ROUND:
+    if missing and record.check.rounds >= CLEAR_ROUND:
+        outcome = record.clear_and_upload()
+        if isinstance(outcome, str):
+            why_not = outcome
+        else:
+            missing, rounds = outcome, CLEAR_ROUND
+    if missing and not why_not and record.check.rounds >= HALVING_ROUND:
         outcome = record.halve_and_upload()
         if isinstance(outcome, str):
             why_not = outcome
