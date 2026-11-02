@@ -24,6 +24,7 @@ from urllib.parse import SplitResult, unquote, urlsplit
 
 from ...domain.enums import MediaType
 from ...domain.errors import CameraError
+from ..config.sections import CAMERA_SECTION
 from .stored import StoredImage
 
 if TYPE_CHECKING:
@@ -102,7 +103,7 @@ def capture_with_http(settings: CameraSettings, *, stem: Path) -> StoredImage:
 def _parse_url(url: str) -> _CameraUrl:
     """Split ``url``, refusing anything but an ``http``/``https`` URL with a host."""
     if not url:
-        raise CameraError("no camera URL configured: set [camera] url")
+        raise CameraError(f"no camera URL configured: set {CAMERA_SECTION.setting('url')}")
     target = urlsplit(url)
     try:
         scheme = _Scheme(target.scheme.lower())

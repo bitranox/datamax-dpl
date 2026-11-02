@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from ...domain.camera import OUTPUT_PLACEHOLDER
 from ...domain.errors import CameraError
+from ..config.sections import CAMERA_SECTION
 from .file import MEDIA_TYPE_BY_SUFFIX
 from .stored import StoredImage
 
@@ -66,7 +67,7 @@ def capture_with_command(settings: CameraSettings, *, stem: Path) -> StoredImage
     """
     argv = list(settings.command)
     if not argv:
-        raise CameraError("no camera command configured: set [camera] command")
+        raise CameraError(f"no camera command configured: set {CAMERA_SECTION.setting('command')}")
     extension = _extension(argv)
     output = stem.with_suffix(extension)
     resolved = [_resolve_program(argv[0]), *(_substitute(arg, output=output) for arg in argv[1:])]

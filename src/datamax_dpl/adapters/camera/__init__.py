@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from ...domain.camera import CameraKind, CapturedImage
 from ...domain.errors import CameraError
+from ..config.sections import CAMERA_SECTION
 from .command import capture_with_command
 from .file import capture_from_directory
 from .http import capture_with_http
@@ -74,7 +75,7 @@ def capture_image(settings: CameraSettings, *, output_dir: Path) -> CapturedImag
     """
     capture = _CAPTURE_BY_KIND.get(settings.kind)
     if capture is None:
-        raise CameraError("no camera configured: set [camera] kind")
+        raise CameraError(f"no camera configured: set {CAMERA_SECTION.setting('kind')}")
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:

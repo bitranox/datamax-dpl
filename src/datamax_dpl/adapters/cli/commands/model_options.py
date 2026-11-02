@@ -10,6 +10,7 @@ import rich_click as click
 from ....domain.enums import CutterPresence, FallbackPolicy, HardwareOption
 from ....domain.errors import ConfigurationError
 from ....domain.profiles import Firmware, parse_firmware
+from ...config.sections import PRINTER_SECTION, printer_section
 from ..settings import PrinterOverrides, PrinterSettings, printer_settings, transport_tuning
 from ..typed_click import option
 
@@ -22,7 +23,11 @@ if TYPE_CHECKING:
 _Decorator = Callable[[Callable[..., Any]], Callable[..., Any]]
 
 _RENDER_OPTIONS: tuple[_Decorator, ...] = (
-    option("--model", default=None, help="Printer model profile (see 'datamax-dpl models'); default [printer] model."),
+    option(
+        "--model",
+        default=None,
+        help=f"Printer model profile (see 'datamax-dpl models'); default {PRINTER_SECTION.setting('model')}.",
+    ),
     option("--firmware", default=None, help="Printer firmware, e.g. 2.01; unlocks features newer firmware has."),
     option(
         "--policy",
@@ -35,7 +40,7 @@ _RENDER_OPTIONS: tuple[_Decorator, ...] = (
         "--cutter",
         type=click.Choice([c.value for c in CutterPresence]),
         default=None,
-        help="Whether the printer has a working cutter; default [printer] cutter.",
+        help=f"Whether the printer has a working cutter; default {PRINTER_SECTION.setting('cutter')}.",
     ),
 )
 
@@ -45,7 +50,10 @@ _PRINTER_CHOICE = option(
     "--printer",
     "printer",
     default=None,
-    help="Configured printer name ([printers.NAME]) or URI, e.g. tcp://192.0.2.60:9100; default [printer] uri.",
+    help=(
+        f"Configured printer name ({printer_section('NAME').header}) or URI, e.g. tcp://192.0.2.60:9100;"
+        f" default {PRINTER_SECTION.setting('uri')}."
+    ),
 )
 
 _PRINTER_OPTIONS: tuple[_Decorator, ...] = (
@@ -55,8 +63,8 @@ _PRINTER_OPTIONS: tuple[_Decorator, ...] = (
         type=float,
         default=None,
         help=(
-            "Seconds to wait for the printer; default [printer] timeout. For status, memory and verify, the"
-            " whole wait for the printer instead of [printer] status_wait."
+            f"Seconds to wait for the printer; default {PRINTER_SECTION.setting('timeout')}. For status, memory"
+            f" and verify, the whole wait for the printer instead of {PRINTER_SECTION.setting('status_wait')}."
         ),
     ),
 )

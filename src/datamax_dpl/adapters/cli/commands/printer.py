@@ -35,6 +35,7 @@ from ....domain.preview import canvas_for
 from ....domain.profiles import get_profile
 from ....domain.render import RenderResult
 from ....domain.status import PrinterStatus
+from ...config.sections import CAMERA_SECTION, PRINTER_SECTION
 from ...preview import pillow_available, preview_findings, render_preview_png
 from ...transport.uri import is_one_way, parse_printer_uri
 from ..constants import CLICK_CONTEXT_SETTINGS
@@ -219,7 +220,7 @@ def _render_to_print(
 
 
 #: How the CLI lengthens the wait ``status`` and ``memory`` keep trying for, named when it runs out.
-WAIT_LONGER = "wait longer with [printer] status_wait or --timeout"
+WAIT_LONGER = f"wait longer with {PRINTER_SECTION.setting('status_wait')} or --timeout"
 
 
 def _answer_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> AnswerWait:
@@ -234,7 +235,7 @@ def _answer_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> AnswerWait:
 
 
 #: How the CLI lengthens the wait for the stored image names, named when it runs out.
-STORED_NAMES_WAIT_LONGER = "wait longer with [printer] stored_names_wait"
+STORED_NAMES_WAIT_LONGER = f"wait longer with {PRINTER_SECTION.setting('stored_names_wait')}"
 
 
 def _stored_names_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> AnswerWait:
@@ -459,11 +460,16 @@ def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | 
     run_command(ctx, command=CommandName.PREVIEW, body=body)
 
 
-@click.command("capture", context_settings=CLICK_CONTEXT_SETTINGS)
+@click.command(
+    "capture",
+    context_settings=CLICK_CONTEXT_SETTINGS,
+    # help=, not the docstring, so the section is rendered rather than spelled by hand.
+    help=f"Take one photo with the configured camera ({CAMERA_SECTION.header} section).",
+)
 @option("--output-dir", default=".", help="Folder the photo is written to.")
 @click.pass_context
 def cli_capture(ctx: click.Context, output_dir: str) -> None:
-    """Take one photo with the configured camera ([camera] section)."""
+    """Take one photo with the configured camera."""
 
     def body(cli_ctx: CLIContext) -> CommandResult:
         camera = camera_settings(loaded_config(cli_ctx))

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 from ...domain.enums import MediaType
 from ...domain.errors import CameraError
+from ..config.sections import CAMERA_SECTION
 from .stored import StoredImage
 
 if TYPE_CHECKING:
@@ -97,7 +98,7 @@ def capture_from_directory(
 def _directory(settings: CameraSettings) -> Path:
     """Return the configured folder, refusing an empty setting or a path that is not a folder."""
     if not settings.directory:
-        raise CameraError("no camera directory configured: set [camera] directory")
+        raise CameraError(f"no camera directory configured: set {CAMERA_SECTION.setting('directory')}")
     directory = Path(settings.directory)
     if not directory.is_dir():
         raise CameraError(f"camera directory {directory} does not exist or is not a directory")
