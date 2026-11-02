@@ -51,7 +51,6 @@ from datamax_dpl.domain.status import (
     MEMORY_DIRECTORY_REQUESTS,
     STATUS_REQUEST,
     parse_ascii_status,
-    parse_status_byte,
 )
 
 if TYPE_CHECKING:
@@ -146,19 +145,6 @@ def test_a_reset_report_before_a_status_answer_returns_the_status_and_says_so(pr
 @pytest.mark.os_agnostic
 def test_a_status_answer_with_no_report_says_none() -> None:
     assert parse_ascii_status(b"\x11NNNNNNNN\r").reset_reported is False
-    assert parse_status_byte(b"\x02\r").reset_reported is False
-
-
-@pytest.mark.os_agnostic
-@pytest.mark.parametrize("value", [0x52, 0x54], ids=hex)
-def test_a_status_byte_that_reads_as_a_reset_letter_is_the_status_and_no_report(value: int) -> None:
-    assert parse_status_byte(bytes([value]) + b"\r").reset_reported is False
-
-
-@pytest.mark.os_agnostic
-def test_a_reset_report_before_a_status_byte_returns_the_status_and_says_so() -> None:
-    status = parse_status_byte(b"R\x02\r")
-    assert (status.reset_reported, status.paper_out) == (True, True)
 
 
 @pytest.mark.os_agnostic

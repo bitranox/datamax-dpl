@@ -250,7 +250,9 @@ def test_a_nul_in_an_argument_is_a_camera_error(tmp_path: Path) -> None:
         capture_with_command(_settings(sys.executable, "-c", "a\x00b", "{output}"), stem=tmp_path / "c")
 
 
-@pytest.mark.skipif(os.name == "nt", reason="SIGINT to one process has no equivalent to send on Windows")
+@pytest.mark.skipif(
+    os.name == "nt", reason="Windows has no signal for one process: a console control event reaches the whole console"
+)
 def test_an_interrupt_to_this_process_alone_ends_the_camera_program(tmp_path: Path) -> None:
     """A supervisor's kill -INT reaches only this process, and a program left running would outlive it."""
     pid_file = tmp_path / "program.pid"

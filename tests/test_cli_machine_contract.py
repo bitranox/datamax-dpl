@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -454,33 +455,40 @@ def test_an_empty_config_section_is_not_found_in_both_modes(
     assert "Section '' not found" in err
 
 
-_NOT_UTF8_PATHS = pytest.mark.skipif(
-    not sys.platform.startswith("linux"), reason="Windows and APFS refuse a filename that is not valid UTF-8"
-)
+#: A venv's launcher on Windows rewrites a lone surrogate in argv to U+FFFD before Python sees it, so
+#: a child that must receive one starts from the base interpreter, with this one's import path.
+_BASE_PYTHON: str = getattr(sys, "_base_executable", sys.executable)
 
 
-@_NOT_UTF8_PATHS
+def _env_for_base_python() -> dict[str, str]:
+    return {**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}
+
+
+@pytest.mark.skipif(sys.platform == "darwin", reason="APFS refuses a file name holding a lone surrogate")
 def test_an_undecodable_destination_reaches_the_log_without_a_logging_error(tmp_path: Path) -> None:
     """A real process with real logging: the failure was 112 lines from the logging system at exit 0."""
     done = subprocess.run(
         [sys.executable, "-m", "datamax_dpl", "config-generate-examples", "--destination", "ex\udcff"],
+        executable=_BASE_PYTHON,
         capture_output=True,
         timeout=120,
         check=False,
         cwd=tmp_path,
+        env=_env_for_base_python(),
     )
     assert done.returncode == 0
     assert b"Logging error" not in done.stderr
 
 
-@_NOT_UTF8_PATHS
 def test_an_undecodable_section_reaches_the_log_without_a_logging_error(tmp_path: Path) -> None:
     done = subprocess.run(
         [sys.executable, "-m", "datamax_dpl", "config", "--section", "\udcff\udcfe"],
+        executable=_BASE_PYTHON,
         capture_output=True,
         timeout=120,
         check=False,
         cwd=tmp_path,
+        env=_env_for_base_python(),
     )
     assert done.returncode == 22
     assert b"Logging error" not in done.stderr

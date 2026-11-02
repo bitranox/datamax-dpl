@@ -318,7 +318,11 @@ layers = [
 name = "Domain and application use no I/O or CLI package"
 type = "forbidden"
 source_modules = ["datamax_dpl.domain", "datamax_dpl.application"]
-forbidden_modules = ["serial", "socket", "subprocess", "ssl", "http", "urllib", "click", "rich_click", "rich", "lib_layered_config", "lib_log_rich", "tomlkit", "orjson", "dotenv", "PIL"]
+forbidden_modules = [
+  "serial", "socket", "subprocess", "ssl", "http", "urllib", "select", "os", "shutil", "tempfile", "fcntl", "termios",
+  "pty", "mmap", "ctypes", "multiprocessing", "threading", "asyncio", "concurrent",
+  "click", "rich_click", "rich", "lib_layered_config", "lib_log_rich", "tomlkit", "orjson", "dotenv", "PIL",
+]
 allow_indirect_imports = true
 
 [tool.bashate]

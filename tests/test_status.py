@@ -11,14 +11,12 @@ from hypothesis import strategies as st
 from datamax_dpl.domain.enums import StatusFlag, StatusProblem, Unit
 from datamax_dpl.domain.errors import PrinterProtocolError
 from datamax_dpl.domain.status import (
-    BATCH_REQUEST,
     CANCEL,
     CUT_NOW,
     FORM_FEED,
     MEMORY_REQUEST,
     RESET,
     SERIAL_TEST_REQUEST,
-    STATUS_BYTE_REQUEST,
     STATUS_REQUEST,
     TOGGLE_PAUSE,
     VERSION_REQUEST,
@@ -26,10 +24,8 @@ from datamax_dpl.domain.status import (
     PrinterStatus,
     is_status_line,
     parse_ascii_status,
-    parse_batch_remaining,
     parse_memory_report,
     parse_serial_test,
-    parse_status_byte,
     parse_version,
 )
 
@@ -56,8 +52,6 @@ def _status(**set_flags: bool) -> PrinterStatus:
 @pytest.mark.os_agnostic
 def test_request_constants_are_the_dpl_bytes() -> None:
     assert STATUS_REQUEST == b"\x01A"
-    assert STATUS_BYTE_REQUEST == b"\x01F"
-    assert BATCH_REQUEST == b"\x01E"
     assert VERSION_REQUEST == b"\x02v"
     assert MEMORY_REQUEST == b"\x02KQ"
     assert SERIAL_TEST_REQUEST == b"\x02k"
@@ -189,48 +183,6 @@ def test_a_long_garbage_answer_is_quoted_short_in_the_message() -> None:
     assert "5009 bytes" in str(caught.value)
 
 
-# --- <SOH>F ------------------------------------------------------------------------------------
-
-
-@pytest.mark.os_agnostic
-@pytest.mark.parametrize("bit", range(7))
-def test_each_status_bit_sets_the_flag_in_the_ascii_order(bit: int) -> None:
-    assert parse_status_byte(bytes([1 << bit]) + b"\r") == _status(**{FLAG_ORDER[bit]: True})
-
-
-@pytest.mark.os_agnostic
-@given(value=st.integers(min_value=0, max_value=0x7F))
-def test_the_status_byte_and_the_ascii_status_agree(value: int) -> None:
-    ascii_answer = bytes(ord("Y") if value >> bit & 1 else ord("N") for bit in range(7)) + b"N\r"
-    assert parse_status_byte(bytes([value]) + b"\r") == parse_ascii_status(ascii_answer)
-
-
-@pytest.mark.os_agnostic
-@pytest.mark.parametrize("value", [0x11, 0x13])
-def test_a_status_byte_equal_to_xon_or_xoff_is_read_as_status(value: int) -> None:
-    status = parse_status_byte(bytes([value]) + b"\r")
-    assert status.interpreter_busy
-    assert status.busy_printing
-
-
-@pytest.mark.os_agnostic
-def test_flow_control_in_front_of_the_status_byte_is_dropped() -> None:
-    assert parse_status_byte(b"\x11\x13\x04\r") == _status(ribbon_out=True)
-
-
-@pytest.mark.os_agnostic
-def test_an_error_character_in_front_of_the_status_byte_is_named() -> None:
-    with pytest.raises(PrinterProtocolError, match="input buffer overflow"):
-        parse_status_byte(b"v\x00\r")
-
-
-@pytest.mark.os_agnostic
-@pytest.mark.parametrize("answer", [b"", b"\r", b"\x00", b"\x80\r", b"\xff\r", b"Z\x00\r", b"\x00\r\r"])
-def test_a_status_byte_outside_the_manual_is_refused(answer: bytes) -> None:
-    with pytest.raises(PrinterProtocolError):
-        parse_status_byte(answer)
-
-
 # --- PrinterStatus -----------------------------------------------------------------------------
 
 
@@ -266,43 +218,6 @@ def test_flags_names_every_field_in_the_printer_order_with_its_own_value(flag: s
 @pytest.mark.os_agnostic
 def test_printer_status_is_frozen_and_so_hashable() -> None:
     assert hash(_status(paused=True)) == hash(_status(paused=True))
-
-
-# --- <SOH>E ------------------------------------------------------------------------------------
-
-
-@pytest.mark.os_agnostic
-@pytest.mark.parametrize(
-    ("answer", "count"), [(b"0000\r", 0), (b"0012\r", 12), (b"9999\r", 9999), (b"\x110042\x13\r", 42)]
-)
-def test_the_batch_count_is_read(answer: bytes, count: int) -> None:
-    assert parse_batch_remaining(answer) == count
-
-
-@pytest.mark.os_agnostic
-@pytest.mark.parametrize(
-    "answer",
-    [
-        b"",
-        b"12\r",
-        b"0012",
-        b"00012\r",
-        b"00 12\r",
-        b"-012\r",
-        b"+012\r",
-        b"001a\r",
-        ("00" + chr(0x0662) * 2).encode() + b"\r",
-    ],
-)
-def test_a_batch_count_outside_the_manual_is_refused(answer: bytes) -> None:
-    with pytest.raises(PrinterProtocolError):
-        parse_batch_remaining(answer)
-
-
-@pytest.mark.os_agnostic
-def test_a_reset_report_before_the_batch_count_is_named() -> None:
-    with pytest.raises(PrinterProtocolError, match="power-on reset"):
-        parse_batch_remaining(b"R0012\r")
 
 
 # --- <STX>v ------------------------------------------------------------------------------------
@@ -444,6 +359,6 @@ def test_a_memory_report_without_any_known_line_is_refused(answer: bytes) -> Non
 @pytest.mark.os_agnostic
 @given(answer=st.binary(max_size=200))
 def test_every_parser_either_parses_or_refuses_arbitrary_bytes(answer: bytes) -> None:
-    for parse in (parse_ascii_status, parse_status_byte, parse_batch_remaining, parse_version, parse_memory_report):
+    for parse in (parse_ascii_status, parse_version, parse_memory_report):
         with contextlib.suppress(PrinterProtocolError):
             parse(answer)

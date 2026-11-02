@@ -35,7 +35,7 @@ from datamax_dpl.domain.errors import CameraError
 from datamax_dpl.domain.label import Box, Circle, Label, Line, Point, Polygon, Text
 from datamax_dpl.domain.preview import preview_bitmap
 from datamax_dpl.domain.profiles import get_profile
-from datamax_dpl.domain.raster import TILE_SIZE, pattern_pixel
+from datamax_dpl.domain.raster import TILE_SIZE, Bitmap
 from datamax_dpl.domain.render import build_job
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.status import CANCEL, CUT_NOW, FORM_FEED, RESET, TOGGLE_PAUSE
@@ -77,7 +77,9 @@ _SHADE_BLACK_CELLS = {
 
 
 def _black_cells(pattern: FillPattern) -> int:
-    return sum(pattern_pixel(pattern, x, y) for x in range(TILE_SIZE) for y in range(TILE_SIZE))
+    bitmap = Bitmap(TILE_SIZE, TILE_SIZE)
+    bitmap.fill_rect(0, 0, TILE_SIZE, TILE_SIZE, pattern=pattern)
+    return bitmap.black_pixels()
 
 
 @pytest.mark.os_agnostic

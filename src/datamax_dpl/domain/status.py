@@ -35,10 +35,6 @@ if TYPE_CHECKING:
 
 #: ``<SOH>A``: status as eight ``Y``/``N`` characters.
 STATUS_REQUEST = b"\x01A"
-#: ``<SOH>F``: status as one bit field byte.
-STATUS_BYTE_REQUEST = b"\x01F"
-#: ``<SOH>E``: labels left in the current batch.
-BATCH_REQUEST = b"\x01E"
 #: ``<STX>v``: firmware version string.
 VERSION_REQUEST = b"\x02v"
 #: ``<STX>KQ``: memory and label size report.
@@ -86,10 +82,6 @@ RESET_CHARACTERS = frozenset({ord("R"), ord("T")})
 
 #: Characters in an ``<SOH>A`` answer; the eighth is reserved and always ``N``.
 STATUS_FLAG_COUNT = 8
-#: Bit of the ``<SOH>F`` byte the manual reserves (always 0).
-RESERVED_STATUS_BIT = 7
-#: Digits in an ``<SOH>E`` answer.
-BATCH_DIGITS = 4
 #: Bytes of an unparseable answer quoted in an error message; the rest is elided.
 SHOWN_ANSWER_BYTES = 48
 
@@ -98,7 +90,6 @@ _YES = ord("Y")
 _NO = ord("N")
 _FIRST_PRINTABLE = 0x20
 _LAST_PRINTABLE = 0x7E
-_DIGITS = re.compile(rb"[0-9]{4}")
 _NUMBER = re.compile(r"[0-9]{1,9}")
 _LINE_BREAK = re.compile(r"[\r\n]+")
 _MEMORY_HEADER = "INTERNAL MEMORY"
@@ -120,7 +111,7 @@ class FlagState(NamedTuple):
 
 
 class PrinterStatus(BaseModel, frozen=True, extra="forbid"):
-    """The printer's state as ``<SOH>A`` or ``<SOH>F`` reports it.
+    """The printer's state as ``<SOH>A`` reports it.
 
     Example:
         >>> status = parse_ascii_status(b"NYNNNNNN\\r")
@@ -250,35 +241,6 @@ def is_status_line(line: bytes) -> bool:
     return len(flags) == STATUS_FLAG_COUNT and all(char in (_YES, _NO) for char in flags)
 
 
-def parse_status_byte(answer: bytes) -> PrinterStatus:
-    """Parse the ``<SOH>F`` answer: one bit field byte and ``<CR>``.
-
-    Bit 0 is interpreter busy, bit 1 paper out, and so on in the ``<SOH>A`` order up to bit 6,
-    label presented. The status byte itself may be 0x11 or 0x13, so only bytes in front of it are
-    treated as flow control.
-
-    Args:
-        answer: The bytes the printer sent, terminator included.
-
-    Returns:
-        The decoded status.
-
-    Raises:
-        PrinterProtocolError: The answer is not one byte and ``<CR>``, bit 7 is set, or an error
-            character other than a reset report precedes it.
-
-    Example:
-        >>> parse_status_byte(bytes([0b0000_0010]) + b"\\r").paper_out
-        True
-    """
-    what = "<SOH>F status"
-    body, reset = _status_body(answer, width=1, what=what, answer=answer)
-    value = body[0]
-    if value >> RESERVED_STATUS_BIT:
-        raise PrinterProtocolError(f"{what}: reserved bit 7 is set in {show_answer(answer)}")
-    return _status_from_flags([bool(value >> bit & 1) for bit in range(len(StatusFlag))], reset_reported=reset)
-
-
 def _status_from_flags(flags: Sequence[bool], *, reset_reported: bool) -> PrinterStatus:
     """Build the status from one bool per :class:`StatusFlag`, in that order."""
     interpreter_busy, paper_out, ribbon_out, printing_batch, busy_printing, paused, label_presented = flags
@@ -292,29 +254,6 @@ def _status_from_flags(flags: Sequence[bool], *, reset_reported: bool) -> Printe
         label_presented=label_presented,
         reset_reported=reset_reported,
     )
-
-
-def parse_batch_remaining(answer: bytes) -> int:
-    """Parse the ``<SOH>E`` answer: four digits and ``<CR>``.
-
-    Args:
-        answer: The bytes the printer sent, terminator included.
-
-    Returns:
-        The number of labels left in the batch.
-
-    Raises:
-        PrinterProtocolError: The answer is not four ASCII digits and ``<CR>``.
-
-    Example:
-        >>> parse_batch_remaining(b"0012\\r")
-        12
-    """
-    what = "<SOH>E batch count"
-    body = _fixed_body(_drop_flow_control(answer), width=BATCH_DIGITS, what=what, answer=answer)
-    if _DIGITS.fullmatch(body) is None:
-        raise PrinterProtocolError(f"{what}: expected {BATCH_DIGITS} digits, got {show_answer(answer)}")
-    return int(body)
 
 
 def parse_version(answer: bytes) -> str:
@@ -540,8 +479,6 @@ def show_answer(answer: bytes) -> str:
 
 __all__ = [
     "ANSWER_TERMINATOR",
-    "BATCH_DIGITS",
-    "BATCH_REQUEST",
     "BEL",
     "CANCEL",
     "CUT_NOW",
@@ -549,12 +486,10 @@ __all__ = [
     "FORM_FEED",
     "MEMORY_DIRECTORY_REQUESTS",
     "MEMORY_REQUEST",
-    "RESERVED_STATUS_BIT",
     "RESET",
     "RESET_CHARACTERS",
     "SERIAL_TEST_REQUEST",
     "SHOWN_ANSWER_BYTES",
-    "STATUS_BYTE_REQUEST",
     "STATUS_FLAG_COUNT",
     "STATUS_REQUEST",
     "TOGGLE_PAUSE",
@@ -566,10 +501,8 @@ __all__ = [
     "PrinterStatus",
     "is_status_line",
     "parse_ascii_status",
-    "parse_batch_remaining",
     "parse_memory_report",
     "parse_serial_test",
-    "parse_status_byte",
     "parse_version",
     "show_answer",
 ]

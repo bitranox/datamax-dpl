@@ -8,7 +8,7 @@ from hypothesis import strategies as st
 
 from datamax_dpl.domain.enums import CombineMode, FillPattern
 from datamax_dpl.domain.geometry import DotPoint
-from datamax_dpl.domain.raster import TILE_SIZE, Bitmap, pattern_pixel
+from datamax_dpl.domain.raster import TILE_SIZE, Bitmap
 
 HUGE = 10**12
 NOTHING: frozenset[tuple[int, int]] = frozenset()
@@ -17,6 +17,13 @@ NOTHING: frozenset[tuple[int, int]] = frozenset()
 def black_set(bitmap: Bitmap) -> set[tuple[int, int]]:
     """Return every black pixel as (x, y)."""
     return {(x, y) for y in range(bitmap.height) for x in range(bitmap.width) if bitmap.get(x, y)}
+
+
+def _tile(pattern: FillPattern) -> set[tuple[int, int]]:
+    """The black pixels of one tile of ``pattern``, read through the public fill."""
+    bitmap = Bitmap(TILE_SIZE, TILE_SIZE)
+    bitmap.fill_rect(0, 0, TILE_SIZE, TILE_SIZE, pattern=pattern)
+    return black_set(bitmap)
 
 
 def black_rows(bitmap: Bitmap) -> list[int]:
@@ -197,17 +204,16 @@ def test_shades_get_darker_in_order() -> None:
     """Every darker shade blackens a superset of the lighter one's pixels (ordered dither)."""
     shades = [FillPattern.SHADE_6, FillPattern.SHADE_12, FillPattern.SHADE_25, FillPattern.SHADE_38]
     for lighter, darker in zip(shades, [*shades[1:], FillPattern.SHADE_50], strict=True):
-        cells = [(x, y) for x in range(TILE_SIZE) for y in range(TILE_SIZE)]
-        assert all(pattern_pixel(darker, x, y) for x, y in cells if pattern_pixel(lighter, x, y))
+        assert _tile(lighter) <= _tile(darker)
 
 
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("pattern", list(FillPattern))
 def test_every_pattern_tiles_with_period_eight(pattern: FillPattern) -> None:
-    """Each pattern repeats every 8 pixels in both directions, also at negative coordinates."""
-    for x in range(-8, 8):
-        for y in range(-8, 8):
-            assert pattern_pixel(pattern, x, y) == pattern_pixel(pattern, x + 8, y + 16)
+    """Each pattern repeats every 8 pixels in both directions."""
+    bitmap = Bitmap(32, 32)
+    bitmap.fill_rect(0, 0, 32, 32, pattern=pattern)
+    assert black_set(bitmap) == {(x, y) for x in range(32) for y in range(32) if (x % 8, y % 8) in _tile(pattern)}
 
 
 @pytest.mark.os_agnostic
@@ -223,33 +229,32 @@ def test_every_pattern_tiles_with_period_eight(pattern: FillPattern) -> None:
 )
 def test_line_patterns_are_partly_black(pattern: FillPattern) -> None:
     """The drawn patterns are neither empty nor solid."""
-    black = sum(pattern_pixel(pattern, x, y) for x in range(8) for y in range(8))
-    assert 0 < black < 64
+    assert 0 < len(_tile(pattern)) < 64
 
 
 @pytest.mark.os_agnostic
 def test_diagonals_lean_the_right_way() -> None:
     """With row 0 at the top, "/" rises to the right and "\\" falls to the right."""
-    assert pattern_pixel(FillPattern.RIGHT_DIAGONAL, 7, 0)
-    assert pattern_pixel(FillPattern.RIGHT_DIAGONAL, 0, 7)
-    assert pattern_pixel(FillPattern.LEFT_DIAGONAL, 0, 0)
-    assert pattern_pixel(FillPattern.LEFT_DIAGONAL, 7, 7)
+    assert {(7, 0), (0, 7)} <= _tile(FillPattern.RIGHT_DIAGONAL)
+    assert {(0, 0), (7, 7)} <= _tile(FillPattern.LEFT_DIAGONAL)
 
 
 @pytest.mark.os_agnostic
 def test_grid_has_full_lines() -> None:
     """The grid tile is a full top row plus a full left column."""
-    assert all(pattern_pixel(FillPattern.GRID, x, 0) for x in range(8))
-    assert all(pattern_pixel(FillPattern.GRID, 0, y) for y in range(8))
-    assert not pattern_pixel(FillPattern.GRID, 3, 3)
+    grid = _tile(FillPattern.GRID)
+    assert {(x, 0) for x in range(8)} <= grid
+    assert {(0, y) for y in range(8)} <= grid
+    assert (3, 3) not in grid
 
 
 @pytest.mark.os_agnostic
-def test_fill_rect_pattern_matches_pattern_pixel() -> None:
-    """A patterned fill blackens exactly the pixels pattern_pixel reports, anchored at the origin."""
+def test_fill_rect_pattern_is_anchored_at_the_origin() -> None:
+    """A patterned fill blackens the tile's pixels at their place in the bitmap, not relative to the fill."""
     bitmap = Bitmap(30, 20)
     bitmap.fill_rect(3, 5, 20, 11, pattern=FillPattern.DIAMONDS)
-    expected = {(x, y) for x in range(3, 23) for y in range(5, 16) if pattern_pixel(FillPattern.DIAMONDS, x, y)}
+    tile = _tile(FillPattern.DIAMONDS)
+    expected = {(x, y) for x in range(3, 23) for y in range(5, 16) if (x % TILE_SIZE, y % TILE_SIZE) in tile}
     assert black_set(bitmap) == expected
 
 
@@ -485,7 +490,7 @@ def test_patterned_circle_stays_inside_disc() -> None:
     bitmap.draw_circle(20, 20, 12, outline=0, fill=FillPattern.SHADE_50)
     for x, y in black_set(bitmap):
         assert (x - 20) ** 2 + (y - 20) ** 2 <= 12 * 12 + 12
-        assert pattern_pixel(FillPattern.SHADE_50, x, y)
+        assert (x % TILE_SIZE, y % TILE_SIZE) in _tile(FillPattern.SHADE_50)
 
 
 @pytest.mark.os_agnostic

@@ -137,26 +137,6 @@ def _build_tiles() -> Mapping[FillPattern, tuple[str, ...]]:
 _TILES = _build_tiles()
 
 
-def pattern_pixel(pattern: FillPattern, x: int, y: int) -> bool:
-    """Return whether pixel (x, y) is black when an area is filled with ``pattern``.
-
-    The pattern is anchored to the bitmap origin, so two adjacent fills line up seamlessly.
-
-    Args:
-        pattern: The DPL fill pattern.
-        x: Column, any integer (the tile repeats in both directions).
-        y: Row, any integer, row 0 at the top.
-
-    Returns:
-        True for a black pixel.
-
-    Example:
-        >>> pattern_pixel(FillPattern.SOLID, -3, 7), pattern_pixel(FillPattern.NONE, 0, 0)
-        (True, False)
-    """
-    return _TILES[pattern][y % TILE_SIZE][x % TILE_SIZE] == "1"
-
-
 def _round_div(numerator: int, denominator: int) -> int:
     """Return ``numerator / denominator`` rounded half up; ``denominator`` must be positive."""
     return (2 * numerator + denominator) // (2 * denominator)
@@ -619,4 +599,4 @@ class Bitmap:
                 self._paint_span(y, first=left, last=right - 1, pattern=pattern)
 
 
-__all__ = ["TILE_SIZE", "Bitmap", "pattern_pixel"]
+__all__ = ["TILE_SIZE", "Bitmap"]

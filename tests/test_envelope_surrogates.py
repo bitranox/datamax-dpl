@@ -13,8 +13,7 @@ from datamax_dpl.composition import build_production
 
 _LABEL = {"elements": [{"type": "text", "x": 5, "y": 5, "text": "HELLO"}]}
 
-#: Only where a file name is plain bytes: APFS and NTFS refuse these names at open.
-_BYTE_NAMES = pytest.mark.skipif(sys.platform != "linux", reason="only Linux file systems store a name not UTF-8")
+_BYTE_NAMES = pytest.mark.skipif(sys.platform == "darwin", reason="APFS refuses a file name holding a lone surrogate")
 
 
 def _label(tmp_path: Path) -> str:

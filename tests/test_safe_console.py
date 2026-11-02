@@ -21,6 +21,11 @@ from datamax_dpl.adapters.cli import safe_console
 PKG = Path(__file__).resolve().parent.parent / "src" / "datamax_dpl"
 
 
+#: A venv's launcher on Windows rewrites a lone surrogate in argv to U+FFFD before Python sees it, so
+#: a child that must receive one starts from the base interpreter, with this one's import path.
+_BASE_PYTHON: str = getattr(sys, "_base_executable", sys.executable)
+
+
 def _cp1252_stream() -> io.TextIOWrapper:
     """Build the stream shape a Windows cp1252 console hands to Python."""
     return io.TextIOWrapper(io.BytesIO(), encoding="cp1252", errors="strict", newline="")
@@ -141,23 +146,22 @@ class TestALoneSurrogate:
         assert buffer.getvalue().decode("utf-8") == "path-?-name \u2713\n"
 
 
-@pytest.mark.skipif(
-    not sys.platform.startswith("linux"), reason="Windows and APFS refuse a filename that is not valid UTF-8"
-)
+@pytest.mark.skipif(sys.platform == "darwin", reason="APFS refuses a file name holding a lone surrogate")
 def test_a_command_echoing_a_surrogate_escaped_path_still_exits_0(tmp_path: Path) -> None:
     """A destination holding a raw non-UTF-8 byte reaches echo as a lone surrogate; the files
     are written, so the path line must degrade rather than turn the run into a crash."""
     completed = subprocess.run(
         [sys.executable, "-m", "datamax_dpl", "config-generate-examples", "--destination", "ex\udcff"],
+        executable=_BASE_PYTHON,
         capture_output=True,
         check=False,
         cwd=tmp_path,
-        env={**os.environ, "PYTHONIOENCODING": "utf-8:strict"},
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path), "PYTHONIOENCODING": "utf-8:strict"},
     )
 
     assert completed.returncode == 0, completed.stderr.decode("utf-8", "replace")
     assert b"Generated" in completed.stdout
-    assert any((tmp_path / os.fsdecode(b"ex\xff")).iterdir())
+    assert any((tmp_path / "ex\udcff").iterdir())
 
 
 def _bytes_written(stream: io.TextIOWrapper) -> bytes:
@@ -229,7 +233,8 @@ class TestTheStreamsOwnErrorHandlerIsHonoured:
 
 
 @pytest.mark.skipif(
-    not sys.platform.startswith("linux"), reason="Windows and APFS refuse a filename that is not valid UTF-8"
+    not sys.platform.startswith("linux"),
+    reason="only a name that is plain bytes comes back as that byte: APFS refuses it and NTFS keeps it as UTF-16",
 )
 def test_a_surrogateescape_stdout_prints_the_path_that_is_on_disk(tmp_path: Path) -> None:
     """End to end: with stdout at surrogateescape the printed path names the real directory."""
