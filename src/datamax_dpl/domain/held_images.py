@@ -133,6 +133,26 @@ class HeldImages:
         sent = self.sent.get(name)
         return sent if sent is not None else self.placed.get(name)
 
+    def as_listed(self, listed: frozenset[str]) -> HeldImages:
+        """Return what the job knows once a read of the module listed ``listed``.
+
+        The listing is what the module holds now: a name the batch sent or placed stays known,
+        with its command, only where the listing shows it (a download into a full module is lost
+        with no error), and every name it shows is held, so a label rendered with the result
+        leaves out its download.
+
+        Example:
+            >>> held = HeldImages(sent={"D1": b"one", "D2": b"two"})
+            >>> now = held.as_listed(frozenset({"D1", "LOGO"}))
+            >>> dict(now.sent), now.holds("LOGO"), now.holds("D2")
+            ({'D1': b'one'}, True, False)
+        """
+        return HeldImages(
+            listed=listed,
+            sent={name: command for name, command in self.sent.items() if name in listed},
+            placed={name: command for name, command in self.placed.items() if name in listed},
+        )
+
 
 #: The module is known to be empty: a clear just emptied it.
 EMPTY_MODULE = HeldImages(listed=frozenset())

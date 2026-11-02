@@ -540,8 +540,11 @@ built-in RAM; the plain Prodigy's `<STX>R` for the label's own names; never a pl
 whatever the clear keys say) and the images uploaded again; then, cleared again, uploaded halved
 2x2 as the image memory budget halves them (not under `strict`, which refuses that fallback). Still
 missing: the label is refused (`image_upload_refused`), its format and every label after it are not
-sent, and the module is cleared again where allowed. Each label of a `--data` batch is checked on
-its own, and a label that needed a clear tells the next one that the module was emptied. A one-way
+sent, and the module is cleared again where allowed. Where no clear may go, each round uploads
+only the images the last read did not list: a name the module holds is never downloaded again,
+which would print nothing. Each label of a `--data` batch is checked on its own, and a label that
+needed a clear tells the next one that the module was emptied, one that needed no clear what the
+module listed. A one-way
 link (a file, stdout, a device file) cannot read the directory and sends the job at once, as
 `render` writes it. A job that downloads into module `C` is refused on a two-way link before
 anything is sent (`image_module_unlisted`): the directory never lists the default module by that

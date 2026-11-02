@@ -15,6 +15,10 @@ after). A name missing, or no answer within ``stored_names_wait``, starts the ne
    never a plug-in module), upload again and read again;
 3. clear again, halve the images 2x2 (the image memory budget's own halving), upload and read.
 
+Where no clear may go (a plug-in module, a model with no clear) a round renders the label again
+with what the last read listed, so a name the module holds is left out rather than downloaded
+again, which would print nothing; that listing passes on to the next label of a batch.
+
 Still missing: the label is refused (``image_upload_refused``), its format is never sent, nothing
 after it is sent, and the module is cleared again where a clear may go. Each round after the
 first adds an ``image_upload_retried`` finding saying what it did and what the printer then listed.
@@ -215,6 +219,7 @@ class _Record:
     after: HeldImages = field(init=False)
     findings: list[Finding] = field(default_factory=list[Finding])
     _last_read: str = field(default="", init=False)
+    _listed: HeldImages = field(default=HeldImages(), init=False)
 
     def __post_init__(self) -> None:
         """Render the label as it is first sent."""
@@ -225,23 +230,37 @@ class _Record:
         module = self.result.image_module or ""
         self.link.send(self.result.data[: self.result.upload_end])
         listed = self.link.read(module, wait=self.check.wait)
+        self._listed = listed
         self._last_read = _what_was_read(module, missing := _missing(self.result, listed), listed)
         return missing
+
+    def _uncleared(self) -> HeldImages | None:
+        """What the module holds before an upload again where no clear went, from the last read.
+
+        None where a clear went (the module is known empty, or the Prodigy removed the label's own
+        names, so its downloads go again as they were), or where the read listed nothing known.
+        A name the read listed is held: downloading it again would print nothing (one Allegro 2,
+        2026-11-01), so the label is rendered again leaving it out.
+        """
+        if self.result.retry_clear or self._listed.listed is None:
+            return None
+        return self.after.as_listed(self._listed.listed)
 
     def clear_and_upload(self) -> tuple[str, ...]:
         """Round 2: clear where a clear may go, render again if it emptied the module, upload again."""
         self.link.send(self.result.retry_clear)
         cleared = _clear_text(self.result)
-        if self.result.retry_clear_empties:
-            self.result, self.after = self.render(EMPTY_MODULE, halve=False)
+        base = EMPTY_MODULE if self.result.retry_clear_empties else self._uncleared()
+        if base is not None:
+            self.result, self.after = self.render(base, halve=False)
         missing = self.upload()
         self._retried(f"round 2: {cleared}, then uploaded the images again; {self._last_read}")
         return missing
 
     def halve_and_upload(self) -> tuple[str, ...] | str:
         """Round 3: clear, upload the images halved; the reason instead where they cannot be halved."""
-        base = EMPTY_MODULE if self.result.retry_clear_empties else self.held
-        halved, after = self.render(base, halve=True)
+        base = EMPTY_MODULE if self.result.retry_clear_empties else self._uncleared()
+        halved, after = self.render(self.held if base is None else base, halve=True)
         if not halved.halved_elements or self.result.halved_elements:
             return "no image of the label can be halved (a QR Code never is, nor an image halved already)"
         if not halved.ok:

@@ -375,6 +375,8 @@ class ImageModules:
         stored: Each module's names, each with what it costs.
         capacity: Bytes of dot data one module holds.
         downloads: The name of every download seen, in order, stored or lost.
+        downloaded_held: Each download of a name its module already held, which on one Allegro 2
+            made the job print nothing (2026-11-01); a sender must never make one.
         requests: Directory requests seen.
     """
 
@@ -391,6 +393,7 @@ class ImageModules:
         for module, name, cost in held:
             self.stored.setdefault(module, {})[name] = cost
         self.downloads: list[str] = []
+        self.downloaded_held: list[str] = []
         self.requests = 0
         self._lose = frozenset(lose)
         self._answers = answers
@@ -447,6 +450,8 @@ class ImageModules:
         lost = len(self.downloads) in self._lose
         self.downloads.append(name)
         names = self.stored.setdefault(module, {})
+        if name in names:
+            self.downloaded_held.append(name)
         cost = image_data_bytes(records)
         if not lost and sum(names.values()) + cost <= self.capacity:
             names[name] = cost

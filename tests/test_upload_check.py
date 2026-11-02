@@ -207,6 +207,56 @@ def test_a_plug_in_module_is_never_cleared_in_any_round() -> None:
     assert all("sent no clear (module B may not be cleared)" in message for message in retried)
 
 
+#: A second image for a label with two downloads, a different picture from LOGO.
+ICON = Image(x=1, y=40, name="ICON", bitmap=[row[::-1] for row in _PATTERN])
+PLUG_IN = RenderOptions(model="allegro-2", image_module=ImageModule.B)
+
+
+@pytest.mark.os_agnostic
+def test_a_module_that_may_not_be_cleared_gets_again_only_the_downloads_its_directory_did_not_list() -> None:
+    label = Label(elements=[LOGO, ICON])
+    logo, icon = render_label(label, PLUG_IN).downloads
+    modules = ImageModules(lose={1})
+
+    printer, sent = _print(modules, label, PLUG_IN)
+
+    assert modules.downloads == [logo, icon, icon]
+    assert modules.downloaded_held == []
+    assert STX + b"q" not in printer.data
+    assert printer.data.count(FORMAT) == 1
+    [rest] = [chunk for chunk in printer.sent if chunk.startswith(FORMAT)]
+    assert logo.encode("ascii") in rest and icon.encode("ascii") in rest
+    assert _upload_codes(_single(sent)) == [(FindingCode.IMAGE_UPLOAD_RETRIED, Severity.INFO)]
+
+
+@pytest.mark.os_agnostic
+def test_the_halving_round_on_such_a_module_leaves_out_a_qr_code_its_directory_listed() -> None:
+    label = Label(elements=[Qr(x=5, y=150, data="CODE"), LOGO])
+    qr, _logo = render_label(label, PLUG_IN).downloads
+    modules = ImageModules(lose={1, 2})
+
+    _, sent = _print(modules, label, PLUG_IN)
+
+    result = _single(sent)
+    assert result.halved_elements == (1,)
+    assert modules.downloads.count(qr) == 1
+    assert modules.downloaded_held == []
+
+
+@pytest.mark.os_agnostic
+def test_a_batch_on_such_a_module_carries_what_the_directory_listed_to_the_next_record() -> None:
+    label = Label(elements=[LOGO, ICON])
+    records = [{"n": "1"}, {"n": "2"}]
+    modules = ImageModules(lose={1, 2})
+
+    printer, sent = _print(modules, label, PLUG_IN, records=records)
+
+    assert isinstance(sent, BatchResult)
+    assert sent.results[0].halved_elements == (0, 1)
+    assert modules.downloaded_held == []
+    assert printer.data.count(FORMAT) == 2
+
+
 @pytest.mark.os_agnostic
 def test_the_plain_prodigy_removes_each_of_the_labels_own_names_instead_of_a_clear() -> None:
     options = RenderOptions(model="prodigy", image_module=ImageModule.A)
