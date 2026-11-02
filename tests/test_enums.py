@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import pytest
+from pydantic import AfterValidator, TypeAdapter, ValidationError
 
 import datamax_dpl
 from datamax_dpl.domain import enums
-from datamax_dpl.domain.enums import CounterSign, DeployTarget, OutputFormat
+from datamax_dpl.domain.enums import CounterSign, DeployTarget, OutputFormat, ValidationErrorType
 
 # ======================== Public exports ========================
 
@@ -139,3 +142,39 @@ def test_each_counter_sign_stands_for_one_way_of_counting(sign: str, decrement: 
 def test_counter_sign_member_count() -> None:
     """CounterSign must have exactly the four signs DPL defines."""
     assert {member.value for member in CounterSign} == {"+", "-", ">", "<"}
+
+
+# ======================== ValidationErrorType ========================
+
+
+def _refuse(value: object) -> object:
+    raise ValueError(f"refused {value!r}")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("member", "adapter", "given"),
+    [
+        (ValidationErrorType.FLOAT_PARSING, TypeAdapter(float), "x"),
+        (ValidationErrorType.VALUE_ERROR, TypeAdapter(Annotated[int, AfterValidator(_refuse)]), 1),
+        (ValidationErrorType.STRING_TYPE, TypeAdapter(str), 3),
+    ],
+)
+def test_each_pydantic_error_type_is_the_name_pydantic_reports(
+    member: ValidationErrorType, adapter: TypeAdapter[object], given: object
+) -> None:
+    """The members named after pydantic's own error types match what pydantic raises."""
+    with pytest.raises(ValidationError) as caught:
+        adapter.validate_python(given)
+    assert caught.value.errors()[0]["type"] == member.value
+
+
+@pytest.mark.os_agnostic
+def test_validation_error_type_values() -> None:
+    """The error type names, as refusals and the checks that tell them apart compare them."""
+    assert {member.value for member in ValidationErrorType} == {
+        "float_parsing",
+        "value_error",
+        "string_type",
+        "firmware_format",
+    }

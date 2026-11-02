@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Annotated, NamedTuple, TypeVar
 from pydantic import BeforeValidator
 from pydantic_core import PydanticCustomError
 
-from .enums import HardwareOption, ImageModule, ModelFamily, SpeedCode
+from .enums import HardwareOption, ImageModule, ModelFamily, SpeedCode, ValidationErrorType
 from .frozen_mapping import FrozenMapping
 from .label import DotSize
 from .units import Axis, hundredths_to_mm
@@ -1177,11 +1177,11 @@ def _firmware_field(value: object) -> object:
     if value is None or isinstance(value, Firmware):
         return value
     if not isinstance(value, str):
-        raise PydanticCustomError("string_type", "Input should be a valid string")
+        raise PydanticCustomError(ValidationErrorType.STRING_TYPE.value, "Input should be a valid string")
     try:
         return parse_firmware(value)
     except ValueError as exc:
-        raise PydanticCustomError("firmware_format", "{reason}", {"reason": str(exc)}) from None
+        raise PydanticCustomError(ValidationErrorType.FIRMWARE_FORMAT.value, "{reason}", {"reason": str(exc)}) from None
 
 
 #: A model field holding a parsed firmware, None when unknown. It takes the text users write

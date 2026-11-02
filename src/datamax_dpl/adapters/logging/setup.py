@@ -33,12 +33,16 @@ from lib_layered_config import Config
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from datamax_dpl import __init__conf__
+from datamax_dpl.domain.enums import ValidationErrorType
 from datamax_dpl.domain.errors import ConfigurationError
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
     from pydantic_core import ErrorDetails
+
+#: The configuration section logging is read from, and the prefix its refusals name keys with.
+_SECTION = "lib_log_rich"
 
 
 class LoggingConfigModel(BaseModel):
@@ -87,7 +91,7 @@ def _build_runtime_config(config: Config) -> lib_log_rich.runtime.RuntimeConfig:
         use lib_log_rich's built-in defaults. The service and environment
         parameters default to package metadata when not configured.
     """
-    section: object = config.get("lib_log_rich", default={}) or {}
+    section: object = config.get(_SECTION, default={}) or {}
     # Refuses a section that is not a table, before anything reads it as one.
     parsed = LoggingConfigModel.model_validate(section)
     written = cast("Mapping[str, object]", section)
@@ -147,7 +151,7 @@ def _problems(error: BaseException, section: object) -> list[str]:
     if cause is None:
         # Not a pydantic error (e.g. an unknown level name in a LOG_* variable): lib_log_rich's
         # own first line.
-        return [f"lib_log_rich: {str(error).splitlines()[0]}"]
+        return [f"{_SECTION}: {str(error).splitlines()[0]}"]
     lines = [f"{_problem_key(item['loc'], section)}: {_reason(item)}" for item in cause.errors()]
     return list(dict.fromkeys(lines))
 
@@ -163,7 +167,7 @@ def _reason(item: ErrorDetails) -> str:
         'Input should be a valid tuple'
     """
     error = item.get("ctx", {}).get("error")
-    if item["type"] == "value_error" and isinstance(error, ValueError):
+    if item["type"] == ValidationErrorType.VALUE_ERROR and isinstance(error, ValueError):
         return str(error)
     return item["msg"]
 
@@ -190,7 +194,7 @@ def _problem_key(loc: tuple[int | str, ...], section: object) -> str:
         >>> _problem_key((), {})
         'lib_log_rich'
     """
-    parts = ["lib_log_rich"]
+    parts = [_SECTION]
     node: object = section
     for index, part in enumerate(loc):
         if part == _KEY_PART:
@@ -420,7 +424,7 @@ def check_logging_config(config: Config) -> None:
 
 def _section(config: Config) -> object:
     """The ``[lib_log_rich]`` section as written, for telling its keys from pydantic's union tags."""
-    return config.get("lib_log_rich", default={})
+    return config.get(_SECTION, default={})
 
 
 __all__ = [

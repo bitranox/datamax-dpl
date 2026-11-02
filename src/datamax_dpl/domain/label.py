@@ -18,7 +18,17 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 
-from .enums import Attribute, FillPattern, MediaSensor, PrinterStop, QrError, Rotation, SpeedCode, Unit
+from .enums import (
+    Attribute,
+    FillPattern,
+    MediaSensor,
+    PrinterStop,
+    QrError,
+    Rotation,
+    SpeedCode,
+    Unit,
+    ValidationErrorType,
+)
 from .records import MAX_IMAGE_MAGNIFICATION
 from .symbology import Symbology
 
@@ -69,7 +79,7 @@ def stop_position_or_printer(number: TypeAdapter[float]) -> BeforeValidator:
         try:
             return number.validate_python(value)
         except ValidationError as exc:
-            if exc.errors()[0]["type"] != "float_parsing":
+            if exc.errors()[0]["type"] != ValidationErrorType.FLOAT_PARSING:
                 # pydantic-core merges a nested ValidationError's line errors into the field's
                 # own, so this refusal still names the field and keeps the bound's message.
                 raise
