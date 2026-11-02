@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .enums import Attribute, FindingCode, Unit
+from .enums import Attribute, CounterSign, FindingCode, Unit
 from .label import MAX_FIELD_DATA, Counter
 from .profiles import Feature
 from .records import line
@@ -172,8 +172,8 @@ def counter_lines(counter: Counter | None) -> list[bytes]:
     """
     if counter is None:
         return []
-    sign = ("<" if counter.decrement else ">") if counter.alphanumeric else "-" if counter.decrement else "+"
-    return [line(f"{sign}{counter.fill}{counter.step:02d}")]
+    sign = CounterSign.for_counting(decrement=counter.decrement, alphanumeric=counter.alphanumeric)
+    return [line(f"{sign.value}{counter.fill}{counter.step:02d}")]
 
 
 __all__ = [

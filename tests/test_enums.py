@@ -6,7 +6,7 @@ import pytest
 
 import datamax_dpl
 from datamax_dpl.domain import enums
-from datamax_dpl.domain.enums import DeployTarget, OutputFormat
+from datamax_dpl.domain.enums import CounterSign, DeployTarget, OutputFormat
 
 # ======================== Public exports ========================
 
@@ -118,3 +118,24 @@ def test_deploy_target_string_equality(member: DeployTarget, expected_str: str) 
 def test_deploy_target_member_count() -> None:
     """DeployTarget must have exactly 3 members."""
     assert len(DeployTarget) == 3
+
+
+# ======================== CounterSign ========================
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("sign", "decrement", "alphanumeric"),
+    [("+", False, False), ("-", True, False), (">", False, True), ("<", True, True)],
+)
+def test_each_counter_sign_stands_for_one_way_of_counting(sign: str, decrement: bool, alphanumeric: bool) -> None:
+    """The four DPL counter signs, each found again from the way it counts."""
+    member = CounterSign(sign)
+    assert (member.decrement, member.alphanumeric) == (decrement, alphanumeric)
+    assert CounterSign.for_counting(decrement=decrement, alphanumeric=alphanumeric) is member
+
+
+@pytest.mark.os_agnostic
+def test_counter_sign_member_count() -> None:
+    """CounterSign must have exactly the four signs DPL defines."""
+    assert {member.value for member in CounterSign} == {"+", "-", ">", "<"}

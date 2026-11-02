@@ -9,19 +9,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from types import MappingProxyType
-from typing import TYPE_CHECKING, TypedDict
+from typing import TypedDict
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from .enums import CommandKind, FillPattern, Rotation, SpeedCode, Unit
+from .enums import CommandKind, CounterSign, FillPattern, Rotation, SpeedCode, Unit
 from .label import Barcode, Box, Circle, Counter, Cut, Element, Image, Label, Line, Point, Polygon, ScalableText, Text
 from .profiles import OLD_SERIES_POINTS
 from .records import MAX_IMAGE_MAGNIFICATION, multiplier_value
 from .symbology import SYMBOLOGY_BY_IDENTIFIER
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
 
 _SOH, _STX, _CR = 0x01, 0x02, 0x0D
 _PRINTABLE = range(32, 127)
@@ -29,23 +25,10 @@ _PRINTABLE = range(32, 127)
 _HEADER_LENGTH = 15
 
 
-@dataclass(frozen=True, slots=True)
-class _Counting:
-    """How a counter line's sign counts the field before it."""
-
-    decrement: bool
-    alphanumeric: bool
-
-
-#: The counting each counter line sign stands for; the encoder's ``counter_lines`` writes the same.
-_COUNTER_SIGNS: Mapping[str, _Counting] = MappingProxyType(
-    {
-        "+": _Counting(decrement=False, alphanumeric=False),
-        "-": _Counting(decrement=True, alphanumeric=False),
-        ">": _Counting(decrement=False, alphanumeric=True),
-        "<": _Counting(decrement=True, alphanumeric=True),
-    }
-)
+#: The first character of a counter line; the encoder's ``counter_lines`` writes the same signs.
+_COUNTER_SIGNS = frozenset(sign.value for sign in CounterSign)
+#: The first character of a record line: its rotation digit.
+_RECORD_DIGITS = frozenset(str(rotation.dpl_digit) for rotation in Rotation)
 
 
 class _CounterUpdate(TypedDict):
@@ -255,7 +238,7 @@ def _format(data: bytes, pos: int, state: _State) -> int:
 
 def _format_line(text: bytes, state: _State) -> None:
     first = chr(text[0]) if text else ""
-    if first in "1234" and len(text) >= _HEADER_LENGTH:
+    if first in _RECORD_DIGITS and len(text) >= _HEADER_LENGTH:
         _add(state, CommandKind.RECORD, text, _record(text, state))
     elif first in _COUNTER_SIGNS:
         _add(state, CommandKind.COUNTER, text, _counter(text, state))
@@ -326,20 +309,20 @@ def _counter(text: bytes, state: _State) -> str:
         state.problems.append(f"{readable(text)}: no text or barcode field right before it to count")
         return "counter (nothing to count)"
     decoded = text.decode("latin-1")
-    counting = _COUNTER_SIGNS[decoded[0]]
+    sign = CounterSign(decoded[0])
     try:
         counter = Counter(
             step=int(decoded[2:4]),
-            decrement=counting.decrement,
-            alphanumeric=counting.alphanumeric,
+            decrement=sign.decrement,
+            alphanumeric=sign.alphanumeric,
             fill=decoded[1:2],
         )
     except (ValueError, ValidationError) as exc:
         state.problems.append(f"{readable(text)}: {exc.__class__.__name__}")
         return "counter (not understood)"
     state.elements[index] = target.model_copy(update=_CounterUpdate(counter=counter))
-    letters = " (letters too)" if counting.alphanumeric else ""
-    return f"count the previous field {'down' if counting.decrement else 'up'} by {counter.step}{letters}"
+    letters = " (letters too)" if sign.alphanumeric else ""
+    return f"count the previous field {'down' if sign.decrement else 'up'} by {counter.step}{letters}"
 
 
 @dataclass(frozen=True)

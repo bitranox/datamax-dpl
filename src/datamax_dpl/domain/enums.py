@@ -151,6 +151,40 @@ class CombineMode(Enum):
     OPAQUE = "opaque"
 
 
+class CounterSign(str, Enum):
+    """The sign that starts a counter line, and how it makes the field before it count.
+
+    ``+`` and ``-`` count digits up and down; ``>`` and ``<`` count letters too. The label's
+    :class:`~datamax_dpl.domain.label.Counter` holds the same choice as two flags.
+
+    Example:
+        >>> CounterSign.for_counting(decrement=True, alphanumeric=False).value
+        '-'
+        >>> CounterSign("<").decrement, CounterSign("<").alphanumeric
+        (True, True)
+    """
+
+    INCREMENT = "+"
+    DECREMENT = "-"
+    INCREMENT_ALPHANUMERIC = ">"
+    DECREMENT_ALPHANUMERIC = "<"
+
+    @property
+    def decrement(self) -> bool:
+        """Whether the field counts down."""
+        return self in (CounterSign.DECREMENT, CounterSign.DECREMENT_ALPHANUMERIC)
+
+    @property
+    def alphanumeric(self) -> bool:
+        """Whether letters count too, not only digits."""
+        return self in (CounterSign.INCREMENT_ALPHANUMERIC, CounterSign.DECREMENT_ALPHANUMERIC)
+
+    @classmethod
+    def for_counting(cls, *, decrement: bool, alphanumeric: bool) -> CounterSign:
+        """Return the sign that counts this way."""
+        return next(sign for sign in cls if sign.decrement == decrement and sign.alphanumeric == alphanumeric)
+
+
 class SpeedCode(str, Enum):
     """DPL speed letter; the member name gives the speed in inches per second.
 
@@ -572,6 +606,7 @@ __all__ = [
     "BarcodeProblemCode",
     "CombineMode",
     "CommandKind",
+    "CounterSign",
     "CutterPresence",
     "DeployTarget",
     "FallbackPolicy",
