@@ -24,6 +24,103 @@ All notable changes to this project are documented here. The format follows
   without the transport's advice; `application.use_cases.AnswerWait`
   carries the wait for library callers.
 
+- Upload check on a two-way link: `print` and `verify` send each label that
+  downloads an image in two parts on one connection, its settings, clear and
+  downloads first, then its format, cut and clear after only once the
+  printer's graphic directory (`<STX>W`) lists every name the label
+  downloaded. A download into a full module is lost with no error, and how
+  much of a module an image takes depends on its content, so no count made
+  before sending can tell. A name missing, or no answer, starts the next
+  round: round 2 clears the module where a clear may go (`<STX>q` on the
+  model's built-in RAM, the plain Prodigy's `<STX>R` for the label's own
+  names, never a plug-in module) and uploads again; where none may go it
+  uploads only what the last read did not list, reading the names again first
+  when that read got no answer. Round 3 clears again and uploads the images
+  halved 2x2 (not under `strict`). Still missing: the label is refused
+  (`image_upload_refused`, error), its format and every label after it are not
+  sent, and the module is cleared again where a clear may go. Each round after
+  the first reports `image_upload_retried` (info); a label that, rendered
+  again for a round, has an error finding is refused there
+  (`image_upload_render_refused`, error) before anything of that round is
+  sent. Each label of a `--data` batch is checked on its own and passes on to
+  the next what its last answered read listed. A job whose images go to module
+  `C` is refused on a two-way link before anything is sent
+  (`image_module_unlisted`, error): no directory lists the default module by
+  that letter. A one-way link (a file, stdout, a device file) and
+  `render`/`validate` never check. As the check reads what the printer stored,
+  `print` and `verify` on a two-way link leave the model's image memory budget
+  out and send images at full size (`image_budget_skipped`, info, says when
+  the budget would have halved them); a value set in `image_memory_bytes`
+  still applies. The longest a label waits before `image_upload_refused`, with
+  W for `stored_names_wait`, is 3 + 2 x `upload_check_rounds` x W, 183 s with
+  the defaults, for the first label on built-in RAM or on a plug-in module;
+  213 s on built-in RAM where the names are read before the job; for a later
+  label of a batch 180 s on built-in RAM and 150 s on a plug-in module (180 s
+  when it reads the names before its round 1). CONFIG.md breaks these down.
+  Library: `RenderResult.upload_end`, `retry_clear`, `retry_clear_empties` and
+  `retry_clear_may_go` carry what a caller needs to run the check,
+  `RenderOptions.model_image_budget` (default True) leaves the model's budget
+  out when False, and `application.upload_check.send_checked` and
+  `send_checked_label` run the check and return `CheckedSend` (`result`,
+  `all_sent`).
+
+- `[printer] upload_check_rounds` (default 3, 1 to 3): how many rounds the
+  upload check runs before `image_upload_refused`. 1 uploads and reads once, 2
+  adds the clear and the second upload, 3 the halved upload.
+
+- `[printer] stored_names_wait` (default 30 s, more than 0, at most 2147483
+  s): how long `print` and `verify` keep trying for each read of the printer's
+  stored image names, before a job no clear precedes and in every round of the
+  upload check, pausing `status_retry_interval` between two connections. The
+  answer's last byte must arrive within it; the 1 s of silence that ends the
+  answer comes on top. `--timeout` leaves it.
+
+- `[printer] held_image_severity` (`info`, `warning` or `error`, default
+  `warning`). Where no clear precedes a label's downloads (a module that is
+  not the model's built-in RAM, a model that can clear nothing), `print` and
+  `verify` first read the printer's stored graphic names and leave out the
+  download of each name it holds (`image_name_held`); where the names cannot
+  be read every image is downloaded (`image_names_unread`). The key sets the
+  severity of both findings, and `error` refuses such a label whatever
+  `policy` says. `RenderOptions.held_image_severity` carries it.
+
+- `[printer] image_module` (`A` to `E`, unset by default): the memory module
+  images are downloaded to. Unset takes the model's built-in module
+  (`datamax-dpl capabilities MODEL` shows it): A on most models, E on the DMX
+  600/800. The Prodigy and Prodigy Plus have none, so a job that downloads an
+  image there is refused (`image_module_unknown`) until it is set. 0.4.0
+  downloaded every image to module A. `RenderOptions.image_module` and
+  `RenderResult.image_module` carry it.
+
+- `[printer] send_chunk_bytes` (default 1024, more than 0, at most 65536): the
+  largest piece of a job one write over tcp or serial takes. `timeout` bounds
+  each piece, so it means the printer took no data for that long; 0.4.0 wrote
+  64 KiB pieces over tcp and the whole job in one write over serial.
+
+- `[printer] verify_poll_interval` (default 0.5 s, more than 0, at most
+  2147483 s): seconds between a busy answer and the next status poll while
+  `verify` waits for the printer to finish its job; fixed at 0.5 s in 0.4.0.
+
+- `[printer] one_way_settle` (default 5 s, 0 to 2147483 s): seconds `verify`
+  waits after sending, instead of polling, on a channel that cannot read
+  status (a file, a device file); fixed at 5 s in 0.4.0.
+
+- The seven keys above are read from a `[printers.<name>]` section and their
+  environment variables as well. A bad value is refused naming its key,
+  `printer.<key>: ...` or `printers.<name>.<key>: ...` (for example
+  `printer.upload_check_rounds: Input should be less than or equal to 3`),
+  with exit 2, by every command that reads the printer settings. 0.4.0
+  silently ignored these keys, so a value it accepted may now be refused.
+
+- Library: `domain.geometry` (`DotPoint`, `Rect`, `Size`, `Span`),
+  `domain.frozen_mapping.FrozenMapping`, `domain.status.parse_serial_test`
+  (reads the `<STX>k` answer), the enums `domain.enums.StatusFlag`,
+  `CounterSign` and `ValidationErrorType`, `domain.profiles.CalibrationKey`
+  and `CalibrationDefaults.value(key)`, `BatchResult.joined(results, *,
+  batch_findings=(), cut_after=())`, and `adapters.config.sections`
+  (`ConfigSection`, `SectionPath`, `printer_section`, `PRINTER_SECTION`,
+  `CAMERA_SECTION`).
+
 ### Changed
 
 - `--timeout` on `status` and `memory` is now the whole wait for the first
@@ -68,6 +165,97 @@ All notable changes to this project are documented here. The format follows
   `--along-length` that does not fit is still refused with the longest that
   fits named. `domain.calibration.default_along_length` and
   `domain.render.format_row_limit` expose the two rules.
+
+- A malformed `--firmware` is refused as a configuration error, `--firmware:
+  firmware must look like 2.01, got '2'`, with exit 2 as before; 0.4.0 said
+  only `firmware must look like 2.01, got '2'`, a `ValueError` in the JSON
+  envelope. A malformed `[printer] firmware` is refused as `printer.firmware:
+  ...` (`printers.<name>.firmware: ...` for a named printer) by every command
+  that reads the printer settings, `status` and `feed` included, even when a
+  valid `--firmware` is given; 0.4.0 refused it only where a label was
+  rendered without `--firmware`. `--firmware ""` means not given, so a
+  configured firmware applies; 0.4.0 read it as unknown firmware.
+
+- Library: `RenderOptions.firmware` is the parsed `domain.profiles.Firmware`
+  (`major`, `minor`) or None, default None, in place of a string defaulting to
+  `""`. Text is still accepted: `"2.01"` becomes `Firmware(major=2, minor=1)`,
+  and `""` and None become None (0.4.0 refused None). A malformed version is
+  refused with a `ValidationError` when the `RenderOptions` is built, instead
+  of a `ValueError` from `render`. `RenderOptions.model_dump(mode="json")`
+  gives the firmware as `[2, 1]`, not `"2.01"`.
+  `domain.profiles.ParsedFirmware` is the field's type.
+
+- With a configuration that cannot be loaded and a bad `--option`, the
+  `--option` refusal is reported, where 0.4.0 reported the load failure; both
+  exit 2.
+
+- Library, results that no longer unpack as tuples: `calibration_labels`
+  returns `CalibrationLabels` (`across`, `along`), exported from
+  `datamax_dpl`, in place of a pair of labels;
+  `domain.encode_barcode.bar_widths` returns `BarWidths` (`wide`, `narrow`),
+  `domain.preview.widest_cell_mm` returns `CellMm` (`advance`, `height`) and
+  `domain.encode_graphics.qr_symbol_position` returns
+  `domain.records.RecordPosition` (`row`, `column`).
+  `domain.records.polygon_record` takes `RecordPosition` points, not tuples.
+  `PrinterProfile.default_dot_size` is a `DotSize` (`width`, `height`), which
+  no longer compares equal to a tuple such as `(2, 2)`.
+
+- Library, named tuples that still unpack and compare like the old tuples:
+  `domain.profiles.Firmware` (`major`, `minor`); `domain.raster.Bitmap.bounds()`
+  returns a `domain.geometry.Rect` and `Bitmap.draw_polygon` takes
+  `DotPoint`s; `domain.preview.Canvas.point` returns a `DotPoint` and
+  `FieldArea.part(along=, up=)` takes `Span`s; `domain.preview.Rect` now lives
+  in `domain.geometry` and still imports from `domain.preview`;
+  `domain.render_context.PlacedImage.size` is a `Size`.
+  `PlacedImage.dots` and `domain.records.image_record(magnification=)` use
+  `domain.records.Magnification` (`across`, `along`; `UNMAGNIFIED` is 1x1).
+  `PrinterStatus.flags()` returns `domain.status.FlagState` (`flag`,
+  `is_set`), whose `flag` is a `StatusFlag` equal to its old name.
+
+- Library: read-only mappings in place of dicts. `PrinterProfile.features` is
+  a `FrozenMapping` (assigning raises `TypeError`, and `dataclasses.asdict`
+  keeps it a `FrozenMapping`); `domain.enums.SPEED_IPS`,
+  `domain.symbology.SYMBOLOGY_CODES` and `SYMBOLOGY_BY_IDENTIFIER` and
+  `adapters.camera.file.MEDIA_TYPE_BY_SUFFIX` are read-only.
+
+- Library: `domain.memory.MemoryModule` holds the module letter in `letter`
+  (the constructor takes `letter=`, and still `module=`), and
+  `MemoryModule.module` is a read-only property, an `ImageModule` or None for
+  a letter outside A to E, where it was the letter as a string. The JSON key
+  stays `module`.
+
+- Library: enums in place of strings for `domain.timing.check_timeout(name=)`
+  (`TimeoutName`) and `adapters.transport.uri.transport_error(action=)`
+  (`ChannelAction`). The calibration values that
+  `application.ports.SetPrinterValues` and
+  `adapters.config.user_edit.write_printer_values` and
+  `set_user_printer_values` take are keyed by `CalibrationKey`.
+
+- Library: `adapters.camera.capture_with_http`, `capture_with_command` and
+  `capture_from_directory` return `adapters.camera.stored.StoredImage`
+  (`path`, `media_type`), not a `Path`; `adapters.camera.http` has
+  `MEDIA_TYPE_BY_CONTENT_TYPE` and `EXTENSION_BY_MEDIA_TYPE` in place of
+  `EXTENSION_BY_CONTENT_TYPE`.
+
+- Library: named records in place of tuples in the adapters:
+  `adapters.config.overrides.nest_overrides` returns `NestedOverrides`
+  (`tree`, `keys`); `adapters.cli.config_load.load_config` returns, and
+  `start_logging(services, loaded, *, env_file)` takes and returns, a
+  `ConfigLoad` (`config`, `error`); `adapters.cli.context.TracebackState` is a
+  frozen dataclass (`enabled`, `force_color`);
+  `adapters.memory.RecordingPrinter.opened` holds `PrinterOpen` (`uri`,
+  `timeout`). The CLI's command helpers take typed values: `PrinterOverrides`
+  for `resolve_settings` and `labels.build`, `CommandName` for `run_command`
+  and `report_failure`.
+
+### Removed
+
+- Library: `BatchResult.findings()` (each of `BatchResult.results` carries its
+  `findings`); `cut_across_records` from `domain.batch` and
+  `application.use_cases` (`domain.batch.batch_cuts` returns `BatchCuts` with
+  the records a cut follows, and `BatchResult.joined` joins the jobs);
+  `adapters.camera.media_type_for` (`StoredImage.media_type` carries the
+  type); `adapters.camera.http.EXTENSION_BY_CONTENT_TYPE`.
 
 ### Fixed
 
