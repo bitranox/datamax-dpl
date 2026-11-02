@@ -46,6 +46,8 @@ _AVAILABLE = re.compile(r"AVAILABLE[ \t]+BYTES[ \t]+IN[ \t]+MODULE[ \t]*:[ \t]*(
 # cannot be read: taking it as a name would report a module with a made-up item and no free bytes.
 _AVAILABLE_START = re.compile(r"AVAILABLE[ \t]+BYTES\b", re.IGNORECASE | re.ASCII)
 _NO_MODULES = re.compile(r"NO MODULES AVAILABLE", re.IGNORECASE | re.ASCII)
+#: What the manual (``<STX>q`` Clear Module, page 35) says a "No Modules Available" answer means.
+NO_MODULES_MEANING = "the manual: corrupt or worn-out module"
 #: The free-bytes figure: eight digits in the manual's sample and in what an Allegro 2 sends, so a
 #: shorter one is an answer cut short, not a smaller number.
 _FIGURE = re.compile(r"[0-9]{8}")
@@ -229,6 +231,7 @@ def _free_bytes(rest: list[str], index: int, *, ended: bool) -> int | None:
 __all__ = [
     "MAX_NAME_LENGTH",
     "MODULE_LETTERS",
+    "NO_MODULES_MEANING",
     "MemoryDirectory",
     "MemoryModule",
     "parse_module_directory",

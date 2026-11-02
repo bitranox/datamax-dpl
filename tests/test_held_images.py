@@ -594,6 +594,19 @@ def test_a_directory_that_does_not_list_the_job_s_module_leaves_its_names_unread
 
 
 @pytest.mark.os_agnostic
+def test_a_no_modules_available_answer_leaves_the_names_unread_and_says_what_the_manual_reads_into_it() -> None:
+    directory = parse_module_directory(b"No Modules Available\r", kind=MemoryKind.GRAPHIC)
+    assert directory.parsed
+
+    held = held_images_from(directory, module=ImageModule.B)
+
+    assert held.listed is None
+    assert held.unread_because == (
+        'the printer answered "No Modules Available" (the manual: corrupt or worn-out module)'
+    )
+
+
+@pytest.mark.os_agnostic
 def test_a_module_the_directory_lists_with_no_names_holds_none() -> None:
     directory = parse_module_directory(
         b"MODULE: A\rOTHER\rAVAILABLE BYTES IN MODULE: 00049000\rMODULE: B\rAVAILABLE BYTES IN MODULE: 00049088\r",

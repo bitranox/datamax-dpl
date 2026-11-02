@@ -29,7 +29,7 @@ from ....application.use_cases import (
 from ....application.verify import IdleWait, verify_print
 from ....domain.enums import ImageModule, MemoryKind, Severity, StatusProblem
 from ....domain.held_images import HeldImages
-from ....domain.memory import MemoryDirectory
+from ....domain.memory import NO_MODULES_MEANING, MemoryDirectory
 from ....domain.preview import canvas_for
 from ....domain.profiles import get_profile
 from ....domain.render import RenderResult
@@ -262,10 +262,6 @@ class MemoryPayload(BaseModel):
 
     printer: str
     directories: list[MemoryDirectory]
-
-
-#: What the manual (``<STX>q`` Clear Module, page 35) says a "No Modules Available" answer means.
-NO_MODULES_MEANING = "the manual: corrupt or worn-out module"
 
 
 class KindChoice(str, Enum):

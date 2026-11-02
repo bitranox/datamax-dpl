@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from .enums import ImageModule
+from .memory import NO_MODULES_MEANING
 
 if TYPE_CHECKING:
     from .memory import MemoryDirectory
@@ -170,8 +171,9 @@ def held_images_from(directory: MemoryDirectory, *, module: ImageModule) -> Held
     A module the answer lists with no names holds none. A module the answer does not list gives
     no names: the answer may have ended before it, and a module read as empty that holds a name
     would get that name downloaded again, which prints nothing. An answer the parser could not
-    read gives no names either, and so does the default module ``C``, which the answer never lists
-    by that letter: every download is then kept, as when nothing was asked.
+    read gives no names either, nor does "No Modules Available" (which the manual reads as a
+    corrupt or worn-out module, not as an empty one), nor the default module ``C``, which the
+    answer never lists by that letter: every download is then kept, as when nothing was asked.
 
     Args:
         directory: The printer's graphic directory.
@@ -196,6 +198,8 @@ def held_images_from(directory: MemoryDirectory, *, module: ImageModule) -> Held
         return HeldImages(unread_because=DEFAULT_MODULE_UNREAD)
     if not directory.parsed:
         return HeldImages(unread_because="the printer's directory answer could not be read")
+    if directory.no_modules_available:
+        return HeldImages(unread_because=f'the printer answered "No Modules Available" ({NO_MODULES_MEANING})')
     # The directory's letters are the printer's own text, kept as read even outside A-E.
     listings = [entry.names for entry in directory.modules if entry.module == module.value]
     if not listings:
