@@ -33,12 +33,13 @@ that letter, is refused before anything is sent (``image_module_unlisted``): the
 pass, and the format may not go out before it has.
 
 In a batch each label is checked on its own and passes on to the next label what its last read
-that answered listed, with the clear after it applied (a ``<STX>q`` after it leaves the module
-empty), or what its render says where no read answered. A name it sent after that read, where no
-clear may go, may be held: no later label downloads it again either, so a later label whose first
-upload would is not sent that way (round 1 is left out like round 2). A label that, rendered with
-what the printer holds after the labels before it, has an error finding stops the batch there:
-none of it and nothing after it is sent.
+that answered listed, with every clear sent after that read applied (a retry clear before a later
+round, the clear after the label): a ``<STX>q`` leaves the module empty, the plain Prodigy's
+removes take out the label's own names. Where no read answered it passes on what its render
+says. A name it sent after that read, where no clear may go, may be held: no later label
+downloads it again either, so a later label whose first upload would is not sent that way (round
+1 is left out like round 2). A label that, rendered with what the printer holds after the labels
+before it, has an error finding stops the batch there: none of it and nothing after it is sent.
 """
 
 from __future__ import annotations
@@ -288,6 +289,7 @@ class _Record:
     # The download command of every name the label's rounds sent, for a name a read then listed.
     _sent: dict[str, bytes] = field(default_factory=dict[str, bytes], init=False)
     _last_read: str = field(default="", init=False)
+    # What the last read that answered listed, less what every clear since took out (see _clear).
     # Unknown where no read has answered yet: then nothing is known to leave out.
     _known: frozenset[str] | None = field(default=None, init=False)
     # Names downloaded since the last read that answered: each may be held, or may be lost.
@@ -321,7 +323,8 @@ class _Record:
 
         As the last read that answered listed it, where one did (a name sent before a read that
         got no answer, then listed by a later read, is held: downloading it again would print
-        nothing), with the clear after the label applied; as the render says where none did. A
+        nothing), with every clear sent since applied (a retry clear, see :meth:`_clear`, and the
+        clear after the label); as the render says where none did. A
         name sent since that read stays one the printer may hold, where no clear may go: a label
         passes with a read that got no answer when its last round downloaded nothing.
         """
@@ -410,8 +413,7 @@ class _Record:
             skipped = _Skipped(f"round 2 skipped, it would download again {self._unread(twice)}")
             self._retried(skipped.reason)
             return skipped
-        self.link.send(self.result.retry_clear)
-        cleared = _clear_text(self.result, self._module())
+        cleared = self._clear()
         if again is not None:
             self._rendered(again)
         missing = self.upload()
@@ -435,12 +437,25 @@ class _Record:
         if twice := self._downloaded_again(halved):
             stays = "a QR Code is never halved, so its name stays"
             return _Skipped(f"halving is skipped, it would download again ({stays}) {self._unread(twice)}")
-        self.link.send(self.result.retry_clear)
-        cleared = _clear_text(self.result, self._module())
+        cleared = self._clear()
         self._rendered(rendered)
         missing = self.upload()
         self._retried(f"round 3: {cleared}, then uploaded the images halved 2x2; {self._last_read}")
         return missing
+
+    def _clear(self) -> str:
+        """Send the label's retry clear, apply it to what the last read that answered listed, and say what it did.
+
+        The one place a clear goes out during the rounds, so what a later round or the next label
+        takes the module to hold never keeps a name the clear took out: ``<STX>q`` empties the
+        listing, the plain Prodigy's removes take out the label's own names. A name sent since
+        that read needs nothing here: where a clear may go, none is carried as maybe held.
+        """
+        self.link.send(self.result.retry_clear)
+        if self._known is not None and self.result.retry_clear:
+            emptied = self.result.retry_clear_empties
+            self._known = frozenset() if emptied else self._known - frozenset(self.result.downloads)
+        return _clear_text(self.result, self._module())
 
     def _retried(self, message: str) -> None:
         self.findings.append(Finding(code=FindingCode.IMAGE_UPLOAD_RETRIED, severity=Severity.INFO, message=message))
@@ -463,7 +478,7 @@ class _Record:
                 ),
             )
         )
-        self.link.send(self.result.retry_clear)
+        self._clear()
 
     def as_sent(self) -> RenderResult:
         """The label's result as it went out, with the rounds' findings."""

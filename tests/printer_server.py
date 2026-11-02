@@ -13,6 +13,7 @@ starts these servers and joins every one at teardown.
 from __future__ import annotations
 
 import contextlib
+import re
 import socket
 import struct
 import sys
@@ -357,6 +358,8 @@ class ConnectionsServer:
 _GRAPHIC_DIRECTORY = MEMORY_DIRECTORY_REQUESTS[MemoryKind.GRAPHIC]
 _STX = b"\x02"
 _SOH = b"\x01"
+#: An image field of a format: ``1Y``, 13 digits (rotation, magnifications, row, column), the name.
+_IMAGE_FIELD = re.compile(rb"1Y[0-9]{13}(\S+)")
 #: Free bytes of an empty module A, as one Allegro 2 reported it (2026-10-31).
 EMPTY_MODULE_BYTES = 49088
 
@@ -380,6 +383,8 @@ class ImageModules:
         downloaded_held: Each download of a name its module already held, which on one Allegro 2
             made the job print nothing (2026-11-01); a sender must never make one.
         requests: Directory requests seen.
+        placed_missing: Each image a format (``<STX>L``) placed that no module held when the
+            format came, which prints that label without the image; a sender must never send one.
     """
 
     def __init__(
@@ -398,6 +403,7 @@ class ImageModules:
         self.downloads: list[str] = []
         self.downloaded_held: list[str] = []
         self.requests = 0
+        self.placed_missing: list[str] = []
         self._lose = frozenset(lose)
         self._answers = answers
         self._silent = frozenset(silent)
@@ -445,7 +451,16 @@ class ImageModules:
                 names.pop(name, None)
         elif kind == b"I":
             self._download(command)
+        elif kind == b"L":
+            self._place(command)
         return b""
+
+    def _place(self, command: bytes) -> None:
+        for line in command.split(b"\r"):
+            if (field := _IMAGE_FIELD.fullmatch(line)) is not None:
+                name = field.group(1).decode("ascii")
+                if not any(name in names for names in self.stored.values()):
+                    self.placed_missing.append(name)
 
     def _download(self, command: bytes) -> None:
         header, _, records = command.partition(b"\r")

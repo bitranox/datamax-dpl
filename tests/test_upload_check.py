@@ -531,6 +531,50 @@ def test_a_name_an_earlier_round_sent_keeps_its_picture_so_another_picture_under
     assert modules.downloaded_held == []
 
 
+#: A second 64 x 64 picture, as many dots as LOGO: two of them leave room for one more and a halved pair.
+SECOND = Image(
+    x=1,
+    y=100,
+    name="SECOND",
+    bitmap=["".join("#" if (row * 7 + column * 11) % 5 == 0 else "." for column in range(64)) for row in range(64)],
+)
+#: The plain Prodigy into module B with the clear keys off: its retry clear removes the label's own names.
+PRODIGY_NO_KEYS = RenderOptions(
+    model="prodigy",
+    image_module=ImageModule.B,
+    clear_graphics_before_label=False,
+    clear_graphics_after_label=False,
+    model_image_budget=False,
+)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("lose", "silent"), [((), (5,)), ((0,), (1, 5))], ids=["round-3-unread", "round-2-unread"])
+def test_the_prodigys_removes_after_the_last_answered_read_are_applied_to_what_the_next_record_takes_as_held(
+    lose: tuple[int, ...], silent: tuple[int, ...]
+) -> None:
+    """Record 2's round 3 removes its full-size names after the read that listed them, then passes unread.
+
+    Its halved names are the ones record 1 left, so round 3 downloads nothing. Record 3 must not
+    take the removed full-size name as held: a format placing it would print without the image.
+    """
+    label = Label(elements=[LOGO, SECOND])
+    records = [{"n": "1"}, {"n": "2"}, {"n": "3"}]
+    other = HeldImages(listed=frozenset({"OTHER"}))
+    modules = ImageModules(capacity=1200, held=[("B", "OTHER", 300)], lose=lose, silent=silent)
+    printer = ModulePrinter(modules)
+    renders = render_batch(label, records, PRODIGY_NO_KEYS, held=other)
+    job = CheckedJob(renders=record_renders(label, records, PRODIGY_NO_KEYS), check=_check(), held=other)
+
+    report = print_checked(renders, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+
+    assert modules.placed_missing == []
+    assert modules.downloaded_held == []
+    assert printer.data.count(FORMAT) == len(records)
+    assert isinstance(report.result, BatchResult)
+    assert all(record.ok for record in report.result.results)
+
+
 class _CutBeforeModuleB(ImageModules):
     """Answers the first directory request with module A's block only, as if the answer ended there."""
 
