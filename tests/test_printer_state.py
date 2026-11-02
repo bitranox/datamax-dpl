@@ -19,6 +19,7 @@ from datamax_dpl.domain.profiles import (
     Feature,
     PrinterProfile,
     SoftwareSwitchBits,
+    UndescribedBit,
     get_profile,
     list_profiles,
 )
@@ -88,9 +89,11 @@ def test_every_model_feeds_at_its_slew_default(profile: PrinterProfile) -> None:
 
 #: The STX V bit assignment table (p.42), one layout per column, written out from the manual.
 _COLUMN_400_600_800_6200 = SoftwareSwitchBits(cutter=0, internal_batch=1, label_present=2)
-_COLUMN_PRODIGY_PLUS = SoftwareSwitchBits(cutter=0, label_present=2, undescribed=((1, "insert ribbon sense"),))
+_COLUMN_PRODIGY_PLUS = SoftwareSwitchBits(
+    cutter=0, label_present=2, undescribed=(UndescribedBit(bit=1, option="insert ribbon sense"),)
+)
 _COLUMN_PRODIGY = SoftwareSwitchBits(
-    cutter=0, internal_batch=3, label_present=2, undescribed=((1, "invert ribbon saver"),)
+    cutter=0, internal_batch=3, label_present=2, undescribed=(UndescribedBit(bit=1, option="invert ribbon saver"),)
 )
 _COLUMN_ALLEGRO = SoftwareSwitchBits(cutter=0, internal_batch=1)
 _COLUMN_MAX_OVATION_PE = SoftwareSwitchBits(cutter=0, label_present=2)

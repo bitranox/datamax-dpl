@@ -9,12 +9,13 @@ another program or the front panel may have changed any of them since the last j
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .charset import DEFAULT_SYMBOL_SET
 from .enums import FindingCode, MediaSensor, PrinterSetting, PrinterStop, SpeedCode
 from .held_images import EMPTY_MODULE, HeldImages
-from .label import ScalableText
+from .label import DotSize, ScalableText
 from .profiles import Feature, SpeedRange
 from .records import STX, line
 from .transparency import emulates_transparency
@@ -22,7 +23,7 @@ from .units import MM_PER_INCH, Axis, DplUnit, hundredths_to_mm, to_inches
 
 if TYPE_CHECKING:
     from .label import Label
-    from .render_context import ImageDownload, RenderContext
+    from .render_context import ImageDownload, PrinterState, RenderContext
 
 INCH_MODE = STX + b"n"
 CUT_NOW = STX + b"o"
@@ -165,7 +166,15 @@ def _feed_rate(ctx: RenderContext) -> list[bytes]:
     return sent
 
 
-def _switch_value(ctx: RenderContext) -> tuple[int | None, str]:
+@dataclass(frozen=True)
+class _SwitchValue:
+    """The ``<STX>V`` value a job can build, or None and why it cannot."""
+
+    value: int | None
+    reason: str = ""
+
+
+def _switch_value(ctx: RenderContext) -> _SwitchValue:
     """Return the ``<STX>V`` value this job can build, or None and why it cannot.
 
     ``<STX>V`` overrides every bit until the next power-up (manual p.41), so it is built only when
@@ -175,37 +184,59 @@ def _switch_value(ctx: RenderContext) -> tuple[int | None, str]:
     """
     bits = ctx.profile.software_switches
     if bits is None:
-        return None, f"{ctx.profile.name} has no known bit layout (manual p.42)"
+        return _SwitchValue(None, f"{ctx.profile.name} has no known bit layout (manual p.42)")
     if not bits.buildable:
-        undescribed = ", ".join(f"bit {bit} {option}" for bit, option in bits.undescribed)
-        return None, f"{ctx.profile.name} has bits no setting describes ({undescribed})"
+        undescribed = ", ".join(f"bit {bit.bit} {bit.option}" for bit in bits.undescribed)
+        return _SwitchValue(None, f"{ctx.profile.name} has bits no setting describes ({undescribed})")
     if ctx.cutter_installed is None:
-        return None, "whether the cutter is installed is unknown"
+        return _SwitchValue(None, "whether the cutter is installed is unknown")
     value = int(ctx.cutter_installed) << bits.cutter
     if bits.label_present is None:
-        return value, ""
+        return _SwitchValue(value)
     present = ctx.printer_state.label_present
     if present is None:
-        return None, "whether the label-present sensor is on is unknown"
-    return value | int(present) << bits.label_present, ""
+        return _SwitchValue(None, "whether the label-present sensor is on is unknown")
+    return _SwitchValue(value | int(present) << bits.label_present)
 
 
 def _software_switches(ctx: RenderContext) -> list[bytes]:
     if not _sends(PrinterSetting.SOFTWARE_SWITCHES, ctx):
         return []
-    value, reason = _switch_value(ctx)
-    if value is None:
-        ctx.findings.info(FindingCode.SOFTWARE_SWITCHES_NOT_SENT, f"software switches (<STX>V) not sent: {reason}")
+    switches = _switch_value(ctx)
+    if switches.value is None:
+        ctx.findings.info(
+            FindingCode.SOFTWARE_SWITCHES_NOT_SENT, f"software switches (<STX>V) not sent: {switches.reason}"
+        )
         return []
-    return [_system(f"V{value:X}")]
+    return [_system(f"V{switches.value:X}")]
 
 
-#: The settings whose value can be unknown for a model, each with the option that sets it.
-_SETTING_KEYS: tuple[tuple[PrinterSetting, str, str], ...] = (
-    (PrinterSetting.START_OF_PRINT, "start of print", "start_of_print_mm"),
-    (PrinterSetting.MAX_LABEL_LENGTH, "maximum label length", "max_label_length_mm"),
-    (PrinterSetting.FEED_RATE, "feed rate", "feed_rate"),
-)
+@dataclass(frozen=True)
+class _ValuedSetting:
+    """A setting whose value can be unknown for a model, with the settings-file key that sets it.
+
+    Attributes:
+        setting: The setting.
+        what: Its name in the finding.
+        key: The ``[printer]`` key that sets it.
+        value: The value the job would send; None where the model has no known default.
+    """
+
+    setting: PrinterSetting
+    what: str
+    key: str
+    value: float | SpeedCode | None
+
+
+def _valued_settings(state: PrinterState) -> tuple[_ValuedSetting, ...]:
+    """The settings whose value can be unknown for a model, each with its value in ``state``."""
+    return (
+        _ValuedSetting(PrinterSetting.START_OF_PRINT, "start of print", "start_of_print_mm", state.start_of_print_mm),
+        _ValuedSetting(
+            PrinterSetting.MAX_LABEL_LENGTH, "maximum label length", "max_label_length_mm", state.max_label_length_mm
+        ),
+        _ValuedSetting(PrinterSetting.FEED_RATE, "feed rate", "feed_rate", state.feed_rate),
+    )
 
 
 def _report_unknown_values(ctx: RenderContext) -> None:
@@ -214,16 +245,10 @@ def _report_unknown_values(ctx: RenderContext) -> None:
     The model's default is unknown there (a DIP switch decides the Prodigy Max's start of print;
     the synthetic models share none), so the printer keeps whatever another program left.
     """
-    state = ctx.printer_state
-    values = {
-        PrinterSetting.START_OF_PRINT: state.start_of_print_mm,
-        PrinterSetting.MAX_LABEL_LENGTH: state.max_label_length_mm,
-        PrinterSetting.FEED_RATE: state.feed_rate,
-    }
     unknown = [
-        f"{what} (set {key})"
-        for setting, what, key in _SETTING_KEYS
-        if _sends(setting, ctx) and values[setting] is None
+        f"{valued.what} (set {valued.key})"
+        for valued in _valued_settings(ctx.printer_state)
+        if _sends(valued.setting, ctx) and valued.value is None
     ]
     if unknown:
         ctx.findings.info(
@@ -538,7 +563,7 @@ def _dot_size_lines(label: Label, ctx: RenderContext) -> list[bytes]:
     """
     if label.dot_size:
         return [line(f"D{label.dot_size.width}{label.dot_size.height}")]
-    if ctx.profile.default_dot_size != (1, 1):
+    if ctx.profile.default_dot_size != DotSize(width=1, height=1):
         return [line("D11")]
     return []
 

@@ -15,9 +15,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TypeVar
+from typing import NamedTuple, TypeVar
 
 from .enums import HardwareOption, ImageModule, ModelFamily, SpeedCode
+from .label import DotSize
 from .units import hundredths_to_mm
 
 
@@ -53,7 +54,21 @@ class Feature(str, Enum):
     REMOVE_IMAGE = "remove_image"
 
 
-Firmware = tuple[int, int]
+class Firmware(NamedTuple):
+    """A firmware version; versions compare as ``(major, minor)``, so 2.10 is newer than 2.09.
+
+    Example:
+        >>> Firmware(major=2, minor=10) > Firmware(major=2, minor=9)
+        True
+    """
+
+    major: int
+    minor: int
+
+
+#: The dot size a format prints at without a ``D`` command: ``D22`` on most models, ``D11`` on some.
+_D22 = DotSize(width=2, height=2)
+_D11 = DotSize(width=1, height=1)
 
 
 class Source(str, Enum):
@@ -69,7 +84,7 @@ class Support:
 
     Attributes:
         available: The model has the feature at all.
-        min_firmware: Lowest firmware ``(major, minor)`` that has it, or None for every firmware.
+        min_firmware: Lowest firmware that has it, or None for every firmware.
         option: Hardware option the printer must have installed, or None.
         source: Whether the manual says so or a test print measured it.
     """
@@ -83,13 +98,13 @@ class Support:
         """Short text for tables: ``yes``, ``no``, ``fw 2.01``, ``option datamatrix``.
 
         Example:
-            >>> Support(available=True, min_firmware=(2, 1)).describe()
+            >>> Support(available=True, min_firmware=Firmware(major=2, minor=1)).describe()
             'fw 2.01'
         """
         if not self.available:
             return "no"
         if self.min_firmware is not None:
-            return f"fw {self.min_firmware[0]}.{self.min_firmware[1]:02d}"
+            return f"fw {self.min_firmware.major}.{self.min_firmware.minor:02d}"
         if self.option is not None:
             return f"option {self.option.value}"
         return "yes"
@@ -101,7 +116,7 @@ NO = Support(available=False)
 
 def from_firmware(major: int, minor: int) -> Support:
     """Support that starts at firmware ``major.minor``."""
-    return Support(available=True, min_firmware=(major, minor))
+    return Support(available=True, min_firmware=Firmware(major=major, minor=minor))
 
 
 DATAMATRIX_OPTION = Support(available=True, option=HardwareOption.DATAMATRIX)
@@ -183,6 +198,19 @@ class CalibrationDefaults:
 
 
 @dataclass(frozen=True)
+class UndescribedBit:
+    """A ``<STX>V`` bit whose option no datamax-dpl setting describes.
+
+    Attributes:
+        bit: The bit's position in the value.
+        option: The option the manual names for it.
+    """
+
+    bit: int
+    option: str
+
+
+@dataclass(frozen=True)
 class SoftwareSwitchBits:
     """Which bit of the ``<STX>V`` value sets which printer option on one model (manual p.42).
 
@@ -194,8 +222,8 @@ class SoftwareSwitchBits:
         cutter: Bit of the cutter option.
         internal_batch: Bit of internal batch mode, or None where the model has no such bit.
         label_present: Bit of the label-present sensor, or None where the model has no such bit.
-        undescribed: Bits whose option no datamax-dpl setting describes, each with the option
-            the manual names; any makes the layout unbuildable.
+        undescribed: Bits whose option no datamax-dpl setting describes; any makes the layout
+            unbuildable.
 
     Example:
         >>> SoftwareSwitchBits(cutter=0, internal_batch=1).buildable
@@ -205,7 +233,7 @@ class SoftwareSwitchBits:
     cutter: int
     internal_batch: int | None = None
     label_present: int | None = None
-    undescribed: tuple[tuple[int, str], ...] = ()
+    undescribed: tuple[UndescribedBit, ...] = ()
 
     @property
     def buildable(self) -> bool:
@@ -220,7 +248,7 @@ class SoftwareSwitchBits:
             '0 cutter, 2 label present'
         """
         if not self.buildable:
-            return "never sent: " + ", ".join(f"bit {bit} {option}" for bit, option in self.undescribed)
+            return "never sent: " + ", ".join(f"bit {bit.bit} {bit.option}" for bit in self.undescribed)
         bits = ((self.cutter, "cutter"), (self.internal_batch, "internal batch"), (self.label_present, "label present"))
         named = sorted((bit, option) for bit, option in bits if bit is not None)
         return ", ".join(f"{bit} {option}" for bit, option in named)
@@ -248,8 +276,8 @@ class PrinterProfile:
         synthetic: True for ``generic`` and ``permissive``, which are not real models.
         family: The family whose feature set the model has; None for ``generic`` and
             ``permissive``, which belong to none.
-        default_dot_size: The dot size (width, height multiplier) the printer uses when a format
-            sends no ``D`` command: 2x2 on every model except the DMX 600/800 (manual, ``D``).
+        default_dot_size: The dot size the printer uses when a format sends no ``D`` command:
+            2x2 on every model except the DMX 600/800 (manual, ``D``).
         inch_unit_dots: Whole dots one 1/100 in prints as, on a model known to round it to whole
             dots; None where the exact 1/100 in is assumed. Measured 2 on the Allegro 2 only.
         calibration: Scale, offset and stop position measured for this model, applied where the
@@ -291,7 +319,7 @@ class PrinterProfile:
     features: dict[Feature, Support] = field(default_factory=dict[Feature, Support])
     synthetic: bool = False
     family: ModelFamily | None = None
-    default_dot_size: tuple[int, int] = (2, 2)
+    default_dot_size: DotSize = _D22
     inch_unit_dots: int | None = None
     calibration: CalibrationDefaults = CalibrationDefaults()
     image_module: ImageModule | None = ImageModule.A
@@ -706,9 +734,11 @@ _MAX_LABEL_LENGTH: dict[str, int] = {
 
 #: The ``<STX>V`` bit layouts of the manual's bit assignment table (p.42), one per column.
 _SWITCHES_400_600_800_6200 = SoftwareSwitchBits(cutter=0, internal_batch=1, label_present=2)
-_SWITCHES_PRODIGY_PLUS = SoftwareSwitchBits(cutter=0, label_present=2, undescribed=((1, "insert ribbon sense"),))
+_SWITCHES_PRODIGY_PLUS = SoftwareSwitchBits(
+    cutter=0, label_present=2, undescribed=(UndescribedBit(bit=1, option="insert ribbon sense"),)
+)
 _SWITCHES_PRODIGY = SoftwareSwitchBits(
-    cutter=0, internal_batch=3, label_present=2, undescribed=((1, "invert ribbon saver"),)
+    cutter=0, internal_batch=3, label_present=2, undescribed=(UndescribedBit(bit=1, option="invert ribbon saver"),)
 )
 _SWITCHES_ALLEGRO = SoftwareSwitchBits(cutter=0, internal_batch=1)
 _SWITCHES_MAX_OVATION_PE = SoftwareSwitchBits(cutter=0, label_present=2)
@@ -772,7 +802,7 @@ def _build(row: _Row) -> PrinterProfile:
         old_series_points=row.old_points,
         features=dict(_FAMILY_FEATURES[row.family]),
         family=row.family,
-        default_dot_size=(1, 1) if row.family in _FAMILIES_DEFAULTING_TO_D11 else (2, 2),
+        default_dot_size=_D11 if row.family in _FAMILIES_DEFAULTING_TO_D11 else _D22,
         inch_unit_dots=_INCH_UNIT_DOTS.get(row.id),
         calibration=_CALIBRATION.get(row.id, CalibrationDefaults()),
         image_module=_IMAGE_MODULE[row.id],
@@ -899,14 +929,14 @@ def list_profiles() -> list[PrinterProfile]:
 
 
 def parse_firmware(text: str) -> Firmware | None:
-    """Parse ``"2.01"`` into ``(2, 1)``; an empty string means unknown.
+    """Parse ``"2.01"`` into major 2, minor 1; an empty string means unknown.
 
     Raises:
         ValueError: The text is not ``<major>.<minor>``.
 
     Example:
         >>> parse_firmware("3.2")
-        (3, 20)
+        Firmware(major=3, minor=20)
         >>> parse_firmware("") is None
         True
     """
@@ -918,7 +948,7 @@ def parse_firmware(text: str) -> Firmware | None:
         msg = f"firmware must look like 2.01, got {text!r}"
         raise ValueError(msg)
     # Versions are decimals: "3.2" is 3.20, so a one-digit minor is padded on the right.
-    return int(match["major"]), int(match["minor"].ljust(_MINOR_DIGITS, "0"))
+    return Firmware(major=int(match["major"]), minor=int(match["minor"].ljust(_MINOR_DIGITS, "0")))
 
 
 _MINOR_DIGITS = 2
@@ -938,6 +968,7 @@ __all__ = [
     "Source",
     "SpeedRange",
     "Support",
+    "UndescribedBit",
     "UnknownModelError",
     "get_profile",
     "list_profiles",
