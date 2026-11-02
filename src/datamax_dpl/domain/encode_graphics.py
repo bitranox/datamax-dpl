@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from .encode_common import column_of, image_edge, last_column, row_of
 from .enums import FillPattern, FindingCode
-from .label import Box, Circle, Image, Line, Point, Polygon, Qr
+from .label import MAX_LENGTH, Box, Circle, Image, Line, Point, Polygon, Qr
 from .profiles import Feature
 from .qr import QrDataTooLongError, qr_bitmap
 from .raster import Bitmap
@@ -42,7 +42,8 @@ def _thin_quad(element: Line) -> list[Point]:
         (element.x2 - nx, element.y2 - ny),
         (element.x - nx, element.y - ny),
     ]
-    return [Point(x=max(x, 0.0), y=max(y, 0.0)) for x, y in corners]
+    # The corners stand half a thickness outside the line, which can lie on either bound of a length.
+    return [Point(x=min(max(x, 0.0), MAX_LENGTH), y=min(max(y, 0.0), MAX_LENGTH)) for x, y in corners]
 
 
 def encode_line(element: Line, *, index: int, ctx: RenderContext) -> list[bytes]:

@@ -50,12 +50,14 @@ from typing import TYPE_CHECKING
 from .encode_common import position_units
 from .encode_graphics import qr_symbol_position
 from .enums import FillPattern
+from .geometry import Size
 from .image_budget import magnify
 from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText, Text
 from .preview import STORED_IMAGE_DOTS, Canvas, PreviewGeometry, field_area
 from .qr import QrDataTooLongError, qr_bitmap
 from .raster import Bitmap
 from .raster_fallback import draw_graphic, frame_of
+from .render_context import MAX_FIELD_VALUE
 from .units import Axis
 
 if TYPE_CHECKING:
@@ -63,6 +65,11 @@ if TYPE_CHECKING:
 
     from .label import Element
     from .render_context import RenderContext
+
+
+#: How many print widths a field may span and still be drawn for comparing. Not a setting: it keeps
+#: memory in hand, and no printed result depends on it.
+_WIDEST_DRAWN_PRINT_WIDTHS = 2
 
 
 @dataclass(frozen=True)
@@ -161,23 +168,70 @@ def _placed(bitmap: Bitmap, *, x: float, y: float, ctx: RenderContext) -> Printe
     return _at_units(bitmap, column=column, row=position_units(y, axis=Axis.ALONG, ctx=ctx), ctx=ctx)
 
 
-def _line_dots(element: Line, ctx: RenderContext) -> PrintedDots:
-    """The rectangle a line record prints, sized as ``encode_line`` writes it."""
+def _line_size(element: Line, ctx: RenderContext) -> Size:
+    """The dots a line record prints, sized as ``encode_line`` writes it."""
     horizontal = element.y == element.y2 and element.x != element.x2
     length = abs(element.x2 - element.x) if horizontal else abs(element.y2 - element.y)
     thickness_axis, length_axis = (Axis.ALONG, Axis.ACROSS) if horizontal else (Axis.ACROSS, Axis.ALONG)
     thickness = ctx.dpl_units(element.thickness, axis=thickness_axis) or 1
     extent = ctx.dpl_units(length, axis=length_axis) or thickness
     across, along = (extent, thickness) if horizontal else (thickness, extent)
-    bitmap = Bitmap(_length_dots(across, ctx), _length_dots(along, ctx))
+    return Size(_length_dots(across, ctx), _length_dots(along, ctx))
+
+
+def _box_size(element: Box, ctx: RenderContext) -> Size:
+    """The dots a box record covers, sized as ``encode_box`` writes it."""
+    return Size(
+        _length_dots(ctx.dpl_units(element.width, axis=Axis.ACROSS), ctx),
+        _length_dots(ctx.dpl_units(element.height, axis=Axis.ALONG), ctx),
+    )
+
+
+def _is_record(element: Line | Box) -> bool:
+    """Whether a line or box prints as a record of its own, not the raster fallback's image."""
+    if isinstance(element, Line):
+        return element.is_axis_aligned
+    return element.fill in (FillPattern.NONE, FillPattern.SOLID)
+
+
+def _oversized_area(element: Element, ctx: RenderContext) -> DotArea | None:
+    """The rectangle of a field too large to draw for comparing, or None for any other field.
+
+    Only a field's size is worked out here, so one number in a label cannot decide how much memory
+    the comparison takes. Past twice the print width (a scale of 0.5 doubles the dots) or past what
+    a row can address, nothing prints that a comparison could tell apart; such a field takes part
+    by its rectangle instead, which still reports where it reaches.
+    """
+    if isinstance(element, (Line, Box)) and _is_record(element):
+        size = _line_size(element, ctx) if isinstance(element, Line) else _box_size(element, ctx)
+        x = min(element.x, element.x2) if isinstance(element, Line) else element.x
+        y = min(element.y, element.y2) if isinstance(element, Line) else element.y
+    elif isinstance(element, (Line, Box, Circle, Polygon)):
+        frame = frame_of(element, ctx)
+        size, x, y = Size(frame.width_dots, frame.height_dots), frame.left, frame.bottom
+    elif isinstance(element, Image) and (rows := ctx.image_rows(element)) is not None:
+        size = Size(len(rows[0]) * element.magnification, len(rows) * element.magnification)
+        x, y = element.x, element.y
+    else:
+        return None
+    widest = _WIDEST_DRAWN_PRINT_WIDTHS * round(ctx.profile.print_width_in * ctx.profile.dpi)
+    if size.width <= widest and size.height <= ctx.printed_dots(MAX_FIELD_VALUE):
+        return None
+    left, bottom = _dots_at(x, axis=Axis.ACROSS, ctx=ctx), _dots_at(y, axis=Axis.ALONG, ctx=ctx)
+    return DotArea(left=left, bottom=bottom, width=size.width, height=size.height)
+
+
+def _line_dots(element: Line, ctx: RenderContext) -> PrintedDots:
+    """The rectangle a line record prints."""
+    width, height = _line_size(element, ctx)
+    bitmap = Bitmap(width, height)
     bitmap.fill_rect(0, 0, bitmap.width, bitmap.height)
     return _placed(bitmap, x=min(element.x, element.x2), y=min(element.y, element.y2), ctx=ctx)
 
 
 def _box_dots(element: Box, ctx: RenderContext) -> PrintedDots:
-    """The outline a box record prints, sized as ``encode_box`` writes it; solid when the fill is."""
-    width = _length_dots(ctx.dpl_units(element.width, axis=Axis.ACROSS), ctx)
-    height = _length_dots(ctx.dpl_units(element.height, axis=Axis.ALONG), ctx)
+    """The outline a box record prints; solid when the fill is."""
+    width, height = _box_size(element, ctx)
     edge = ctx.printed_dots(ctx.dpl_units(element.thickness, axis=Axis.ALONG) or 1)
     side = ctx.printed_dots(ctx.dpl_units(element.side_thickness or element.thickness, axis=Axis.ACROSS) or 1)
     bitmap = Bitmap(width, height)
@@ -226,8 +280,14 @@ def _image_dots(element: Image, ctx: RenderContext) -> PrintedDots | None:
 def printed_dots(element: Element, ctx: RenderContext) -> PrintedDots | None:
     """Return the dots an exact field prints, or None for an inexact one.
 
-    A QR Code whose data fits no version prints nothing (it is refused) and is None too.
+    A QR Code whose data fits no version prints nothing (it is refused) and is None too, and so is
+    a field too large to draw, which :func:`inexact_rectangle` answers for.
     """
+    return None if _oversized_area(element, ctx) is not None else _exact_dots(element, ctx)
+
+
+def _exact_dots(element: Element, ctx: RenderContext) -> PrintedDots | None:
+    """Draw the dots of a field of a size worth drawing."""
     if isinstance(element, Line) and element.is_axis_aligned:
         return _line_dots(element, ctx)
     if isinstance(element, Box) and element.fill in (FillPattern.NONE, FillPattern.SOLID):
@@ -256,6 +316,9 @@ def _field_rectangle(element: Text | ScalableText | Barcode, ctx: RenderContext)
 
 def inexact_rectangle(element: Element, ctx: RenderContext) -> DotArea | None:
     """Return the rectangle an inexact field takes part by, or None for an exact one."""
+    oversized = _oversized_area(element, ctx)
+    if oversized is not None:
+        return oversized
     if isinstance(element, (Text, ScalableText, Barcode)):
         return _field_rectangle(element, ctx)
     if isinstance(element, Image) and ctx.image_rows(element) is None:

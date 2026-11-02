@@ -656,6 +656,40 @@ class RenderContext:
         )
         return False
 
+    def fits_a_drawing(self, size: Size, *, described: str, element: int) -> bool:
+        """Refuse a drawing no job could send, before a bitmap is allocated for it.
+
+        A shape a few bytes long can ask for terabits, and the checks of the image as sent only run
+        once it is drawn. Too wide is past one row record, or two where the job halves its images.
+        Too tall is past what the four digits of a row can address, since nothing above that can be
+        placed; a model's own format limit is checked by the render on the same rows.
+
+        Args:
+            size: The bitmap the drawing would take, in dots.
+            described: Names the drawing in the message, ``element 3 (circle)``.
+            element: Position of the element in the label.
+
+        Returns:
+            True when the drawing may go ahead; otherwise it is refused and nothing is placed.
+        """
+        widest = MAX_WIDTH * HALVING_FACTOR if self.halve_images else MAX_WIDTH
+        if size.width > widest:
+            self.findings.refuse(
+                FindingCode.IMAGE_TOO_WIDE,
+                f"{described} would be {size.width} dots wide; one image row holds at most {MAX_WIDTH} dots",
+                element=element,
+            )
+            return False
+        tallest = self.printed_dots(MAX_FIELD_VALUE)
+        if size.height > tallest:
+            self.findings.refuse(
+                FindingCode.DISTANCE_TOO_LARGE,
+                f"{described} would be {size.height} dots tall; DPL fields reach at most {tallest} dots",
+                element=element,
+            )
+            return False
+        return True
+
     def _module(self, *, element: int) -> ImageModule | None:
         """Return the module a download goes to; with none, refuse the job once and return None.
 

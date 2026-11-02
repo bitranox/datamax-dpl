@@ -1043,30 +1043,43 @@ def test_a_raster_fallback_of_exactly_2040_dots_fits_and_2041_is_refused(box_dot
 _DRAWN_NAME = re.compile(r"D[0-9A-Za-z]{7}")
 
 
-def _too_wide_message(elements: Sequence[Mapping[str, object]]) -> str:
+def _too_wide_message(elements: Sequence[Mapping[str, object]], **label: object) -> str:
     """The ``image_too_wide`` message an Allegro 2 gives the one over-wide image, element 3."""
-    result = build_job(Label.model_validate({"unit": "dots", "elements": elements}), RenderOptions(model="allegro-2"))
+    document = {"unit": "dots", "elements": elements, **label}
+    result = build_job(Label.model_validate(document), RenderOptions(model="allegro-2"))
     [finding] = [f for f in result.findings if f.code is FindingCode.IMAGE_TOO_WIDE]
     assert finding.element == 3
     return finding.message
 
 
 @pytest.mark.os_agnostic
-def test_an_over_wide_drawn_image_names_its_element_and_the_name_it_would_be_queued_under() -> None:
-    """A polygon 2100 dots wide on an Allegro 2 (no polygon record) is drawn 2100 dots wide.
+def test_an_over_wide_drawing_is_refused_by_its_size_before_it_is_drawn() -> None:
+    """A polygon 2100 dots wide on an Allegro 2 (no polygon record) is refused with no bitmap made for it."""
+    polygon = {"type": "polygon", "points": [{"x": 0, "y": 5}, {"x": 2099, "y": 5}, {"x": 0, "y": 40}]}
+    text = {"type": "text", "x": 1, "y": 1, "text": "x"}
+    message = _too_wide_message([text, text, text, polygon])
+    assert message == f"element 3 (polygon) would be 2100 dots wide; {_ROW_LIMIT_PHRASE}"
+
+
+@pytest.mark.os_agnostic
+def test_an_over_wide_merged_image_names_its_element_and_the_name_it_would_be_queued_under() -> None:
+    """Two boxes that overlap merge into one image 2100 dots wide, known only once they are drawn.
 
     With its content name taken by a label image, the job would queue it under the next salted
     name, so that is the name the message gives, not the unsalted content hash.
     """
-    polygon = {"type": "polygon", "points": [{"x": 0, "y": 5}, {"x": 2099, "y": 5}, {"x": 0, "y": 40}]}
-    text = {"type": "text", "x": 1, "y": 1, "text": "x"}
-    free = _too_wide_message([text, text, text, polygon])
+    first = {"type": "box", "x": 0, "y": 5, "width": 1100, "height": 40, "thickness": 2}
+    second = {**first, "x": 1000}
+    text = {"type": "text", "x": 1, "y": 200, "text": "x"}
+    what = "element 3 (merged image of elements 3, 4) drawn as image"
+    free = _too_wide_message([text, text, text, first, second], attribute=2)
     [content_name] = _DRAWN_NAME.findall(free)
-    assert free == f"element 3 (polygon) drawn as image {content_name} is 2100 dots wide; {_ROW_LIMIT_PHRASE}"
-    taken = _too_wide_message([{"type": "image", "x": 0, "y": 0, "name": content_name}, text, text, polygon])
+    assert free == f"{what} {content_name} is 2100 dots wide; {_ROW_LIMIT_PHRASE}"
+    stored = {"type": "image", "x": 0, "y": 200, "name": content_name}
+    taken = _too_wide_message([stored, text, text, first, second], attribute=2)
     [salted_name] = _DRAWN_NAME.findall(taken)
     assert salted_name != content_name
-    assert taken == f"element 3 (polygon) drawn as image {salted_name} is 2100 dots wide; {_ROW_LIMIT_PHRASE}"
+    assert taken == f"{what} {salted_name} is 2100 dots wide; {_ROW_LIMIT_PHRASE}"
 
 
 @pytest.mark.os_agnostic

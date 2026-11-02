@@ -31,7 +31,10 @@ LENGTHS: list[tuple[dict[str, Any], str]] = [
     ({"elements": [{"type": "line", "x": 0, "y": 0, "x2": "@", "y2": 1, "thickness": 1}]}, "elements.0.line.x2"),
     ({"elements": [{"type": "line", "x": 0, "y": 0, "x2": 1, "y2": "@", "thickness": 1}]}, "elements.0.line.y2"),
     ({"elements": [{"type": "line", "x": 0, "y": 0, "x2": 1, "y2": 1, "thickness": "@"}]}, "elements.0.line.thickness"),
-    ({"elements": [{"type": "box", "x": 0, "y": 0, "width": "@", "height": 1, "thickness": 1}]}, "elements.0.box.width"),
+    (
+        {"elements": [{"type": "box", "x": 0, "y": 0, "width": "@", "height": 1, "thickness": 1}]},
+        "elements.0.box.width",
+    ),
     (
         {"elements": [{"type": "box", "x": 0, "y": 0, "width": 1, "height": "@", "thickness": 1}]},
         "elements.0.box.height",
@@ -96,7 +99,7 @@ def test_validate_refuses_a_huge_json_number_with_an_envelope(
     cli_runner: CliRunner, tmp_path: Path, number: str
 ) -> None:
     path = tmp_path / "label.json"
-    path.write_text('{"elements": [{"type": "text", "x": %s, "y": 1, "text": "A"}]}' % number, encoding="utf-8")
+    path.write_text('{"elements": [{"type": "text", "x": ' + number + ', "y": 1, "text": "A"}]}', encoding="utf-8")
     result = cli_runner.invoke(cli_mod.cli, ["--json-bare", "validate", str(path)], obj=build_testing)
     assert result.exit_code == 2, result.output
     document = json.loads(result.stdout)
@@ -145,7 +148,7 @@ def test_calibrate_print_keeps_the_bound_for_each_size(cli_runner: CliRunner) ->
         other = ["--height", "55"] if option == "--width" else ["--width", "100"]
         result = cli_runner.invoke(
             cli_mod.cli,
-            ["--json-bare", "calibrate", "print", option, value, *other, "--axis", "across", "--printer", "file:/opt/x"],
+            ["--json-bare", "calibrate", "print", option, value, *other, "--axis", "across", "--printer", "-"],
             obj=build_testing,
         )
         assert result.exit_code == 2, result.output

@@ -440,7 +440,7 @@ def _reach(element: Element, ctx: RenderContext) -> int | None:
     area = inexact_rectangle(element, ctx)
     if area is None:
         return None
-    return area.bottom if isinstance(element, Image) else area.top
+    return area.bottom if isinstance(element, Image) and ctx.image_rows(element) is None else area.top
 
 
 def format_row_limit(options: RenderOptions) -> int | None:

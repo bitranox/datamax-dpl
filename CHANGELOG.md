@@ -284,6 +284,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A graphic drawn as an image is refused before any bitmap is made for it when
+  it could not be sent: wider than one image row (`image_too_wide`, now worded
+  `element 3 (polygon) would be 2100 dots wide`, with no image name) or taller
+  than a DPL row reaches (`distance_too_large`). A circle of radius 10000 mm
+  took 2.2 GB in `validate`, and a slanted line 100000 mm long ran for
+  minutes. The check of the format length and the overlap check no longer draw
+  a field that large either; it takes part by its rectangle.
 - A length in a label is refused naming its field when it is not finite or
   past 100000 in the label's unit (`domain.label.MAX_LENGTH`), so `x=1e308`,
   `"inf"` and `y=2**63` no longer escape from `build_job` and `render` as

@@ -144,10 +144,14 @@ def rasterize(element: Graphic, *, index: int, ctx: RenderContext, reason: str) 
         reason: Why the native record cannot be used, for the finding's message.
 
     Returns:
-        The format line that places the image, or nothing when the image is refused as too wide.
+        The format line that places the image, or nothing when the image is refused as too wide
+        or too tall; a refused size is never drawn.
         One that ends past the print width is placed but refused (``image_past_print_width``).
     """
     frame = frame_of(element, ctx)
+    size = Size(frame.width_dots, frame.height_dots)
+    if not ctx.fits_a_drawing(size, described=f"element {index} ({element.type})", element=index):
+        return []
     # Through row_of/column_of like every other field, so the printer's offset moves it too.
     row = row_of(frame.bottom, index=index, ctx=ctx)
     column = column_of(frame.left, index=index, ctx=ctx)
