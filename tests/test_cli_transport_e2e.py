@@ -81,11 +81,13 @@ def test_print_over_tcp_delivers_exactly_the_rendered_job(
 ) -> None:
     server = serve(silent)
 
-    result = run(cli_runner, ["print", label_file(tmp_path), "--model", MODEL, "--printer", server.address])
+    # A printer that only reads: the reset read gets no answer, so its wait is kept short.
+    quick = ["--set", "printer.reset_check_wait=0.05"]
+    result = run(cli_runner, [*quick, "print", label_file(tmp_path), "--model", MODEL, "--printer", server.address])
     server.join()
 
     assert result.exit_code == 0, result.output
-    assert bytes(server.received) == expected_job()
+    assert bytes(server.received) == STATUS_REQUEST + expected_job()
     assert f"sent {len(expected_job())} bytes to {server.address}" in result.stdout
 
 

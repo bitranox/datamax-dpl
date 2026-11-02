@@ -53,7 +53,7 @@ from datamax_dpl.domain.render_context import (
     drawn_image_name,
     resolved_printer_state,
 )
-from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS
+from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS, STATUS_REQUEST
 from datamax_dpl.domain.units import DplUnit
 
 if TYPE_CHECKING:
@@ -642,7 +642,8 @@ def test_print_sends_exactly_the_rendered_qr_job(cli_runner: CliRunner, tmp_path
     args = ["--json", "print", qr_file(tmp_path), "--model", "allegro-2", "--printer", PRINTER]
     result = run_cli(cli_runner, args, printer)
     assert result.exit_code == 0, result.output
-    job = b"".join(chunk for chunk in printer.sent if chunk != MEMORY_DIRECTORY_REQUESTS[MemoryKind.GRAPHIC])
+    requests = (MEMORY_DIRECTORY_REQUESTS[MemoryKind.GRAPHIC], STATUS_REQUEST)
+    job = b"".join(chunk for chunk in printer.sent if chunk not in requests)
     assert job == render(Label.model_validate(QR_DOCUMENT), RenderOptions(model="allegro-2")).data
 
 

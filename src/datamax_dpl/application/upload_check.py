@@ -30,6 +30,14 @@ now holds leaves too little memory, a held name in error) is refused there
 again, downloads nothing (each image it places is one the module holds) sends no upload and makes
 no read after it in that round: nothing of it can be missing.
 
+Before the first label, once it is known not to be refused, the printer is asked for its status
+once (:class:`ResetCheck`): its first answer after a power cycle reports the reset, and one Allegro 2
+printed the first label after one about 12 mm shifted. On such a report one calibration label goes
+first, so that the shift lands on it (``printer_reset_calibrated``). A names read before the job
+may have taken the report already (:attr:`~datamax_dpl.domain.held_images.HeldImages.reset_reported`);
+nothing is asked then. Nothing here reads a reset as an empty module, and a label the upload check
+refuses later still had its calibration label: only uploading can tell.
+
 Still missing: the label is refused (``image_upload_refused``), its format is never sent, nothing
 after it is sent, and the module is cleared again where a clear may go. Each round after the
 first adds an ``image_upload_retried`` finding saying what it did and what the printer then listed.
@@ -67,7 +75,14 @@ from ..domain.frozen_mapping import FrozenMapping
 from ..domain.held_images import EMPTY_MODULE, HeldImages
 from ..domain.profiles import get_profile
 from ..domain.render import RenderResult, held_after_read
-from .use_cases import AnswerWait, BatchResult, open_within, read_stored_names
+from ..domain.reset_label import (
+    CALIBRATE_AFTER_RESET,
+    CALIBRATION_LABEL_TEXT,
+    RESET_CHECK_WAIT_SECONDS,
+    check_label_text,
+)
+from ..domain.timing import TimeoutName, check_timeout
+from .use_cases import AnswerWait, BatchResult, open_within, read_reset_report, read_stored_names
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -111,12 +126,42 @@ class UploadCheck(NamedTuple):
     rounds: int = UPLOAD_CHECK_ROUNDS
 
 
+@dataclass(frozen=True)
+class ResetCheck:
+    """How ``print`` and ``verify`` ask for a reset report before a job, and what they do on one.
+
+    Attributes:
+        wait: Seconds the one status read waits (``reset_check_wait``). It runs before every job.
+        calibrate: True prints one calibration label on a report; False only reports it
+            (``calibrate_after_reset``).
+        text: What the calibration label says (``calibration_label_text``).
+
+    Raises:
+        ValueError: ``wait`` is not a usable number of seconds, or ``text`` is no text field's
+            value; refused here, before anything is sent.
+
+    Example:
+        >>> ResetCheck().wait, ResetCheck().text
+        (3.0, 'Printer Reset - Calibration Feed')
+    """
+
+    wait: float = RESET_CHECK_WAIT_SECONDS
+    calibrate: bool = CALIBRATE_AFTER_RESET
+    text: str = CALIBRATION_LABEL_TEXT
+
+    def __post_init__(self) -> None:
+        """Refuse a value that could only fail once a job is on its way."""
+        check_timeout(self.wait, name=TimeoutName.RESET_CHECK_WAIT)
+        check_label_text(self.text)
+
+
 class CheckedPrint(NamedTuple):
     """What a checked send sent where, and the job as it went out.
 
     Attributes:
         uri: The printer.
-        bytes_sent: Job bytes written, every round's uploads and clears included.
+        bytes_sent: Job bytes written, every round's uploads and clears included, and a calibration
+            label's.
         result: The job as it went out: each label with its rounds' findings, a halved label as halved.
     """
 
@@ -137,11 +182,13 @@ class CheckedJob(NamedTuple):
         check: How the upload is checked.
         held: What the printer holds in the image module before the first label: the names read
             before rendering, or nothing known.
+        reset: How a reset report is asked for before the first label; None asks nothing.
     """
 
     renders: Sequence[RecordRender]
     check: UploadCheck
     held: HeldImages = HeldImages()
+    reset: ResetCheck | None = ResetCheck()
 
 
 @dataclass(frozen=True)
@@ -757,6 +804,38 @@ def _refuse_mismatch(result: RenderResult | BatchResult, job: CheckedJob) -> Non
         raise ConfigurationError(msg)
 
 
+def _after_reset(link: Link, render: RecordRender, job: CheckedJob) -> tuple[Finding, ...]:
+    """Ask for a reset report and act on one, before the first label; return what the job should say.
+
+    A read with no answer, like a printer that reports nothing, returns nothing: the job goes on
+    exactly as it would have. Nothing is sent but the status request unless a reset was reported.
+    """
+    reset = job.reset
+    if reset is None:
+        return ()
+    reported = job.held.reset_reported or read_reset_report(link.channel(), wait=reset.wait)
+    if not reported:
+        return ()
+    if not reset.calibrate:
+        return (_not_calibrated("[printer] calibrate_after_reset is off", severity=Severity.INFO),)
+    calibration = render.calibration(reset.text)
+    if not calibration.ok:
+        reasons = "; ".join(f.message for f in calibration.errors)
+        return (_not_calibrated(f"the calibration label has errors ({reasons})", severity=Severity.WARNING),)
+    link.send(calibration.data)
+    message = (
+        "the printer reported a reset, so one extra label came out first: the calibration label, "
+        "which takes the shift the first label after a reset can print with"
+    )
+    return (Finding(code=FindingCode.PRINTER_RESET_CALIBRATED, severity=Severity.INFO, message=message),)
+
+
+def _not_calibrated(why: str, *, severity: Severity) -> Finding:
+    """The finding for a reported reset that no calibration label followed, saying why."""
+    message = f"the printer reported a reset and no calibration label went first: {why}; the first label may be shifted"
+    return Finding(code=FindingCode.PRINTER_RESET_NOT_CALIBRATED, severity=severity, message=message)
+
+
 def _send_labels(link: Link, job: CheckedJob, *, cuts: Sequence[bool]) -> _LabelsSent:
     """Send each label of ``job`` in turn, with a batch cut after each label ``cuts`` marks."""
     sent: list[RenderResult] = []
@@ -767,6 +846,8 @@ def _send_labels(link: Link, job: CheckedJob, *, cuts: Sequence[bool]) -> _Label
             return _LabelsSent(sent=(*sent, record.result), all_sent=False)
         if (unlisted := _unlisted_module(record.result)) is not None:
             return _LabelsSent(sent=(*sent, unlisted), all_sent=False)
+        if not sent:
+            record.findings.extend(_after_reset(link, render, job))
         if record.result.downloads and not _check_label(record):
             return _LabelsSent(sent=(*sent, record.as_sent()), all_sent=False)
         # Built after the check: a round may have rendered the label again.
@@ -863,6 +944,7 @@ __all__ = [
     "CheckedPrint",
     "CheckedSend",
     "Link",
+    "ResetCheck",
     "UploadCheck",
     "UploadRefusedError",
     "print_checked",

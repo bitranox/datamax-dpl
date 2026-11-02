@@ -20,7 +20,7 @@ from datamax_dpl.domain.enums import MemoryKind, Severity
 from datamax_dpl.domain.label import Label
 from datamax_dpl.domain.render import build_job
 from datamax_dpl.domain.render_context import RenderOptions
-from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS
+from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS, STATUS_REQUEST
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -98,7 +98,7 @@ def test_the_printed_command_sends_each_record_with_its_own_code(
 ) -> None:
     """Each record's job equals the label written with that code by hand, in the order of the rows.
 
-    The printer answers each record's upload check; the directory requests are left out of the comparison.
+    The printer answers each record's upload check; its requests are left out of the comparison.
     """
     server = serve(module_printer(ImageModules()))
     summary, lines = _run(tmp_path, capsys, "--count", "4", "--printer", server.address)
@@ -112,9 +112,8 @@ def test_the_printed_command_sends_each_record_with_its_own_code(
     assert result.exit_code == 0, result.output
     options = RenderOptions(model="allegro-2")
     jobs = [build_job(_literal_label(summary, row), options) for row in _rows(summary)]
-    assert bytes(server.received).replace(MEMORY_DIRECTORY_REQUESTS[MemoryKind.GRAPHIC], b"") == b"".join(
-        job.data for job in jobs
-    )
+    received = bytes(server.received).removeprefix(STATUS_REQUEST)
+    assert received.replace(MEMORY_DIRECTORY_REQUESTS[MemoryKind.GRAPHIC], b"") == b"".join(job.data for job in jobs)
     assert len({job.downloads for job in jobs}) == 4
     for job in jobs:
         assert {finding.severity for finding in job.findings} == {Severity.INFO}

@@ -23,7 +23,7 @@ from datamax_dpl.adapters.transport.uri import SerialUri
 from datamax_dpl.application.use_cases import MEMORY_REPORT_LINES, detect_printer
 from datamax_dpl.composition import build_production
 from datamax_dpl.domain.errors import AnswerNotEndedError, PrinterProtocolError, PrinterTimeoutError, TransportError
-from datamax_dpl.domain.status import is_status_line
+from datamax_dpl.domain.status import STATUS_REQUEST, is_status_line
 from datamax_dpl.domain.timing import SEND_CHUNK_BYTES, TransportTuning
 
 if TYPE_CHECKING:
@@ -704,14 +704,17 @@ def test_the_cli_prints_a_label_to_a_serial_uri(pty_printer: PtyPrinter, cli_run
         cli_mod.cli, ["render", str(label), "--model", "allegro-2", "-o", str(job)], obj=build_production
     )
     assert rendered.exit_code == 0, rendered.output
-    expected = job.read_bytes()
+    # The reset read goes first and this printer does not answer it, so its wait is kept short.
+    expected = STATUS_REQUEST + job.read_bytes()
     reader = threading.Thread(
         target=pty_printer.read, args=(len(expected),), kwargs={"deadline": time.monotonic() + JOIN_SECONDS}
     )
     reader.start()
+    uri = f"serial://{pty_printer.path}?baud=9600"
+    quick = ["--set", "printer.reset_check_wait=0.05"]
     result = cli_runner.invoke(
         cli_mod.cli,
-        ["--json", "print", str(label), "--model", "allegro-2", "--printer", f"serial://{pty_printer.path}?baud=9600"],
+        [*quick, "--json", "print", str(label), "--model", "allegro-2", "--printer", uri],
         obj=build_production,
     )
     reader.join(JOIN_SECONDS)

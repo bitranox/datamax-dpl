@@ -119,7 +119,8 @@ def test_a_cycle_prints_asks_status_three_times_and_connects_bare(
     assert [row["step"] for row in rows] == ["print", "status", "status", "status", "connect", "connect", "connect"]
     assert all(list(row) == _FIELDS and row["rc"] == 0 and row["error"] is None for row in rows)
     job = build_job(Label.model_validate(_LABEL), RenderOptions(model=_MODEL)).data
-    assert server.connections == [job, STATUS_REQUEST, STATUS_REQUEST, STATUS_REQUEST, b"", b"", b""]
+    # The print asks for a reset report first, on the connection its job goes out on.
+    assert server.connections == [STATUS_REQUEST + job, STATUS_REQUEST, STATUS_REQUEST, STATUS_REQUEST, b"", b"", b""]
     assert rows[0]["bytes"] == len(job)
     assert all(row["answer"]["idle"] is True for row in rows[1:4])
     # The interval runs from one connect's START to the next; a row is stamped when its connect

@@ -112,7 +112,7 @@ def test_send_checked_returns_the_job_as_sent_and_whether_every_label_went() -> 
     assert type(send) is CheckedSend
     assert send.all_sent is True
     assert isinstance(send.result, RenderResult)
-    assert printer.data == result.data
+    assert printer.data == STATUS_REQUEST + result.data
 
 
 @pytest.mark.os_agnostic

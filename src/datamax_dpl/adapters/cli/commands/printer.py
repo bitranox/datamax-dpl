@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import rich_click as click
 from pydantic import BaseModel, ConfigDict
 
-from ....application.upload_check import CheckedJob, UploadCheck, UploadRefusedError, print_checked
+from ....application.upload_check import CheckedJob, ResetCheck, UploadCheck, UploadRefusedError, print_checked
 from ....application.use_cases import (
     DIRECTORY_IDLE_SECONDS,
     AnswerWait,
@@ -28,7 +28,7 @@ from ....application.use_cases import (
     stored_image_names,
 )
 from ....application.verify import IdleWait, verify_print
-from ....domain.enums import ImageModule, MemoryKind, Severity, StatusProblem
+from ....domain.enums import FindingCode, ImageModule, MemoryKind, Severity, StatusProblem
 from ....domain.errors import CameraError, PreviewTooLongError
 from ....domain.held_images import HeldImages
 from ....domain.memory import NO_MODULES_MEANING, MemoryDirectory
@@ -111,6 +111,7 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
                 renders=record_renders(label, records, options),
                 check=_upload_check(settings, cli_ctx),
                 held=rendered.held or HeldImages(),
+                reset=_reset_check(settings),
             )
             try:
                 checked = print_checked(result, job, uri=uri, timeout=settings.timeout, open_printer=open_printer)
@@ -118,7 +119,8 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
                 return _upload_refused(exc, uri=uri)
             sent, bytes_sent = checked.result, checked.bytes_sent
         payload = render_payload(sent, include_dpl=False, printer=uri, bytes_sent=bytes_sent)
-        return CommandResult(ok=True, payload=payload, human=f"sent {bytes_sent} bytes to {uri}")
+        human = "\n".join([f"sent {bytes_sent} bytes to {uri}", *_reset_lines(payload.findings)])
+        return CommandResult(ok=True, payload=payload, human=human)
 
     run_command(ctx, command=CommandName.PRINT, body=body)
 
@@ -135,6 +137,25 @@ def _upload_check(settings: PrinterSettings, cli_ctx: CLIContext) -> UploadCheck
     return UploadCheck(wait=_stored_names_wait(settings, cli_ctx), rounds=settings.upload_check_rounds)
 
 
+def _reset_check(settings: PrinterSettings) -> ResetCheck:
+    """How ``print`` and ``verify`` ask for a reset report before a job, and what they do on one."""
+    return ResetCheck(
+        wait=settings.reset_check_wait,
+        calibrate=settings.calibrate_after_reset,
+        text=settings.calibration_label_text,
+    )
+
+
+def _reset_lines(findings: list[FindingOut]) -> list[str]:
+    """The human view of what a reset changed: an extra label a person will find, or a shift to expect."""
+    reset = [
+        f
+        for f in findings
+        if f.code in (FindingCode.PRINTER_RESET_CALIBRATED, FindingCode.PRINTER_RESET_NOT_CALIBRATED)
+    ]
+    return [findings_text(reset)] if reset else []
+
+
 class StatusPayload(BaseModel):
     """Result of ``status``."""
 
@@ -144,6 +165,14 @@ class StatusPayload(BaseModel):
     idle: bool
     problems: list[StatusProblem]
     flags: PrinterStatus
+    reset_reported: bool
+
+
+#: What the human view says for an answer carrying a reset report; the printer gives the report once.
+_RESET_REPORTED_TEXT = (
+    "reset_reported   yes: the printer reported a power-on or software reset, and this read took the report, "
+    "so the next job's first label may print shifted"
+)
 
 
 @click.command("status", context_settings=CLICK_CONTEXT_SETTINGS)
@@ -161,8 +190,16 @@ def cli_status(ctx: click.Context, **given: Any) -> None:
             open_printer=printer_opener(cli_ctx, settings),
             wait=_answer_wait(settings, cli_ctx),
         )
-        payload = StatusPayload(printer=uri, idle=status.idle, problems=list(status.problems), flags=status)
+        payload = StatusPayload(
+            printer=uri,
+            idle=status.idle,
+            problems=list(status.problems),
+            flags=status,
+            reset_reported=status.reset_reported,
+        )
         lines = [f"{state.flag.value:16} {'yes' if state.is_set else 'no'}" for state in status.flags()]
+        if status.reset_reported:
+            lines.append(_RESET_REPORTED_TEXT)
         return CommandResult(ok=not status.problems, payload=payload, human="\n".join(lines))
 
     run_command(ctx, command=CommandName.STATUS, body=body)
@@ -385,6 +422,8 @@ def cli_memory(ctx: click.Context, kind: str, idle: float, **given: Any) -> None
 def _directory_lines(directories: tuple[MemoryDirectory, ...]) -> list[str]:
     """The human view: per kind, each module with its free bytes and the names it holds."""
     lines: list[str] = []
+    if any(directory.reset_reported for directory in directories):
+        lines.append(_RESET_REPORTED_TEXT)
     for directory in directories:
         lines.append(f"{directory.kind.value}:")
         if not directory.parsed:
@@ -547,6 +586,7 @@ class VerifyPayload(BaseModel):
     status: PrinterStatus | None
     photo: str
     expected: str
+    findings: list[FindingOut]
 
 
 def _printable_camera(camera: CameraSettings) -> CameraSettings:
@@ -594,6 +634,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
                 renders=record_renders(label, None, options),
                 check=_upload_check(settings, cli_ctx),
                 held=rendered.held or HeldImages(),
+                reset=_reset_check(settings),
             )
         )
         try:
@@ -621,8 +662,11 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
             status=report.status,
             photo=str(report.photo.path),
             expected=str(expected),
+            findings=[] if report.result is None else [FindingOut.of(f) for f in report.result.findings],
         )
-        human = f"photo:    {payload.photo}\nexpected: {payload.expected}"
+        human = "\n".join(
+            [f"photo:    {payload.photo}", f"expected: {payload.expected}", *_reset_lines(payload.findings)]
+        )
         return CommandResult(ok=True, payload=payload, human=human)
 
     run_command(ctx, command=CommandName.VERIFY, body=body)

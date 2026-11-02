@@ -10,6 +10,11 @@ A printer may put flow-control bytes (XON 0x11, XOFF 0x13) or one of its error c
 reset, ``T`` software reset, BEL bad image download) in front of an answer. Flow-control bytes are
 dropped; an error character is reported in the ``PrinterProtocolError`` message, because it means
 the printer lost or refused something and the answer behind it says nothing about that.
+
+``R`` and ``T`` in front of a status answer are the exception: they say the printer restarted, not
+that this answer is wrong, and one Allegro 2 sent ``R`` in front of its first answer after every
+power cycle (``R\\x11NNNNNNNN\\r``, later answers without it). The status is returned with
+:attr:`PrinterStatus.reset_reported` set. The other answers keep refusing them.
 """
 
 from __future__ import annotations
@@ -76,6 +81,9 @@ ERROR_CHARACTERS: Mapping[int, str] = MappingProxyType(
     }
 )
 
+#: The error characters that report a restart: a status answer behind them is still sound.
+RESET_CHARACTERS = frozenset({ord("R"), ord("T")})
+
 #: Characters in an ``<SOH>A`` answer; the eighth is reserved and always ``N``.
 STATUS_FLAG_COUNT = 8
 #: Bit of the ``<SOH>F`` byte the manual reserves (always 0).
@@ -127,6 +135,9 @@ class PrinterStatus(BaseModel, frozen=True, extra="forbid"):
     busy_printing: bool
     paused: bool
     label_presented: bool
+    #: True when ``R`` (power-on) or ``T`` (software reset) stood in front of the answer. The printer
+    #: says so once, so whoever read this answer took the report.
+    reset_reported: bool = False
 
     def flags(self) -> tuple[FlagState, ...]:
         """Each condition and whether it is set, in the order the printer reports them.
@@ -194,19 +205,21 @@ def parse_ascii_status(answer: bytes) -> PrinterStatus:
 
     Raises:
         PrinterProtocolError: The answer is not eight ``Y``/``N`` characters with the reserved
-            eighth one ``N``, or an error character precedes it.
+            eighth one ``N``, or an error character other than a reset report precedes it.
 
     Example:
         >>> parse_ascii_status(b"\\x11NNNNYNNN\\r").busy_printing
         True
+        >>> parse_ascii_status(b"R\\x11NNNNNNNN\\r").reset_reported
+        True
     """
     what = "<SOH>A status"
-    body = _fixed_body(_drop_flow_control(answer), width=STATUS_FLAG_COUNT, what=what, answer=answer)
+    body, reset = _status_body(_drop_flow_control(answer), width=STATUS_FLAG_COUNT, what=what, answer=answer)
     if any(char not in (_YES, _NO) for char in body):
         raise PrinterProtocolError(f"{what}: expected Y/N characters, got {show_answer(answer)}")
     if body[-1] != _NO:
         raise PrinterProtocolError(f"{what}: reserved eighth flag is not N in {show_answer(answer)}")
-    return _status_from_flags([char == _YES for char in body[: len(StatusFlag)]])
+    return _status_from_flags([char == _YES for char in body[: len(StatusFlag)]], reset_reported=reset)
 
 
 def is_status_line(line: bytes) -> bool:
@@ -252,20 +265,21 @@ def parse_status_byte(answer: bytes) -> PrinterStatus:
 
     Raises:
         PrinterProtocolError: The answer is not one byte and ``<CR>``, bit 7 is set, or an error
-            character precedes it.
+            character other than a reset report precedes it.
 
     Example:
         >>> parse_status_byte(bytes([0b0000_0010]) + b"\\r").paper_out
         True
     """
     what = "<SOH>F status"
-    value = _fixed_body(answer, width=1, what=what, answer=answer)[0]
+    body, reset = _status_body(answer, width=1, what=what, answer=answer)
+    value = body[0]
     if value >> RESERVED_STATUS_BIT:
         raise PrinterProtocolError(f"{what}: reserved bit 7 is set in {show_answer(answer)}")
-    return _status_from_flags([bool(value >> bit & 1) for bit in range(len(StatusFlag))])
+    return _status_from_flags([bool(value >> bit & 1) for bit in range(len(StatusFlag))], reset_reported=reset)
 
 
-def _status_from_flags(flags: Sequence[bool]) -> PrinterStatus:
+def _status_from_flags(flags: Sequence[bool], *, reset_reported: bool) -> PrinterStatus:
     """Build the status from one bool per :class:`StatusFlag`, in that order."""
     interpreter_busy, paper_out, ribbon_out, printing_batch, busy_printing, paused, label_presented = flags
     return PrinterStatus(
@@ -276,6 +290,7 @@ def _status_from_flags(flags: Sequence[bool]) -> PrinterStatus:
         busy_printing=busy_printing,
         paused=paused,
         label_presented=label_presented,
+        reset_reported=reset_reported,
     )
 
 
@@ -407,6 +422,19 @@ def _fixed_body(cleaned: bytes, *, width: int, what: str, answer: bytes) -> byte
     return framed[len(framed) - width :]
 
 
+def _status_body(cleaned: bytes, *, width: int, what: str, answer: bytes) -> tuple[bytes, bool]:
+    """Return a status answer's body as :func:`_fixed_body` does, and whether a reset report stood in front.
+
+    Only a prefix of nothing but reset characters and flow control counts: with any other byte
+    among them the printer also reported something else, which :func:`_refuse_prefix` names whole.
+    """
+    prefix = cleaned[: max(0, len(cleaned) - len(ANSWER_TERMINATOR) - width)]
+    meaningful = [char for char in prefix if char not in _FLOW_CONTROL]
+    reset = bool(meaningful) and all(char in RESET_CHARACTERS for char in meaningful)
+    rest = cleaned[len(prefix) :] if reset else cleaned
+    return _fixed_body(rest, width=width, what=what, answer=answer), reset
+
+
 def _refuse_prefix(prefix: bytes, *, what: str, answer: bytes) -> None:
     """Raise for any byte in front of a fixed-size answer other than flow control."""
     meaningful = [char for char in prefix if char not in _FLOW_CONTROL]
@@ -523,6 +551,7 @@ __all__ = [
     "MEMORY_REQUEST",
     "RESERVED_STATUS_BIT",
     "RESET",
+    "RESET_CHARACTERS",
     "SERIAL_TEST_REQUEST",
     "SHOWN_ANSWER_BYTES",
     "STATUS_BYTE_REQUEST",

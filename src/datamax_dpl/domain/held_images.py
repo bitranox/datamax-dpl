@@ -9,7 +9,7 @@ module directory (``<STX>W``), which the application reads; the domain only weig
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 from .enums import ImageModule
@@ -52,6 +52,8 @@ class HeldImages:
             listed image for. A later label with a different picture under that name names it
             with the next salt instead, as for a name in ``sent``; the printer's own picture under
             the name stays unknown.
+        reset_reported: The directory answer that gave this carried the printer's reset report,
+            which it gives once: the read took it, and a sender has nothing left to ask for.
 
     ``sent`` and ``placed`` are read-only copies of the mappings given, so a value stays what it
     was made with, however the caller's dict changes afterwards.
@@ -66,6 +68,7 @@ class HeldImages:
     # Left out of the hash, which a dict has none of; equal values still hash alike.
     sent: Mapping[str, bytes] = field(default_factory=_no_commands, hash=False)
     placed: Mapping[str, bytes] = field(default_factory=_no_commands, hash=False)
+    reset_reported: bool = False
 
     def __post_init__(self) -> None:
         """Hold ``sent`` and ``placed`` as read-only copies."""
@@ -127,7 +130,9 @@ EMPTY_MODULE = HeldImages(listed=frozenset())
 
 
 def held_images_from(directory: MemoryDirectory, *, module: ImageModule) -> HeldImages:
-    """Return what ``directory`` (a graphic ``<STX>W`` answer) says ``module`` holds.
+    """Return what ``directory`` (a graphic ``<STX>W`` answer) says ``module`` holds, and any reset it reported.
+
+    A reset report says nothing about the module: what it holds is what the listing says.
 
     A module the answer lists with no names holds none. A module the answer does not list gives
     no names: the answer may have ended before it, and a module read as empty that holds a name
@@ -155,6 +160,11 @@ def held_images_from(directory: MemoryDirectory, *, module: ImageModule) -> Held
         >>> held_images_from(answer, module=ImageModule.C).listed is None
         True
     """
+    return replace(_listed_in(directory, module), reset_reported=directory.reset_reported)
+
+
+def _listed_in(directory: MemoryDirectory, module: ImageModule) -> HeldImages:
+    """The names ``directory`` lists for ``module``, or unknown names with the reason."""
     if module == ImageModule.C:
         return HeldImages(unread_because=DEFAULT_MODULE_UNREAD)
     if not directory.parsed:

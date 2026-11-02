@@ -466,12 +466,13 @@ def test_verify_waits_status_wait_for_a_printer_silent_longer_than_the_timeout(
 ) -> None:
     clock = Clock()
     printer = SilentPrinter(clock, silent_for=3.0)
-    settings = ["--set", "printer.timeout=1", "--set", "printer.status_wait=5"]
+    settings = ["--set", "printer.timeout=1", "--set", "printer.status_wait=5", "--set", "printer.reset_check_wait=0.5"]
 
     envelope = _verify(cli_runner, tmp_path, _services(clock, printer), *settings)
 
     assert envelope["exit_code"] == 0, envelope
-    assert printer.waits == [5.0]
+    # The first read is the reset report's, then the poll that waits status_wait.
+    assert printer.waits == [0.5, 5.0]
 
 
 @pytest.mark.os_agnostic
@@ -485,7 +486,8 @@ def test_verify_waits_status_wait_for_a_printer_busy_longer_than_the_timeout(
     envelope = _verify(cli_runner, tmp_path, _services(clock, printer), *settings)
 
     assert envelope["exit_code"] == 0, envelope
-    assert printer.waits[0] == 5.0
+    # The first read is the reset report's, then the polls that wait what is left of status_wait.
+    assert printer.waits[:2] == [3.0, 5.0]
 
 
 @pytest.mark.os_agnostic

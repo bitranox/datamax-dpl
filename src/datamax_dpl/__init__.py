@@ -25,7 +25,7 @@ from .adapters.logging.setup import InvalidLoggingConfigError
 from .adapters.preview import pillow_available, preview_findings, render_preview_png
 from .adapters.transport import open_printer
 from .application.ports import PrinterTransport
-from .application.upload_check import CheckedJob, UploadCheck, UploadRefusedError, print_checked
+from .application.upload_check import CheckedJob, ResetCheck, UploadCheck, UploadRefusedError, print_checked
 from .application.use_cases import AnswerWait, BatchResult, record_renders, render_batch
 from .composition import get_config
 from .domain.calibration import (
@@ -153,6 +153,7 @@ __all__ = [
     "QrError",
     "RenderOptions",
     "RenderResult",
+    "ResetCheck",
     "Rotation",
     "ScalableText",
     "SentAs",

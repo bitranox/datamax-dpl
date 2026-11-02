@@ -374,7 +374,10 @@ class ImageModules:
     downloads (0 the first one seen) lost whatever the room, for a printer that drops one upload.
     ``<STX>q<m>`` empties module ``m``; ``<STX>R<name>`` removes the name from every module.
     ``answers`` False leaves every directory request unanswered; ``silent`` names the requests (0
-    the first one seen) left unanswered, for a printer that misses one read.
+    the first one seen) left unanswered, for a printer that misses one read. ``<SOH>A`` is answered
+    as idle unless ``status`` is False. ``reset`` is what the printer's next answer, status or
+    directory, carries in front of it (``R\\x11`` after a power cycle, one Allegro 2, 2026-11-02);
+    only that answer does.
 
     Attributes:
         stored: Each module's names, each with what it costs.
@@ -383,6 +386,7 @@ class ImageModules:
         downloaded_held: Each download of a name its module already held, which on one Allegro 2
             made the job print nothing (2026-11-01); a sender must never make one.
         requests: Directory requests seen.
+        status_requests: Status requests seen.
         placed_missing: Each image a format (``<STX>L``) placed that no module held when the
             format came, which prints that label without the image; a sender must never send one.
     """
@@ -395,6 +399,8 @@ class ImageModules:
         lose: Iterable[int] = (),
         answers: bool = True,
         silent: Iterable[int] = (),
+        status: bool = True,
+        reset: bytes = b"",
     ) -> None:
         self.capacity = capacity
         self.stored: dict[str, dict[str, int]] = {}
@@ -403,10 +409,13 @@ class ImageModules:
         self.downloads: list[str] = []
         self.downloaded_held: list[str] = []
         self.requests = 0
+        self.status_requests = 0
         self.placed_missing: list[str] = []
         self._lose = frozenset(lose)
         self._answers = answers
         self._silent = frozenset(silent)
+        self._status = status
+        self._reset = reset
         self._pending = b""
         self._lock = threading.Lock()
 
@@ -438,9 +447,12 @@ class ImageModules:
     def _run(self, command: bytes) -> bytes:
         """Do what ``command`` does to the modules; return its answer."""
         kind = command[1:2]
+        if command == STATUS_REQUEST:
+            self.status_requests += 1
+            return self._reported(b"NNNNNNNN\r") if self._status else b""
         if command == _GRAPHIC_DIRECTORY:
             request, self.requests = self.requests, self.requests + 1
-            return self._directory() if self._answers and request not in self._silent else b""
+            return self._reported(self._directory()) if self._answers and request not in self._silent else b""
         if command[:1] != _STX:
             return b""
         if kind == b"q":
@@ -454,6 +466,11 @@ class ImageModules:
         elif kind == b"L":
             self._place(command)
         return b""
+
+    def _reported(self, answer: bytes) -> bytes:
+        """Put a reset report still owed in front of ``answer``; it goes out once."""
+        report, self._reset = self._reset, b""
+        return report + answer
 
     def _place(self, command: bytes) -> None:
         for line in command.split(b"\r"):
@@ -487,7 +504,7 @@ class ImageModules:
 
 def _ends_complete(pending: bytes) -> bool:
     """True when ``pending``, one command, is complete although no command follows it yet."""
-    if pending == _GRAPHIC_DIRECTORY:
+    if pending in (_GRAPHIC_DIRECTORY, STATUS_REQUEST):
         return True
     kind, body = pending[1:2], pending[2:]
     if pending[:1] != _STX:
@@ -533,8 +550,9 @@ def module_printer_closing(modules: ImageModules, *, after: float) -> Play:
                 server.record(chunk)
                 if reply := modules.feed(chunk):
                     connection.sendall(reply)
-                    time.sleep(after)
-                    return
+                    if modules.requests:
+                        time.sleep(after)
+                        return
 
     return play
 
@@ -548,6 +566,7 @@ class ModulePrinter(RecordingPrinter):
 
     def __init__(self, modules: ImageModules, *, answers: Mapping[bytes, bytes] | None = None) -> None:
         super().__init__(answers=answers)
+        self._table = frozenset(answers or ())
         self.modules = modules
         self._reply = b""
 
@@ -556,8 +575,25 @@ class ModulePrinter(RecordingPrinter):
         super().send(data)
         self._reply += self.modules.feed(data)
 
+    def query(
+        self,
+        request: bytes,
+        *,
+        timeout: float,
+        terminator: bytes = b"\r",
+        lines: int = 1,
+        accept: Callable[[bytes], bool] | None = None,
+    ) -> bytes:
+        """Answer from the table where it names ``request``, else what the modules answer to it."""
+        if request in self._table:
+            return super().query(request, timeout=timeout, terminator=terminator, lines=lines, accept=accept)
+        return self._modules_answer(request, timeout=timeout)
+
     def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = 120.0) -> bytes:
         """Send ``request`` and return what the modules answer to it."""
+        return self._modules_answer(request, timeout=timeout)
+
+    def _modules_answer(self, request: bytes, *, timeout: float) -> bytes:
         self._reply = b""
         self.send(request)
         self.queries.append(bytes(request))

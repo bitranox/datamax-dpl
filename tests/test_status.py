@@ -94,8 +94,6 @@ def test_flow_control_bytes_anywhere_in_an_ascii_status_are_dropped() -> None:
         (b"c", "framing error"),
         (b"v", "input buffer overflow"),
         (b"I", "invalid command sequence"),
-        (b"R", "power-on reset"),
-        (b"T", "software reset"),
         (b"\x07", "bad image download"),
     ],
 )
@@ -260,7 +258,8 @@ def test_problems_lists_every_condition_that_needs_a_person_in_order() -> None:
 def test_flags_names_every_field_in_the_printer_order_with_its_own_value(flag: str) -> None:
     flags = _status(**{flag: True}).flags()
     assert [state.flag for state in flags] == list(StatusFlag)
-    assert [state.flag.value for state in flags] == list(FLAG_ORDER) == list(PrinterStatus.model_fields)
+    assert [state.flag.value for state in flags] == list(FLAG_ORDER)
+    assert list(FLAG_ORDER) == [name for name in PrinterStatus.model_fields if name != "reset_reported"]
     assert [state.flag.value for state in flags if state.is_set] == [flag]
 
 

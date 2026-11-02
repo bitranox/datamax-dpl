@@ -353,6 +353,8 @@ class FindingCode(str, Enum):
     PLACEHOLDERS_UNFILLED = "placeholders_unfilled"
     PRESENT_DISTANCE_TOO_LARGE = "present_distance_too_large"
     PRESENT_DISTANCE_UNSUPPORTED = "present_distance_unsupported"
+    PRINTER_RESET_CALIBRATED = "printer_reset_calibrated"
+    PRINTER_RESET_NOT_CALIBRATED = "printer_reset_not_calibrated"
     PRINTER_SETTINGS_UNKNOWN = "printer_settings_unknown"
     PREVIEW_TEXT_APPROXIMATED = "preview_text_approximated"
     QR_DATA_TOO_LONG = "qr_data_too_long"

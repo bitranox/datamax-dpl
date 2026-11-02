@@ -123,6 +123,7 @@ PRINTER_NUMBERS = [
     "status_wait",
     "status_retry_interval",
     "stored_names_wait",
+    "reset_check_wait",
     "upload_check_rounds",
     "max_batch_records",
     "verify_poll_interval",

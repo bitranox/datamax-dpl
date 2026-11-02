@@ -67,6 +67,7 @@ class TimeoutName(str, Enum):
     IDLE = "idle"
     TOTAL = "total"
     WAIT = "wait"
+    RESET_CHECK_WAIT = "reset check wait"
     RETRY_INTERVAL = "retry interval"
     POLL_INTERVAL = "poll interval"
 

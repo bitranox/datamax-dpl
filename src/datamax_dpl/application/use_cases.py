@@ -37,6 +37,7 @@ from ..domain.label import Cut, Label
 from ..domain.memory import MemoryDirectory, parse_module_directory
 from ..domain.placeholders import fill_label
 from ..domain.render import RenderedRecord, RenderResult, build_job, build_jobs, build_record
+from ..domain.reset_label import calibration_job
 from ..domain.status import (
     CANCEL,
     CUT_NOW,
@@ -200,6 +201,10 @@ class RecordRender(Protocol):
         """Return the label's result and what the printer holds after it; ``halve`` halves its images."""
         ...
 
+    def calibration(self, text: str) -> RenderResult:
+        """Return the calibration label for this label: its settings and size, with ``text`` in the middle."""
+        ...
+
 
 def record_renders(
     label: Label, records: Sequence[Mapping[str, str]] | None, options: RenderOptions
@@ -228,11 +233,24 @@ def record_renders(
     return tuple(_render_of(fill_label(per_record, record), options) for record in records)
 
 
-def _render_of(label: Label, options: RenderOptions) -> RecordRender:
-    def render(held: HeldImages, *, halve: bool) -> RenderedRecord:
-        return build_record(label, options, held=held, halve=halve)
+@dataclass(frozen=True)
+class _LabelRender:
+    """How to render one label of a job again, and the calibration label that may go before it."""
 
-    return render
+    label: Label
+    options: RenderOptions
+
+    def __call__(self, held: HeldImages, *, halve: bool) -> RenderedRecord:
+        """Render the label for what the printer holds, its images halved when ``halve``."""
+        return build_record(self.label, self.options, held=held, halve=halve)
+
+    def calibration(self, text: str) -> RenderResult:
+        """Render the calibration label for this label."""
+        return calibration_job(self.label, self.options, text=text)
+
+
+def _render_of(label: Label, options: RenderOptions) -> RecordRender:
+    return _LabelRender(label=label, options=options)
 
 
 def _unread_module(result: RenderResult | BatchResult) -> ImageModule | None:
@@ -533,6 +551,28 @@ def query_status(
     )
     answered.channel.close()
     return parse_ascii_status(answered.answer)
+
+
+def read_reset_report(printer: PrinterTransport, *, wait: float) -> bool:
+    """Ask the open ``printer`` for its status once and say whether the answer carried a reset report.
+
+    Runs before every job on a two-way link, so it is one try on the channel the job goes out on: a
+    new connection could find a print server that refuses it after a silent printer (see
+    :func:`open_within`), which would end a job this read has no say in. No answer, or one that
+    cannot be read, means nothing and is no failure, on a channel that cannot answer at all too; an
+    answer that comes later is one the transports drop before their next request.
+
+    Args:
+        printer: The open channel.
+        wait: Seconds to wait for the whole answer (``[printer] reset_check_wait``).
+
+    Returns:
+        True when ``R`` or ``T`` stood in front of a status answer; False in every other case.
+    """
+    try:
+        return parse_ascii_status(_ask_status(printer, wait)).reset_reported
+    except TransportError:
+        return False
 
 
 def open_within(*, uri: str, timeout: float, open_printer: OpenPrinter, wait: AnswerWait) -> PrinterTransport:
@@ -912,6 +952,7 @@ __all__ = [
     "print_result",
     "query_status",
     "read_memory_directory",
+    "read_reset_report",
     "read_stored_names",
     "record_renders",
     "render_batch",

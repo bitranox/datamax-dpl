@@ -125,6 +125,7 @@ cut off part way says to power-cycle the printer, which may be waiting for the r
   once rendered again for a round (`image_upload_render_refused`). `[printer] upload_check_rounds`
   (1-3, default 3). An `image_module` of `C` (no directory lists it) is refused before anything is sent
   (`image_module_unlisted`); set the real letter (A on the Allegro 2) or use a one-way link.
+- Printer reset (`print`, `verify`, two-way link): before the first label the job reads `<SOH>A` once within `reset_check_wait` (3 s; no answer means nothing). On `R` or `T` in front of the answer (`reset_reported`) one calibration label goes first, because one Allegro 2 printed the first label after a power cycle about 12 mm shifted: the job's printer settings and size, `calibration_label_text` in the middle (`printer_reset_calibrated`: one extra label came out). `calibrate_after_reset = false` only reports it (`printer_reset_not_calibrated`). Two limits: a `status` or `memory` run before the job takes the report, so that job's first label can be shifted; a one-way link cannot see a reset.
 - Every downloaded image goes under its content name (`D` + 7 characters from `0-9 A-Z a-z`, from
   its hash; letter case counts, measured kept and matched exactly on an Allegro 2 CA02 03.04 only),
   never the `image` element's `name`; only an `image` without `bitmap` that no element of the label

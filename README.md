@@ -413,7 +413,10 @@ once the printer lists every one of them, clearing and uploading again, then upl
 halved, before refusing the label (`[printer] upload_check_rounds`, see [CONFIG.md](CONFIG.md)).
 There the model's own image memory budget is left out, so images `validate` reports halved go at
 full size unless the printer did not store them (`image_budget_skipped`), and a job whose images go
-to the default module `C`, which no directory lists, is refused before anything is sent.
+to the default module `C`, which no directory lists, is refused before anything is sent. Before the
+first label of a two-way job both read the printer's status once, for up to `[printer]
+reset_check_wait` seconds (3): on a reported reset one calibration label goes first
+(`printer_reset_calibrated`), see [CONFIG.md](CONFIG.md).
 It does not judge the photo; a person, or an LLM given both pictures, compares them.
 This loop has only run against a simulated printer and camera so far.
 

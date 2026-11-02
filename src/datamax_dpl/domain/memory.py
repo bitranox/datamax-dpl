@@ -46,6 +46,10 @@ _AVAILABLE = re.compile(r"AVAILABLE[ \t]+BYTES[ \t]+IN[ \t]+MODULE[ \t]*:[ \t]*(
 # cannot be read: taking it as a name would report a module with a made-up item and no free bytes.
 _AVAILABLE_START = re.compile(r"AVAILABLE[ \t]+BYTES\b", re.IGNORECASE | re.ASCII)
 _NO_MODULES = re.compile(r"NO MODULES AVAILABLE", re.IGNORECASE | re.ASCII)
+# R (power-on) or T (software reset) in front of the answer, flow control around them: one Allegro 2
+# put R in front of its first answer after every power cycle. Only in front of what a directory
+# starts with, so a garbled answer that merely starts with one of the letters stays garbled.
+_RESET_REPORT = re.compile(rb"[\x11\x13]*(?:[RT][\x11\x13]*)+(?=(?i:MODULE|NO MODULES))")
 #: What the manual (``<STX>q`` Clear Module, page 35) says a "No Modules Available" answer means.
 NO_MODULES_MEANING = "the manual: corrupt or worn-out module"
 #: The free-bytes figure: eight digits in the manual's sample and in what an Allegro 2 sends, so a
@@ -109,6 +113,8 @@ class MemoryDirectory(BaseModel, frozen=True, extra="forbid"):
             (``<STX>q`` Clear Module, page 35) gives as the sign of a corrupt or worn-out module.
         modules: The modules found, also when they make the answer unparsed.
         raw: The whole answer as text, for a reader to judge what the printer sent.
+        reset_reported: ``R`` (power-on) or ``T`` (software reset) stood in front of the answer.
+            The printer says so once, so whoever read this answer took the report.
     """
 
     kind: MemoryKind
@@ -116,6 +122,7 @@ class MemoryDirectory(BaseModel, frozen=True, extra="forbid"):
     no_modules_available: bool
     modules: tuple[MemoryModule, ...]
     raw: str
+    reset_reported: bool = False
 
 
 def parse_module_directory(raw: bytes, *, kind: MemoryKind) -> MemoryDirectory:
@@ -155,10 +162,14 @@ def parse_module_directory(raw: bytes, *, kind: MemoryKind) -> MemoryDirectory:
         False
         >>> parse_module_directory(b"No Modules Available\\r", kind=MemoryKind.FONT).no_modules_available
         True
+        >>> reported = parse_module_directory(b"R\\x11" + answer, kind=MemoryKind.GRAPHIC)
+        >>> reported.reset_reported, reported.parsed, reported.modules[0].names
+        (True, True, ('LOGO',))
     """
+    report = _RESET_REPORT.match(raw)
     # latin-1 keeps one character per byte, so a non-ASCII byte stays one unprintable character
     # in a name instead of becoming a printable escape sequence.
-    text = raw.decode("latin-1")
+    text = raw[report.end() if report else 0 :].decode("latin-1")
     lines = _lines(text)
     blocks = _blocks(lines)
     ended = _ENDED.search(text) is not None
@@ -177,6 +188,7 @@ def parse_module_directory(raw: bytes, *, kind: MemoryKind) -> MemoryDirectory:
         no_modules_available=no_modules,
         modules=modules,
         raw=raw.decode("ascii", errors="backslashreplace"),
+        reset_reported=report is not None,
     )
 
 

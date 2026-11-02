@@ -39,7 +39,7 @@ from datamax_dpl.domain.png import encode_png
 from datamax_dpl.domain.preview import preview_bitmap
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.raster import Bitmap
-from datamax_dpl.domain.render import RenderedRecord, RenderResult, build_jobs, build_record
+from datamax_dpl.domain.render import RenderResult, build_jobs, build_record
 from datamax_dpl.domain.render_context import RenderOptions, drawn_image_name
 from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS, STATUS_REQUEST
 
@@ -72,7 +72,7 @@ def _job(
     label: Label, options: RenderOptions, records: Sequence[Mapping[str, str]] | None, rounds: int
 ) -> tuple[RenderResult | BatchResult, CheckedJob]:
     result = render_label(label, options) if records is None else render_batch(label, records, options)
-    return result, CheckedJob(renders=record_renders(label, records, options), check=_check(rounds))
+    return result, CheckedJob(renders=record_renders(label, records, options), reset=None, check=_check(rounds))
 
 
 def _print(
@@ -281,7 +281,9 @@ def test_such_a_module_reads_the_names_again_in_round_2_after_a_read_with_no_ans
     modules = ImageModules(silent={0})
     printer = ModulePrinter(modules)
     result = render_label(label, PLUG_IN_TWO_WAY, held=READ_EMPTY)
-    job = CheckedJob(renders=record_renders(label, None, PLUG_IN_TWO_WAY), check=_check(rounds), held=READ_EMPTY)
+    job = CheckedJob(
+        renders=record_renders(label, None, PLUG_IN_TWO_WAY), reset=None, check=_check(rounds), held=READ_EMPTY
+    )
 
     report = print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
 
@@ -412,7 +414,9 @@ def test_a_batch_record_that_passed_after_a_read_with_no_answer_passes_on_what_i
     records = [{"n": "1"}, {"n": "2"}]
     modules = ImageModules(silent={0, 1})
     renders = render_batch(label, records, PLUG_IN_TWO_WAY, held=READ_EMPTY).results
-    job = CheckedJob(renders=record_renders(label, records, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
+    job = CheckedJob(
+        renders=record_renders(label, records, PLUG_IN_TWO_WAY), reset=None, check=_check(), held=READ_EMPTY
+    )
 
     sent = _print_batch(modules, renders, job)
 
@@ -428,7 +432,9 @@ def test_a_batch_record_whose_round_2_read_got_no_answer_passes_on_the_names_rou
     records = [{"n": "1"}, {"n": "2"}]
     modules = ImageModules(lose={1}, silent={1})
     renders = render_batch(label, records, PLUG_IN_TWO_WAY, held=READ_EMPTY).results
-    job = CheckedJob(renders=record_renders(label, records, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
+    job = CheckedJob(
+        renders=record_renders(label, records, PLUG_IN_TWO_WAY), reset=None, check=_check(), held=READ_EMPTY
+    )
 
     sent = _print_batch(modules, renders, job)
 
@@ -449,7 +455,9 @@ def test_a_name_a_record_sent_before_a_read_with_no_answer_is_not_downloaded_by_
     [logo] = render_label(label, PLUG_IN_TWO_WAY).downloads
     modules = ImageModules(lose={0}, silent={0, 1, 3, 4, 5, 6})
     renders = render_batch(label, records, PLUG_IN_TWO_WAY, held=READ_EMPTY).results
-    job = CheckedJob(renders=record_renders(label, records, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
+    job = CheckedJob(
+        renders=record_renders(label, records, PLUG_IN_TWO_WAY), reset=None, check=_check(), held=READ_EMPTY
+    )
 
     sent = _print_batch(modules, renders, job)
 
@@ -475,7 +483,9 @@ def test_a_record_meeting_names_that_may_be_held_reads_the_names_first_and_print
     [logo] = render_label(label, PLUG_IN_TWO_WAY).downloads
     modules = ImageModules(lose={0, 1}, silent={3, 4})
     renders = render_batch(label, records, PLUG_IN_TWO_WAY, held=READ_EMPTY).results
-    job = CheckedJob(renders=record_renders(label, records, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
+    job = CheckedJob(
+        renders=record_renders(label, records, PLUG_IN_TWO_WAY), reset=None, check=_check(), held=READ_EMPTY
+    )
 
     sent = _print_batch(modules, renders, job)
 
@@ -503,7 +513,9 @@ def test_a_name_that_may_be_held_is_carried_past_a_record_whose_reads_got_no_ans
     [logo] = render_label(label, PLUG_IN_TWO_WAY).downloads
     modules = ImageModules(lose={0}, silent={0, 1, 3, 4, 5, 6})
     renders = render_batch(label, records, PLUG_IN_TWO_WAY, held=READ_EMPTY).results
-    job = CheckedJob(renders=record_renders(label, records, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
+    job = CheckedJob(
+        renders=record_renders(label, records, PLUG_IN_TWO_WAY), reset=None, check=_check(), held=READ_EMPTY
+    )
 
     sent = _print_batch(modules, renders, job)
 
@@ -529,7 +541,9 @@ def test_a_round_that_downloads_nothing_sends_no_upload_reads_nothing_and_says_s
     modules = ImageModules(lose={0, 1}, silent={3, 4, 5, 6})
     printer = ModulePrinter(modules)
     renders = render_batch(label, records, PLUG_IN_TWO_WAY, held=READ_EMPTY)
-    job = CheckedJob(renders=record_renders(label, records, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
+    job = CheckedJob(
+        renders=record_renders(label, records, PLUG_IN_TWO_WAY), reset=None, check=_check(), held=READ_EMPTY
+    )
     first = renders.results[0]
     settings = first.data[: first.data.index(STX + b"I")]
 
@@ -564,6 +578,7 @@ def _refuse_third(third: RenderOptions, modules: ImageModules) -> tuple[ModulePr
             *record_renders(label, [{"n": "1"}, {"n": "2"}], PLUG_IN_TWO_WAY),
             *record_renders(label, None, third),
         ),
+        reset=None,
         check=_check(),
         held=READ_EMPTY,
     )
@@ -617,6 +632,7 @@ def test_a_record_in_error_once_rendered_from_the_names_read_first_is_refused_wi
     batch = BatchResult(data=one.result.data + two.data, results=(one.result, two))
     job = CheckedJob(
         renders=(*record_renders(first, None, PLUG_IN_TWO_WAY), *record_renders(second, None, held_in_error)),
+        reset=None,
         check=_check(),
         held=held,
     )
@@ -668,6 +684,7 @@ def _icon_from_another_program(second: RenderOptions, *, silent: set[int]) -> _I
         renders=(one.result, build_record(second_label, second, held=one.held_after).result),
         job=CheckedJob(
             renders=(*record_renders(first_label, None, PLUG_IN_TWO_WAY), *record_renders(second_label, None, second)),
+            reset=None,
             check=_check(),
             held=held,
         ),
@@ -744,7 +761,7 @@ def test_such_a_module_halves_with_no_further_read_when_round_2_s_read_after_its
     [logo] = render_label(label, PLUG_IN_TWO_WAY).downloads
     modules = ImageModules(lose=lose, silent=silent)
     printer = ModulePrinter(modules)
-    job = CheckedJob(renders=record_renders(label, None, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
+    job = CheckedJob(renders=record_renders(label, None, PLUG_IN_TWO_WAY), reset=None, check=_check(), held=READ_EMPTY)
     result = render_label(label, PLUG_IN_TWO_WAY, held=READ_EMPTY)
 
     report = print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
@@ -767,6 +784,7 @@ def test_a_batch_whose_names_read_got_no_answer_renders_the_next_record_from_the
     modules = ImageModules(held=[("A", icon, 512)])
     job = CheckedJob(
         renders=(*record_renders(first, None, options), *record_renders(second, None, options)),
+        reset=None,
         check=_check(),
         held=HeldImages(),
     )
@@ -798,7 +816,7 @@ def test_the_clear_after_a_record_empties_what_its_read_listed_so_the_next_recor
     [logo] = render_label(label, options).downloads
     modules = ImageModules()
     renders = render_batch(label, records, options, held=READ_EMPTY).results
-    job = CheckedJob(renders=record_renders(label, records, options), check=_check(), held=READ_EMPTY)
+    job = CheckedJob(renders=record_renders(label, records, options), reset=None, check=_check(), held=READ_EMPTY)
 
     sent = _print_batch(modules, renders, job)
 
@@ -827,6 +845,7 @@ def test_a_name_an_earlier_round_sent_keeps_its_picture_so_another_picture_under
     renders = build_jobs([first, second], PLUG_IN_TWO_WAY, held=READ_EMPTY)
     job = CheckedJob(
         renders=(*record_renders(first, None, PLUG_IN_TWO_WAY), *record_renders(second, None, PLUG_IN_TWO_WAY)),
+        reset=None,
         check=_check(),
         held=READ_EMPTY,
     )
@@ -867,6 +886,7 @@ def test_a_name_the_record_before_left_maybe_held_keeps_its_picture_when_a_later
     renders = build_jobs([first, second], keys_off, held=held)
     job = CheckedJob(
         renders=(*record_renders(first, None, keys_off), *record_renders(second, None, keys_off)),
+        reset=None,
         check=_check(),
         held=held,
     )
@@ -916,7 +936,7 @@ def test_the_prodigys_removes_after_the_last_answered_read_are_applied_to_what_t
     modules = ImageModules(capacity=1200, held=[("B", "OTHER", 300)], lose=lose, silent=silent)
     printer = ModulePrinter(modules)
     renders = render_batch(label, records, PRODIGY_NO_KEYS, held=other)
-    job = CheckedJob(renders=record_renders(label, records, PRODIGY_NO_KEYS), check=_check(), held=other)
+    job = CheckedJob(renders=record_renders(label, records, PRODIGY_NO_KEYS), reset=None, check=_check(), held=other)
 
     report = print_checked(renders, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
 
@@ -946,7 +966,7 @@ def test_a_directory_answer_that_leaves_out_the_job_s_module_is_no_answer_and_no
     modules = _CutBeforeModuleB(held=[("A", "OTHER", 10)])
     printer = ModulePrinter(modules)
     result = render_label(label, PLUG_IN_TWO_WAY, held=READ_EMPTY)
-    job = CheckedJob(renders=record_renders(label, None, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
+    job = CheckedJob(renders=record_renders(label, None, PLUG_IN_TWO_WAY), reset=None, check=_check(), held=READ_EMPTY)
 
     report = print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
 
@@ -986,7 +1006,9 @@ def test_the_plain_prodigys_halving_round_places_a_halved_name_its_last_read_lis
     modules = ImageModules(held=[("B", halved, 128)], lose={0, 1})
     printer = ModulePrinter(modules)
     result = render_label(label, PRODIGY_NO_KEYS, held=HeldImages())
-    job = CheckedJob(renders=record_renders(label, None, PRODIGY_NO_KEYS), check=_check(), held=HeldImages())
+    job = CheckedJob(
+        renders=record_renders(label, None, PRODIGY_NO_KEYS), reset=None, check=_check(), held=HeldImages()
+    )
 
     report = print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
 
@@ -1015,7 +1037,7 @@ def test_a_prodigy_label_left_with_nothing_to_download_still_counts_as_one_a_cle
     records = [{"n": "1"}, {"n": "2"}]
     modules = ImageModules(held=[("B", halved, 128)], lose={0, 1}, silent={1})
     renders = render_batch(label, records, after_only, held=held).results
-    job = CheckedJob(renders=record_renders(label, records, after_only), check=_check(), held=held)
+    job = CheckedJob(renders=record_renders(label, records, after_only), reset=None, check=_check(), held=held)
 
     sent = _print_batch(modules, renders, job)
 
@@ -1038,7 +1060,7 @@ def test_the_plain_prodigys_halving_round_downloads_again_a_qr_code_its_removes_
     modules = ImageModules(lose={1, 3})
     printer = ModulePrinter(modules)
     result = render_label(label, PRODIGY_NO_KEYS, held=READ_EMPTY)
-    job = CheckedJob(renders=record_renders(label, None, PRODIGY_NO_KEYS), check=_check(), held=READ_EMPTY)
+    job = CheckedJob(renders=record_renders(label, None, PRODIGY_NO_KEYS), reset=None, check=_check(), held=READ_EMPTY)
 
     report = print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
 
@@ -1091,7 +1113,7 @@ def test_a_label_in_error_once_rendered_again_for_round_2_is_refused_and_its_for
     result = render_label(label, _ONE_IMAGE_BUDGET, held=held)
     assert result.ok and len(result.downloads) == 1
     printer = ModulePrinter(ImageModules(held=[("A", logo, 512)], lose={0}))
-    job = CheckedJob(renders=record_renders(label, None, _ONE_IMAGE_BUDGET), check=_check(), held=held)
+    job = CheckedJob(renders=record_renders(label, None, _ONE_IMAGE_BUDGET), reset=None, check=_check(), held=held)
 
     with pytest.raises(UploadRefusedError) as caught:
         print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
@@ -1123,14 +1145,13 @@ def test_a_batch_record_in_error_once_rendered_again_says_so_and_nothing_after_i
     assert one.ok and two.ok
     batch = BatchResult(data=one.data + two.data, results=(one, two))
 
-    def render_first(held: HeldImages, *, halve: bool) -> RenderedRecord:
-        return build_record(first, _ONE_IMAGE_BUDGET, held=held, halve=halve)
-
-    def render_second(held: HeldImages, *, halve: bool) -> RenderedRecord:
-        return build_record(second, _ONE_IMAGE_BUDGET, held=held, halve=halve)
-
     printer = ModulePrinter(ImageModules(held=[("A", logo, 512)], lose={0}))
-    job = CheckedJob(renders=(render_first, render_second), check=_check(), held=held)
+    job = CheckedJob(
+        renders=(*record_renders(first, None, _ONE_IMAGE_BUDGET), *record_renders(second, None, _ONE_IMAGE_BUDGET)),
+        reset=None,
+        check=_check(),
+        held=held,
+    )
 
     with pytest.raises(UploadRefusedError) as caught:
         print_checked(batch, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
@@ -1520,7 +1541,7 @@ def test_a_two_way_batch_to_module_c_sends_not_even_the_records_before_the_first
     held = HeldImages(listed=frozenset({first}))
     result = render_batch(label, records, options, held=held)
     assert [len(r.downloads) for r in result.results] == [0, 1]
-    job = CheckedJob(renders=record_renders(label, records, options), check=_check(), held=held)
+    job = CheckedJob(renders=record_renders(label, records, options), reset=None, check=_check(), held=held)
     printer = ModulePrinter(ImageModules())
 
     with pytest.raises(UploadRefusedError) as caught:
@@ -1782,7 +1803,7 @@ def _two_label_mismatch() -> tuple[BatchResult, CheckedJob]:
     options = RenderOptions(model="dmx-600")
     three = [{"n": "1"}, {"n": "2"}, {"n": "3"}]
     result = render_batch(label, three, options)
-    return result, CheckedJob(renders=record_renders(label, three[:2], options), check=_check())
+    return result, CheckedJob(renders=record_renders(label, three[:2], options), reset=None, check=_check())
 
 
 @pytest.mark.os_agnostic

@@ -8,6 +8,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- A calibration label after a printer reset. Before the first label of a
+  two-way `print`, `print --data`, `verify` or `print_checked`, the job reads
+  `<SOH>A` once within `[printer] reset_check_wait` (default 3 s); no answer
+  means nothing. On `R` or `T` in front of the answer, with `[printer]
+  calibrate_after_reset` (default true), one label goes first: the job's
+  printer settings and size, `[printer] calibration_label_text` (default
+  `Printer Reset - Calibration Feed`) in the middle (`printer_reset_calibrated`,
+  info). With the key off the reset is only reported
+  (`printer_reset_not_calibrated`). A `status` or `memory` run before the job
+  takes the report, and a one-way link cannot see a reset; CONFIG.md has the
+  detail. Library: `ResetCheck`, `CheckedJob.reset` (None asks nothing),
+  `RecordRender.calibration`. `verify --json` now carries `findings`.
 - `print_checked`, `CheckedJob`, `UploadCheck`, `AnswerWait`,
   `record_renders`, `PrinterTransport`, `TransportTuning`, `HeldImages`,
   `Explanation` and `DplUnit` import from the package root. README and the
@@ -65,9 +77,10 @@ All notable changes to this project are documented here. The format follows
   out and send images at full size (`image_budget_skipped`, info, says when
   the budget would have halved them); a value set in `image_memory_bytes`
   still applies. The longest a label waits before `image_upload_refused`, with
-  W for `stored_names_wait`, is 3 + 2 x `upload_check_rounds` x W, 183 s with
-  the defaults, for the first label on built-in RAM or on a plug-in module;
-  213 s on built-in RAM where the names are read before the job; for a later
+  W for `stored_names_wait` and R for `reset_check_wait`, is
+  3 + R + 2 x `upload_check_rounds` x W, 186 s with the defaults, for the first
+  label on built-in RAM or on a plug-in module; 216 s on built-in RAM where the
+  names are read before the job; for a later
   label of a batch 180 s on built-in RAM and 150 s on a plug-in module (180 s
   when it reads the names before its round 1). CONFIG.md breaks these down.
   Library: `RenderResult.upload_end`, `retry_clear`, `retry_clear_empties` and
@@ -150,6 +163,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `R` (power-on) and `T` (software reset) in front of a status or directory
+  answer are no longer a failure: one Allegro 2 sends `R` in front of its first
+  answer after a power cycle, and `status` then exited 2 while a directory read
+  reported its names as unreadable. `parse_ascii_status`, `parse_status_byte`
+  and `parse_module_directory` return the answer with `reset_reported` set;
+  `status --json` shows it as a field with exit 0, `memory --json` per
+  directory, and the human output names it. The other error characters still
+  refuse, and `<SOH>E` keeps refusing a reset report.
 - A number in the `[printer]`, `[printers.<name>]`, `[camera]` or `[preview]`
   section refuses a boolean (`printer.timeout: needs a number, got true`),
   which used to read as 1 or 0: `timeout = true` was a 1 second timeout, and

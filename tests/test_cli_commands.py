@@ -31,7 +31,7 @@ from datamax_dpl.domain.preview import preview_bitmap
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.render import render
 from datamax_dpl.domain.render_context import RenderOptions
-from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS
+from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS, STATUS_REQUEST
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -151,8 +151,9 @@ def test_print_sends_exactly_the_rendered_job(cli_runner: CliRunner, tmp_path: P
     args = ["--json", "print", write_json(tmp_path / "l.json", SIMPLE), "--model", "dmx-600", "--printer", PRINTER]
     result = run(cli_runner, args, factory(printer))
     assert result.exit_code == 0, result.output
-    assert printer.data == render(Label.model_validate(SIMPLE), RenderOptions(model="dmx-600")).data
-    assert envelope(result)["data"]["bytes_sent"] == len(printer.data)
+    job = render(Label.model_validate(SIMPLE), RenderOptions(model="dmx-600")).data
+    assert printer.data == STATUS_REQUEST + job
+    assert envelope(result)["data"]["bytes_sent"] == len(job)
 
 
 @pytest.mark.os_agnostic
@@ -237,6 +238,7 @@ def test_status_lists_every_flag_in_the_printer_order_in_both_outputs(cli_runner
         ("busy_printing", False),
         ("paused", False),
         ("label_presented", False),
+        ("reset_reported", False),
     ]
 
 
@@ -469,7 +471,7 @@ def test_verify_prints_waits_photographs_and_writes_the_expected_preview(cli_run
     result = run(cli_runner, args, factory(printer, camera))
     assert result.exit_code == 0, result.output
     data = envelope(result)["data"]
-    assert printer.data.startswith(render(Label.model_validate(SIMPLE), RenderOptions()).data)
+    assert printer.data.startswith(STATUS_REQUEST + render(Label.model_validate(SIMPLE), RenderOptions()).data)
     assert data["status"]["busy_printing"] is False
     assert camera.calls == 1
     assert (tmp_path / data["expected"]).read_bytes().startswith(b"\x89PNG")
@@ -512,7 +514,7 @@ def test_verify_reads_a_label_from_stdin_once(cli_runner: CliRunner, tmp_path: P
     args = ["--json", "--set", "camera.kind=file", "verify", "-", "--printer", PRINTER, "--output-dir", str(tmp_path)]
     result = cli_runner.invoke(cli_mod.cli, args, obj=factory(printer, FakeCamera()), input=json.dumps(SIMPLE))
     assert result.exit_code == 0, result.output
-    assert printer.data.startswith(render(Label.model_validate(SIMPLE), RenderOptions()).data)
+    assert printer.data.startswith(STATUS_REQUEST + render(Label.model_validate(SIMPLE), RenderOptions()).data)
 
 
 @pytest.mark.os_agnostic
@@ -604,6 +606,7 @@ def test_memory_prints_the_parsed_directory_envelope(cli_runner: CliRunner) -> N
                     {"module": "B", "names": ["LOGO", "CAM"], "available_bytes": 257919},
                 ],
                 "raw": DIRECTORY.decode("ascii"),
+                "reset_reported": False,
             }
         ],
     }

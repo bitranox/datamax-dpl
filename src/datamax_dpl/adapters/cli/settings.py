@@ -6,6 +6,7 @@ the boundary, so a typo in a config file is reported as a configuration error wi
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, TypedDict, TypeVar, cast
@@ -32,6 +33,13 @@ from ...domain.label import MAX_LENGTH, stop_position_or_printer
 from ...domain.preview import DEFAULT_PREVIEW_MAX_LENGTH_MM
 from ...domain.profiles import Firmware, ParsedFirmware
 from ...domain.render_context import RenderOptions
+from ...domain.reset_label import (
+    CALIBRATE_AFTER_RESET,
+    CALIBRATION_LABEL_TEXT,
+    RESET_CHECK_WAIT_SECONDS,
+    characters_replaced,
+    check_label_text,
+)
 from ...domain.timing import MAX_SEND_CHUNK_BYTES, MAX_TIMEOUT_SECONDS, SEND_CHUNK_BYTES, TransportTuning
 from ...domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
 from ..config.sections import (
@@ -49,6 +57,8 @@ if TYPE_CHECKING:
     from pydantic_core import ErrorDetails
 
     from ...domain.profiles import CalibrationKey
+
+logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
 
@@ -98,6 +108,12 @@ class PrinterSettings(BaseModel):
     upload_check_rounds: int = Field(
         default=UPLOAD_CHECK_ROUNDS, ge=MIN_UPLOAD_CHECK_ROUNDS, le=MAX_UPLOAD_CHECK_ROUNDS
     )
+    # How long print and verify wait for the one status read before a job that asks for a reset
+    # report: it runs before every job, so it has its own short wait and a printer that stays
+    # silent costs only this. What a report triggers, and what that label says.
+    reset_check_wait: float = Field(default=RESET_CHECK_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
+    calibrate_after_reset: bool = CALIBRATE_AFTER_RESET
+    calibration_label_text: str = CALIBRATION_LABEL_TEXT
     # Most records one --data batch may hold: a batch is rendered whole before anything is sent.
     max_batch_records: int = Field(default=MAX_BATCH_RECORDS, gt=0, le=MAX_BATCH_RECORDS_LIMIT)
     # verify waits status_wait in all for the printer to finish its job, polling at this interval;
@@ -139,6 +155,7 @@ class PrinterSettings(BaseModel):
         "status_wait",
         "status_retry_interval",
         "stored_names_wait",
+        "reset_check_wait",
         "upload_check_rounds",
         "max_batch_records",
         "verify_poll_interval",
@@ -156,6 +173,12 @@ class PrinterSettings(BaseModel):
         "label_height",
         mode="before",
     )(refuse_boolean)
+
+    @field_validator("calibration_label_text")
+    @classmethod
+    def _calibration_text_prints(cls, value: str) -> str:
+        """Refuse a value no text field could hold here, naming the key rather than at a reset."""
+        return check_label_text(value)
 
     @field_validator("firmware", mode="before")
     @classmethod
@@ -239,6 +262,7 @@ def printer_settings(config: Config, overrides: PrinterOverrides) -> PrinterSett
         )
     except ValidationError as exc:
         raise ConfigurationError(_describe(exc, section=section)) from None
+    _warn_of_replaced_characters(base, section=section)
     uri = overrides.printer if overrides.printer and is_printer_uri(overrides.printer) else None
     # model_copy, not a new PrinterSettings: the overrides are already typed, and re-validating
     # would move the refusal of a bad --timeout away from the transport, which names its range.
@@ -256,6 +280,21 @@ def printer_settings(config: Config, overrides: PrinterOverrides) -> PrinterSett
             options=base.options | overrides.options,
         )
     )
+
+
+def _warn_of_replaced_characters(settings: PrinterSettings, *, section: SectionPath) -> None:
+    """Warn once the settings are read when the calibration text would not print as written.
+
+    At settings time, since the label itself may not come out for months: a reset is rare, and its
+    findings are the wrong place to first learn that a configured text prints as ``?``.
+    """
+    replaced = characters_replaced(settings.calibration_label_text)
+    if replaced:
+        logger.warning(
+            "%s: %s print as '?', as in a text field in that font",
+            section.key_path("calibration_label_text"),
+            " ".join(f"U+{ord(char):04X}" for char in replaced),
+        )
 
 
 def check_printer_values(config: Config, *, printer: str, values: Mapping[CalibrationKey, float]) -> None:
