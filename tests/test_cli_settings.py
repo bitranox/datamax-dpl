@@ -575,6 +575,8 @@ _COMMENTED_OUT_DEFAULTS = (
     "upload_check_rounds",
     "max_batch_records",
     "max_batch_job_bytes",
+    "max_reported_findings",
+    "max_reported_downloads",
     "send_chunk_bytes",
     "verify_poll_interval",
     "one_way_settle",

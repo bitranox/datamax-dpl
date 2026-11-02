@@ -14,9 +14,15 @@ from typing import TYPE_CHECKING, Annotated, Any, TypedDict, TypeVar, cast
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
 from ...application.upload_check import MAX_UPLOAD_CHECK_ROUNDS, MIN_UPLOAD_CHECK_ROUNDS, UPLOAD_CHECK_ROUNDS
-from ...application.use_cases import RETRY_INTERVAL_SECONDS, STATUS_WAIT_SECONDS, STORED_NAMES_WAIT_SECONDS
+from ...application.use_cases import (
+    RETRY_INTERVAL_SECONDS,
+    STATUS_WAIT_SECONDS,
+    STORED_NAMES_WAIT_SECONDS,
+    ReportLimits,
+)
 from ...application.verify import ONE_WAY_SETTLE_SECONDS, POLL_SECONDS
 from ...domain._invariants import require_update_fields
+from ...domain.batch import MAX_REPORTED_DOWNLOADS, MAX_REPORTED_FINDINGS
 from ...domain.camera import CameraSettings, refuse_boolean
 from ...domain.enums import (
     CutterPresence,
@@ -71,10 +77,13 @@ MAX_BATCH_RECORDS = 100_000
 #: Largest ``max_batch_records`` taken: more records than a 16 MiB file can hold, so "no limit".
 MAX_BATCH_RECORDS_LIMIT = 10_000_000
 #: Default of ``[printer] max_batch_job_bytes``, 1 GiB: 100000 records of a one-field label come to
-#: about 430 MB and must keep working at the default record limit.
+#: about 430 MB and must keep working at the default record limit, on the paths that hold the job.
 MAX_BATCH_JOB_BYTES = 1_073_741_824
 #: Largest ``max_batch_job_bytes`` taken, 1 TiB: past what any host here renders, so "no limit".
 MAX_BATCH_JOB_BYTES_LIMIT = 1_099_511_627_776
+#: Largest ``max_reported_findings`` and ``max_reported_downloads`` taken: more than the longest
+#: batch reports, at a cost of hundreds of MB, so "keep them all".
+MAX_REPORTED_LIMIT = 100_000_000
 
 
 class PrinterSettings(BaseModel):
@@ -119,11 +128,15 @@ class PrinterSettings(BaseModel):
     reset_check_wait: float = Field(default=RESET_CHECK_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
     calibrate_after_reset: bool = CALIBRATE_AFTER_RESET
     calibration_label_text: str = CALIBRATION_LABEL_TEXT
-    # Most records one --data batch may hold: a batch is rendered whole before anything is sent.
+    # Most records one --data batch may hold: memory no longer grows with them, time does, since
+    # every record is rendered once to check it and again to send it.
     max_batch_records: int = Field(default=MAX_BATCH_RECORDS, gt=0, le=MAX_BATCH_RECORDS_LIMIT)
-    # Most bytes the records' jobs may come to: the record limit bounds one factor, and a label of
-    # hundreds of large fields multiplies it by more than a megabyte a record.
+    # Most bytes the records' jobs may come to on the one path that holds them all: render --data
+    # with no -o, whose answer is the job. A label of hundreds of large fields takes over a MB a record.
     max_batch_job_bytes: int = Field(default=MAX_BATCH_JOB_BYTES, gt=0, le=MAX_BATCH_JOB_BYTES_LIMIT)
+    # How many findings and image names a batch's answer keeps in full; the totals count them all.
+    max_reported_findings: int = Field(default=MAX_REPORTED_FINDINGS, gt=0, le=MAX_REPORTED_LIMIT)
+    max_reported_downloads: int = Field(default=MAX_REPORTED_DOWNLOADS, gt=0, le=MAX_REPORTED_LIMIT)
     # verify waits status_wait in all for the printer to finish its job, polling at this interval;
     # a one-way channel cannot poll, so verify waits one_way_settle instead (0 waits not at all).
     verify_poll_interval: float = Field(default=POLL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
@@ -167,6 +180,8 @@ class PrinterSettings(BaseModel):
         "upload_check_rounds",
         "max_batch_records",
         "max_batch_job_bytes",
+        "max_reported_findings",
+        "max_reported_downloads",
         "verify_poll_interval",
         "one_way_settle",
         "send_chunk_bytes",
@@ -463,6 +478,11 @@ def require_uri(settings: PrinterSettings) -> str:
     raise ConfigurationError(f"no printer given: pass --printer NAME or URI, or set {uri_key}")
 
 
+def report_limits(settings: PrinterSettings) -> ReportLimits:
+    """How much of a batch its answer keeps: ``max_reported_findings`` and ``max_reported_downloads``."""
+    return ReportLimits(findings=settings.max_reported_findings, downloads=settings.max_reported_downloads)
+
+
 __all__ = [
     "PreviewSettings",
     "PrinterOverrides",
@@ -472,6 +492,7 @@ __all__ = [
     "preview_settings",
     "printer_settings",
     "render_options",
+    "report_limits",
     "require_uri",
     "transport_tuning",
 ]

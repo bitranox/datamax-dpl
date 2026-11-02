@@ -2,7 +2,8 @@
 
 A label is a JSON document matching ``datamax-dpl schema``. Data records come from CSV (header row
 gives the field names), a JSON array of objects, or JSON lines. Input is bounded in size and
-every value is read as text, because records only ever fill ``{name}`` placeholders.
+every value is read as text, because records only ever fill ``{name}`` placeholders. Records are
+parsed one at a time as a command goes through them, so a batch does not hold them.
 """
 
 from __future__ import annotations
@@ -10,9 +11,10 @@ from __future__ import annotations
 import csv
 import io
 import itertools
+import re
 import sys
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, BinaryIO, cast
 
 import orjson
 from pydantic import ValidationError
@@ -21,13 +23,28 @@ from ...domain.errors import DatamaxDplError
 from ...domain.label import Label
 from ...domain.printable import printable
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
 #: Largest label or data file accepted, so a wrong path (a disk image) fails fast.
 MAX_INPUT_BYTES = 16 * 1024 * 1024
+_READ_PIECE_BYTES = 64 * 1024
 STDIN = "-"
+_LINE_END = re.compile(rb"\r\n|\r|\n")
 
 
 class LabelInputError(DatamaxDplError, ValueError):
     """A label or data file could not be read or does not describe a valid label."""
+
+
+def _read_at_most(stream: BinaryIO, limit: int) -> bytes:
+    """Read up to ``limit`` bytes in pieces: ``read(limit)`` allocates all of them even for a small file."""
+    pieces: list[bytes] = []
+    left = limit
+    while left > 0 and (piece := stream.read(min(left, _READ_PIECE_BYTES))):
+        pieces.append(piece)
+        left -= len(piece)
+    return b"".join(pieces)
 
 
 def read_input(source: str) -> bytes:
@@ -38,10 +55,10 @@ def read_input(source: str) -> bytes:
     """
     try:
         if source == STDIN:
-            data = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
+            data = _read_at_most(sys.stdin.buffer, MAX_INPUT_BYTES + 1)
         else:
             with Path(source).open("rb") as handle:
-                data = handle.read(MAX_INPUT_BYTES + 1)
+                data = _read_at_most(handle, MAX_INPUT_BYTES + 1)
     except OSError as exc:
         raise LabelInputError(f"cannot read {source}: {exc.strerror or exc}") from None
     if len(data) > MAX_INPUT_BYTES:
@@ -84,31 +101,6 @@ def load_label(source: str) -> Label:
     return parse_label(read_input(source), source=source)
 
 
-def _records_from_json(data: bytes, source: str, *, limit: int | None) -> list[dict[str, str]]:
-    try:
-        document = orjson.loads(data)
-    except orjson.JSONDecodeError:
-        return _records_from_json_lines(data, source, limit=limit)
-    parsed: object = document
-    rows: list[object] = cast("list[object]", parsed) if isinstance(parsed, list) else [parsed]
-    return [_as_record(row, source=source, number=i + 1) for i, row in enumerate(rows)]
-
-
-def _records_from_json_lines(data: bytes, source: str, *, limit: int | None) -> list[dict[str, str]]:
-    records: list[dict[str, str]] = []
-    for number, raw in enumerate(data.splitlines(), start=1):
-        if not raw.strip():
-            continue
-        if limit is not None and len(records) > limit:
-            break
-        try:
-            parsed: object = orjson.loads(raw)
-            records.append(_as_record(parsed, source=source, number=number))
-        except orjson.JSONDecodeError as exc:
-            raise LabelInputError(f"{source} line {number} is not JSON: {exc}") from None
-    return records
-
-
 def _as_record(row: object, *, source: str, number: int) -> dict[str, str]:
     if not isinstance(row, dict):
         raise LabelInputError(f"{source} record {number} is not an object")
@@ -116,36 +108,108 @@ def _as_record(row: object, *, source: str, number: int) -> dict[str, str]:
     return {str(key): "" if value is None else str(value) for key, value in mapping.items()}
 
 
-def _records_from_csv(data: bytes, source: str, *, limit: int | None) -> list[dict[str, str]]:
+def _json_lines(data: bytes) -> Iterator[tuple[int, bytes]]:
+    """Yield each line of ``data`` with its number, as ``data.splitlines()`` would list them."""
+    start = 0
+    number = 0
+    for number, ending in enumerate(_LINE_END.finditer(data), start=1):
+        yield number, data[start : ending.start()]
+        start = ending.end()
+    if start < len(data):
+        yield number + 1, data[start:]
+
+
+def _records_from_json_lines(data: bytes, source: str) -> Iterator[dict[str, str]]:
+    for number, raw in _json_lines(data):
+        if not raw.strip():
+            continue
+        try:
+            parsed: object = orjson.loads(raw)
+        except orjson.JSONDecodeError as exc:
+            raise LabelInputError(f"{source} line {number} is not JSON: {exc}") from None
+        yield _as_record(parsed, source=source, number=number)
+
+
+def _records_from_csv(data: bytes, source: str) -> Iterator[dict[str, str]]:
+    # Decoded as it is read: the whole text at once would hold up to four times the file.
+    text = io.TextIOWrapper(io.BytesIO(data), encoding="utf-8-sig", newline="")
+    # strict: without it a stray quote silently merges every row after it into one field.
+    reader = csv.DictReader(text, strict=True)
     try:
-        text = data.decode("utf-8-sig")
+        for row in reader:
+            yield {key: value or "" for key, value in row.items() if key is not None}
     except UnicodeDecodeError as exc:
         raise LabelInputError(f"{source} is not UTF-8: {exc.reason}") from None
-    # strict: without it a stray quote silently merges every row after it into one field.
-    reader = csv.DictReader(io.StringIO(text, newline=""), strict=True)
-    try:
-        rows = reader if limit is None else itertools.islice(reader, limit + 1)
-        return [{key: value or "" for key, value in row.items() if key is not None} for row in rows]
     except csv.Error as exc:
         raise LabelInputError(f"{source} is not valid CSV: line {reader.line_num}: {exc}") from None
 
 
-def load_records(source: str, *, limit: int | None = None) -> list[dict[str, str]]:
+class Records:
+    """The data records of a file, read one at a time and as often as a command needs them.
+
+    Holds the file's bytes, which :data:`MAX_INPUT_BYTES` bounds, and no record: stdin can be read
+    only once, while a batch is gone over once to check it and once to send it. A JSON array has no
+    way to be read in parts, so it is parsed once, whole, and held for as long as this object is.
+    """
+
+    def __init__(self, data: bytes, source: str, *, limit: int | None = None) -> None:
+        """Read ``data``, the content of ``source``, and check every record as far as ``limit``.
+
+        Args:
+            data: The file's bytes.
+            source: Its name, which also says the format: CSV for ``*.csv``.
+            limit: Stop checking CSV or JSON lines once past this many records, so a caller refusing
+                more than that does not go through them all. :func:`len` then stops one past it;
+                a JSON array, parsed whole by then, counts in full.
+
+        Raises:
+            LabelInputError: A record that was checked cannot be parsed.
+        """
+        self._data = data
+        self._source = source
+        self._csv = source.lower().endswith(".csv")
+        self._rows: list[object] | None = None if self._csv else _json_rows(data)
+        checked = iter(self) if limit is None or self._rows is not None else itertools.islice(self, limit + 1)
+        self._count = sum(1 for _ in checked)
+
+    def __iter__(self) -> Iterator[dict[str, str]]:
+        """Parse the records again from the start, one at a time."""
+        if self._csv:
+            return _records_from_csv(self._data, self._source)
+        if self._rows is None:
+            return _records_from_json_lines(self._data, self._source)
+        rows = enumerate(self._rows, start=1)
+        return (_as_record(row, source=self._source, number=number) for number, row in rows)
+
+    def __len__(self) -> int:
+        """How many records were checked: all of them, unless the limit stopped it (see ``__init__``)."""
+        return self._count
+
+
+def _json_rows(data: bytes) -> list[object] | None:
+    """The rows of a JSON document, or None when ``data`` is no one document: JSON lines."""
+    try:
+        document: object = orjson.loads(data)
+    except orjson.JSONDecodeError:
+        return None
+    return cast("list[object]", document) if isinstance(document, list) else [document]
+
+
+def load_records(source: str, *, limit: int | None = None) -> Records:
     """Read data records: CSV for ``*.csv``, else JSON array, JSON object or JSON lines.
 
     Args:
         source: The file, or ``-`` for stdin.
-        limit: Stop reading CSV or JSON lines once past this many records, so a caller refusing
-            more than that does not hold them all first. More than ``limit`` come back when
-            there are more; a JSON array has been parsed whole by then and comes back whole.
+        limit: See :class:`Records`.
+
+    Returns:
+        The records, which can be iterated as often as needed; every one that was checked parsed.
 
     Raises:
         LabelInputError: The file cannot be read or parsed, or holds no record.
     """
-    data = read_input(source)
-    parse = _records_from_csv if source.lower().endswith(".csv") else _records_from_json
-    records = parse(data, source, limit=limit)
-    if not records:
+    records = Records(read_input(source), source, limit=limit)
+    if not len(records):
         raise LabelInputError(f"{source} holds no data record")
     return records
 
@@ -154,6 +218,7 @@ __all__ = [
     "MAX_INPUT_BYTES",
     "STDIN",
     "LabelInputError",
+    "Records",
     "load_label",
     "load_records",
     "parse_label",

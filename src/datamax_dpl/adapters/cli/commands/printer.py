@@ -16,6 +16,7 @@ from ....application.upload_check import CheckedJob, ResetCheck, UploadCheck, Up
 from ....application.use_cases import (
     DIRECTORY_IDLE_SECONDS,
     AnswerWait,
+    BatchReport,
     PrinterCommand,
     detect_printer,
     print_result,
@@ -44,7 +45,7 @@ from ...transport.uri import is_one_way, unsupported_query
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
 from ..label_io import STDIN, LabelInputError, load_label, load_records
-from ..payloads import FindingOut, findings_text, render_payload
+from ..payloads import FindingOut, RenderPayload, SentTo, findings_text, payload_findings_text, render_payload
 from ..runner import CommandResult, run_command
 from ..settings import (
     PrinterOverrides,
@@ -55,7 +56,7 @@ from ..settings import (
     require_uri,
 )
 from ..typed_click import argument, option
-from .labels import load_batch, render_loaded
+from .labels import check_loaded, load_batch
 from .model_options import (
     command_overrides,
     loaded_config,
@@ -68,13 +69,14 @@ from .model_options import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Mapping
 
     from ....application.use_cases import BatchResult, RenderedJob
     from ....domain.camera import CameraSettings
     from ....domain.label import Label
     from ....domain.render_context import RenderOptions
     from ..context import CLIContext
+    from ..label_io import Records
 
 _DATA_HELP = "Data records (CSV, JSON array or JSON lines) filling {name} placeholders, one label each."
 
@@ -98,7 +100,7 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
         result = rendered.result
         uri = link.uri
         if not result.ok:
-            return _render_refused(result, verdict="REFUSED: nothing sent")
+            return _render_refused(result, verdict="REFUSED: nothing sent", settings=settings)
         open_printer = printer_opener(cli_ctx, settings)
         if link.one_way:
             # A one-way link cannot read the directory: the job goes out at once, as it always did.
@@ -106,7 +108,7 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
             sent, bytes_sent = result, report.bytes_sent
         else:
             job = CheckedJob(
-                renders=record_renders(label, records, options),
+                renders=result.renders() if isinstance(result, BatchReport) else record_renders(label, None, options),
                 check=_upload_check(settings, cli_ctx),
                 held=rendered.held or HeldImages(),
                 reset=_reset_check(settings),
@@ -114,27 +116,29 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
             try:
                 checked = print_checked(result, job, uri=uri, timeout=settings.timeout, open_printer=open_printer)
             except UploadRefusedError as exc:
-                return _upload_refused(exc, uri=uri)
+                return _upload_refused(exc, uri=uri, settings=settings)
             sent, bytes_sent = checked.result, checked.bytes_sent
-        payload = render_payload(sent, include_dpl=False, printer=uri, bytes_sent=bytes_sent)
-        human = "\n".join([f"sent {bytes_sent} bytes to {uri}", *_reported_lines(payload.findings)])
+        payload = render_payload(sent, include_dpl=False, sent=SentTo(uri, bytes_sent), settings=settings)
+        human = "\n".join([f"sent {bytes_sent} bytes to {uri}", *_reported_lines(payload)])
         return CommandResult(ok=True, payload=payload, human=human)
 
     run_command(ctx, command=CommandName.PRINT, body=body)
 
 
-def _render_refused(result: RenderResult | BatchResult, *, verdict: str) -> CommandResult:
+def _render_refused(
+    result: RenderResult | BatchResult | BatchReport, *, verdict: str, settings: PrinterSettings
+) -> CommandResult:
     """The result of a print or verify whose label has an error finding: nothing went out, and why."""
-    payload = render_payload(result, include_dpl=False)
+    payload = render_payload(result, include_dpl=False, settings=settings)
     errors = [finding for finding in payload.findings if finding.severity is Severity.ERROR]
-    return CommandResult(ok=False, payload=payload, human=f"{verdict}\n{findings_text(errors)}")
+    return CommandResult(ok=False, payload=payload, human=f"{verdict}\n{payload_findings_text(payload, errors)}")
 
 
-def _upload_refused(exc: UploadRefusedError, *, uri: str) -> CommandResult:
+def _upload_refused(exc: UploadRefusedError, *, uri: str, settings: PrinterSettings) -> CommandResult:
     """The result of a print or verify whose upload check refused a label: its findings, what was sent."""
-    payload = render_payload(exc.result, include_dpl=False, printer=uri, bytes_sent=exc.bytes_sent)
+    payload = render_payload(exc.result, include_dpl=False, sent=SentTo(uri, exc.bytes_sent), settings=settings)
     errors = [finding for finding in payload.findings if finding.severity is Severity.ERROR]
-    return CommandResult(ok=False, payload=payload, human=f"REFUSED: {exc}\n{findings_text(errors)}")
+    return CommandResult(ok=False, payload=payload, human=f"REFUSED: {exc}\n{payload_findings_text(payload, errors)}")
 
 
 def _upload_check(settings: PrinterSettings, cli_ctx: CLIContext) -> UploadCheck:
@@ -151,14 +155,22 @@ def _reset_check(settings: PrinterSettings) -> ResetCheck:
     )
 
 
-def _reported_lines(findings: list[FindingOut]) -> list[str]:
+def _reported_lines(payload: RenderPayload) -> list[str]:
     """The human view of a job that went out: every warning, and what a reset changed even as an info.
 
     A fallback the job took is what a reader would otherwise find only on the paper, and an extra
     label or a shift to expect after a reset is one too.
     """
+    text = payload_findings_text(payload, [f for f in payload.findings if _worth_telling(f)])
+    return [text] if text else []
+
+
+def _worth_telling(finding: FindingOut) -> bool:
     reset = (FindingCode.PRINTER_RESET_CALIBRATED, FindingCode.PRINTER_RESET_NOT_CALIBRATED)
-    told = [f for f in findings if f.severity is not Severity.INFO or f.code in reset]
+    return finding.severity is not Severity.INFO or finding.code in reset
+
+
+def _told_lines(told: list[FindingOut]) -> list[str]:
     return [findings_text(told)] if told else []
 
 
@@ -260,17 +272,19 @@ def _print_options(settings: PrinterSettings, *, link: _Link) -> RenderOptions:
 
 def _render_to_print(
     label: Label,
-    records: Sequence[Mapping[str, str]] | None,
+    records: Records | None,
     options: RenderOptions,
     settings: PrinterSettings,
     cli_ctx: CLIContext,
     *,
     link: _Link,
-) -> RenderedJob[RenderResult | BatchResult]:
+) -> RenderedJob[RenderResult | BatchReport]:
     """Render a job to be printed, reading the printer's stored image names where no clear precedes it.
 
-    The records are loaded once by the caller and every render uses them: ``--data -`` is stdin,
-    which cannot be read a second time. Returns the job and the names it was rendered with.
+    The records are loaded once by the caller and every pass goes over them: ``--data -`` is stdin,
+    which cannot be read a second time. A batch is gone over whole here, so that a bad record refuses
+    it before any byte goes to the printer, and comes back as a report holding no job. Returns the
+    job and the names it was rendered with.
     """
 
     def read(module: ImageModule) -> HeldImages:
@@ -283,7 +297,7 @@ def _render_to_print(
             one_way=link.one_way,
         )
 
-    return render_with_stored_names(lambda held: render_loaded(label, records, options, settings, held=held), read=read)
+    return render_with_stored_names(lambda held: check_loaded(label, records, options, settings, held=held), read=read)
 
 
 def wait_longer_hint(settings: PrinterSettings) -> str:
@@ -537,7 +551,7 @@ def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | 
         settings = resolve_settings(cli_ctx, PrinterOverrides(model=model))
         label = load_label(label_source)
         if data is not None:
-            label = fill_label(label, load_records(data)[0])
+            label = fill_label(label, next(iter(load_records(data))))
         profile = get_profile(settings.model)
         options = render_options(settings)
         limit = _preview_limit(cli_ctx)
@@ -629,7 +643,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
         result = rendered.result
         uri = link.uri
         if not isinstance(result, RenderResult) or not result.ok:
-            return _render_refused(result, verdict="REFUSED")
+            return _render_refused(result, verdict="REFUSED", settings=settings)
         folder = Path(output_dir)
         services = cli_ctx.services
         camera = _printable_camera(camera_settings(loaded_config(cli_ctx)))
@@ -659,7 +673,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
                 checked=checked,
             )
         except UploadRefusedError as exc:
-            return _upload_refused(exc, uri=uri)
+            return _upload_refused(exc, uri=uri, settings=settings)
         expected = folder / f"expected-{datetime.now(tz=timezone.utc):%Y%m%dT%H%M%S%fZ}.png"
         expected.write_bytes(report.expected_png)
         payload = VerifyPayload(
@@ -670,9 +684,8 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
             expected=str(expected),
             findings=[] if report.result is None else [FindingOut.of(f) for f in report.result.findings],
         )
-        human = "\n".join(
-            [f"photo:    {payload.photo}", f"expected: {payload.expected}", *_reported_lines(payload.findings)]
-        )
+        told = [f for f in payload.findings if _worth_telling(f)]
+        human = "\n".join([f"photo:    {payload.photo}", f"expected: {payload.expected}", *_told_lines(told)])
         return CommandResult(ok=True, payload=payload, human=human)
 
     run_command(ctx, command=CommandName.VERIFY, body=body)

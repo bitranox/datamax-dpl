@@ -127,6 +127,8 @@ PRINTER_NUMBERS = [
     "upload_check_rounds",
     "max_batch_records",
     "max_batch_job_bytes",
+    "max_reported_findings",
+    "max_reported_downloads",
     "verify_poll_interval",
     "one_way_settle",
     "send_chunk_bytes",

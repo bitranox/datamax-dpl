@@ -13,7 +13,7 @@ import orjson
 import rich_click as click
 from pydantic import BaseModel, ConfigDict
 
-from ....application.use_cases import BatchResult, render_batch, render_label
+from ....application.use_cases import BatchReport, BatchResult, check_batch, render_batch, render_label
 from ....domain.decoder import DecodedCommand, explain
 from ....domain.enums import ImageModule
 from ....domain.errors import BatchTooLargeError
@@ -22,15 +22,16 @@ from ....domain.profiles import Feature, PrinterProfile, SpeedRange, get_profile
 from ...config.sections import printer_section
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
-from ..label_io import STDIN, LabelInputError, load_label, load_records, read_input
-from ..payloads import RenderPayload, findings_text, render_payload
+from ..job_file import write_batch
+from ..label_io import STDIN, LabelInputError, Records, load_label, load_records, read_input
+from ..payloads import RenderPayload, payload_findings_text, render_payload
 from ..runner import CommandResult, run_command
-from ..settings import PrinterOverrides, render_options
+from ..settings import render_options, report_limits
 from ..typed_click import argument, option
 from .model_options import command_overrides, printer_choice_decorator, render_options_decorator, resolve_settings
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Iterable
 
     from ....domain.held_images import HeldImages
     from ....domain.render import RenderResult
@@ -42,21 +43,12 @@ _LABEL_HELP = "Label JSON file ('-' for stdin); 'datamax-dpl schema' prints its 
 _DATA_HELP = "Data records (CSV, JSON array or JSON lines) filling {name} placeholders, one label each."
 
 
-def build(
-    label_source: str, data: str | None, overrides: PrinterOverrides, cli_ctx: CLIContext
-) -> RenderResult | BatchResult:
-    """Load the label (and records) and render it with the printer settings ``overrides`` merge into."""
-    settings = resolve_settings(cli_ctx, overrides)
-    label = load_label(label_source)
-    records = None if data is None else load_batch(data, settings)
-    return render_loaded(label, records, render_options(settings), settings)
-
-
-def load_batch(source: str, settings: PrinterSettings) -> list[dict[str, str]]:
+def load_batch(source: str, settings: PrinterSettings) -> Records:
     """Read the records of a batch, one label each, up to ``[printer] max_batch_records``.
 
-    Refused here because a batch is rendered whole before anything is sent and costs far more than
-    its file; ``[printer] max_batch_job_bytes`` bounds the other factor, what each record costs.
+    Every record is parsed once here, so a bad file is refused before anything is rendered, and
+    none is kept: the bound is on time, since each record is rendered at least once. Memory does
+    not grow with them.
 
     Raises:
         LabelInputError: The file cannot be read or parsed, or holds no record or too many.
@@ -69,47 +61,52 @@ def load_batch(source: str, settings: PrinterSettings) -> list[dict[str, str]]:
     return records
 
 
-def render_loaded(
+def check_loaded(
     label: Label,
-    records: Sequence[Mapping[str, str]] | None,
+    records: Records | None,
     options: RenderOptions,
     settings: PrinterSettings,
     *,
     held: HeldImages | None = None,
-) -> RenderResult | BatchResult:
-    """Render an already loaded label (one per record when ``records`` are given).
+) -> RenderResult | BatchReport:
+    """Render an already loaded label, or go over its records one at a time keeping no job.
 
     A command that renders more than once, or needs the label itself as well as its rendering,
-    loads LABEL and its data once and calls this: loading again would read them a second time,
-    and stdin ('-') can be read only once.
+    loads LABEL and its data once and calls this: stdin ('-') can be read only once.
 
     Args:
         label: The label to render.
         records: Data records filling the placeholders, or None for one label.
         options: How to render (``render_options`` of the merged settings, or what a command
             makes of them).
-        settings: The merged settings, for ``max_batch_job_bytes`` and the name of its key.
+        settings: The merged settings, for how much of a batch its answer keeps.
         held: The image names the printer holds in the job's module; None when it was not asked.
 
     Returns:
-        The single render, or the batch when ``records`` are given.
-
-    Raises:
-        BatchTooLargeError: The batch's jobs passed ``max_batch_job_bytes``; the message names the key.
+        The single render, or the batch's report when ``records`` are given.
     """
     if records is None:
         return render_label(label, options, held=held)
+    return check_batch(label, records, options, held=held, limits=report_limits(settings))
+
+
+def _batch_held_whole(label: Label, records: Records, options: RenderOptions, settings: PrinterSettings) -> BatchResult:
+    """Render a batch whose answer is its job, the one path that holds it all.
+
+    Raises:
+        BatchTooLargeError: The jobs passed ``max_batch_job_bytes``; the message names the key.
+    """
     try:
-        return render_batch(label, records, options, held=held, max_job_bytes=settings.max_batch_job_bytes)
+        return render_batch(label, records, options, max_job_bytes=settings.max_batch_job_bytes)
     except BatchTooLargeError as exc:
         key = printer_section(settings.name).setting("max_batch_job_bytes")
-        raise BatchTooLargeError(f"{exc}; a larger job needs {key}") from None
+        raise BatchTooLargeError(f"{exc}; holding a larger job needs {key}, and -o FILE needs no limit") from None
 
 
 def _human(payload: RenderPayload, *, show_dpl: bool) -> str:
     parts = [f"model {payload.model}, {payload.records} label(s), {payload.fields} field(s), {payload.bytes} bytes"]
     if payload.findings:
-        parts.append(findings_text(payload.findings))
+        parts.append(payload_findings_text(payload))
     if show_dpl and payload.dpl:
         parts.append(payload.dpl.replace("<CR>", "<CR>\n").rstrip("\n"))
     if payload.output:
@@ -132,28 +129,51 @@ def cli_render(ctx: click.Context, label_source: str, data: str | None, output: 
     """
 
     def body(cli_ctx: CLIContext) -> CommandResult:
-        result = build(label_source, data, command_overrides(given), cli_ctx)
+        settings = resolve_settings(cli_ctx, command_overrides(given))
+        label = load_label(label_source)
+        records = None if data is None else load_batch(data, settings)
+        result = _rendered(label, records, settings, output=output, raw_stdout_allowed=not cli_ctx.mode.machine)
         written = output if output is not None and result.ok else None
-        if written is not None:
-            _write_output(written, result.data, raw_stdout_allowed=not cli_ctx.mode.machine)
-        payload = render_payload(result, include_dpl=output is None, output=written)
+        payload = render_payload(result, include_dpl=output is None, output=written, settings=settings)
         if output == STDIN:
             # The job owns stdout, so what a reader must know about it goes to stderr, refused or not.
-            return CommandResult(ok=result.ok, payload=payload, notes=findings_text(payload.findings))
+            return CommandResult(ok=result.ok, payload=payload, notes=payload_findings_text(payload))
         return CommandResult(ok=result.ok, payload=payload, human=_human(payload, show_dpl=output is None))
 
     run_command(ctx, command=CommandName.RENDER, body=body)
 
 
-def _write_output(output: str, data: bytes, *, raw_stdout_allowed: bool) -> None:
+def _rendered(
+    label: Label, records: Records | None, settings: PrinterSettings, *, output: str | None, raw_stdout_allowed: bool
+) -> RenderResult | BatchResult | BatchReport:
+    """Render for ``render``, writing the job when it is ok: as it goes for a batch that has somewhere to go."""
+    options = render_options(settings)
+    if records is None:
+        result = render_label(label, options)
+        if output is not None and result.ok:
+            _write_output(output, (result.data,), raw_stdout_allowed=raw_stdout_allowed)
+        return result
+    if output is None:
+        return _batch_held_whole(label, records, options, settings)
+    limits = report_limits(settings)
+    if output != STDIN:
+        return write_batch(output, lambda each: check_batch(label, records, options, limits=limits, each=each))
+    report = check_batch(label, records, options, limits=limits)
+    if report.ok:
+        _write_output(output, report.record_jobs(), raw_stdout_allowed=raw_stdout_allowed)
+    return report
+
+
+def _write_output(output: str, jobs: Iterable[bytes], *, raw_stdout_allowed: bool) -> None:
     if output == STDIN:
         if not raw_stdout_allowed:
             msg = "--output - cannot be combined with --json: stdout carries the envelope"
             raise ValueError(msg)
-        sys.stdout.buffer.write(data)
+        for job in jobs:
+            sys.stdout.buffer.write(job)
         sys.stdout.buffer.flush()
         return
-    Path(output).write_bytes(data)
+    Path(output).write_bytes(b"".join(jobs))
 
 
 @click.command("validate", context_settings=CLICK_CONTEXT_SETTINGS)
@@ -166,8 +186,11 @@ def cli_validate(ctx: click.Context, label_source: str, data: str | None, **give
     """Check a label against a printer model without printing; exit 1 on an error finding."""
 
     def body(cli_ctx: CLIContext) -> CommandResult:
-        result = build(label_source, data, command_overrides(given), cli_ctx)
-        payload = render_payload(result, include_dpl=False)
+        settings = resolve_settings(cli_ctx, command_overrides(given))
+        label = load_label(label_source)
+        records = None if data is None else load_batch(data, settings)
+        result = check_loaded(label, records, render_options(settings), settings)
+        payload = render_payload(result, include_dpl=False, settings=settings)
         verdict = "OK" if result.ok else "REFUSED"
         human = f"{verdict}: {_human(payload, show_dpl=False)}"
         return CommandResult(ok=result.ok, payload=payload, human=human)
@@ -354,13 +377,13 @@ def cli_capabilities(ctx: click.Context, model: str) -> None:
 
 
 __all__ = [
-    "build",
     "capabilities_payload",
+    "check_loaded",
     "cli_capabilities",
     "cli_explain",
     "cli_models",
     "cli_render",
     "cli_schema",
     "cli_validate",
-    "render_loaded",
+    "load_batch",
 ]

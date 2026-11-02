@@ -37,7 +37,8 @@ def test_render_batch_stops_at_the_limit_without_rendering_the_rest() -> None:
     seen: list[int] = []
     with pytest.raises(BatchTooLargeError, match=r"at data record 3"):
         render_batch(label, _one_field_records(1000, seen=seen), _DMX, max_job_bytes=2 * one + 1)
-    assert seen == [0, 1, 2]
+    # The record that passed the limit, and the one read ahead to know whether it was the last.
+    assert seen == [0, 1, 2, 3]
 
 
 @pytest.mark.os_agnostic
@@ -55,23 +56,44 @@ def test_a_library_caller_sets_no_limit_by_default() -> None:
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("command", ["validate", "render", "print"])
-def test_the_command_line_refuses_a_batch_past_the_key_naming_it(
-    cli_runner: CliRunner, tmp_path: Path, command: str
-) -> None:
-    label = tmp_path / "label.json"
-    label.write_text(Label(elements=[Text(x=10, y=10, text="{a}")]).model_dump_json(), encoding="utf-8")
-    data = tmp_path / "data.csv"
-    data.write_text("a\n" + "x\n" * 50, encoding="utf-8")
-    target = tmp_path / "job.dpl"
-    printer = ["--printer", f"file:{target}"] if command == "print" else []
-    args = ["--json-bare", "--set", "printer.max_batch_job_bytes=100", command, str(label), "--data", str(data)]
-    result = cli_runner.invoke(cli_mod.cli, [*args, "--model", "dmx-600", *printer], obj=build_testing)
+def test_render_holding_the_job_refuses_a_batch_past_the_key_naming_it(cli_runner: CliRunner, tmp_path: Path) -> None:
+    result = cli_runner.invoke(cli_mod.cli, _limited(tmp_path, "render"), obj=build_testing)
     assert result.exit_code == 2, result.output
     document = json.loads(result.stdout)
     assert document["error"] == "BatchTooLargeError"
     assert "[printer] max_batch_job_bytes" in document["message"]
-    assert not target.exists()
+    assert "-o FILE" in document["message"]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("command", "extra"),
+    [
+        ("validate", ()),
+        ("render", ("-o", "{target}")),
+        ("print", ("--printer", "file:{target}")),
+    ],
+)
+def test_a_command_holding_no_job_is_not_bound_by_the_key(
+    cli_runner: CliRunner, tmp_path: Path, command: str, extra: tuple[str, ...]
+) -> None:
+    target = tmp_path / "job.dpl"
+    args = [*_limited(tmp_path, command), *(part.format(target=target) for part in extra)]
+    result = cli_runner.invoke(cli_mod.cli, args, obj=build_testing)
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["data"]["records"] == 50
+    if command == "render":
+        assert target.stat().st_size > 100
+
+
+def _limited(tmp_path: Path, command: str) -> list[str]:
+    """A command line over 50 records, whose job is far past a 100-byte ``max_batch_job_bytes``."""
+    label = tmp_path / "label.json"
+    label.write_text(Label(elements=[Text(x=10, y=10, text="{a}")]).model_dump_json(), encoding="utf-8")
+    data = tmp_path / "data.csv"
+    data.write_text("a\n" + "x\n" * 50, encoding="utf-8")
+    limit = ["--json-bare", "--set", "printer.max_batch_job_bytes=100"]
+    return [*limit, command, str(label), "--data", str(data), "--model", "dmx-600"]
 
 
 @pytest.mark.os_agnostic

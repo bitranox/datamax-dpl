@@ -152,23 +152,39 @@ timeout = 10.0
 # upload_check_rounds = 3
 
 # Purpose: Most records one --data batch of 'render', 'validate' or 'print' may
-#          hold. A batch is rendered whole before anything is sent and costs far
-#          more than its file, so more than this is refused (exit 2) first.
+#          hold; more is refused (exit 2) first. A bound on time, not on memory:
+#          each record is rendered once to check it and again to send it.
 # Type: integer, greater than 0, at most 10000000
 # Default: 100000
 # Environment Variable: DATAMAX_DPL___PRINTER__MAX_BATCH_RECORDS=500000
 # max_batch_records = 100000
 
-# Purpose: Most bytes the jobs of one --data batch of 'render', 'validate' or
-#          'print' may come to. The record limit bounds one factor of what a
-#          batch costs; this one bounds the product, since a label of hundreds
-#          of large fields comes to more than a megabyte per record. Past it the
-#          command stops with exit 2 without rendering the rest. The default
-#          leaves room for 100000 records of a one-field label (about 430 MB).
+# Purpose: Most bytes the jobs of one --data batch of 'render' with no -o may
+#          come to: the one command that holds the whole job, because its answer
+#          is the job. A label of hundreds of large fields comes to more than a
+#          megabyte per record. Past it the command stops with exit 2 without
+#          rendering the rest; 'render -o FILE', 'validate' and 'print' hold no
+#          job. The default leaves room for 100000 records of a one-field label
+#          (about 430 MB).
 # Type: integer, greater than 0, at most 1099511627776 (bytes)
 # Default: 1073741824
 # Environment Variable: DATAMAX_DPL___PRINTER__MAX_BATCH_JOB_BYTES=268435456
 # max_batch_job_bytes = 1073741824
+
+# Purpose: How many findings a --data batch's answer shows in full; the answer
+#          counts all of them, per code and in total, and says so when it cuts.
+#          The first error is always shown, and any error refuses the job.
+# Type: integer, greater than 0, at most 100000000
+# Default: 1000
+# Environment Variable: DATAMAX_DPL___PRINTER__MAX_REPORTED_FINDINGS=5000
+# max_reported_findings = 1000
+
+# Purpose: How many downloaded image names a --data batch's answer lists; the
+#          answer counts all of them, and says so when it cuts.
+# Type: integer, greater than 0, at most 100000000
+# Default: 1000
+# Environment Variable: DATAMAX_DPL___PRINTER__MAX_REPORTED_DOWNLOADS=5000
+# max_reported_downloads = 1000
 
 # Purpose: Largest piece of a job handed to one write, over tcp and serial. The
 #          timeout bounds each piece rather than the whole job, so it means the

@@ -101,7 +101,10 @@ def test_a_quoted_field_may_still_span_lines(tmp_path: Path) -> None:
     records = tmp_path / "ok.csv"
     # Bytes, because write_text turns \n into \r\n on Windows and a quoted field keeps its line ending.
     records.write_bytes(b'name,sku\n"two\nlines",A1\nplain,"say ""hi"""\n')
-    assert load_records(str(records)) == [{"name": "two\nlines", "sku": "A1"}, {"name": "plain", "sku": 'say "hi"'}]
+    assert list(load_records(str(records))) == [
+        {"name": "two\nlines", "sku": "A1"},
+        {"name": "plain", "sku": 'say "hi"'},
+    ]
 
 
 # ======================== the input size cap ========================
