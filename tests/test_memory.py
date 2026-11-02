@@ -8,7 +8,7 @@ import pytest
 
 from datamax_dpl.adapters.memory import PrinterOpen, RecordingPrinter, open_recording_printer
 from datamax_dpl.application.use_cases import read_memory_directory
-from datamax_dpl.domain.enums import MemoryKind
+from datamax_dpl.domain.enums import ImageModule, MemoryKind
 from datamax_dpl.domain.errors import PrinterTimeoutError, UnsupportedOperationError
 from datamax_dpl.domain.memory import MODULE_LETTERS, MemoryModule, parse_module_directory
 from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS
@@ -19,8 +19,8 @@ MANUAL_SAMPLE = (
     b"MODULE: A\rAVAILABLE BYTES IN MODULE:00049083\rMODULE: B\rLOGO\rCAM\rAVAILABLE BYTES IN MODULE:00257919\r"
 )
 MANUAL_MODULES = (
-    MemoryModule(module="A", names=(), available_bytes=49083),
-    MemoryModule(module="B", names=("LOGO", "CAM"), available_bytes=257919),
+    MemoryModule(letter="A", names=(), available_bytes=49083),
+    MemoryModule(letter="B", names=("LOGO", "CAM"), available_bytes=257919),
 )
 PRINTER = "tcp://192.0.2.60:9100"
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -109,7 +109,7 @@ def test_a_real_allegro2_answer_parses_with_its_free_bytes(kind: MemoryKind, nam
     raw = (FIXTURES / f"memory_allegro2_{kind.value}.txt").read_bytes()
     directory = parse_module_directory(raw, kind=kind)
     assert directory.parsed
-    assert directory.modules == (MemoryModule(module="A", names=names, available_bytes=48631),)
+    assert directory.modules == (MemoryModule(letter="A", names=names, available_bytes=48631),)
 
 
 @pytest.mark.os_agnostic
@@ -132,7 +132,7 @@ def test_the_fixtures_keep_the_printers_bytes() -> None:
 def test_the_free_bytes_header_allows_blanks_around_the_colon_and_any_case(header: bytes) -> None:
     directory = parse_module_directory(b"MODULE: A\rLOGO\r" + header + b"00048631\r", kind=MemoryKind.GRAPHIC)
     assert directory.parsed
-    assert directory.modules == (MemoryModule(module="A", names=("LOGO",), available_bytes=48631),)
+    assert directory.modules == (MemoryModule(letter="A", names=("LOGO",), available_bytes=48631),)
 
 
 @pytest.mark.os_agnostic
@@ -148,21 +148,21 @@ def test_the_free_bytes_header_allows_blanks_around_the_colon_and_any_case(heade
 def test_a_free_bytes_line_that_cannot_be_read_unparses_the_directory_and_is_no_name(line: bytes) -> None:
     directory = parse_module_directory(b"MODULE: A\rLOGO\r" + line + b"\r", kind=MemoryKind.GRAPHIC)
     assert not directory.parsed
-    assert directory.modules == (MemoryModule(module="A", names=("LOGO",), available_bytes=None),)
+    assert directory.modules == (MemoryModule(letter="A", names=("LOGO",), available_bytes=None),)
 
 
 @pytest.mark.os_agnostic
 def test_a_module_without_its_free_bytes_unparses_the_directory() -> None:
     directory = parse_module_directory(MANUAL_SAMPLE + b"MODULE: C\rSHIP\r", kind=MemoryKind.FORMAT)
     assert not directory.parsed
-    assert directory.modules[-1] == MemoryModule(module="C", names=("SHIP",), available_bytes=None)
+    assert directory.modules[-1] == MemoryModule(letter="C", names=("SHIP",), available_bytes=None)
 
 
 @pytest.mark.os_agnostic
 def test_a_free_bytes_header_with_no_number_after_it_unparses_the_directory() -> None:
     directory = parse_module_directory(b"MODULE: A\rAVAILABLE BYTES IN MODULE:\r", kind=MemoryKind.GRAPHIC)
     assert not directory.parsed
-    assert directory.modules == (MemoryModule(module="A", names=(), available_bytes=None),)
+    assert directory.modules == (MemoryModule(letter="A", names=(), available_bytes=None),)
 
 
 @pytest.mark.os_agnostic
@@ -272,7 +272,7 @@ def test_a_module_letter_outside_a_to_e_is_unparsed(letter: bytes) -> None:
 def test_the_module_line_allows_blanks_around_the_colon(header: bytes) -> None:
     directory = parse_module_directory(header + b"\rAVAILABLE BYTES IN MODULE : 00048631\r", kind=MemoryKind.FONT)
     assert directory.parsed
-    assert directory.modules == (MemoryModule(module="A", names=(), available_bytes=48631),)
+    assert directory.modules == (MemoryModule(letter="A", names=(), available_bytes=48631),)
 
 
 @pytest.mark.os_agnostic
@@ -336,7 +336,7 @@ def test_a_name_that_only_starts_like_a_module_header_is_kept() -> None:
         b"MODULE: A\rMODULES\rAVAILABLE BYTES IN MODULE : 00048631\r", kind=MemoryKind.GRAPHIC
     )
     assert directory.parsed
-    assert directory.modules == (MemoryModule(module="A", names=("MODULES",), available_bytes=48631),)
+    assert directory.modules == (MemoryModule(letter="A", names=("MODULES",), available_bytes=48631),)
 
 
 #: Characters Unicode counts as blanks that the printer's blanks (space and tab) are not:
@@ -391,4 +391,31 @@ def test_a_module_letter_the_manual_does_not_know_leaves_the_directory_unparsed(
     answer = b"MODULE: F\rLOGO\rAVAILABLE BYTES IN MODULE:00049083\r"
     directory = parse_module_directory(answer, kind=MemoryKind.GRAPHIC)
     assert directory.parsed is False
-    assert [module.module for module in directory.modules] == ["F"]
+    assert [(module.letter, module.module) for module in directory.modules] == [("F", None)]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("letter", ["A", "B", "C", "D", "E"])
+def test_a_module_letter_the_manual_knows_is_parsed_to_its_image_module(letter: str) -> None:
+    answer = f"MODULE: {letter}\rLOGO\rAVAILABLE BYTES IN MODULE:00049083\r".encode("ascii")
+    (entry,) = parse_module_directory(answer, kind=MemoryKind.GRAPHIC).modules
+    assert type(entry.module) is ImageModule
+    assert entry.module is ImageModule(letter)
+    assert entry.letter == letter
+
+
+@pytest.mark.os_agnostic
+def test_a_lower_case_module_letter_reads_as_the_module_it_names() -> None:
+    (entry,) = parse_module_directory(
+        b"MODULE: b\rLOGO\rAVAILABLE BYTES IN MODULE:00049083\r", kind=MemoryKind.GRAPHIC
+    ).modules
+    assert (entry.letter, entry.module) == ("B", ImageModule.B)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("letter", ["B", "F", "AB"])
+def test_a_module_dumps_its_letter_as_the_printer_sent_it_under_the_key_module(letter: str) -> None:
+    entry = MemoryModule(letter=letter, names=("LOGO",), available_bytes=49083)
+    assert entry.model_dump_json() == f'{{"module":"{letter}","names":["LOGO"],"available_bytes":49083}}'
+    assert entry.model_dump(mode="json") == {"module": letter, "names": ["LOGO"], "available_bytes": 49083}
+    assert MemoryModule.model_validate_json(entry.model_dump_json()) == entry

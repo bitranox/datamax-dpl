@@ -161,8 +161,8 @@ def held_images_from(directory: MemoryDirectory, *, module: ImageModule) -> Held
         return HeldImages(unread_because="the printer's directory answer could not be read")
     if directory.no_modules_available:
         return HeldImages(unread_because=f'the printer answered "No Modules Available" ({NO_MODULES_MEANING})')
-    # The directory's letters are the printer's own text, kept as read even outside A-E.
-    listings = [entry.names for entry in directory.modules if entry.module == module.value]
+    # A letter outside A-E names no module, so it matches none; a parsed directory has none anyway.
+    listings = [entry.names for entry in directory.modules if entry.module == module]
     if not listings:
         return HeldImages(unread_because=f"the printer's directory answer did not list module {module.value}")
     return HeldImages(listed=frozenset(name for listing in listings for name in listing))

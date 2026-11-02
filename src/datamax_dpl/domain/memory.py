@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .enums import ImageModule, MemoryKind
 
@@ -62,18 +62,36 @@ _NAME = re.compile(rf"[\x20-\x7e]{{1,{MAX_NAME_LENGTH}}}")
 _FLOW_CONTROL = {0x11: None, 0x13: None}
 
 
-class MemoryModule(BaseModel, frozen=True, extra="forbid"):
+class MemoryModule(BaseModel, frozen=True, extra="forbid", serialize_by_alias=True, validate_by_name=True):
     """One module of a directory.
 
     Attributes:
-        module: The module letter (``A`` to ``E``, see the manual's Appendix L).
+        letter: The module letter as the printer sent it, upper-cased. It is kept as text even
+            outside ``A`` to ``E`` (the manual's Appendix L), so a garbled one stays visible; the
+            directory's JSON names it ``module``.
         names: The names of the stored items of the asked kind, in the printer's order.
         available_bytes: Free bytes in the module, or None when the answer did not say.
+
+    Example:
+        >>> MemoryModule(letter="B", names=("LOGO",), available_bytes=49083).module
+        <ImageModule.B: 'B'>
+        >>> MemoryModule(letter="F", names=(), available_bytes=49083).module is None
+        True
     """
 
-    module: str
+    # The wire key stays "module" both ways, as the memory command's JSON has always named it;
+    # validate_by_name keeps "letter" the constructor keyword.
+    letter: str = Field(validation_alias="module", serialization_alias="module")
     names: tuple[str, ...]
     available_bytes: int | None
+
+    @property
+    def module(self) -> ImageModule | None:
+        """The module :attr:`letter` names, or None for a letter outside ``A`` to ``E``.
+
+        Derived from the letter rather than stored beside it, so the two can never disagree.
+        """
+        return ImageModule(self.letter) if self.letter in MODULE_LETTERS else None
 
 
 class MemoryDirectory(BaseModel, frozen=True, extra="forbid"):
@@ -146,7 +164,7 @@ def parse_module_directory(raw: bytes, *, kind: MemoryKind) -> MemoryDirectory:
     ended = _ENDED.search(text) is not None
     modules = tuple(_module(block, ended=ended or i < len(blocks) - 1) for i, block in enumerate(blocks))
     no_modules = any(_NO_MODULES.fullmatch(line) for line in lines)
-    letters = [module.module for module in modules]
+    letters = [module.letter for module in modules]
     parsed = (
         not _garbled_header(lines, ended=ended)
         and (bool(modules) != no_modules)
@@ -165,7 +183,7 @@ def parse_module_directory(raw: bytes, *, kind: MemoryKind) -> MemoryDirectory:
 def _within_limits(module: MemoryModule) -> bool:
     """Whether ``module`` keeps to the manual: letter A-E, free bytes read, names it allows."""
     return (
-        module.module in MODULE_LETTERS
+        module.module is not None
         and module.available_bytes is not None
         and all(_NAME.fullmatch(name) for name in module.names)
     )
@@ -209,8 +227,8 @@ def _module(block: list[str], *, ended: bool) -> MemoryModule:
     for index, line in enumerate(rest):
         if _AVAILABLE_START.match(line):
             free = _free_bytes(rest, index, ended=ended)
-            return MemoryModule(module=letter, names=tuple(rest[:index]), available_bytes=free)
-    return MemoryModule(module=letter, names=tuple(rest), available_bytes=None)
+            return MemoryModule(letter=letter, names=tuple(rest[:index]), available_bytes=free)
+    return MemoryModule(letter=letter, names=tuple(rest), available_bytes=None)
 
 
 def _free_bytes(rest: list[str], index: int, *, ended: bool) -> int | None:

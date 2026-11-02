@@ -355,7 +355,7 @@ def _directory_lines(directories: tuple[MemoryDirectory, ...]) -> list[str]:
             lines.append(f"  printer reports no modules available ({NO_MODULES_MEANING})")
         for module in directory.modules:
             free = "unknown" if module.available_bytes is None else str(module.available_bytes)
-            lines.append(f"  module {module.module}: {free} bytes free")
+            lines.append(f"  module {module.letter}: {free} bytes free")
             lines.extend(f"    {name}" for name in module.names)
     return lines
 
