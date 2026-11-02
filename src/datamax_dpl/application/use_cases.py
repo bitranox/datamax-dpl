@@ -51,6 +51,7 @@ from ..domain.status import (
     is_status_line,
     parse_ascii_status,
     parse_memory_report,
+    parse_serial_test,
     parse_version,
 )
 from ..domain.timing import MAX_ANSWER_SECONDS, TimeoutName, check_timeout
@@ -873,7 +874,7 @@ def detect_printer(*, uri: str, timeout: float, open_printer: OpenPrinter) -> De
         version = _ask(printer, VERSION_REQUEST, timeout=timeout)
         memory = _ask(printer, MEMORY_REQUEST, timeout=timeout, lines=MEMORY_REPORT_LINES)
     evidence = Evidence(
-        serial_test=None if serial is None else serial.strip().startswith(b"Y"),
+        serial_test=None if serial is None else parse_serial_test(serial),
         version=None if version is None else parse_version(version),
         memory=None if memory is None else parse_memory_report(memory),
     )

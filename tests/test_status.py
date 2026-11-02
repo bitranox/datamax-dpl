@@ -28,6 +28,7 @@ from datamax_dpl.domain.status import (
     parse_ascii_status,
     parse_batch_remaining,
     parse_memory_report,
+    parse_serial_test,
     parse_status_byte,
     parse_version,
 )
@@ -327,6 +328,21 @@ def test_a_version_outside_printable_ascii_is_refused(answer: bytes) -> None:
 def test_a_bel_before_the_version_is_named() -> None:
     with pytest.raises(PrinterProtocolError, match="bad image download"):
         parse_version(b"\x07VER DA - 01.01\r")
+
+
+# --- <STX>k -------------------------------------------------------------------------------------
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("answer", [b"Y", b"Y\r", b" Y\r\n", b"\tYes"])
+def test_a_serial_test_answer_starting_with_y_passes(answer: bytes) -> None:
+    assert parse_serial_test(answer) is True
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("answer", [b"", b"N", b"N\r", b"y", b"\x11Y", b"?Y"])
+def test_any_other_serial_test_answer_fails_without_an_error(answer: bytes) -> None:
+    assert parse_serial_test(answer) is False
 
 
 # --- <STX>KQ -----------------------------------------------------------------------------------

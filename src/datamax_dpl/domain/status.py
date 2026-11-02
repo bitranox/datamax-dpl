@@ -334,6 +334,27 @@ def parse_version(answer: bytes) -> str:
     return body.decode("ascii")
 
 
+def parse_serial_test(answer: bytes) -> bool:
+    """Read the ``<STX>k`` answer: whether the printer passed the serial port test.
+
+    The manual's answer is a bare ``Y`` with no terminator, so the test passes when the answer,
+    without surrounding whitespace, starts with ``Y``. Anything else is False rather than an
+    error: detection only collects evidence, and a garbled answer still says the port is not one
+    that answers ``Y``.
+
+    Args:
+        answer: The bytes the printer sent.
+
+    Returns:
+        True when the answer starts with ``Y``.
+
+    Example:
+        >>> parse_serial_test(b"Y"), parse_serial_test(b" Y\\r\\n"), parse_serial_test(b"N\\r")
+        (True, True, False)
+    """
+    return answer.strip().startswith(bytes([_YES]))
+
+
 def parse_memory_report(answer: bytes) -> MemoryReport:
     """Parse the ``<STX>KQ`` answer, a block of ``KEY: value`` lines.
 
@@ -518,6 +539,7 @@ __all__ = [
     "parse_ascii_status",
     "parse_batch_remaining",
     "parse_memory_report",
+    "parse_serial_test",
     "parse_status_byte",
     "parse_version",
     "show_answer",
