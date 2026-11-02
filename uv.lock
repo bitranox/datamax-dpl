@@ -13,6 +13,7 @@ exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for 
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
+grimp = "2026-09-11T10:36:50Z"
 lib-cli-exit-tools = false
 lib-layered-config = false
 lib-log-rich = false
