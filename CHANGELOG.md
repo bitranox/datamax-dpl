@@ -322,6 +322,8 @@ All notable changes to this project are documented here. The format follows
   following the `[printer]` hint changed nothing for a named printer that sets
   its own. A named printer with no `uri` says so (`printer 'lager' has no uri:
   ...`) rather than `no printer given`.
+- The sdist carries `tests/fixtures`, `scripts` and the root `conftest.py`:
+  its test suite could not run from an unpacked sdist (43 failed, 49 errors).
 
 ## [0.4.0] - 2026-10-30
 

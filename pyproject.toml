@@ -122,6 +122,9 @@ include = [
 include = [
     "/src/datamax_dpl",
     "/tests/*.py",
+    "/tests/fixtures",
+    "/scripts",
+    "/conftest.py",
     "/docs",
     "/README.md",
     "/CONFIG.md",

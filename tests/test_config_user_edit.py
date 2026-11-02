@@ -126,4 +126,4 @@ def test_the_written_value_is_what_the_next_configuration_load_reads(clear_confi
 
 @pytest.mark.os_agnostic
 def test_the_config_sections_are_spelled_as_the_file_spells_them() -> None:
-    assert [section.value for section in ConfigSection] == ["printer", "printers", "camera"]
+    assert [section.value for section in ConfigSection] == ["printer", "printers", "camera", "preview"]

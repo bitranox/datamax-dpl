@@ -32,6 +32,8 @@ ALLOWED_TOP_LEVEL = frozenset(
         "CHANGELOG.md",
         "CONFIG.md",
         ".gitignore",
+        "conftest.py",
+        "scripts",
         "src",
         "tests",
         "docs",
@@ -60,9 +62,9 @@ def _copy_tree_with_decoys(destination: Path) -> Path:
     """Copy the buildable tree and plant the files a working tree carries but must not ship."""
     root = destination / "tree"
     root.mkdir()
-    for name in ("pyproject.toml", "README.md", "LICENSE", "CHANGELOG.md", "CONFIG.md", ".gitignore"):
+    for name in ("pyproject.toml", "README.md", "LICENSE", "CHANGELOG.md", "CONFIG.md", ".gitignore", "conftest.py"):
         shutil.copy2(PROJECT_ROOT / name, root / name)
-    for name in ("src", "docs", "tests"):
+    for name in ("src", "docs", "tests", "scripts"):
         shutil.copytree(PROJECT_ROOT / name, root / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     for decoy in DECOY_FILES:
         path = root / decoy
@@ -117,6 +119,17 @@ def test_the_sdist_holds_only_allowlisted_top_level_entries(sdist_members: list[
 
     assert not unexpected, f"the sdist ships files outside the allowlist: {unexpected}"
     assert not missing, f"the sdist lacks required entries: {missing}"
+
+
+@pytest.mark.os_agnostic
+def test_the_sdist_carries_what_its_test_suite_reads(sdist_members: list[str]) -> None:
+    """A packager runs the suite from the sdist: 43 tests failed and 49 errored without these."""
+    fixtures = [path for path in (PROJECT_ROOT / "tests" / "fixtures").rglob("*") if path.is_file()]
+    scripts = list((PROJECT_ROOT / "scripts").glob("*.py"))
+    assert fixtures, "no fixture found, so nothing below would be judged"
+    assert scripts, "no script found, so nothing below would be judged"
+    needed = {path.relative_to(PROJECT_ROOT).as_posix() for path in (*fixtures, *scripts)} | {"conftest.py"}
+    assert not needed - set(sdist_members)
 
 
 @pytest.mark.os_agnostic
