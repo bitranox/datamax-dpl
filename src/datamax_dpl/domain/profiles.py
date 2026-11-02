@@ -19,6 +19,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, NamedTuple, TypeVar
 
 from pydantic import BeforeValidator
+from pydantic_core import PydanticCustomError
 
 from .enums import HardwareOption, ImageModule, ModelFamily, SpeedCode
 from .frozen_mapping import FrozenMapping
@@ -1170,14 +1171,16 @@ def _firmware_field(value: object) -> object:
     """Parse the text a model is given for a firmware field; a :class:`Firmware` passes unchanged.
 
     Raises:
-        ValueError: The value is neither text nor a :class:`Firmware` (worded as pydantic words it
-            for the plain ``str`` field this replaced), or the text is malformed; pydantic reports
-            either as a ``value_error`` whose cause carries this sentence.
+        PydanticCustomError: The value is neither text nor a :class:`Firmware`. It is raised as
+            pydantic's own ``string_type`` error, so a caller sees exactly what the plain ``str``
+            field this replaced reported; a ``ValueError`` would surface as ``value_error`` with a
+            "Value error, " prefix.
+        ValueError: The text is malformed; pydantic reports it as a ``value_error``.
     """
     if value is None or isinstance(value, Firmware):
         return value
     if not isinstance(value, str):
-        raise ValueError("Input should be a valid string")
+        raise PydanticCustomError("string_type", "Input should be a valid string")
     return parse_firmware(value)
 
 

@@ -14,6 +14,8 @@ dependencies = [
     "python-dotenv>=1.2.4",
     "lib_layered_config>=7.7.0",
     "pydantic>=2.14.1",
+    # PydanticCustomError: a firmware field refuses a non-text value with pydantic's own string_type error.
+    "pydantic-core>=2.50.1",
     "orjson>=3.13.0",
     "pyserial>=3.5",
     # 'calibrate set' edits the user config.toml and must keep its comments and key order.

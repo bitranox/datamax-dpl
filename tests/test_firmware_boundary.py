@@ -69,8 +69,16 @@ def test_render_options_refuse_a_malformed_firmware_when_built(given: str) -> No
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("given", [2.01, 3, True, ["2.01"]])
 def test_render_options_take_firmware_text_not_a_number(given: object) -> None:
-    with pytest.raises(ValidationError, match="Input should be a valid string"):
+    """A non-text value is refused as pydantic refuses it for a plain ``str`` field, type and message alike."""
+    with pytest.raises(ValidationError) as caught:
         RenderOptions.model_validate({"firmware": given})
+
+    (error,) = caught.value.errors()
+    assert (error["loc"], error["type"], error["msg"]) == (
+        ("firmware",),
+        "string_type",
+        "Input should be a valid string",
+    )
 
 
 @pytest.mark.os_agnostic
