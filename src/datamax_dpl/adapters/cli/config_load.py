@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from traceback import format_exception
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 import rich_click as click
 from lib_layered_config import Config, ConfigError
@@ -36,6 +36,7 @@ from datamax_dpl.adapters.config.overrides import apply_overrides, nest_override
 from datamax_dpl.adapters.logging.setup import InvalidLoggingConfigError
 
 from . import safe_console
+from .envelope import CommandName, write_error_envelope
 from .exit_codes import ExitCode
 
 if TYPE_CHECKING:
@@ -187,6 +188,22 @@ def report_load_failure(error: Exception, *, show_traceback: bool) -> None:
         safe_console.echo(f"Error: {problem}", err=True)
 
 
+def fail_config_load(ctx: click.Context, cli_ctx: CLIContext, error: Exception) -> NoReturn:
+    """End the ``config`` command for a configuration that did not load: stderr, envelope, exit 78.
+
+    Args:
+        ctx: The running command's click context.
+        cli_ctx: The state the root group stored.
+        error: Why it did not load.
+
+    Raises:
+        click.exceptions.Exit: Always, with exit code 78.
+    """
+    report_load_failure(error, show_traceback=cli_ctx.traceback)
+    write_error_envelope(error, command=CommandName.CONFIG, mode=cli_ctx.mode)
+    ctx.exit(ExitCode.CONFIG_ERROR)
+
+
 def require_config(ctx: click.Context, cli_ctx: CLIContext) -> Config:
     """Return the configuration the root loaded, or end the command with exit 78.
 
@@ -202,8 +219,7 @@ def require_config(ctx: click.Context, cli_ctx: CLIContext) -> Config:
             the reason, after the loader's traceback when ``--traceback`` was given.
     """
     if cli_ctx.config_error is not None:
-        report_load_failure(cli_ctx.config_error, show_traceback=cli_ctx.traceback)
-        ctx.exit(ExitCode.CONFIG_ERROR)
+        fail_config_load(ctx, cli_ctx, cli_ctx.config_error)
     return cli_ctx.config
 
 
@@ -211,6 +227,7 @@ __all__ = [
     "ConfigLoad",
     "check_logging",
     "echo_load_traceback",
+    "fail_config_load",
     "load_config",
     "report_load_failure",
     "require_config",

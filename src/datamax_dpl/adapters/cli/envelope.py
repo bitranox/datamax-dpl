@@ -1,10 +1,11 @@
-"""The machine-readable answer every label and printer command gives, and the one place that writes it.
+"""The machine-readable answer every command gives, and the one place that writes it.
 
 ``--json`` prints an indented envelope, ``--json-bare`` the same on one line; in both modes stdout
 carries the envelope and nothing else, and narration goes to stderr. The shape is the one the
 sibling bitranox CLIs use, ``{ok, command, data, skipped}``, so an LLM driving several of them
 reads one format. Exit codes do not depend on the output mode: 0 done, 1 refused (the answer is
-no, for example a label with an error finding), 2 could not run.
+no, for example a label with an error finding), 2 could not run; ``info`` and the config commands
+keep their own codes (see :mod:`.exit_codes`).
 """
 
 from __future__ import annotations
@@ -41,10 +42,14 @@ class CommandName(str, Enum):
     CALIBRATE_SET = "calibrate set"
     CANCEL = "cancel"
     CAPTURE = "capture"
+    CONFIG = "config"
+    CONFIG_DEPLOY = "config-deploy"
+    CONFIG_GENERATE_EXAMPLES = "config-generate-examples"
     CUT = "cut"
     DETECT = "detect"
     EXPLAIN = "explain"
     FEED = "feed"
+    INFO = "info"
     MEMORY = "memory"
     MODELS = "models"
     PAUSE = "pause"
@@ -96,10 +101,13 @@ class Envelope(BaseModel, Generic[PayloadT]):
 
 
 class ErrorEnvelope(BaseModel):
-    """The answer when a command could not run or refused before producing a payload."""
+    """The answer when a command could not run or refused before producing a payload.
+
+    ``command`` is None when the command line named none: an unknown command, a bad global option.
+    """
 
     ok: bool = False
-    command: CommandName
+    command: CommandName | None
     error: str
     message: str
 
@@ -111,11 +119,16 @@ def write_envelope(document: BaseModel, *, mode: OutputMode) -> None:
     sys.stdout.flush()
 
 
+def write_error_envelope(exc: BaseException, *, command: CommandName | None, mode: OutputMode) -> None:
+    """Write the error envelope of ``exc`` in machine mode; human mode writes nothing."""
+    if mode.machine:
+        write_envelope(ErrorEnvelope(command=command, error=type(exc).__name__, message=str(exc)), mode=mode)
+
+
 def report_failure(exc: BaseException, *, command: CommandName, mode: OutputMode) -> None:
     """Report a failure: an error envelope on stdout in machine mode, one line on stderr always."""
     sys.stderr.write(f"Error: {exc}\n")
-    if mode.machine:
-        write_envelope(ErrorEnvelope(command=command, error=type(exc).__name__, message=str(exc)), mode=mode)
+    write_error_envelope(exc, command=command, mode=mode)
 
 
 __all__ = [
@@ -127,4 +140,5 @@ __all__ = [
     "OutputMode",
     "report_failure",
     "write_envelope",
+    "write_error_envelope",
 ]

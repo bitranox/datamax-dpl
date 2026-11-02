@@ -356,6 +356,14 @@ instead of `data`.
 | 1         | Refused: at least one finding is an error. Nothing was printed or written.                                     |
 | 2         | Could not run: unreadable or invalid label, unknown model, bad configuration, printer or camera not reachable. |
 
+`info` and the config commands answer in the same envelopes (`config`: the dict `config --format
+json` prints; `config-deploy` and `config-generate-examples`: the written paths under `paths`) and
+keep their own exit codes: `config` exits 22 for an unknown `--section` and 78 for a configuration
+that does not load, `config-deploy` 13 for a permission error, 78 for refused permission settings
+and 1 for any other failure, `config-generate-examples` 1. A usage error (a mistyped option, an
+unknown command) exits 2 and carries the click error's name in `error`; `command` is null when the
+command line named none.
+
 Finding codes are stable, so a script can react to `circle_rasterized` without parsing the
 message.
 

@@ -134,6 +134,19 @@ def get_cli_context(ctx: click.Context) -> CLIContext:
     return ctx.obj
 
 
+def output_mode(ctx: click.Context) -> OutputMode:
+    """The output shape the root stored; human for a command run without the root group.
+
+    Example:
+        >>> from unittest.mock import MagicMock
+        >>> ctx = MagicMock()
+        >>> ctx.obj = None
+        >>> output_mode(ctx).machine
+        False
+    """
+    return ctx.obj.mode if isinstance(ctx.obj, CLIContext) else HUMAN
+
+
 def apply_traceback_preferences(enabled: bool) -> None:
     """Synchronise shared traceback flags with the requested preference.
 
@@ -188,6 +201,7 @@ __all__ = [
     "TracebackState",
     "apply_traceback_preferences",
     "get_cli_context",
+    "output_mode",
     "restore_traceback_state",
     "snapshot_traceback_state",
     "store_cli_context",

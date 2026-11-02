@@ -25,6 +25,8 @@ if TYPE_CHECKING:
     from rich.console import Console
 
 _URL_KEY = "url"
+# What Config.get returns for a missing key, as a key may hold None.
+_ABSENT = object()
 
 
 def redact_url_password(url: str) -> str:
@@ -68,6 +70,31 @@ def _shown_config(config: Config) -> Config:
     return with_data(config, data)
 
 
+def config_view(config: Config, *, section: str | None = None) -> dict[str, Any]:
+    """What ``config --format json`` prints, as data: redacted, the whole tree or one section.
+
+    Args:
+        config: The loaded configuration.
+        section: A dotted section or key to show only that; None shows everything.
+
+    Returns:
+        The redacted tree, or ``{section: value}``.
+
+    Raises:
+        ValueError: If a section was requested that doesn't exist.
+
+    Example:
+        >>> config_view(Config({"camera": {"password": "x", "kind": "http"}}, {}), section="camera")
+        {'camera': {'password': '***REDACTED***', 'kind': 'http'}}
+    """
+    shown = _shown_config(config)
+    if section is None:
+        return shown.as_dict(redact=True)
+    if shown.get(section, default=_ABSENT) is _ABSENT:
+        raise ValueError(f"Section '{section}' not found")
+    return {section: shown.get_redacted(section)}
+
+
 def display_config(
     config: Config,
     *,
@@ -105,4 +132,4 @@ def display_config(
     _lib_display(_shown_config(config), output_format=lib_format, section=section, profile=profile, console=console)
 
 
-__all__ = ["display_config", "redact_url_password"]
+__all__ = ["config_view", "display_config", "redact_url_password"]

@@ -307,6 +307,16 @@ All notable changes to this project are documented here. The format follows
   into one field and printed it.
 - `explain` on a record cut short, as a truncated job holds, lists it in
   `problems`; a graphic record raised `IndexError`, exit 1 with no envelope.
+- Under `--json`/`--json-bare` a usage error (a mistyped option or value, an
+  unknown command, a missing argument) answers with an error envelope on
+  stdout, `error` naming the click exception (`BadParameter`, `NoSuchOption`,
+  ...), and keeps its usage text on stderr and exit 2; stdout was empty.
+  `--json` typed after the subcommand does not parse, and is answered the same
+  way. `ErrorEnvelope.command` may be null.
+- `info`, `config`, `config-deploy` and `config-generate-examples` honour
+  `--json` and `--json-bare`: they printed text. They keep their exit codes
+  13, 22, 78 and 1, now with an error envelope. `config` ignores `--format`
+  there.
 
 ## [0.4.0] - 2026-10-30
 

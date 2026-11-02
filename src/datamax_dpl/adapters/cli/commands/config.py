@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import click.exceptions as click_exceptions
 import lib_log_rich.runtime
@@ -26,23 +26,45 @@ from lib_layered_config import (
     ModeKind,
     generate_examples,
 )
+from pydantic import BaseModel, ConfigDict, RootModel
 
 from datamax_dpl import __init__conf__
+from datamax_dpl.adapters.config.display import config_view
 from datamax_dpl.adapters.config.loader import validate_profile
 from datamax_dpl.adapters.config.overrides import nest_overrides
 from datamax_dpl.domain.enums import DeployTarget, OutputFormat
+from datamax_dpl.domain.errors import ConfigurationError
 
 from .. import safe_console
-from ..config_load import check_logging, load_config, report_load_failure, require_config
+from ..config_load import check_logging, fail_config_load, load_config, require_config
 from ..constants import CLICK_CONTEXT_SETTINGS
-from ..context import CLIContext, get_cli_context
+from ..context import CLIContext, get_cli_context, output_mode
+from ..envelope import CommandName, Envelope, ErrorEnvelope, OutputMode, write_envelope, write_error_envelope
 from ..exit_codes import ExitCode
 from ..typed_click import get_current_context, option
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+class ConfigPayload(RootModel[dict[str, Any]]):
+    """Result of ``config``: the dict ``config --format json`` prints, redacted the same way."""
+
+
+class WrittenPaths(BaseModel):
+    """Result of ``config-deploy`` and ``config-generate-examples``: the files written."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    paths: list[str]
+
+
+def _answer_written(paths: Sequence[Path], *, command: CommandName, mode: OutputMode) -> None:
+    payload = WrittenPaths(paths=[str(path) for path in paths])
+    write_envelope(Envelope[WrittenPaths](ok=True, command=command, data=payload), mode=mode)
 
 
 @click.command("config", context_settings=CLICK_CONTEXT_SETTINGS)
@@ -92,14 +114,28 @@ def cli_config(ctx: click.Context, output_format: str, section: str | None, prof
             "Displaying configuration",
             extra={"format": fmt.value, "section": section, "profile": effective_profile},
         )
-        safe_console.echo()
         try:
-            cli_ctx.services.display_config(
-                resolved.config, output_format=fmt, section=section, profile=effective_profile
-            )
+            if cli_ctx.mode.machine:
+                _answer_config(resolved.config, section=section, mode=cli_ctx.mode)
+            else:
+                safe_console.echo()
+                cli_ctx.services.display_config(
+                    resolved.config, output_format=fmt, section=section, profile=effective_profile
+                )
         except ValueError as exc:
             safe_console.echo(f"\nError: {exc}", err=True)
+            write_error_envelope(exc, command=CommandName.CONFIG, mode=cli_ctx.mode)
             ctx.exit(ExitCode.INVALID_ARGUMENT)
+
+
+def _answer_config(config: Config, *, section: str | None, mode: OutputMode) -> None:
+    """Write the ``config`` envelope; ``--format`` has no say, the envelope is the format asked for.
+
+    Raises:
+        ValueError: If a section was requested that doesn't exist.
+    """
+    payload = ConfigPayload(config_view(config, section=section))
+    write_envelope(Envelope[ConfigPayload](ok=True, command=CommandName.CONFIG, data=payload), mode=mode)
 
 
 def _get_effective_profile(cli_ctx: CLIContext, profile_override: str | None) -> str | None:
@@ -139,8 +175,7 @@ def _resolve_config(ctx: click.Context, cli_ctx: CLIContext, profile: str | None
     )
     error = loaded.error if loaded.error is not None else check_logging(cli_ctx.services, loaded.config)
     if error is not None:
-        report_load_failure(error, show_traceback=cli_ctx.traceback)
-        ctx.exit(ExitCode.CONFIG_ERROR)
+        fail_config_load(ctx, cli_ctx, error)
     return _ResolvedConfig(config=loaded.config, profile=effective_profile)
 
 
@@ -356,13 +391,17 @@ def _execute_deploy(
             permission_overrides=overrides,
         )
         _log_deployment(deployed_paths, targets=targets, force=force, profile=profile)
-        _report_deployment_result(deployed_paths, profile, set_permissions, force=force)
+        if cli_ctx.mode.machine:
+            _answer_written(deployed_paths, command=CommandName.CONFIG_DEPLOY, mode=cli_ctx.mode)
+        else:
+            _report_deployment_result(deployed_paths, profile, set_permissions, force=force)
     except DeployPermissionsError as exc:
-        _refuse_permission_settings(exc)
+        _refuse_permission_settings(exc, mode=cli_ctx.mode)
     except PermissionError as exc:
         logger.error("Permission denied when deploying configuration", extra={"error": str(exc)})
         safe_console.echo(f"\nError: Permission denied. {exc}", err=True)
         safe_console.echo("Hint: System-wide deployment (--target app/host) may require sudo.", err=True)
+        write_error_envelope(exc, command=CommandName.CONFIG_DEPLOY, mode=cli_ctx.mode)
         get_current_context().exit(ExitCode.PERMISSION_DENIED)
     except click_exceptions.Exit:
         # click's Exit subclasses RuntimeError. It is a deliberate exit with its own code,
@@ -371,6 +410,7 @@ def _execute_deploy(
     except Exception as exc:
         logger.error("Failed to deploy configuration", extra={"error": str(exc), "error_type": type(exc).__name__})
         safe_console.echo(f"\nError: Failed to deploy configuration: {exc}", err=True)
+        write_error_envelope(exc, command=CommandName.CONFIG_DEPLOY, mode=cli_ctx.mode)
         get_current_context().exit(ExitCode.GENERAL_ERROR)
 
 
@@ -414,15 +454,15 @@ def _permission_overrides(cli_ctx: CLIContext) -> Mapping[str, object] | None:
         return cast("Mapping[str, object]", value)
     # "override", not the "cli" `config` shows: lib_layered_config's own refusal of a --set
     # permission value names that layer "override", and one deploy should name it one way.
-    safe_console.echo(
-        f"Error: {_LAYERED_CONFIG_SECTION}.{_PERMISSIONS_KEY}: must be a table, "
-        f"got {type(value).__name__} (source: override)",
-        err=True,
+    message = (
+        f"{_LAYERED_CONFIG_SECTION}.{_PERMISSIONS_KEY}: must be a table, got {type(value).__name__} (source: override)"
     )
+    safe_console.echo(f"Error: {message}", err=True)
+    write_error_envelope(ConfigurationError(message), command=CommandName.CONFIG_DEPLOY, mode=cli_ctx.mode)
     get_current_context().exit(ExitCode.CONFIG_ERROR)
 
 
-def _refuse_permission_settings(exc: DeployPermissionsError) -> None:
+def _refuse_permission_settings(exc: DeployPermissionsError, *, mode: OutputMode) -> None:
     """Report lib_layered_config's refusal of the permission settings and exit 78.
 
     One ``Error:`` line per problem. The library's own hint names its Python parameters,
@@ -438,6 +478,10 @@ def _refuse_permission_settings(exc: DeployPermissionsError) -> None:
         safe_console.echo(f"Error: {problem}", err=True)
     if exc.hint is not None:
         safe_console.echo(_DEPLOY_ANYWAY_HINT, err=True)
+    if mode.machine:
+        message = "; ".join(str(problem) for problem in exc.problems)
+        error = ErrorEnvelope(command=CommandName.CONFIG_DEPLOY, error=type(exc).__name__, message=message)
+        write_envelope(error, mode=mode)
     get_current_context().exit(ExitCode.CONFIG_ERROR)
 
 
@@ -511,6 +555,7 @@ def cli_config_generate_examples(ctx: click.Context, destination: str, force: bo
         >>> runner = CliRunner()
         >>> # Real invocation tested in test_cli_config.py
     """
+    mode = output_mode(ctx)
     extra = {"command": "config-generate-examples", "destination": destination, "force": force}
     with lib_log_rich.runtime.bind(job_id="cli-config-generate-examples", extra=extra):
         logger.info("Generating example configuration files", extra={"destination": destination, "force": force})
@@ -522,7 +567,9 @@ def cli_config_generate_examples(ctx: click.Context, destination: str, force: bo
                 app=__init__conf__.LAYEREDCONF_APP,
                 force=force,
             )
-            if paths:
+            if mode.machine:
+                _answer_written(paths, command=CommandName.CONFIG_GENERATE_EXAMPLES, mode=mode)
+            elif paths:
                 safe_console.echo(f"\nGenerated {len(paths)} example file(s):")
                 for p in paths:
                     safe_console.echo(f"  {p}")
@@ -531,6 +578,7 @@ def cli_config_generate_examples(ctx: click.Context, destination: str, force: bo
         except Exception as exc:
             logger.error("Failed to generate examples", extra={"error": str(exc)})
             safe_console.echo(f"\nError: {exc}", err=True)
+            write_error_envelope(exc, command=CommandName.CONFIG_GENERATE_EXAMPLES, mode=mode)
             ctx.exit(ExitCode.GENERAL_ERROR)
 
 

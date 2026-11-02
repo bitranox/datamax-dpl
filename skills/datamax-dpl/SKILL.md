@@ -17,9 +17,11 @@ uvx datamax-dpl --help   # or the main branch: uvx --from git+https://github.com
 
 Global options (`--json` / `--json-bare`, `--set SECTION.KEY=VALUE`, `--profile`, `--env-file`,
 `--traceback`) go BEFORE the command; every other option goes after it. Machine-readable output: `datamax-dpl --json validate label.json`. stdout is then one envelope
-`{"ok", "command", "data", "skipped"}`; errors are `{"ok": false, "error", "message"}`.
-Exit codes: 0 done, 1 refused (an error finding), 2 could not run (bad JSON, unknown model,
-printer unreachable or silent, broken config). A printer that does not answer in time says how
+`{"ok", "command", "data", "skipped"}`; errors are `{"ok": false, "command", "error", "message"}`
+(`command` null when none was named). Exit codes: 0 done, 1 refused (an error finding), 2 could not
+run (a usage error, bad JSON, unknown model, printer unreachable or silent, broken config);
+`config` and `config-deploy` also use 13 (no permission), 22 (no such `--section`), 78 (config does
+not load or permissions refused), and `config-deploy` and `config-generate-examples` 1. A printer that does not answer in time says how
 long it was given (`no complete answer within 0.5 s`): raise `--timeout` (seconds) or
 `[printer] timeout`. `status` and `memory` instead keep trying for `[printer] status_wait` (30 s)
 while a print server is busy with an earlier job and then say how long they waited (`no answer in

@@ -25,11 +25,71 @@ from .context import (
     restore_traceback_state,
     snapshot_traceback_state,
 )
+from .envelope import CommandName, ErrorEnvelope, OutputMode, write_envelope
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from datamax_dpl.composition import AppServices
+
+
+_JSON_FLAG = "--json"
+_JSON_BARE_FLAG = "--json-bare"
+_JSON_FLAGS = frozenset({_JSON_FLAG, _JSON_BARE_FLAG})
+
+
+def _global_flags(args: Sequence[str], root: click.Command) -> frozenset[str]:
+    """The JSON flags among the global options of ``args``, read as the root's parser reads them.
+
+    The root's own parse may be what failed, or may not have run yet (an unknown command is found
+    before it), so the context cannot say. Stops at the first word that is neither an option nor
+    the value of one, which is the subcommand.
+    """
+    takes_value = {
+        name for param in root.params if isinstance(param, click.Option) and not param.is_flag for name in param.opts
+    }
+    flags: set[str] = set()
+    words = iter(args)
+    for word in words:
+        if not word.startswith("-") or word == "--":
+            break
+        if word in _JSON_FLAGS:
+            flags.add(word)
+        elif word in takes_value:
+            next(words, None)
+    return frozenset(flags)
+
+
+def _misplaced_flag(exc: click.ClickException) -> str | None:
+    """The JSON flag a caller typed after the subcommand, where it does not parse."""
+    name = exc.option_name if isinstance(exc, click.NoSuchOption) else None
+    return name if name in _JSON_FLAGS else None
+
+
+def _usage_error_mode(args: Sequence[str], exc: click.ClickException, root: click.Command) -> OutputMode:
+    """The shape the command line asked for, although the error came before anything could store it."""
+    flags = _global_flags(args, root) | {flag for flag in (_misplaced_flag(exc),) if flag}
+    return OutputMode.of(as_json=_JSON_FLAG in flags, as_json_bare=_JSON_BARE_FLAG in flags)
+
+
+def _failed_command(exc: click.ClickException) -> CommandName | None:
+    """The command a usage error belongs to; None for a bad global option or an unknown command."""
+    ctx = exc.ctx if isinstance(exc, click.UsageError) else None
+    if ctx is None:
+        return None
+    _program, _space, path = ctx.command_path.partition(" ")
+    try:
+        return CommandName(path)
+    except ValueError:
+        return None
+
+
+def _report_click_error(exc: click.ClickException, *, mode: OutputMode) -> None:
+    """Show click's own text on stderr and, in machine mode, the error envelope on stdout."""
+    exc.show()
+    if mode.machine:
+        envelope = ErrorEnvelope(command=_failed_command(exc), error=type(exc).__name__, message=exc.format_message())
+        write_envelope(envelope, mode=mode)
 
 
 def _run_cli(argv: Sequence[str] | None, *, services_factory: Callable[[], AppServices]) -> int:
@@ -63,7 +123,7 @@ def _run_cli(argv: Sequence[str] | None, *, services_factory: Callable[[], AppSe
         )
         return exit_code if isinstance(exit_code, int) else 0
     except click.ClickException as exc:
-        exc.show()
+        _report_click_error(exc, mode=_usage_error_mode(args, exc, cli))
         return exc.exit_code
     except BaseException as exc:
         # Catch BaseException (not just Exception) to handle SystemExit, KeyboardInterrupt,
