@@ -49,8 +49,8 @@ All notable changes to this project are documented here. The format follows
   findings and image names in full and always its first error. The JSON envelope gains `findings_total`,
   `findings_by_code`, `downloads_total` and `report_note`, which names the key when something was cut. An error still
   refuses the job whether or not its text was kept.
-- `[printer] max_batch_job_bytes` (default 1 GiB): `render --data` with no `-o`, the one command that holds the whole
-  job, stops with exit 2 and `BatchTooLargeError` naming the key, before the memory goes. `render_batch` takes
+- `[printer] max_batch_job_bytes` (default 64 MiB): `render --data` with no `-o`, the one command that holds the whole
+  job, stops with exit 2 and `BatchTooLargeError` naming the key and `-o FILE`, before the memory goes. `render_batch` takes
   `max_job_bytes`, no limit when it is left out: a library caller rendering records it did not write sets one.
 - `BatchResult.data` is joined when it is first read, so `print_result` holds one copy of the job. It is no longer a
   model field: build a `BatchResult` from `results`, and its JSON holds the jobs in `results` only.

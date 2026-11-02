@@ -76,9 +76,10 @@ _ConfiguredStop = Annotated[_BoundedStop | PrinterStop, stop_position_or_printer
 MAX_BATCH_RECORDS = 100_000
 #: Largest ``max_batch_records`` taken: more records than a 16 MiB file can hold, so "no limit".
 MAX_BATCH_RECORDS_LIMIT = 10_000_000
-#: Default of ``[printer] max_batch_job_bytes``, 1 GiB: 100000 records of a one-field label come to
-#: about 430 MB and must keep working at the default record limit, on the paths that hold the job.
-MAX_BATCH_JOB_BYTES = 1_073_741_824
+#: Default of ``[printer] max_batch_job_bytes``, 64 MiB. It bounds the job, and the process holds about
+#: 5 times that in human mode and about 11 times with an envelope while it answers (measured, resident
+#: memory), so about 700 MB. 100000 records of a one-field label come to 6-7 MB, nine such batches fit.
+MAX_BATCH_JOB_BYTES = 67_108_864
 #: Largest ``max_batch_job_bytes`` taken, 1 TiB: past what any host here renders, so "no limit".
 MAX_BATCH_JOB_BYTES_LIMIT = 1_099_511_627_776
 #: Largest ``max_reported_findings`` and ``max_reported_downloads`` taken: more than the longest

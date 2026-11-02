@@ -540,8 +540,22 @@ _MOST_GROWTH = 1.5
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("command", ["validate", "render", "print", "print-one-way"])
+@pytest.mark.parametrize("command", ["validate", "render", "render-stdout", "print", "print-one-way", "library-one-way"])
 def test_peak_memory_does_not_grow_with_the_records(command: str, tmp_path: Path) -> None:
     few = _peak(command, _FEW, tmp_path / "few")
     many = _peak(command, _MANY, tmp_path / "many")
     assert many < few * _MOST_GROWTH, (few, many)
+
+
+#: What ``render`` with no ``-o`` may hold above a command that holds no job, in jobs: the job, its
+#: readable text and what writing that text takes. Its record results and base64 made it 8.
+_MOST_JOBS_HELD_IN_HUMAN_MODE = 5
+
+
+@pytest.mark.os_agnostic
+def test_render_in_human_mode_holds_the_job_and_its_text_and_little_else(tmp_path: Path) -> None:
+    """No base64 it never shows, and no record results: 11 times the job came down to under 5."""
+    plain = _peak("render", _MANY, tmp_path / "plain")
+    job = (tmp_path / "plain" / "job.dpl").stat().st_size
+    held = _peak("render-held-human", _MANY, tmp_path / "held")
+    assert held - plain < _MOST_JOBS_HELD_IN_HUMAN_MODE * job, (plain, held, job)

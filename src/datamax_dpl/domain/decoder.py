@@ -127,15 +127,24 @@ class Explanation(BaseModel):
     problems: tuple[str, ...]
 
 
-def readable(data: bytes) -> str:
+#: Bytes turned into text at a time: ``str.join`` lists its parts first, which at one part per byte
+#: is eight times the job.
+_READABLE_PIECE_BYTES = 64 * 1024
+_READABLE_NAMES = {_SOH: "<SOH>", _STX: "<STX>", _CR: "<CR>", 0x1B: "<ESC>"}
+_READABLE_BYTES = tuple(
+    _READABLE_NAMES.get(b, chr(b) if b in _PRINTABLE else f"<{b:02X}>") for b in range(256)
+)
+
+
+def readable(data: bytes | bytearray) -> str:
     """Show control bytes by name.
 
     Example:
         >>> readable(b"\\x02L\\r")
         '<STX>L<CR>'
     """
-    names = {_SOH: "<SOH>", _STX: "<STX>", _CR: "<CR>", 0x1B: "<ESC>"}
-    return "".join(names.get(b, chr(b) if b in _PRINTABLE else f"<{b:02X}>") for b in data)
+    pieces = (data[start : start + _READABLE_PIECE_BYTES] for start in range(0, len(data), _READABLE_PIECE_BYTES))
+    return "".join("".join(map(_READABLE_BYTES.__getitem__, piece)) for piece in pieces)
 
 
 @dataclass

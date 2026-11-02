@@ -9,10 +9,11 @@ import pytest
 
 from datamax_dpl import BatchTooLargeError
 from datamax_dpl.adapters.cli import root as cli_mod
+from datamax_dpl.adapters.cli.settings import PrinterSettings
 from datamax_dpl.adapters.memory.printer import RecordingPrinter, open_recording_printer
 from datamax_dpl.application.use_cases import BatchResult, print_result, render_batch
 from datamax_dpl.composition import build_testing
-from datamax_dpl.domain.label import Label, Text
+from datamax_dpl.domain.label import Label, Qr, Text
 from datamax_dpl.domain.render_context import RenderOptions
 
 if TYPE_CHECKING:
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
     from click.testing import CliRunner
 
 _DMX = RenderOptions(model="dmx-600")
+_TOO_LONG_FOR_A_QR_CODE = "A" * 4000
 
 
 def _one_field_records(count: int, *, seen: list[int]) -> Iterator[Mapping[str, str]]:
@@ -35,7 +37,7 @@ def test_render_batch_stops_at_the_limit_without_rendering_the_rest() -> None:
     label = Label(elements=[Text(x=10, y=10, text="{a}")])
     one = len(render_batch(label, [{"a": "0"}], _DMX).data)
     seen: list[int] = []
-    with pytest.raises(BatchTooLargeError, match=r"at data record 3"):
+    with pytest.raises(BatchTooLargeError, match=r"at data record 2\b"):
         render_batch(label, _one_field_records(1000, seen=seen), _DMX, max_job_bytes=2 * one + 1)
     # The record that passed the limit, and the one read ahead to know whether it was the last.
     assert seen == [0, 1, 2, 3]
@@ -94,6 +96,42 @@ def _limited(tmp_path: Path, command: str) -> list[str]:
     data.write_text("a\n" + "x\n" * 50, encoding="utf-8")
     limit = ["--json-bare", "--set", "printer.max_batch_job_bytes=100"]
     return [*limit, command, str(label), "--data", str(data), "--model", "dmx-600"]
+
+
+@pytest.mark.os_agnostic
+def test_the_default_limit_is_64_mib_and_says_nothing_of_a_process_size() -> None:
+    """1 GiB rested on "100000 one-field records come to about 430 MB": that job is 6-7 MB."""
+    assert PrinterSettings().max_batch_job_bytes == 64 * 1024 * 1024
+
+
+@pytest.mark.os_agnostic
+def test_a_refused_render_shows_no_job(cli_runner: CliRunner, tmp_path: Path) -> None:
+    """The help says nothing is written then: a caller piping the base64 must get none."""
+    label = tmp_path / "label.json"
+    label.write_text(Label(elements=[Qr(x=1, y=1, data="{a}")]).model_dump_json(), encoding="utf-8")
+    data = tmp_path / "data.csv"
+    # Past what a QR Code holds: an error finding on the second record, not an exception.
+    data.write_text(f"a\nfine\n{_TOO_LONG_FOR_A_QR_CODE}\n", encoding="utf-8")
+    args = ["render", str(label), "--data", str(data), "--model", "allegro-2"]
+    bare = cli_runner.invoke(cli_mod.cli, ["--json-bare", *args], obj=build_testing)
+    assert bare.exit_code == 1, bare.output
+    document = json.loads(bare.stdout)["data"]
+    assert (document["dpl"], document["dpl_base64"]) == (None, None)
+    human = cli_runner.invoke(cli_mod.cli, args, obj=build_testing)
+    assert human.exit_code == 1, human.output
+    assert "<CR>" not in human.stdout
+
+
+@pytest.mark.os_agnostic
+def test_a_refused_single_label_shows_no_job(cli_runner: CliRunner, tmp_path: Path) -> None:
+    label = tmp_path / "label.json"
+    label.write_text(Label(elements=[Qr(x=1, y=1, data=_TOO_LONG_FOR_A_QR_CODE)]).model_dump_json(), encoding="utf-8")
+    args = ["render", str(label), "--model", "allegro-2"]
+    bare = cli_runner.invoke(cli_mod.cli, ["--json-bare", *args], obj=build_testing)
+    assert bare.exit_code == 1, bare.output
+    document = json.loads(bare.stdout)["data"]
+    assert (document["dpl"], document["dpl_base64"]) == (None, None)
+    assert "<CR>" not in cli_runner.invoke(cli_mod.cli, args, obj=build_testing).stdout
 
 
 @pytest.mark.os_agnostic

@@ -3,9 +3,11 @@
 A test runs this as a script: a figure taken inside the suite would hold everything the suite has
 imported and left behind.
 
-The environment says what to run: ``PEAK_COMMAND`` is ``validate``, ``render`` (to a file), ``print``
-(over TCP to a printer that keeps nothing) or ``print-one-way`` (to a file, a link that reads no
-answer), ``PEAK_RECORDS`` how many records, ``PEAK_DIRECTORY`` where its files go.
+The environment says what to run: ``PEAK_COMMAND`` is ``validate``, ``render`` (to a file),
+``render-stdout`` (``-o -``), ``render-held`` (no ``-o``, an envelope), ``render-held-human`` (no
+``-o``, the human text), ``print`` (over TCP to a printer that keeps nothing), ``print-one-way`` (to a
+file, a link that reads no answer) or ``library-one-way`` (``check_batch`` and ``print_checked`` on
+such a link), ``PEAK_RECORDS`` how many records, ``PEAK_DIRECTORY`` where its files go.
 ``PEAK_UNTRACED`` measures nothing and leaves the figure to whatever started it (``ru_maxrss``):
 tracing a large batch takes minutes.
 """
@@ -13,19 +15,26 @@ tracing a large batch takes minutes.
 from __future__ import annotations
 
 import contextlib
-import io
 import os
 import socket
 import sys
 import threading
 import tracemalloc
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from printer_server import ImageModules
 
+from datamax_dpl import open_printer
 from datamax_dpl.adapters.cli import root as cli_mod
+from datamax_dpl.application.upload_check import CheckedJob, UploadCheck, print_checked
+from datamax_dpl.application.use_cases import AnswerWait, check_batch
 from datamax_dpl.composition import build_production
 from datamax_dpl.domain.label import Label, Text
+from datamax_dpl.domain.render_context import RenderOptions
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 #: The fields of the label: a job of about 10 KB a record, and a filled label of about 360 KB.
 FIELDS = 399
@@ -52,17 +61,46 @@ def _arguments(command: str, directory: Path, *, port: int) -> list[str]:
         return ["--json-bare", "print", *common, "--printer", f"file:{directory / 'sent.dpl'}"]
     if command == "render":
         return ["--json-bare", "render", *common, "-o", str(directory / "job.dpl")]
+    if command == "render-stdout":
+        return ["render", *common, "-o", "-"]
+    if command == "render-held":
+        return ["--json-bare", "render", *common]
+    if command == "render-held-human":
+        return ["render", *common]
     return ["--json-bare", "validate", *common]
 
 
 def _invoke(arguments: list[str]) -> int:
-    """Run the command in this process; its envelope is not what is measured, so it goes nowhere."""
-    with contextlib.redirect_stdout(io.StringIO()):
+    """Run the command in this process, its answer going to the null device: holding it is not the command's cost."""
+    with Path(os.devnull).open("w", encoding="utf-8") as nowhere, contextlib.redirect_stdout(nowhere):
         try:
             cli_mod.cli.main(arguments, standalone_mode=False, obj=build_production)
         except SystemExit as stop:
             return int(stop.code or 0)
     return 0
+
+
+def _library_one_way(directory: Path, label: Label) -> int:
+    """Send a batch as a library caller does, on a link that reads no answer."""
+    with (directory / "data.csv").open(encoding="utf-8", newline="") as source:
+        count = sum(1 for _ in source) - 1
+    records = _RereadRows(count)
+    options = RenderOptions(model="dmx-600")
+    report = check_batch(label, records, options)
+    job = CheckedJob(renders=report.renders(), check=UploadCheck(wait=AnswerWait(seconds=1.0)))
+    uri = f"file:{directory / 'sent.dpl'}"
+    print_checked(report, job, uri=uri, timeout=1.0, open_printer=open_printer)
+    return 0
+
+
+class _RereadRows:
+    """Records that can be read again, none of them held."""
+
+    def __init__(self, count: int) -> None:
+        self._count = count
+
+    def __iter__(self) -> Iterator[dict[str, str]]:
+        return ({"a": f"r{number}"} for number in range(self._count))
 
 
 def main() -> int:
@@ -82,8 +120,9 @@ def main() -> int:
         code = _invoke(arguments)
         print(0)
         return code
+    run = (lambda: _library_one_way(directory, label)) if command == "library-one-way" else lambda: _invoke(arguments)
     tracemalloc.start()
-    code = _invoke(arguments)
+    code = run()
     peak = tracemalloc.get_traced_memory()[1]
     tracemalloc.stop()
     print(peak)

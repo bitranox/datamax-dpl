@@ -71,7 +71,7 @@ from .model_options import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from ....application.use_cases import BatchResult, RenderedJob
+    from ....application.use_cases import RenderedJob
     from ....domain.camera import CameraSettings
     from ....domain.label import Label
     from ....domain.render_context import RenderOptions
@@ -118,25 +118,23 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
             except UploadRefusedError as exc:
                 return _upload_refused(exc, uri=uri, settings=settings)
             sent, bytes_sent = checked.result, checked.bytes_sent
-        payload = render_payload(sent, include_dpl=False, sent=SentTo(uri, bytes_sent), settings=settings)
+        payload = render_payload(sent, sent=SentTo(uri, bytes_sent), settings=settings)
         human = "\n".join([f"sent {bytes_sent} bytes to {uri}", *_reported_lines(payload)])
         return CommandResult(ok=True, payload=payload, human=human)
 
     run_command(ctx, command=CommandName.PRINT, body=body)
 
 
-def _render_refused(
-    result: RenderResult | BatchResult | BatchReport, *, verdict: str, settings: PrinterSettings
-) -> CommandResult:
+def _render_refused(result: RenderResult | BatchReport, *, verdict: str, settings: PrinterSettings) -> CommandResult:
     """The result of a print or verify whose label has an error finding: nothing went out, and why."""
-    payload = render_payload(result, include_dpl=False, settings=settings)
+    payload = render_payload(result, settings=settings)
     errors = [finding for finding in payload.findings if finding.severity is Severity.ERROR]
     return CommandResult(ok=False, payload=payload, human=f"{verdict}\n{payload_findings_text(payload, errors)}")
 
 
 def _upload_refused(exc: UploadRefusedError, *, uri: str, settings: PrinterSettings) -> CommandResult:
     """The result of a print or verify whose upload check refused a label: its findings, what was sent."""
-    payload = render_payload(exc.result, include_dpl=False, sent=SentTo(uri, exc.bytes_sent), settings=settings)
+    payload = render_payload(exc.result, sent=SentTo(uri, exc.bytes_sent), settings=settings)
     errors = [finding for finding in payload.findings if finding.severity is Severity.ERROR]
     return CommandResult(ok=False, payload=payload, human=f"REFUSED: {exc}\n{payload_findings_text(payload, errors)}")
 

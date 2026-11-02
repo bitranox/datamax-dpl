@@ -13,13 +13,13 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from pydantic import BaseModel, ConfigDict
 
-from ...application.use_cases import BatchReport, BatchResult, report_of
+from ...application.use_cases import BatchReport
 from ...domain._invariants import require_same_keys
 from ...domain.decoder import readable
 from ...domain.enums import FindingCode, Severity
 from ...domain.units import DplUnit
 from ..config.sections import printer_section
-from .settings import PrinterSettings, report_limits
+from .settings import PrinterSettings
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -135,9 +135,10 @@ def _figures(result: RenderResult | BatchReport, *, settings: PrinterSettings) -
 
 
 def render_payload(
-    result: RenderResult | BatchResult | BatchReport,
+    result: RenderResult | BatchReport,
     *,
-    include_dpl: bool,
+    job: bytes | bytearray | None = None,
+    with_base64: bool = False,
     output: str | None = None,
     sent: SentTo | None = None,
     settings: PrinterSettings | None = None,
@@ -145,22 +146,15 @@ def render_payload(
     """Build the payload for one render result or a batch of them.
 
     Args:
-        result: What was rendered. ``include_dpl`` takes one that holds its job, not a report.
-        include_dpl: Whether the DPL itself goes into the payload, as text and as base64.
+        result: What was rendered.
+        job: The DPL to put in the payload as text; None shows none.
+        with_base64: Whether it goes in as base64 too, which only an envelope shows: on a large
+            job that is a third more than the job, for no reader.
         output: The file the DPL was written to, if any.
         sent: The printer the job went to and how many bytes reached it, if anything was sent.
-        settings: The merged settings, for how much of a batch to keep and the names of those keys.
-
-    Raises:
-        ValueError: ``include_dpl`` for a report, which holds no job.
+        settings: The merged settings, for the names of the keys that keep more of a batch.
     """
-    settings = settings or PrinterSettings()
-    if isinstance(result, BatchReport) and include_dpl:
-        msg = "a report holds no job to show"
-        raise ValueError(msg)
-    job = None if isinstance(result, BatchReport) or not include_dpl else result.data
-    report = report_of(result, limits=report_limits(settings)) if isinstance(result, BatchResult) else result
-    figures = _figures(report, settings=settings)
+    figures = _figures(result, settings=settings or PrinterSettings())
     return RenderPayload(
         model=figures.model,
         dpl_unit=figures.dpl_unit,
@@ -174,7 +168,7 @@ def render_payload(
         findings_by_code=figures.findings_by_code,
         report_note=figures.note,
         dpl=None if job is None else readable(job),
-        dpl_base64=None if job is None else base64.b64encode(job).decode("ascii"),
+        dpl_base64=base64.b64encode(job).decode("ascii") if job is not None and with_base64 else None,
         output=output,
         printer=None if sent is None else sent.printer,
         bytes_sent=None if sent is None else sent.bytes_sent,

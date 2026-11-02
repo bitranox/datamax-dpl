@@ -180,7 +180,7 @@ def render_batch(
     for entry in _entries(label, records, options, held=held):
         total += len(entry.result.data)
         if max_job_bytes is not None and total > max_job_bytes:
-            msg = f"the batch passed {max_job_bytes} bytes of job at data record {len(results) + 1}"
+            msg = f"the batch passed {max_job_bytes} bytes of job at data record {len(results)}"
             raise BatchTooLargeError(msg)
         results.append(entry.result)
         cuts.append(entry.cut_after)

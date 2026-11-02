@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import orjson
 import rich_click as click
 from pydantic import BaseModel, ConfigDict
 
-from ....application.use_cases import BatchReport, BatchResult, check_batch, render_batch, render_label
+from ....application.use_cases import BatchReport, check_batch, render_label
 from ....domain.decoder import DecodedCommand, explain
 from ....domain.enums import ImageModule
 from ....domain.errors import BatchTooLargeError
@@ -33,6 +33,7 @@ from .model_options import command_overrides, printer_choice_decorator, render_o
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from ....application.use_cases import BatchEntry
     from ....domain.held_images import HeldImages
     from ....domain.render import RenderResult
     from ....domain.render_context import RenderOptions
@@ -90,17 +91,57 @@ def check_loaded(
     return check_batch(label, records, options, held=held, limits=report_limits(settings))
 
 
-def _batch_held_whole(label: Label, records: Records, options: RenderOptions, settings: PrinterSettings) -> BatchResult:
+class _RenderedJob(NamedTuple):
+    """What ``render`` found, and the job its answer shows; None where it shows none."""
+
+    result: RenderResult | BatchReport
+    job: bytes | bytearray | None = None
+
+
+class _JobHolder:
+    """A batch's job as it is rendered, within ``max_batch_job_bytes``."""
+
+    def __init__(self, settings: PrinterSettings) -> None:
+        self._settings = settings
+        self._records = 0
+        self._counted = 0
+        self.job = bytearray()
+
+    def add(self, entry: BatchEntry) -> None:
+        """Hold the next record's bytes; none at all once one is in error, as a refused job is not shown.
+
+        Raises:
+            BatchTooLargeError: The jobs passed the limit, batch cuts left out as ``render_batch``
+                leaves them out; the message names the key and the way past it.
+        """
+        number = self._records
+        self._records += 1
+        self._counted += len(entry.result.data)
+        limit = self._settings.max_batch_job_bytes
+        if self._counted > limit:
+            key = printer_section(self._settings.name).setting("max_batch_job_bytes")
+            msg = (
+                f"the batch passed {limit} bytes of job at data record {number}; holding a larger job needs {key}, "
+                "and -o FILE needs no limit"
+            )
+            raise BatchTooLargeError(msg)
+        if entry.result.ok:
+            self.job.extend(entry.job)
+        else:
+            self.job.clear()
+
+
+def _batch_held_whole(label: Label, records: Records, options: RenderOptions, settings: PrinterSettings) -> _RenderedJob:
     """Render a batch whose answer is its job, the one path that holds it all.
+
+    The job's bytes are all it holds, one record after another with nothing around each.
 
     Raises:
         BatchTooLargeError: The jobs passed ``max_batch_job_bytes``; the message names the key.
     """
-    try:
-        return render_batch(label, records, options, max_job_bytes=settings.max_batch_job_bytes)
-    except BatchTooLargeError as exc:
-        key = printer_section(settings.name).setting("max_batch_job_bytes")
-        raise BatchTooLargeError(f"{exc}; holding a larger job needs {key}, and -o FILE needs no limit") from None
+    holder = _JobHolder(settings)
+    report = check_batch(label, records, options, limits=report_limits(settings), each=holder.add)
+    return _RenderedJob(result=report, job=holder.job if report.ok else None)
 
 
 def _human(payload: RenderPayload, *, show_dpl: bool) -> str:
@@ -125,16 +166,18 @@ def cli_render(ctx: click.Context, label_source: str, data: str | None, output: 
     """Render a label to DPL and report every finding.
 
     Without --output the DPL is shown readably (control bytes as <STX>, <CR>). Exit 1 when a
-    finding is an error; nothing is written then.
+    finding is an error; nothing is written or shown of the job then.
     """
 
     def body(cli_ctx: CLIContext) -> CommandResult:
         settings = resolve_settings(cli_ctx, command_overrides(given))
         label = load_label(label_source)
         records = None if data is None else load_batch(data, settings)
-        result = _rendered(label, records, settings, output=output, raw_stdout_allowed=not cli_ctx.mode.machine)
+        machine = cli_ctx.mode.machine
+        rendered = _rendered(label, records, settings, output=output, raw_stdout_allowed=not machine)
+        result = rendered.result
         written = output if output is not None and result.ok else None
-        payload = render_payload(result, include_dpl=output is None, output=written, settings=settings)
+        payload = render_payload(result, job=rendered.job, with_base64=machine, output=written, settings=settings)
         if output == STDIN:
             # The job owns stdout, so what a reader must know about it goes to stderr, refused or not.
             return CommandResult(ok=result.ok, payload=payload, notes=payload_findings_text(payload))
@@ -145,23 +188,24 @@ def cli_render(ctx: click.Context, label_source: str, data: str | None, output: 
 
 def _rendered(
     label: Label, records: Records | None, settings: PrinterSettings, *, output: str | None, raw_stdout_allowed: bool
-) -> RenderResult | BatchResult | BatchReport:
+) -> _RenderedJob:
     """Render for ``render``, writing the job when it is ok: as it goes for a batch that has somewhere to go."""
     options = render_options(settings)
     if records is None:
         result = render_label(label, options)
         if output is not None and result.ok:
             _write_output(output, (result.data,), raw_stdout_allowed=raw_stdout_allowed)
-        return result
+        return _RenderedJob(result=result, job=result.data if output is None and result.ok else None)
     if output is None:
         return _batch_held_whole(label, records, options, settings)
     limits = report_limits(settings)
     if output != STDIN:
-        return write_batch(output, lambda each: check_batch(label, records, options, limits=limits, each=each))
+        written = write_batch(output, lambda each: check_batch(label, records, options, limits=limits, each=each))
+        return _RenderedJob(result=written)
     report = check_batch(label, records, options, limits=limits)
     if report.ok:
         _write_output(output, report.record_jobs(), raw_stdout_allowed=raw_stdout_allowed)
-    return report
+    return _RenderedJob(result=report)
 
 
 def _write_output(output: str, jobs: Iterable[bytes], *, raw_stdout_allowed: bool) -> None:
@@ -190,7 +234,7 @@ def cli_validate(ctx: click.Context, label_source: str, data: str | None, **give
         label = load_label(label_source)
         records = None if data is None else load_batch(data, settings)
         result = check_loaded(label, records, render_options(settings), settings)
-        payload = render_payload(result, include_dpl=False, settings=settings)
+        payload = render_payload(result, settings=settings)
         verdict = "OK" if result.ok else "REFUSED"
         human = f"{verdict}: {_human(payload, show_dpl=False)}"
         return CommandResult(ok=result.ok, payload=payload, human=human)

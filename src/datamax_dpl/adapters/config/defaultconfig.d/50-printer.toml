@@ -164,12 +164,13 @@ timeout = 10.0
 #          is the job. A label of hundreds of large fields comes to more than a
 #          megabyte per record. Past it the command stops with exit 2 without
 #          rendering the rest; 'render -o FILE', 'validate' and 'print' hold no
-#          job. The default leaves room for 100000 records of a one-field label
-#          (about 430 MB).
+#          job. It bounds the job, not the memory: the process holds about 5 times
+#          this in human mode and about 11 times with --json (about 700 MB at the
+#          default). 100000 records of a one-field label come to 6-7 MB.
 # Type: integer, greater than 0, at most 1099511627776 (bytes)
-# Default: 1073741824
+# Default: 67108864
 # Environment Variable: DATAMAX_DPL___PRINTER__MAX_BATCH_JOB_BYTES=268435456
-# max_batch_job_bytes = 1073741824
+# max_batch_job_bytes = 67108864
 
 # Purpose: How many findings a --data batch's answer shows in full; the answer
 #          counts all of them, per code and in total, and says so when it cuts.
