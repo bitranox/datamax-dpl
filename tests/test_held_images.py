@@ -11,7 +11,10 @@ RAM (manual, Appendix L p.189), and a stored-only image the clear before removes
 
 from __future__ import annotations
 
+import copy
+import dataclasses
 import json
+import pickle
 import re
 import time
 from typing import TYPE_CHECKING, Any
@@ -463,6 +466,51 @@ def test_the_commands_a_held_images_value_carries_cannot_be_changed(field: str) 
     assert dict(commands) == {"D1": b"one"}
     with pytest.raises(TypeError):
         commands["D3"] = b"three"
+
+
+def _carrying() -> HeldImages:
+    return HeldImages(listed=frozenset({"X"}), unread_because="", sent={"D1": b"one"}, placed={"D2": b"two"})
+
+
+def _assign(held: HeldImages, field: str) -> None:
+    """Try to add a name to ``held``'s ``field``; a read-only value raises TypeError."""
+    getattr(held, field)["D3"] = b"three"
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("field", ["sent", "placed"])
+def test_a_deep_copy_of_a_held_images_value_is_equal_and_stays_read_only(field: str) -> None:
+    held = _carrying()
+
+    copied = copy.deepcopy(held)
+
+    assert copied == held
+    assert hash(copied) == hash(held)
+    assert dict(getattr(copied, field)) == dict(getattr(held, field))
+    with pytest.raises(TypeError):
+        _assign(copied, field)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("field", ["sent", "placed"])
+def test_a_held_images_value_round_trips_through_pickle_and_stays_read_only(field: str) -> None:
+    held = _carrying()
+
+    restored = pickle.loads(pickle.dumps(held))  # noqa: S301 - unpickles the bytes pickled in the same line
+
+    assert restored == held
+    assert dict(getattr(restored, field)) == dict(getattr(held, field))
+    with pytest.raises(TypeError):
+        _assign(restored, field)
+
+
+@pytest.mark.os_agnostic
+def test_dataclasses_asdict_reads_every_field_of_a_held_images_value() -> None:
+    fields = dataclasses.asdict(_carrying())
+
+    assert fields["listed"] == frozenset({"X"})
+    assert dict(fields["sent"]) == {"D1": b"one"}
+    assert dict(fields["placed"]) == {"D2": b"two"}
 
 
 @pytest.mark.os_agnostic
