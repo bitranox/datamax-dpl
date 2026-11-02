@@ -10,6 +10,8 @@ keep their own codes (see :mod:`.exit_codes`).
 
 from __future__ import annotations
 
+import json
+import re
 import sys
 from enum import Enum, IntEnum
 from typing import Generic, TypeVar
@@ -112,9 +114,20 @@ class ErrorEnvelope(BaseModel):
     message: str
 
 
+_LONE_SURROGATE = re.compile(r"[\ud800-\udfff]")
+
+
 def write_envelope(document: BaseModel, *, mode: OutputMode) -> None:
-    """Write ``document`` to stdout, encode-safe for consoles that cannot show every character."""
-    text = document.model_dump_json(indent=mode.indent)
+    """Write ``document`` to stdout, encode-safe for consoles that cannot show every character.
+
+    Dumped through plain data rather than ``model_dump_json``, which raises on a lone surrogate:
+    that is how a file name that is not UTF-8 reaches ``argv`` on POSIX, so a path in a payload would
+    turn a job already sent into a crash with no envelope. A surrogate is written as its JSON escape
+    and every other character stays as it is.
+    """
+    separators = (",", ": ") if mode.indent is not None else (",", ":")
+    dumped = json.dumps(document.model_dump(mode="json"), indent=mode.indent, separators=separators, ensure_ascii=False)
+    text = _LONE_SURROGATE.sub(lambda found: f"\\u{ord(found[0]):04x}", dumped)
     sys.stdout.write(safe_console.encode_safe(text, sys.stdout.encoding) + "\n")
     sys.stdout.flush()
 
@@ -132,7 +145,7 @@ def write_error_envelope(exc: BaseException, *, command: CommandName | None, mod
 
 def report_failure(exc: BaseException, *, command: CommandName, mode: OutputMode) -> None:
     """Report a failure: an error envelope on stdout in machine mode, one line on stderr always."""
-    sys.stderr.write(f"Error: {_said(exc)}\n")
+    sys.stderr.write(safe_console.encode_safe(f"Error: {_said(exc)}\n", sys.stderr.encoding))
     write_error_envelope(exc, command=command, mode=mode)
 
 
