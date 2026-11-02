@@ -13,7 +13,7 @@ import pytest
 from datamax_dpl import CalibrationLabels, calibration_labels
 from datamax_dpl.domain.batch import BatchCuts, batch_cuts
 from datamax_dpl.domain.encode_graphics import qr_symbol_position
-from datamax_dpl.domain.enums import FindingCode, Rotation
+from datamax_dpl.domain.enums import FindingCode, Rotation, Unit
 from datamax_dpl.domain.geometry import DotPoint, Rect, Span
 from datamax_dpl.domain.label import Cut, DotSize, Label, Qr, Text
 from datamax_dpl.domain.preview import CellMm, FieldArea, canvas_for, widest_cell_mm
@@ -104,7 +104,7 @@ def test_a_placed_image_sends_its_magnification_the_same_across_and_along() -> N
 @pytest.mark.os_agnostic
 def test_a_qr_symbol_starts_its_quiet_zone_in_from_the_field_as_a_record_position() -> None:
     qr = Qr(x=0, y=0, data="X", module_dots=3, quiet_zone=4)
-    ctx = job_context(Label(unit="dots", elements=[qr]), RenderOptions(model="dmx-600"))
+    ctx = job_context(Label(unit=Unit.DOTS, elements=[qr]), RenderOptions(model="dmx-600"))
 
     start = qr_symbol_position(qr, column=10, row=20, ctx=ctx)
 
@@ -134,7 +134,7 @@ def test_a_field_part_is_a_rect_and_takes_its_spans_by_name() -> None:
 @pytest.mark.os_agnostic
 def test_a_canvas_point_is_a_dot_point() -> None:
     canvas = canvas_for(
-        Label(unit="dots", width=100, height=50, elements=[Text(x=1, y=1, text="x")]), get_profile("dmx-600")
+        Label(unit=Unit.DOTS, width=100, height=50, elements=[Text(x=1, y=1, text="x")]), get_profile("dmx-600")
     )
 
     point = canvas.point(10, 0)
