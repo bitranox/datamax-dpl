@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import lib_cli_exit_tools
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from click.testing import CliRunner, Result
+    from lib_layered_config import Config
 
     from datamax_dpl.composition import AppServices
 
@@ -47,24 +49,18 @@ def test_restore_traceback_state_resets_flags_to_previous(managed_traceback_stat
 
 
 @pytest.mark.os_agnostic
-def test_traceback_flag_is_active_during_info_command(
-    monkeypatch: pytest.MonkeyPatch,
+def test_traceback_flag_is_active_while_a_command_runs(
     managed_traceback_state: None,
 ) -> None:
-    """--traceback enables both flags during command execution."""
+    """--traceback enables both flags before the command's body, which reads them through its service."""
     notes: list[tuple[bool, bool]] = []
 
-    def record() -> None:
-        notes.append(
-            (
-                lib_cli_exit_tools.config.traceback,
-                lib_cli_exit_tools.config.traceback_force_color,
-            )
-        )
+    def record(_config: Config, **_kwargs: Any) -> None:
+        notes.append((lib_cli_exit_tools.config.traceback, lib_cli_exit_tools.config.traceback_force_color))
 
-    monkeypatch.setattr(__init__conf__, "print_info", record)
-
-    exit_code = cli_mod.main(["--traceback", "info"], services_factory=build_production)
+    exit_code = cli_mod.main(
+        ["--traceback", "config"], services_factory=lambda: replace(build_production(), display_config=record)
+    )
 
     assert exit_code == 0
     assert notes == [(True, True)]
@@ -72,14 +68,13 @@ def test_traceback_flag_is_active_during_info_command(
 
 @pytest.mark.os_agnostic
 def test_traceback_flags_restored_after_info_command(
-    monkeypatch: pytest.MonkeyPatch,
     managed_traceback_state: None,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """--traceback flags are restored to disabled after command completes."""
-    monkeypatch.setattr(__init__conf__, "print_info", lambda: None)
+    assert cli_mod.main(["--traceback", "info"], services_factory=build_production) == 0
 
-    cli_mod.main(["--traceback", "info"], services_factory=build_production)
-
+    assert __init__conf__.name in capsys.readouterr().out
     assert lib_cli_exit_tools.config.traceback is False
     assert lib_cli_exit_tools.config.traceback_force_color is False
 

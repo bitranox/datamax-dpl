@@ -6,12 +6,17 @@ the CLI, and delivered to deploy_configuration.
 
 from __future__ import annotations
 
+import os
+import stat
+import sys
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from datamax_dpl import __init__conf__
 from datamax_dpl.adapters import cli as cli_mod
+from datamax_dpl.adapters.config.deploy import deploy_configuration
 from datamax_dpl.composition import build_production
 from datamax_dpl.domain.enums import DeployTarget
 
@@ -20,6 +25,23 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from click.testing import CliRunner, Result
+
+_LINUX_ONLY = pytest.mark.skipif(
+    not sys.platform.startswith("linux"), reason="XDG_CONFIG_HOME locates the user layer on Linux"
+)
+
+
+@pytest.fixture
+def user_layer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Point the user layer at ``tmp_path`` for a real deploy; return the directory it deploys to."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    return tmp_path / __init__conf__.LAYEREDCONF_SLUG
+
+
+def _modes(deployed: Path) -> tuple[int, int]:
+    """The deployed directory's mode and its ``config.toml``'s."""
+    return stat.S_IMODE(deployed.stat().st_mode), stat.S_IMODE((deployed / "config.toml").stat().st_mode)
+
 
 # ======================== CLI Option Parsing Tests ========================
 
@@ -295,75 +317,33 @@ def test_cli_deploy_help_shows_permission_options(
 # ======================== deploy.py Integration Tests ========================
 
 
-@pytest.mark.os_agnostic
-def test_deploy_configuration_passes_set_permissions_to_library(
-    monkeypatch: pytest.MonkeyPatch,
+@_LINUX_ONLY
+def test_a_deploy_without_permissions_leaves_the_modes_to_the_umask(
+    user_layer: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """deploy_configuration passes set_permissions to deploy_config."""
-    from datamax_dpl.adapters.config import deploy as deploy_mod
-
-    captured_kwargs: list[dict[str, Any]] = []
-
-    def mock_deploy_config(**kwargs: Any) -> list[Any]:
-        captured_kwargs.append(kwargs)
-        return []
-
-    monkeypatch.setattr(deploy_mod, "deploy_config", mock_deploy_config)
-
-    deploy_mod.deploy_configuration(
-        targets=[DeployTarget.USER],
-        force=False,
-        set_permissions=False,
-    )
-    deploy_mod.deploy_configuration(targets=[DeployTarget.USER])
-
-    assert [kwargs["set_permissions"] for kwargs in captured_kwargs] == [False, None]
+    """False keeps the umask's modes; None, the default, takes the library's owner-only ones."""
+    previous = os.umask(0o022)
+    try:
+        deploy_configuration(targets=[DeployTarget.USER], set_permissions=False)
+        assert _modes(user_layer) == (0o755, 0o644)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "default"))
+        deploy_configuration(targets=[DeployTarget.USER])
+    finally:
+        os.umask(previous)
+    assert _modes(tmp_path / "default" / user_layer.name) == (0o700, 0o600)
 
 
-@pytest.mark.os_agnostic
-def test_deploy_configuration_passes_permission_overrides_to_library(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """deploy_configuration hands permission_overrides to deploy_config unchanged."""
-    from datamax_dpl.adapters.config import deploy as deploy_mod
-
-    captured_kwargs: list[dict[str, Any]] = []
-
-    def mock_deploy_config(**kwargs: Any) -> list[Any]:
-        captured_kwargs.append(kwargs)
-        return []
-
-    monkeypatch.setattr(deploy_mod, "deploy_config", mock_deploy_config)
-    overrides = {"user_file": "0o640"}
-
-    deploy_mod.deploy_configuration(targets=[DeployTarget.USER], permission_overrides=overrides)
-    deploy_mod.deploy_configuration(targets=[DeployTarget.USER])
-
-    assert [kwargs["permission_overrides"] for kwargs in captured_kwargs] == [overrides, None]
+@_LINUX_ONLY
+def test_a_deploy_applies_its_permission_overrides(user_layer: Path) -> None:
+    previous = os.umask(0o022)
+    try:
+        deploy_configuration(targets=[DeployTarget.USER], permission_overrides={"user_file": "0o640"})
+    finally:
+        os.umask(previous)
+    assert _modes(user_layer)[1] == 0o640
 
 
-@pytest.mark.os_agnostic
-def test_deploy_configuration_passes_mode_overrides_to_library(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """deploy_configuration passes dir_mode and file_mode to deploy_config."""
-    from datamax_dpl.adapters.config import deploy as deploy_mod
-
-    captured_kwargs: list[dict[str, Any]] = []
-
-    def mock_deploy_config(**kwargs: Any) -> list[Any]:
-        captured_kwargs.append(kwargs)
-        return []
-
-    monkeypatch.setattr(deploy_mod, "deploy_config", mock_deploy_config)
-
-    deploy_mod.deploy_configuration(
-        targets=[DeployTarget.USER],
-        force=False,
-        dir_mode=0o750,
-        file_mode=0o640,
-    )
-
-    assert len(captured_kwargs) == 1
-    assert captured_kwargs[0]["dir_mode"] == 0o750
-    assert captured_kwargs[0]["file_mode"] == 0o640
+@_LINUX_ONLY
+def test_a_deploy_applies_its_directory_and_file_modes(user_layer: Path) -> None:
+    deploy_configuration(targets=[DeployTarget.USER], dir_mode=0o750, file_mode=0o640)
+    assert _modes(user_layer) == (0o750, 0o640)

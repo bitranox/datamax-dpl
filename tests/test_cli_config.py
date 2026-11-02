@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -12,6 +13,7 @@ import pytest
 from datamax_dpl.adapters import cli as cli_mod
 from datamax_dpl.adapters.config import loader as config_mod
 from datamax_dpl.adapters.config.display import redact_url_password
+from datamax_dpl.composition import build_production
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping
@@ -557,21 +559,10 @@ def test_when_config_displays_password_in_list_of_dicts_it_redacts(
 @pytest.mark.os_agnostic
 def test_when_config_generate_examples_is_invoked_it_creates_files(
     cli_runner: CliRunner,
-    tmp_path: Any,
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     production_factory: Callable[[], Any],
 ) -> None:
-    """Verify config-generate-examples creates files in the target directory."""
-    created_file = tmp_path / "example.toml"
-    created_file.touch()
-
-    def mock_generate_examples(
-        destination: str | Path, *, slug: str, vendor: str, app: str, force: bool = False, platform: str | None = None
-    ) -> list[Path]:
-        return [created_file]
-
-    monkeypatch.setattr("datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples)
-
+    """Every path it names exists under the destination, and holds something."""
     result: Result = cli_runner.invoke(
         cli_mod.cli,
         ["config-generate-examples", "--destination", str(tmp_path)],
@@ -579,25 +570,25 @@ def test_when_config_generate_examples_is_invoked_it_creates_files(
     )
 
     assert result.exit_code == 0
-    assert "Generated 1 example file(s)" in result.output
-    assert str(created_file) in result.output
+    written = [Path(line.strip()) for line in result.stdout.splitlines() if str(tmp_path) in line]
+    assert f"Generated {len(written)} example file(s)" in result.output
+    assert written
+    assert all(path.stat().st_size > 0 for path in written)
 
 
 @pytest.mark.os_agnostic
 def test_when_config_generate_examples_has_no_files_it_informs_user(
     cli_runner: CliRunner,
-    tmp_path: Any,
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     production_factory: Callable[[], Any],
 ) -> None:
-    """Verify config-generate-examples reports when all files already exist."""
-
-    def mock_generate_examples(
-        destination: str | Path, *, slug: str, vendor: str, app: str, force: bool = False, platform: str | None = None
-    ) -> list[Path]:
-        return []
-
-    monkeypatch.setattr("datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples)
+    """A second run finds every file there already and says what would overwrite them."""
+    first: Result = cli_runner.invoke(
+        cli_mod.cli,
+        ["config-generate-examples", "--destination", str(tmp_path)],
+        obj=production_factory,
+    )
+    assert first.exit_code == 0
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,
@@ -623,24 +614,21 @@ def test_when_config_generate_examples_missing_destination_it_fails(
 
 
 @pytest.mark.os_agnostic
-def test_when_config_generate_examples_with_force_it_passes_force_flag(
+def test_when_config_generate_examples_with_force_it_overwrites(
     cli_runner: CliRunner,
-    tmp_path: Any,
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     production_factory: Callable[[], Any],
 ) -> None:
-    """Verify config-generate-examples passes --force flag to generate_examples."""
-    captured_force: list[bool] = []
-    created_file = tmp_path / "example.toml"
-    created_file.touch()
-
-    def mock_generate_examples(
-        destination: str | Path, *, slug: str, vendor: str, app: str, force: bool = False, platform: str | None = None
-    ) -> list[Path]:
-        captured_force.append(force)
-        return [created_file]
-
-    monkeypatch.setattr("datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples)
+    """--force puts back the shipped text over a file that was changed."""
+    first: Result = cli_runner.invoke(
+        cli_mod.cli,
+        ["config-generate-examples", "--destination", str(tmp_path)],
+        obj=production_factory,
+    )
+    assert first.exit_code == 0
+    edited = next(path for path in tmp_path.rglob("*.toml") if path.is_file())
+    shipped = edited.read_text(encoding="utf-8")
+    edited.write_text("# edited\n", encoding="utf-8")
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,
@@ -649,28 +637,24 @@ def test_when_config_generate_examples_with_force_it_passes_force_flag(
     )
 
     assert result.exit_code == 0
-    assert captured_force == [True]
+    assert edited.read_text(encoding="utf-8") == shipped
 
 
 @pytest.mark.os_agnostic
-def test_when_config_generate_examples_without_force_it_defaults_to_false(
+def test_when_config_generate_examples_without_force_it_keeps_an_edited_file(
     cli_runner: CliRunner,
-    tmp_path: Any,
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     production_factory: Callable[[], Any],
 ) -> None:
-    """Verify config-generate-examples defaults force=False."""
-    captured_force: list[bool] = []
-    created_file = tmp_path / "example.toml"
-    created_file.touch()
-
-    def mock_generate_examples(
-        destination: str | Path, *, slug: str, vendor: str, app: str, force: bool = False, platform: str | None = None
-    ) -> list[Path]:
-        captured_force.append(force)
-        return [created_file]
-
-    monkeypatch.setattr("datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples)
+    """Without --force a file that was changed stays as it is."""
+    first: Result = cli_runner.invoke(
+        cli_mod.cli,
+        ["config-generate-examples", "--destination", str(tmp_path)],
+        obj=production_factory,
+    )
+    assert first.exit_code == 0
+    edited = next(path for path in tmp_path.rglob("*.toml") if path.is_file())
+    edited.write_text("# edited\n", encoding="utf-8")
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,
@@ -679,56 +663,45 @@ def test_when_config_generate_examples_without_force_it_defaults_to_false(
     )
 
     assert result.exit_code == 0
-    assert captured_force == [False]
+    assert edited.read_text(encoding="utf-8") == "# edited\n"
 
 
 @pytest.mark.os_agnostic
 def test_when_config_generate_examples_encounters_error_it_exits_with_general_error(
     cli_runner: CliRunner,
-    tmp_path: Any,
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     production_factory: Callable[[], Any],
 ) -> None:
-    """Verify config-generate-examples handles exceptions gracefully."""
-
-    def mock_generate_examples(
-        destination: str | Path, *, slug: str, vendor: str, app: str, force: bool = False, platform: str | None = None
-    ) -> list[Path]:
-        raise OSError("Disk full")
-
-    monkeypatch.setattr("datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples)
-
-    result: Result = cli_runner.invoke(
+    """A file where it needs a directory is a real failure of the write: exit 1 and one Error line."""
+    first: Result = cli_runner.invoke(
         cli_mod.cli,
         ["config-generate-examples", "--destination", str(tmp_path)],
         obj=production_factory,
     )
+    assert first.exit_code == 0
+    target = next(path for path in tmp_path.rglob("*.toml") if path.is_file())
+    blocked = tmp_path / "blocked"
+    blocked.mkdir()
+    (blocked / target.relative_to(tmp_path).parts[0]).write_text("a file, not a directory", encoding="utf-8")
+
+    result: Result = cli_runner.invoke(
+        cli_mod.cli,
+        ["config-generate-examples", "--destination", str(blocked)],
+        obj=production_factory,
+    )
 
     assert result.exit_code == 1  # GENERAL_ERROR
-    assert "Disk full" in result.stderr
+    assert "Error:" in result.stderr
 
 
 @pytest.mark.os_agnostic
 def test_when_config_generate_examples_it_passes_correct_metadata(
     cli_runner: CliRunner,
-    tmp_path: Any,
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     production_factory: Callable[[], Any],
 ) -> None:
-    """Verify config-generate-examples passes correct slug, vendor, app from __init__conf__."""
+    """The files land under the directory the package's configuration is read from on this platform."""
     from datamax_dpl import __init__conf__
-
-    captured_params: list[dict[str, Any]] = []
-    created_file = tmp_path / "example.toml"
-    created_file.touch()
-
-    def mock_generate_examples(
-        destination: str | Path, *, slug: str, vendor: str, app: str, force: bool = False, platform: str | None = None
-    ) -> list[Path]:
-        captured_params.append({"slug": slug, "vendor": vendor, "app": app, "destination": str(destination)})
-        return [created_file]
-
-    monkeypatch.setattr("datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples)
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,
@@ -737,34 +710,17 @@ def test_when_config_generate_examples_it_passes_correct_metadata(
     )
 
     assert result.exit_code == 0
-    assert len(captured_params) == 1
-    assert captured_params[0]["slug"] == __init__conf__.LAYEREDCONF_SLUG
-    assert captured_params[0]["vendor"] == __init__conf__.LAYEREDCONF_VENDOR
-    assert captured_params[0]["app"] == __init__conf__.LAYEREDCONF_APP
-    assert captured_params[0]["destination"] == str(tmp_path)
+    names = {__init__conf__.LAYEREDCONF_SLUG, __init__conf__.LAYEREDCONF_APP}
+    assert any(path.is_dir() and path.name in names for path in tmp_path.rglob("*"))
 
 
 @pytest.mark.os_agnostic
 def test_when_config_generate_examples_creates_multiple_files_it_lists_all(
     cli_runner: CliRunner,
-    tmp_path: Any,
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     production_factory: Callable[[], Any],
 ) -> None:
-    """Verify config-generate-examples lists all created files."""
-    file1 = tmp_path / "config.toml"
-    file2 = tmp_path / "config.d" / "50-printer.toml"
-    file1.touch()
-    file2.parent.mkdir(parents=True)
-    file2.touch()
-
-    def mock_generate_examples(
-        destination: str | Path, *, slug: str, vendor: str, app: str, force: bool = False, platform: str | None = None
-    ) -> list[Path]:
-        return [file1, file2]
-
-    monkeypatch.setattr("datamax_dpl.adapters.cli.commands.config.generate_examples", mock_generate_examples)
-
+    """Every generated file is on disk and named in the output, and nothing else is."""
     result: Result = cli_runner.invoke(
         cli_mod.cli,
         ["config-generate-examples", "--destination", str(tmp_path)],
@@ -772,9 +728,10 @@ def test_when_config_generate_examples_creates_multiple_files_it_lists_all(
     )
 
     assert result.exit_code == 0
-    assert "Generated 2 example file(s)" in result.output
-    assert str(file1) in result.output
-    assert str(file2) in result.output
+    on_disk = [path for path in tmp_path.rglob("*") if path.is_file()]
+    assert len(on_disk) > 1
+    assert f"Generated {len(on_disk)} example file(s)" in result.output
+    assert all(str(path) in result.output for path in on_disk)
 
 
 # ======================== --set override preservation ========================
@@ -784,9 +741,6 @@ def test_when_config_generate_examples_creates_multiple_files_it_lists_all(
 def test_when_config_subcommand_profile_reloads_it_preserves_root_set_overrides(
     cli_runner: CliRunner,
     config_factory: Callable[[dict[str, Any]], Config],
-    monkeypatch: pytest.MonkeyPatch,
-    clear_config_cache: None,
-    production_factory: Callable[[], Any],
 ) -> None:
     """Root --set overrides must be reapplied when config --profile reloads config.
 
@@ -797,26 +751,21 @@ def test_when_config_subcommand_profile_reloads_it_preserves_root_set_overrides(
     --set overrides must be reapplied to the new config.
     """
     base_config = config_factory({"section": {"key": "original"}})
+    profiles: list[str | None] = []
 
-    # get_config is called twice: first in root.py, second in config.py (profile reload)
-    call_count = {"value": 0}
-
-    def mock_get_config(*, profile: str | None = None, **_kwargs: Any) -> Config:
-        call_count["value"] += 1
+    def get_config(*, profile: str | None = None, **_kwargs: Any) -> Config:
+        profiles.append(profile)
         return base_config
-
-    monkeypatch.setattr(config_mod, "get_config", mock_get_config)
 
     result: Result = cli_runner.invoke(
         cli_mod.cli,
         ["--set", "section.key=overridden", "config", "--profile", "test", "--format", "json"],
-        obj=production_factory,
+        obj=lambda: replace(build_production(), get_config=get_config),
     )
 
     assert result.exit_code == 0
-    # Override was applied (verify in output)
+    assert "test" in profiles, "the reload this test is about never happened"
     assert "overridden" in result.stdout
-    # Original value should not appear
     assert '"original"' not in result.stdout
 
 
