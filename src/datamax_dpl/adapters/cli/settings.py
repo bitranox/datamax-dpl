@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Annotated, Any, TypeVar, cast
+from typing import TYPE_CHECKING, Annotated, Any, TypedDict, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
@@ -130,6 +130,24 @@ class PrinterOverrides(BaseModel):
     options: frozenset[HardwareOption] = Field(default_factory=frozenset[HardwareOption])
 
 
+class _CommandLineValues(TypedDict):
+    """The settings the command line can replace, each already merged with its configured value."""
+
+    model: str
+    firmware: str
+    uri: str
+    policy: FallbackPolicy
+    timeout: float
+    status_wait: float
+    cutter: CutterPresence
+    options: frozenset[HardwareOption]
+
+
+# model_copy(update=...) takes any key and sets it unchecked, so the keys are checked here at import.
+if not _CommandLineValues.__required_keys__ <= PrinterSettings.model_fields.keys():  # pragma: no cover
+    raise RuntimeError("_CommandLineValues names a field PrinterSettings does not have")
+
+
 def _section(config: Config, name: str) -> Mapping[str, Any]:
     section: object = config.get(name, {})
     return cast("Mapping[str, Any]", section) if isinstance(section, Mapping) else {}
@@ -155,18 +173,18 @@ def printer_settings(config: Config, overrides: PrinterOverrides) -> PrinterSett
     # model_copy, not a new PrinterSettings: the overrides are already typed, and re-validating
     # would move the refusal of a bad --timeout away from the transport, which names its range.
     return base.model_copy(
-        update={
-            "model": _given(overrides.model, base.model),
-            "firmware": _given(overrides.firmware, base.firmware),
-            "uri": _given(uri, base.uri),
-            "policy": _given(overrides.policy, base.policy),
-            "timeout": _given(overrides.timeout, base.timeout),
+        update=_CommandLineValues(
+            model=_given(overrides.model, base.model),
+            firmware=_given(overrides.firmware, base.firmware),
+            uri=_given(uri, base.uri),
+            policy=_given(overrides.policy, base.policy),
+            timeout=_given(overrides.timeout, base.timeout),
             # --timeout is the whole wait where one applies: status, memory and verify wait for it.
-            "status_wait": _given(overrides.timeout, base.status_wait),
-            "cutter": _given(overrides.cutter, base.cutter),
+            status_wait=_given(overrides.timeout, base.status_wait),
+            cutter=_given(overrides.cutter, base.cutter),
             # Options add up instead of replacing: --option names one more installed option.
-            "options": base.options | overrides.options,
-        }
+            options=base.options | overrides.options,
+        )
     )
 
 

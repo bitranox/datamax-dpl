@@ -15,7 +15,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Generic, NamedTuple, Protocol, TypeVar
+from typing import TYPE_CHECKING, Generic, NamedTuple, Protocol, TypedDict, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -32,7 +32,7 @@ from ..domain.errors import (
 )
 from ..domain.findings import Finding
 from ..domain.held_images import DEFAULT_MODULE_UNREAD, HeldImages, held_images_from
-from ..domain.label import Cut
+from ..domain.label import Cut, Label
 from ..domain.memory import MemoryDirectory, parse_module_directory
 from ..domain.placeholders import fill_label
 from ..domain.render import RenderedRecord, RenderResult, build_job, build_jobs, build_record
@@ -58,7 +58,6 @@ from ..domain.timing import MAX_ANSWER_SECONDS, check_timeout
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
 
-    from ..domain.label import Label
     from ..domain.render_context import RenderOptions
     from .ports import Clock, OpenPrinter, PrinterTransport, Sleep
 
@@ -84,16 +83,39 @@ class BatchResult(BaseModel):
     #: Whether a batch cut (``<STX>o``) follows each record; empty when the batch cuts across none.
     cut_after: tuple[bool, ...] = ()
 
+    @classmethod
+    def joined(
+        cls,
+        results: tuple[RenderResult, ...],
+        *,
+        batch_findings: tuple[Finding, ...] = (),
+        cut_after: tuple[bool, ...] = (),
+    ) -> BatchResult:
+        """Build the batch whose ``data`` is every record's job back to back, each with its batch cut.
+
+        Args:
+            results: One render result per record.
+            batch_findings: Findings about the batch as a whole.
+            cut_after: Whether a batch cut follows each record; empty when the batch cuts across none.
+        """
+        data = b"".join(_record_jobs(results, cut_after))
+        return cls(data=data, results=results, batch_findings=batch_findings, cut_after=cut_after)
+
     def record_jobs(self) -> tuple[bytes, ...]:
         """Each record's bytes as ``data`` holds them, its batch cut included; joined they are ``data``."""
-        cuts = self.cut_after or (False,) * len(self.results)
-        return tuple(with_cut(r.data, r.closing, cut=after) for r, after in zip(self.results, cuts, strict=True))
+        return _record_jobs(self.results, self.cut_after)
 
     @property
     def ok(self) -> bool:
         """True when no record and no batch finding is an error."""
         batch_ok = all(f.severity is not Severity.ERROR for f in self.batch_findings)
         return batch_ok and all(result.ok for result in self.results)
+
+
+def _record_jobs(results: tuple[RenderResult, ...], cut_after: tuple[bool, ...]) -> tuple[bytes, ...]:
+    """Each record's job with the batch cut that follows it, if any."""
+    cuts = cut_after or (False,) * len(results)
+    return tuple(with_cut(r.data, r.closing, cut=after) for r, after in zip(results, cuts, strict=True))
 
 
 def render_label(label: Label, options: RenderOptions, *, held: HeldImages | None = None) -> RenderResult:
@@ -123,8 +145,18 @@ def render_batch(
     if batch_label.cut is None:
         return BatchResult(data=b"".join(result.data for result in results), results=results)
     cuts = batch_cuts(len(results), cut=batch_label.cut, options=options)
-    batch = BatchResult(data=b"", results=results, batch_findings=cuts.findings, cut_after=cuts.cut_after)
-    return batch.model_copy(update={"data": b"".join(batch.record_jobs())})
+    return BatchResult.joined(results, batch_findings=cuts.findings, cut_after=cuts.cut_after)
+
+
+class _CutUpdate(TypedDict):
+    """The field a batch that cuts across records replaces on each record's label."""
+
+    cut: Cut | None
+
+
+# model_copy(update=...) takes any key and sets it unchecked, so the key is checked here at import.
+if not _CutUpdate.__required_keys__ <= Label.model_fields.keys():  # pragma: no cover
+    raise RuntimeError("_CutUpdate names a field Label does not have")
 
 
 @dataclass(frozen=True)
@@ -149,7 +181,8 @@ def _batch_label(label: Label) -> _BatchLabel:
     cut = label.cut
     if cut is None or cut.every == 1 or label.quantity > 1:
         return _BatchLabel(per_record=label, cut=None)
-    return _BatchLabel(per_record=label.model_copy(update={"cut": Cut(every=1, at_end=False)}), cut=cut)
+    # model_copy, not a new Label: the label is validated already, and only its cut changes.
+    return _BatchLabel(per_record=label.model_copy(update=_CutUpdate(cut=Cut(every=1, at_end=False))), cut=cut)
 
 
 class RecordRender(Protocol):

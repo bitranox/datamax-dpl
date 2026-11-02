@@ -96,9 +96,9 @@ class BarWidths:
 _PRINTER_DEFAULT_WIDTHS = BarWidths(wide=0, narrow=0)
 
 
-def _ratio_widths(element: Barcode) -> BarWidths:
-    narrow = element.narrow_dots or max(1, element.wide_dots // FALLBACK_RATIO)
-    wide = element.wide_dots or min(MAX_MULTIPLIER, narrow * FALLBACK_RATIO)
+def _ratio_widths(*, narrow_dots: int, wide_dots: int) -> BarWidths:
+    narrow = narrow_dots or max(1, wide_dots // FALLBACK_RATIO)
+    wide = wide_dots or min(MAX_MULTIPLIER, narrow * FALLBACK_RATIO)
     return BarWidths(wide=wide, narrow=narrow)
 
 
@@ -108,7 +108,8 @@ def bar_widths(element: Barcode, *, index: int, ctx: RenderContext) -> BarWidths
     Ratio codes take the wide and the narrow bar; module codes and 2-D codes take the module
     width twice. Both zero asks for the printer default where the model allows it.
     """
-    wants_default = element.narrow_dots == 0 and element.wide_dots == 0
+    narrow_dots, wide_dots = element.narrow_dots, element.wide_dots
+    wants_default = narrow_dots == 0 and wide_dots == 0
     if wants_default and ctx.supports(Feature.DEFAULT_BAR_WIDTHS):
         return _PRINTER_DEFAULT_WIDTHS
     if wants_default:
@@ -118,10 +119,10 @@ def bar_widths(element: Barcode, *, index: int, ctx: RenderContext) -> BarWidths
             fallback=f"narrow bar {FALLBACK_NARROW} dots, ratio {FALLBACK_RATIO}:1",
             element=index,
         )
-        element = element.model_copy(update={"narrow_dots": FALLBACK_NARROW})
+        narrow_dots = FALLBACK_NARROW
     if element.symbology in RATIO_SYMBOLOGIES:
-        return _ratio_widths(element)
-    module = element.narrow_dots or element.wide_dots
+        return _ratio_widths(narrow_dots=narrow_dots, wide_dots=wide_dots)
+    module = narrow_dots or wide_dots
     return BarWidths(wide=module, narrow=module)
 
 
