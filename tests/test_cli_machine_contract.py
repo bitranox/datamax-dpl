@@ -456,6 +456,7 @@ def test_an_answer_that_cannot_be_written_is_a_failure_with_one_line(
     assert "OSError" not in err
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the library reads the mode settings only where POSIX modes apply")
 @pytest.mark.usefixtures("no_ambient_configuration")
 def test_config_deploy_refuses_a_permission_setting_with_exit_78(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
