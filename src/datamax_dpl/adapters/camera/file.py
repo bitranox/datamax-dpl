@@ -5,7 +5,7 @@ Cameras and phone apps that upload into a watched folder are handled here: the n
 (minus :data:`MTIME_GRACE_SECONDS`, for coarse file-system timestamps and clock skew of a
 network share) is copied into the output directory. A file is taken only once its size has
 been the same on two consecutive polls, so an upload still in progress is not collected half
-written.
+written. A symlink in the folder is followed: its target's size and contents count.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 from ...domain.enums import MediaType
 from ...domain.errors import CameraError
 from ..config.sections import CAMERA_SECTION
-from .stored import StoredImage
+from .stored import MAX_IMAGE_BYTES, StoredImage
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -78,8 +78,9 @@ def capture_from_directory(
         The copy, with the media type its suffix names.
 
     Raises:
-        CameraError: No directory is configured, it cannot be read, or no new complete image
-            appeared within ``settings.timeout`` seconds.
+        CameraError: No directory is configured, it cannot be read, no new complete image
+            appeared within ``settings.timeout`` seconds, or the image is larger than
+            :data:`MAX_IMAGE_BYTES`.
     """
     directory = _directory(settings)
     since = time.time() - MTIME_GRACE_SECONDS
@@ -88,7 +89,7 @@ def capture_from_directory(
     while True:
         current = _newest_image(directory, since=since)
         if current is not None and current == previous:
-            return StoredImage(path=_copy(current.path, stem=stem), media_type=current.media_type)
+            return StoredImage(path=_copy(_within_cap(current), stem=stem), media_type=current.media_type)
         if clock() >= deadline:
             raise CameraError(f"no new complete image appeared in {directory} within {settings.timeout:g} s")
         previous = current
@@ -132,6 +133,13 @@ def _image_stat(entry: Path, *, since: float) -> _Candidate | None:
     if not stat.S_ISREG(info.st_mode) or info.st_mtime < since or info.st_size == 0:
         return None
     return _Candidate(path=entry, size=info.st_size, mtime=info.st_mtime, media_type=media_type)
+
+
+def _within_cap(candidate: _Candidate) -> Path:
+    """The image's path, refusing one too large to copy."""
+    if candidate.size > MAX_IMAGE_BYTES:
+        raise CameraError(f"camera image {candidate.path} is larger than {MAX_IMAGE_BYTES} bytes")
+    return candidate.path
 
 
 def _copy(source: Path, *, stem: Path) -> Path:

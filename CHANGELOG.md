@@ -350,6 +350,11 @@ All notable changes to this project are documented here. The format follows
 - `[camera] timeout` and `[camera] settle_seconds` above 2147483 seconds are
   refused naming the key, where they gave an `OverflowError` with no envelope;
   `[printer] timeout` past that bound names its key too.
+- `[camera] timeout` bounds the whole `http` capture: a camera dripping its
+  image is stopped at the timeout, where it could hold `verify` for as long as
+  it kept sending.
+- The `file` camera refuses an image over 50 MiB, as the `http` camera does; a
+  symlink in the folder is followed and counts by its target.
 
 ## [0.4.0] - 2026-10-30
 

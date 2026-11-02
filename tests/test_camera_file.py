@@ -10,6 +10,7 @@ import pytest
 
 from datamax_dpl.adapters.camera import capture_image
 from datamax_dpl.adapters.camera.file import POLL_INTERVAL_SECONDS, capture_from_directory
+from datamax_dpl.adapters.camera.stored import MAX_IMAGE_BYTES
 from datamax_dpl.domain.camera import CameraKind, CameraSettings
 from datamax_dpl.domain.enums import MediaType
 from datamax_dpl.domain.errors import CameraError
@@ -223,3 +224,45 @@ def test_capture_image_without_a_camera_is_refused(tmp_path: Path) -> None:
     with pytest.raises(CameraError, match=r"^no camera configured: set \[camera\] kind$"):
         capture_image(CameraSettings(), output_dir=tmp_path / "out")
     assert not (tmp_path / "out").exists()
+
+
+def _sparse(path: Path, *, size: int) -> Path:
+    with path.open("wb") as file:
+        file.truncate(size)
+    return path
+
+
+@pytest.mark.os_agnostic
+def test_an_image_past_the_cap_is_refused_and_not_copied(tmp_path: Path) -> None:
+    folder = tmp_path / "in"
+    folder.mkdir()
+    _sparse(folder / "huge.jpg", size=MAX_IMAGE_BYTES + 1)
+
+    with pytest.raises(CameraError, match="larger than"):
+        capture_from_directory(_settings(folder), stem=tmp_path / "out", sleep=lambda _seconds: None)
+    assert not (tmp_path / "out.jpg").exists()
+
+
+@pytest.mark.os_agnostic
+def test_a_symlink_counts_by_the_size_of_what_it_points_at(tmp_path: Path) -> None:
+    """Symlinks are followed, so the cap has to read the target, not the link."""
+    folder = tmp_path / "in"
+    folder.mkdir()
+    target = _sparse(tmp_path / "elsewhere.bin", size=MAX_IMAGE_BYTES + 1)
+    try:
+        (folder / "link.jpg").symlink_to(target)
+    except OSError as exc:
+        pytest.skip(f"this account cannot create a symlink: {exc}")
+
+    with pytest.raises(CameraError, match="larger than"):
+        capture_from_directory(_settings(folder), stem=tmp_path / "out", sleep=lambda _seconds: None)
+
+
+@pytest.mark.os_agnostic
+def test_an_image_at_the_cap_is_copied(tmp_path: Path) -> None:
+    folder = tmp_path / "in"
+    folder.mkdir()
+    _sparse(folder / "full.jpg", size=MAX_IMAGE_BYTES)
+
+    image = capture_from_directory(_settings(folder), stem=tmp_path / "out", sleep=lambda _seconds: None)
+    assert image.path.stat().st_size == MAX_IMAGE_BYTES

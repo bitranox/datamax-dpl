@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import http.client
 import ssl
+import time
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
@@ -25,16 +26,17 @@ from urllib.parse import SplitResult, unquote, urlsplit
 from ...domain.enums import MediaType
 from ...domain.errors import CameraError
 from ..config.sections import CAMERA_SECTION
-from .stored import StoredImage
+from .stored import MAX_IMAGE_BYTES, StoredImage
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
     from pathlib import Path
 
     from ...domain.camera import CameraSettings
 
-#: Largest image body accepted, in bytes (50 MiB).
-MAX_IMAGE_BYTES = 50 * 1024 * 1024
+#: Most bytes taken from the socket between two looks at the capture's deadline. No setting: it
+#: only decides how often the clock is read, and one receive takes what has already arrived.
+_READ_CHUNK_BYTES = 64 * 1024
 
 #: The media type each accepted ``Content-Type`` names, in the order the request's ``Accept`` lists
 #: them. Keyed by the header text because cameras also send ``image/jpg``, which is no registered
@@ -68,12 +70,16 @@ class _CameraUrl:
     scheme: _Scheme
 
 
-def capture_with_http(settings: CameraSettings, *, stem: Path) -> StoredImage:
+def capture_with_http(
+    settings: CameraSettings, *, stem: Path, clock: Callable[[], float] = time.monotonic
+) -> StoredImage:
     """GET ``settings.url`` and store the image it returns.
 
     Args:
         settings: The camera settings; ``url``, ``user``, ``password`` and ``timeout`` are used.
+            ``timeout`` is for the whole capture, a camera dripping its image included.
         stem: Output path without extension; the extension follows the response's media type.
+        clock: Monotonic seconds for the capture's deadline.
 
     Returns:
         The image written, with the media type the response named.
@@ -81,15 +87,16 @@ def capture_with_http(settings: CameraSettings, *, stem: Path) -> StoredImage:
     Raises:
         CameraError: The URL is not ``http``/``https``, the camera is unreachable, answers a
             status other than 200, sends a media type that is not JPEG or PNG, an empty body,
-            or more than :data:`MAX_IMAGE_BYTES`.
+            or more than :data:`MAX_IMAGE_BYTES`, or has not finished within ``timeout``.
     """
+    deadline = clock() + settings.timeout
     url = _parse_url(settings.url)
     connection = _connect(url, timeout=settings.timeout)
     target = url.parts
     try:
         response = _get(connection, target=target, headers=_headers(settings, target=target))
         media_type = _media_type(response)
-        body = _read_body(response)
+        body = _read_body(response, time_left=lambda: deadline - clock(), timeout=settings.timeout)
     finally:
         connection.close()
     output = stem.with_suffix(EXTENSION_BY_MEDIA_TYPE[media_type])
@@ -172,20 +179,33 @@ def _media_type(response: http.client.HTTPResponse) -> MediaType:
     return media_type
 
 
-def _read_body(response: http.client.HTTPResponse) -> bytes:
-    """Read the body, refusing an empty one or one larger than :data:`MAX_IMAGE_BYTES`."""
+def _read_body(response: http.client.HTTPResponse, *, time_left: Callable[[], float], timeout: float) -> bytes:
+    """Read the body, refusing an empty one, one past :data:`MAX_IMAGE_BYTES` or one past the deadline.
+
+    The socket's timeout bounds each receive only: a camera sending a byte now and then would pass
+    it forever, so the deadline is read between receives.
+    """
+    pieces: list[bytes] = []
+    size = 0
     try:
         # One byte past the cap is enough to tell "too large" without reading the rest.
-        body = response.read(MAX_IMAGE_BYTES + 1)
+        while size <= MAX_IMAGE_BYTES:
+            if time_left() <= 0:
+                raise CameraError(f"camera did not finish sending the image within {timeout:g} s")
+            piece = response.read1(_READ_CHUNK_BYTES)
+            if not piece:
+                break
+            pieces.append(piece)
+            size += len(piece)
     except TimeoutError as exc:
         raise CameraError("camera stopped sending the image before it was complete") from exc
     except (OSError, http.client.HTTPException) as exc:
         raise CameraError(f"camera image could not be read: {type(exc).__name__}") from exc
-    if len(body) > MAX_IMAGE_BYTES:
+    if size > MAX_IMAGE_BYTES:
         raise CameraError(f"camera image is larger than {MAX_IMAGE_BYTES} bytes")
-    if not body:
+    if not size:
         raise CameraError("camera sent an empty image")
-    return body
+    return b"".join(pieces)
 
 
 __all__ = ["EXTENSION_BY_MEDIA_TYPE", "MAX_IMAGE_BYTES", "MEDIA_TYPE_BY_CONTENT_TYPE", "capture_with_http"]

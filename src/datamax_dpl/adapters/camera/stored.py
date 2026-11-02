@@ -16,6 +16,10 @@ if TYPE_CHECKING:
     from ...domain.enums import MediaType
 
 
+#: Largest image a capture accepts, in bytes (50 MiB): far above any label photo.
+MAX_IMAGE_BYTES = 50 * 1024 * 1024
+
+
 @dataclass(frozen=True, slots=True)
 class StoredImage:
     """An image a capture strategy wrote.
@@ -29,4 +33,4 @@ class StoredImage:
     media_type: MediaType
 
 
-__all__ = ["StoredImage"]
+__all__ = ["MAX_IMAGE_BYTES", "StoredImage"]

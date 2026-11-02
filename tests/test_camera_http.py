@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING
@@ -35,6 +37,7 @@ class Route:
     body: bytes = TINY_PNG
     credentials: tuple[str, str] | None = None
     location: str = ""
+    drip_seconds: float = 0.0
 
 
 @dataclass
@@ -66,7 +69,18 @@ def _handler(camera: Camera) -> type[BaseHTTPRequestHandler]:
             if route.location:
                 self.send_header("Location", route.location)
             self.end_headers()
-            self.wfile.write(route.body)
+            if route.drip_seconds:
+                self._drip(route)
+            else:
+                self.wfile.write(route.body)
+
+        def _drip(self, route: Route) -> None:
+            """One byte at a time, so no single socket operation ever comes near a timeout."""
+            with contextlib.suppress(OSError):
+                for byte in route.body:
+                    self.wfile.write(bytes((byte,)))
+                    self.wfile.flush()
+                    time.sleep(route.drip_seconds)
 
         def _authorised(self, credentials: tuple[str, str]) -> bool:
             token = base64.b64encode(":".join(credentials).encode()).decode()
@@ -256,3 +270,34 @@ def test_an_invalid_port_is_a_camera_error(tmp_path: Path) -> None:
     """A port that is not a number is reported, not raised as ValueError."""
     with pytest.raises(CameraError, match="invalid port"):
         capture_with_http(_settings("http://127.0.0.1:notaport/snap"), stem=tmp_path / "s")
+
+
+@pytest.mark.os_agnostic
+def test_a_camera_dripping_its_image_is_cut_off_at_the_timeout_for_the_whole_capture(
+    camera: Camera, tmp_path: Path
+) -> None:
+    """Every byte arrives well inside the timeout; it is the capture that takes too long."""
+    camera.routes["/drip"] = Route(body=TINY_PNG[:40], drip_seconds=0.1)
+    settings = CameraSettings(kind=CameraKind.HTTP, url=f"{camera.base}/drip", timeout=0.5)
+
+    with pytest.raises(CameraError, match=r"within 0\.5 s"):
+        capture_with_http(settings, stem=tmp_path / "s")
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.os_agnostic
+def test_a_slow_image_that_arrives_inside_the_timeout_is_taken_whole(camera: Camera, tmp_path: Path) -> None:
+    """The control: a body read in pieces is the same body."""
+    camera.routes["/drip"] = Route(body=TINY_PNG[:10], drip_seconds=0.01)
+    settings = CameraSettings(kind=CameraKind.HTTP, url=f"{camera.base}/drip", timeout=30.0)
+
+    image = capture_with_http(settings, stem=tmp_path / "s")
+    assert image.path.read_bytes() == TINY_PNG[:10]
+
+
+@pytest.mark.os_agnostic
+def test_a_body_at_the_cap_is_taken(camera: Camera, tmp_path: Path) -> None:
+    camera.routes["/full"] = Route(body=bytes(MAX_IMAGE_BYTES))
+
+    image = capture_with_http(_settings(f"{camera.base}/full"), stem=tmp_path / "s")
+    assert image.path.stat().st_size == MAX_IMAGE_BYTES
