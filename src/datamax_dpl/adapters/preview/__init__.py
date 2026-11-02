@@ -27,8 +27,10 @@ from ...domain.label import Barcode, ScalableText, Text
 from ...domain.png import encode_png
 from ...domain.preview import (
     DEFAULT_PREVIEW_MAX_LENGTH_MM,
+    Canvas,
     FieldArea,
     canvas_for,
+    check_preview_fields,
     check_preview_length,
     mask_area,
     preview_bitmap,
@@ -42,6 +44,9 @@ if TYPE_CHECKING:
     from ...domain.render_context import RenderOptions
 
 _MIN_FONT_PIXELS = 6
+#: The narrowest letter of Pillow's default font advances about a fifth of its size, so this many
+#: dots along the field hold at most one character per this share of the font size.
+_NARROWEST_LETTER_SHARE = 5
 #: In a mode "1" image a set bit (255) is a glyph pixel; the background and a turn's corners stay 0.
 _INK = 255
 _NONE = 0
@@ -99,16 +104,28 @@ def pillow_available() -> bool:
     return _pillow() is not None
 
 
-def _text_mask(pillow: _Pillow, area: FieldArea, text: str) -> Bitmap:
-    """Letter ``text`` upright over ``area``, turn it into place and return its glyph pixels.
+def _text_mask(pillow: _Pillow, area: FieldArea, text: str, canvas: Canvas) -> Bitmap | None:
+    """Letter the part of ``text`` that lands on ``canvas``, turn it into place and return its glyph pixels.
 
     The picture is a mode "1" image drawn without anti-aliasing, so each pixel is a glyph's dot or
     not, and its packed rows are the bitmap's (most significant bit first, padded to whole bytes).
+    Only that part is allocated, and only the letters that can reach it are drawn: Pillow builds a
+    picture of the whole string at a byte per pixel first, which took 1.9 s and 459 MB for one
+    field of 255 characters at 24 times the size, nearly all of it past the canvas.
+
+    Returns:
+        The glyph pixels, the size of the field's ``mask_box``; None when the field misses the canvas.
     """
-    upright = pillow.image.new("1", (area.length, area.height), _NONE)
+    part = area.on_canvas(width=canvas.width, height=canvas.height)
+    if part is None:
+        return None
+    size = max(_MIN_FONT_PIXELS, area.height)
+    letters = (part.along.start + part.along.length) // max(1, size // _NARROWEST_LETTER_SHARE) + 1
+    above = area.height - part.up.start - part.up.length
+    upright = pillow.image.new("1", (part.along.length, part.up.length), _NONE)
     draw = pillow.draw.Draw(upright)
     draw.fontmode = "1"
-    draw.text((0, 0), text, fill=_INK, font=pillow.font.load_default(size=max(_MIN_FONT_PIXELS, area.height)))
+    draw.text((-part.along.start, -above), text[:letters], fill=_INK, font=pillow.font.load_default(size=size))
     # Pillow turns counter-clockwise by positive angles; the manual's rotations turn clockwise.
     turned = upright.rotate(-area.rotation.value, expand=True)
     width, height = turned.size
@@ -121,10 +138,12 @@ def _masks(pillow: _Pillow, label: Label, profile: PrinterProfile, options: Rend
     canvas = canvas_for(label, profile, options=options)
     masks: dict[int, Bitmap] = {}
     for index, element in enumerate(label.elements):
-        if isinstance(element, (Text, ScalableText)):
-            masks[index] = _text_mask(pillow, mask_area(element, canvas), element.text)
-        elif isinstance(element, Barcode):
-            masks[index] = _text_mask(pillow, mask_area(element, canvas), element.data)
+        if not isinstance(element, (Text, ScalableText, Barcode)):
+            continue
+        text = element.data if isinstance(element, Barcode) else element.text
+        mask = _text_mask(pillow, mask_area(element, canvas), text, canvas)
+        if mask is not None:
+            masks[index] = mask
     return masks
 
 
@@ -151,11 +170,14 @@ def render_preview_png(
         The PNG file's bytes.
 
     Raises:
-        PreviewTooLongError: A side of the picture would be longer than ``max_length_mm``.
+        PreviewTooLongError: A side of the picture would be longer than ``max_length_mm``, or the
+            job would send more fields than the model's format takes (``sent_as`` counts a merged
+            group once).
         UnknownModelError: ``options.model`` names no profile.
         ValueError: ``options`` are for another model than ``profile``.
     """
     check_preview_length(canvas_for(label, profile, options=options), max_length_mm=max_length_mm)
+    check_preview_fields(label, profile, sent_as=sent_as)
     pillow = _pillow()
     masks = None if pillow is None else _masks(pillow, label, profile, options)
     return encode_png(preview_bitmap(label, profile, sent_as=sent_as, options=options, masks=masks))

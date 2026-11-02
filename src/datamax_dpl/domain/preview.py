@@ -51,7 +51,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from .encode_common import position_units
 from .encode_graphics import qr_symbol_position
@@ -278,6 +278,18 @@ def _text_size(element: Text, dpi: float) -> _CharCell:
     )
 
 
+class UprightPart(NamedTuple):
+    """A part of an upright field, as :meth:`FieldArea.part` takes it.
+
+    Attributes:
+        along: Where it starts along the reading direction, and its length.
+        up: How far it is lifted above the upright field's bottom edge, and its height.
+    """
+
+    along: Span
+    up: Span
+
+
 @dataclass(frozen=True)
 class FieldArea:
     """Where a text field or barcode lies: its reference point, its upright size and its turn.
@@ -335,6 +347,30 @@ class FieldArea:
         if self.rotation is Rotation.DEG_270:
             return Rect(left=x - lift - height + 1, top=y - start - length + 1, width=height, height=length)
         return Rect(left=x + start, top=y - lift - height + 1, width=length, height=height)
+
+    def on_canvas(self, *, width: int, height: int) -> UprightPart | None:
+        """Return the part of the upright field on a canvas of that size, None when none of it is.
+
+        Example:
+            >>> FieldArea(x=90, y=30, length=30, height=8, rotation=Rotation.DEG_0).on_canvas(width=100, height=40)
+            UprightPart(along=Span(start=0, length=10), up=Span(start=0, length=8))
+            >>> FieldArea(x=10, y=30, length=30, height=8, rotation=Rotation.DEG_180).on_canvas(width=100, height=40)
+            UprightPart(along=Span(start=0, length=11), up=Span(start=0, length=8))
+            >>> FieldArea(x=200, y=30, length=30, height=8, rotation=Rotation.DEG_0).on_canvas(width=100, height=40)
+        """
+        box = self.box()
+        left, top = max(box.left, 0), max(box.top, 0)
+        width = min(box.left + box.width, width) - left
+        height = min(box.top + box.height, height) - top
+        if width <= 0 or height <= 0:
+            return None
+        if self.rotation is Rotation.DEG_90:
+            return UprightPart(along=Span(top - self.y, height), up=Span(left - self.x, width))
+        if self.rotation is Rotation.DEG_180:
+            return UprightPart(along=Span(self.x - left - width + 1, width), up=Span(top - self.y, height))
+        if self.rotation is Rotation.DEG_270:
+            return UprightPart(along=Span(self.y - top - height + 1, height), up=Span(self.x - left - width + 1, width))
+        return UprightPart(along=Span(left - self.x, width), up=Span(self.y - top - height + 1, height))
 
     def strip(self, *, lift: int, height: int) -> FieldArea:
         """Return the part ``lift`` dots above the upright field's bottom edge, ``height`` tall, as a field.
@@ -402,6 +438,18 @@ def mask_area(element: Text | ScalableText | Barcode, canvas: Canvas) -> FieldAr
     return area.strip(lift=area.height - band, height=band)
 
 
+def mask_box(element: Text | ScalableText | Barcode, canvas: Canvas) -> Rect | None:
+    """Return where a lettering mask for ``element`` lands: its ``mask_area`` cut to the canvas.
+
+    None when none of that area lands on the canvas, so the field takes no mask. A label may state
+    a field far wider than the canvas (255 characters at 24 times the width), and a mask of what is
+    never drawn costs as much as the whole field.
+    """
+    area = mask_area(element, canvas)
+    part = area.on_canvas(width=canvas.width, height=canvas.height)
+    return None if part is None else area.part(along=part.along, up=part.up)
+
+
 def text_box(element: Text | ScalableText | Barcode, canvas: Canvas) -> Rect:
     """Return the rectangle in pixels of a text field's whole line or a barcode's area."""
     return field_area(element, canvas).box()
@@ -426,7 +474,9 @@ def _draw_barcode(element: Barcode, bitmap: Bitmap, canvas: Canvas) -> None:
 
 def _draw_masked(element: Text | ScalableText | Barcode, mask: Bitmap, bitmap: Bitmap, canvas: Canvas) -> None:
     """Draw a text field as its mask's dots, or a barcode hatched with its band whitened under its mask."""
-    box = mask_area(element, canvas).box()
+    box = mask_box(element, canvas)
+    if box is None:
+        return
     if isinstance(element, Barcode):
         _draw_barcode(element, bitmap, canvas)
         bitmap.combine(mask, box.left, box.top, mode=CombineMode.OPAQUE)
@@ -790,17 +840,27 @@ def _check_masks(label: Label, canvas: Canvas, masks: Mapping[int, Bitmap]) -> N
         if element is None:
             msg = f"element {index} is not a text field or barcode, so it takes no mask"
             raise ValueError(msg)
-        box = mask_area(element, canvas).box()
+        box = mask_box(element, canvas)
+        if box is None:
+            msg = f"element {index} lies off the canvas, so it takes no mask"
+            raise ValueError(msg)
         if (mask.width, mask.height) != (box.width, box.height):
             msg = f"mask for element {index} is {mask.width}x{mask.height}, its area {box.width}x{box.height}"
             raise ValueError(msg)
 
 
-def _check_field_count(fields: int, profile: PrinterProfile) -> None:
-    """Refuse a picture of more fields than the model's format takes, before any is drawn.
+def check_preview_fields(label: Label, profile: PrinterProfile, *, sent_as: SentAs | None = None) -> None:
+    """Refuse a picture of more fields than the model's format takes, before any is lettered or drawn.
 
     The encoder stops at the same limit; every field drawn here costs a layer of the whole canvas.
+    A merged group counts as the one field the job sends it as.
+
+    Raises:
+        PreviewTooLongError: The job would send more fields than the model's format takes.
     """
+    sent = sent_as or SentAs()
+    merged = sum(len(group) for group in sent.merged)
+    fields = len(label.elements) - merged + len(sent.merged)
     if fields > profile.max_fields:
         msg = f"preview of {fields} fields: {profile.name} takes at most {profile.max_fields}; nothing was drawn"
         raise PreviewTooLongError(msg)
@@ -824,7 +884,7 @@ def preview_bitmap(
             as the label states it.
         options: The options the job is rendered with, so that the picture places each field at
             the row and column that job writes; None renders for ``profile`` alone.
-        masks: Lettering per element index, each the size of its ``mask_area`` box: a text
+        masks: Lettering per element index, each the size of its ``mask_box``: a text
             field is drawn as its mask's dots instead of grey cells, a barcode's mask letters
             the top band of its hatched area. Combined like the field, so a field crossing the
             lettering gaps only under its dots. None draws every text field as cells.
@@ -843,7 +903,7 @@ def preview_bitmap(
     sent = sent_as or SentAs()
     groups = {group[0]: group for group in sent.merged}
     merged = {index for group in sent.merged for index in group}
-    _check_field_count(len(label.elements) - len(merged) + len(groups), profile)
+    check_preview_fields(label, profile, sent_as=sent)
     canvas = canvas_for(label, profile, options=options)
     lettering = masks or {}
     _check_masks(label, canvas, lettering)
@@ -874,10 +934,12 @@ __all__ = [
     "PreviewGeometry",
     "SentAs",
     "canvas_for",
+    "check_preview_fields",
     "check_preview_length",
     "draw_element",
     "field_area",
     "mask_area",
+    "mask_box",
     "preview_bitmap",
     "text_box",
     "widest_cell_mm",
