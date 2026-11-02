@@ -355,7 +355,9 @@ def test_a_bad_last_record_leaves_the_file_as_it_was(cli_runner: CliRunner, tmp_
 def test_a_bad_last_record_creates_no_file(cli_runner: CliRunner, tmp_path: Path) -> None:
     label, data = _files(tmp_path, _QR, f"r0\n{_TOO_LONG}\n")
     target = tmp_path / "job.dpl"
-    _run(cli_runner, "--json-bare", "render", label, "--data", data, "--model", "allegro-2", "-o", str(target))
+    result = _run(cli_runner, "--json-bare", "render", label, "--data", data, "--model", "allegro-2", "-o", str(target))
+    assert result.exit_code == 1, result.output
+    assert json.loads(result.stdout)["data"]["records"] == 2
     assert sorted(path.name for path in tmp_path.iterdir()) == ["data.csv", "label.json"]
 
 
@@ -364,12 +366,14 @@ def test_a_target_that_cannot_be_written_is_named_in_the_error(cli_runner: CliRu
     label, data = _files(tmp_path, _TEXT, "r0\n")
     target = tmp_path / "no" / "such" / "dir" / "job.dpl"
     result = _run(cli_runner, "--json-bare", "render", label, "--data", data, "--model", "dmx-600", "-o", str(target))
-    assert result.exit_code != 0
-    assert "job.dpl" in result.stdout
+    assert result.exit_code == 2, result.output
+    message = json.loads(result.stdout)["message"]
+    assert str(target) in message
+    assert ".tmp" not in message
 
 
 @pytest.mark.os_posix
-@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no mode bits for chmod to keep")
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows keeps no group or other bits; only read-only, tested too")
 def test_a_replaced_file_keeps_its_mode(cli_runner: CliRunner, tmp_path: Path) -> None:
     label, data = _files(tmp_path, _TEXT, "r0\n")
     target = tmp_path / "job.dpl"
@@ -381,14 +385,16 @@ def test_a_replaced_file_keeps_its_mode(cli_runner: CliRunner, tmp_path: Path) -
     assert target.read_bytes() != b"before"
 
 
-@pytest.mark.os_posix
-@pytest.mark.skipif(sys.platform == "win32", reason="a symbolic link needs a privilege Windows runners may not hold")
+@pytest.mark.os_agnostic
 def test_a_link_is_written_through_not_replaced(cli_runner: CliRunner, tmp_path: Path) -> None:
     label, data = _files(tmp_path, _TEXT, "r0\n")
     real = tmp_path / "real.dpl"
     real.write_bytes(b"before")
     link = tmp_path / "link.dpl"
-    link.symlink_to(real)
+    try:
+        link.symlink_to(real)
+    except OSError as exc:
+        pytest.skip(f"a symbolic link needs a privilege this user may not hold: {exc}")
     result = _run(cli_runner, "--json-bare", "render", label, "--data", data, "--model", "dmx-600", "-o", str(link))
     assert result.exit_code == 0, result.output
     assert link.is_symlink()
@@ -396,7 +402,7 @@ def test_a_link_is_written_through_not_replaced(cli_runner: CliRunner, tmp_path:
 
 
 @pytest.mark.os_posix
-@pytest.mark.skipif(sys.platform == "win32", reason="/dev/null exists only on POSIX; NUL is not a path a stat can read")
+@pytest.mark.skipif(sys.platform == "win32", reason="NUL has no inode to compare; test_job_file runs the device route")
 def test_a_device_is_written_not_replaced(cli_runner: CliRunner, tmp_path: Path) -> None:
     """Replacing /dev/null needs root, and as root it would destroy it: the job is checked, then written."""
     label, data = _files(tmp_path, _TEXT, "r0\n")
@@ -411,7 +417,7 @@ def test_a_device_is_written_not_replaced(cli_runner: CliRunner, tmp_path: Path)
 def test_a_pipe_is_written_not_replaced(cli_runner: CliRunner, tmp_path: Path) -> None:
     """A reader on a named pipe must get the job through the pipe, with no file taking its name."""
     if sys.platform == "win32":
-        pytest.skip("Windows has no named pipes in the file system")
+        pytest.skip("os.mkfifo exists on POSIX only; a Windows pipe under \\\\.\\pipe\\ is made another way")
     label, data = _files(tmp_path, _TEXT, "r0\nr1\n")
     pipe = tmp_path / "job.pipe"
     os.mkfifo(pipe)

@@ -640,8 +640,12 @@ A record that is wrong must refuse the job before any of it goes out, so every c
 the records first and keeps what it found, not the jobs. `print` and `render -o -` then render each
 record a second time to send it, and a third time where a name read or a retry asks for one: time
 grows with the records, which is what `max_batch_records` bounds. `render -o FILE` needs one pass,
-into a new file beside the target that replaces it when every record passed; a target that cannot be
-replaced that way (a device, a pipe, a directory that takes no new file) gets the two passes. `render`
+into a new file beside the target, with the target's mode, that replaces it when every record passed. A
+target that would not stay what it was gets the two passes and is then written in place: a device, a
+pipe, a directory that takes no new file, a file this user may not write (refused, as a single label's
+write is), one another user owns, or one with another hard link. A replaced file has a new inode; a
+SIGTERM or SIGHUP during the pass leaves the `.NAME.PID.N.tmp` beside the target, as no handler runs for
+them, and the target as it was. `render`
 with no `-o` answers with the job itself and holds it, which `max_batch_job_bytes` bounds. That key
 bounds the job, not the memory: while it answers, the process holds about 5 times the job in human mode
 and about 11 times with `--json` (a 33 MB job: 213 MB and 421 MB resident, measured), so about 700 MB at
