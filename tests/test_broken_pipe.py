@@ -73,7 +73,7 @@ def test_a_usage_error_with_the_reader_gone_still_reports_on_stderr(tmp_path: Pa
 def test_a_reader_that_stays_gets_the_output_and_the_command_s_own_exit_code(tmp_path: Path) -> None:
     """The control: nothing above may hide a normal run."""
     env = {**os.environ, "XDG_CONFIG_HOME": str(tmp_path), "HOME": str(tmp_path)}
-    done = subprocess.run(  # noqa: S603 - fixed argv: this interpreter and the package under test
+    done = subprocess.run(
         [sys.executable, "-m", "datamax_dpl", "models"],
         capture_output=True,
         env=env,

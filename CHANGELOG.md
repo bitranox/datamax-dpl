@@ -290,7 +290,7 @@ All notable changes to this project are documented here. The format follows
   sending nothing else fails with `no complete answer within 65536 bytes`.
   `PrinterTransport.query` takes an `accept` test for this.
 - A query that read not one byte now adds `the printer may still be printing
-  an earlier job; try again or raise --timeout` to its timeout message.
+  an earlier job; try again or raise the timeout` to its timeout message.
 - A barcode value with a character above U+00FF (a euro sign, CJK) is reported
   as `barcode_bad_character`, exit 1; `build_job` and `render` raised
   `UnicodeEncodeError` from inside the encoder and the CLI exited 2 for the

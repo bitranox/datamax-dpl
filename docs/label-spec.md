@@ -141,8 +141,8 @@ the preview's reading of the figure is unverified until a test print.
 
 Font 9 needs `points` or `font_id`; the other fonts take neither. Fonts 3 to 6 print capitals
 only, font 7 is OCR-A and font 8 OCR-B. Characters above ASCII follow code page 437 in fonts 1, 2
-and 9 (German umlauts and sharp s included); a character a font cannot print becomes `?` with a
-warning.
+and 9 (German umlauts and sharp s included); fonts 3 to 6 print capital umlauts and sharp s; a
+character a font cannot print becomes `?` with a warning.
 
 `counter`:
 

@@ -75,6 +75,9 @@ turn the outcome into output and an exit code.
   (`drawn_image_name`).
 - `render.py` - `build_job` and `render`: label to DPL bytes plus findings.
 - `job.py` - system commands, format settings, quantity and cutting.
+- `batch.py` - cutting every N labels when each label of a batch is its own format.
+- `calibration.py` - the two calibration labels, across the web and along the feed.
+- `transparency.py` - emulating a transparent label on a model without the `A` command.
 - `encode_common.py` - positions, field length, attributes and counters shared by encoders.
 - `encode_text.py` - text and scalable text fields and their font fallbacks.
 - `encode_graphics.py` - lines, boxes, circles, polygons, images, QR Codes (`encode_qr`).
@@ -105,6 +108,7 @@ turn the outcome into output and an exit code.
 - `ports.py` - Protocols the adapters implement (printer, camera, clock, configuration, logging).
 - `use_cases.py` - render one label or a batch, print, send commands, query status, detect, read the memory directory.
 - `verify.py` - print, wait for the printer, photograph, return photo and expected preview.
+- `upload_check.py` - check a job's images reached the printer before the format that places them.
 
 ### Adapters (`src/datamax_dpl/adapters/`)
 
@@ -113,6 +117,7 @@ turn the outcome into output and an exit code.
 - `cli/commands/labels.py` - render, validate, explain, schema, models, capabilities.
 - `cli/commands/printer.py` - print, status, detect, memory, reset/cancel/pause/feed/cut, preview, capture, verify.
 - `cli/commands/model_options.py` - options shared by rendering and printer commands.
+- `cli/commands/calibrate.py` - print the calibration labels, store what was measured on them.
 - `cli/commands/config.py` - config, config-deploy, config-generate-examples.
 - `cli/commands/info.py` - info.
 - `cli/label_io.py` - reading labels and data records from files or stdin.
@@ -146,6 +151,8 @@ turn the outcome into output and an exit code.
 ### Outside the package
 
 - `scripts/gen_capabilities.py` - generates the model tables of `docs/capabilities.md`.
+- `scripts/image_ladder.py`, `length_ladder.py`, `qr_batch.py`, `status_cycles.py` - test prints and
+  cycles for measuring a real printer; the tests import them too.
 - `examples/` - sample labels and data records.
 - `notebooks/Quickstart.ipynb` - executed by CI.
 - `tests/` - one `test_<module>.py` per module or behaviour; `test_capabilities_doc.py` keeps the
