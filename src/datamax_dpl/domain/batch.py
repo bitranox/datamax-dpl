@@ -12,6 +12,7 @@ real hardware settles it.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .enums import Attribute, FindingCode, Unit
@@ -21,16 +22,15 @@ from .render_context import RenderContext, RenderOptions, resolved_image_module,
 from .units import DplUnit
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from .label import Cut
 
 CUT_NOW = b"\x02o"
 
 
-def _supports(options: RenderOptions, feature: Feature, findings: FindingCollector) -> tuple[bool, str]:
+def _context(options: RenderOptions, findings: FindingCollector) -> RenderContext:
+    """The context a batch asks about the model's features; its findings go to ``findings``."""
     profile = get_profile(options.model)
-    ctx = RenderContext(
+    return RenderContext(
         profile=profile,
         firmware=parse_firmware(options.firmware),
         options=options.options,
@@ -42,10 +42,22 @@ def _supports(options: RenderOptions, feature: Feature, findings: FindingCollect
         printer_state=resolved_printer_state(options, profile, label_media=None),
         default_attribute=Attribute.XOR,
     )
-    return ctx.supports(feature), ctx.requirement(feature)
 
 
-def batch_cuts(count: int, *, cut: Cut, options: RenderOptions) -> tuple[tuple[bool, ...], tuple[Finding, ...]]:
+@dataclass(frozen=True)
+class BatchCuts:
+    """Where a batch cuts across its records, and the batch-level findings.
+
+    Attributes:
+        cut_after: For each record, whether a cut follows it.
+        findings: The batch-level findings.
+    """
+
+    cut_after: tuple[bool, ...]
+    findings: tuple[Finding, ...]
+
+
+def batch_cuts(count: int, *, cut: Cut, options: RenderOptions) -> BatchCuts:
     """Return, for each of ``count`` records, whether a cut follows it, and the batch-level findings.
 
     A cut follows every ``cut.every``-th record, and the last one when ``cut.at_end``; none
@@ -53,25 +65,26 @@ def batch_cuts(count: int, *, cut: Cut, options: RenderOptions) -> tuple[tuple[b
 
     Example:
         >>> from datamax_dpl.domain.label import Cut
-        >>> batch_cuts(3, cut=Cut(every=2), options=RenderOptions(model="dmx-600"))[0]
+        >>> batch_cuts(3, cut=Cut(every=2), options=RenderOptions(model="dmx-600")).cut_after
         (False, True, True)
     """
     findings = FindingCollector(options.policy)
-    supported, requirement = _supports(options, Feature.CUT_NOW, findings)
-    if not supported:
+    ctx = _context(options, findings)
+    if not ctx.supports(Feature.CUT_NOW):
         findings.deviate(
             FindingCode.BATCH_CUT_UNSUPPORTED,
-            f"cutting every {cut.every} labels of a batch needs the cut-now command: {requirement}",
+            f"cutting every {cut.every} labels of a batch needs the cut-now command: "
+            f"{ctx.requirement(Feature.CUT_NOW)}",
             fallback="the printer cuts as its own cutter setting says",
         )
-        return (False,) * count, findings.findings()
+        return BatchCuts(cut_after=(False,) * count, findings=findings.findings())
     findings.warn(
         FindingCode.BATCH_CUT_UNVERIFIED,
         f"a cut command follows every {cut.every}th label; the printer must not also cut each label "
         "by itself (unverified on hardware)",
     )
     cuts = tuple(number % cut.every == 0 or (number == count and cut.at_end) for number in range(1, count + 1))
-    return cuts, findings.findings()
+    return BatchCuts(cut_after=cuts, findings=findings.findings())
 
 
 def with_cut(job: bytes, closing: bytes, *, cut: bool) -> bytes:
@@ -89,31 +102,4 @@ def with_cut(job: bytes, closing: bytes, *, cut: bool) -> bytes:
     return b"".join([job[: len(job) - len(closing)], CUT_NOW, closing])
 
 
-def cut_across_records(
-    jobs: Sequence[tuple[bytes, bytes]], *, cut: Cut, options: RenderOptions
-) -> tuple[bytes, tuple[Finding, ...]]:
-    """Join per-record jobs, inserting a cut after every ``cut.every``-th one (see :func:`batch_cuts`).
-
-    Args:
-        jobs: Each record's job and the closing bytes it ends with
-            (:attr:`~datamax_dpl.domain.render.RenderResult.closing`).
-        cut: How often to cut, and whether the last group is cut too.
-        options: The render options, for the model's cut-now command.
-
-    Returns:
-        The joined bytes and the batch-level findings.
-
-    Example:
-        >>> from datamax_dpl.domain.label import Cut
-        >>> jobs = [(b"Aq", b"q"), (b"Bq", b"q"), (b"C", b"")]
-        >>> data, _ = cut_across_records(jobs, cut=Cut(every=2), options=RenderOptions(model="dmx-600"))
-        >>> data
-        b'AqB\\x02oqC\\x02o'
-    """
-    cuts, findings = batch_cuts(len(jobs), cut=cut, options=options)
-    return b"".join(
-        with_cut(job, closing, cut=after) for (job, closing), after in zip(jobs, cuts, strict=True)
-    ), findings
-
-
-__all__ = ["CUT_NOW", "batch_cuts", "cut_across_records", "with_cut"]
+__all__ = ["CUT_NOW", "BatchCuts", "batch_cuts", "with_cut"]

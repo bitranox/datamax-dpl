@@ -58,7 +58,7 @@ from .use_cases import AnswerWait, BatchResult, open_within, read_stored_names
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from ..domain.render import RenderResult
+    from ..domain.render import RenderedRecord, RenderResult
     from .ports import OpenPrinter, PrinterTransport
     from .use_cases import RecordRender
 
@@ -286,9 +286,9 @@ class _Record:
         self._unsure = self.before.maybe_held
         self._rendered(self.render(self.held, halve=False))
 
-    def _rendered(self, rendered: tuple[RenderResult, HeldImages]) -> None:
+    def _rendered(self, rendered: RenderedRecord) -> None:
         """Make ``rendered`` the label as it goes out, with what its render says the printer then holds."""
-        self.result, self._rendered_after = rendered
+        self.result, self._rendered_after = rendered.result, rendered.held_after
 
     def _as_read(self, known: frozenset[str]) -> HeldImages:
         """What the printer holds after the label once a read listed ``known``, every round's sent names known.
@@ -386,9 +386,11 @@ class _Record:
         """
         base = EMPTY_MODULE if self.result.retry_clear_empties else self._uncleared()
         again = None if base is None else self.render(base, halve=False)
-        if again is not None and not again[0].ok:
-            return "rendered again for round 2 the label is refused: " + "; ".join(f.message for f in again[0].errors)
-        if twice := self._downloaded_again(self.result if again is None else again[0]):
+        if again is not None and not again.result.ok:
+            return "rendered again for round 2 the label is refused: " + "; ".join(
+                f.message for f in again.result.errors
+            )
+        if twice := self._downloaded_again(self.result if again is None else again.result):
             skipped = _Skipped(f"round 2 skipped, it would download again {self._unread(twice)}")
             self._retried(skipped.reason)
             return skipped
@@ -403,7 +405,8 @@ class _Record:
     def halve_and_upload(self) -> tuple[str, ...] | str:
         """Round 3: clear, upload the images halved; the reason instead where they cannot be halved."""
         base = EMPTY_MODULE if self.result.retry_clear_empties else self._uncleared()
-        halved, after = self.render(self.held if base is None else base, halve=True)
+        rendered = self.render(self.held if base is None else base, halve=True)
+        halved = rendered.result
         if not halved.halved_elements or self.result.halved_elements:
             return "no image of the label can be halved (a QR Code never is, nor an image halved already)"
         if not halved.ok:
@@ -413,7 +416,7 @@ class _Record:
             return f"halving is skipped, it would download again ({stays}) {self._unread(twice)}"
         self.link.send(self.result.retry_clear)
         cleared = _clear_text(self.result, self._module())
-        self._rendered((halved, after))
+        self._rendered(rendered)
         missing = self.upload()
         self._retried(f"round 3: {cleared}, then uploaded the images halved 2x2; {self._last_read}")
         return missing

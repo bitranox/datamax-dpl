@@ -141,6 +141,20 @@ class RenderResult(BaseModel):
         return tuple(f for f in self.findings if f.severity is Severity.WARNING)
 
 
+@dataclass(frozen=True)
+class RenderedRecord:
+    """One label of a batch rendered, and what the printer holds in the image module after its job.
+
+    Attributes:
+        result: The label's result.
+        held_after: What the printer holds once the label's job has run; the next label of the
+            batch starts from it.
+    """
+
+    result: RenderResult
+    held_after: HeldImages
+
+
 def _pick(explicit: _Given | None, default: _Default) -> _Given | _Default:
     return default if explicit is None else explicit
 
@@ -548,8 +562,7 @@ def build_job(
         UnknownModelError: ``options.model`` names no profile.
         ValueError: ``options.firmware`` is malformed.
     """
-    result, _ = _build(label, options or RenderOptions(), filled=filled, held=held or HeldImages())
-    return result
+    return _build(label, options or RenderOptions(), filled=filled, held=held or HeldImages()).result
 
 
 def build_jobs(
@@ -586,8 +599,9 @@ def build_jobs(
     state = held or HeldImages()
     results: list[RenderResult] = []
     for label in labels:
-        result, state = _build(label, options, filled=filled, held=state)
-        results.append(result)
+        record = _build(label, options, filled=filled, held=state)
+        results.append(record.result)
+        state = record.held_after
     return tuple(results)
 
 
@@ -632,7 +646,7 @@ def _note_skipped_budget(job: _Job, options: RenderOptions) -> None:
 
 def _build(
     label: Label, options: RenderOptions, *, filled: bool, held: HeldImages, halve: bool = False
-) -> tuple[RenderResult, HeldImages]:
+) -> RenderedRecord:
     """Render ``label`` and return its result with what the printer holds after its job.
 
     ``halve`` sends every image that can be halved at half resolution whatever the budget says.
@@ -671,7 +685,7 @@ def _build(
         retry_clear=b"".join(retry_clear(ctx)),
         retry_clear_empties=ctx.clears_module,
     )
-    return result, held_after(ctx)
+    return RenderedRecord(result=result, held_after=held_after(ctx))
 
 
 def build_record(
@@ -681,11 +695,11 @@ def build_record(
     filled: bool = False,
     held: HeldImages | None = None,
     halve: bool = False,
-) -> tuple[RenderResult, HeldImages]:
+) -> RenderedRecord:
     """Render one label of a batch as :func:`build_jobs` does, and return what the printer holds after it.
 
     A caller that sends a batch label by label, and may render a label again on the way (with the
-    module known empty after a clear, or with its images halved), carries the second value to the
+    module known empty after a clear, or with its images halved), carries ``held_after`` to the
     next label.
 
     Args:
@@ -707,8 +721,8 @@ def build_record(
     Example:
         >>> from datamax_dpl.domain.label import Image, Label
         >>> label = Label(elements=[Image(x=1, y=1, name="LOGO", bitmap=["##..", "..##"])])
-        >>> full, _ = build_record(label, RenderOptions(model="allegro-2"))
-        >>> halved, _ = build_record(label, RenderOptions(model="allegro-2"), halve=True)
+        >>> full = build_record(label, RenderOptions(model="allegro-2")).result
+        >>> halved = build_record(label, RenderOptions(model="allegro-2"), halve=True).result
         >>> full.halved_elements, halved.halved_elements, full.downloads == halved.downloads
         ((), (0,), False)
     """
@@ -741,12 +755,13 @@ def held_after_read(result: RenderResult, after: HeldImages, listed: frozenset[s
         >>> label = Label(elements=[Image(x=1, y=1, name="LOGO", bitmap=["##..", "..##"])])
         >>> keys_off = {"clear_graphics_before_label": False, "clear_graphics_after_label": False}
         >>> options = RenderOptions(model="allegro-2", **keys_off)
-        >>> result, after = build_record(label, options)
-        >>> [logo] = result.downloads
-        >>> after.listed is None, held_after_read(result, after, frozenset({logo, "OTHER"})).holds("OTHER")
+        >>> kept = build_record(label, options)
+        >>> [logo] = kept.result.downloads
+        >>> listed = frozenset({logo, "OTHER"})
+        >>> kept.held_after.listed is None, held_after_read(kept.result, kept.held_after, listed).holds("OTHER")
         (True, True)
-        >>> emptied, after = build_record(label, RenderOptions(model="allegro-2"))
-        >>> held_after_read(emptied, after, frozenset({logo, "OTHER"})).listed
+        >>> emptied = build_record(label, RenderOptions(model="allegro-2"))
+        >>> held_after_read(emptied.result, emptied.held_after, listed).listed
         frozenset()
     """
     # closing holds only the clears after the label (closing_clears): <STX>q where the module is
@@ -777,6 +792,7 @@ def render(label: Label, options: RenderOptions | None = None) -> RenderResult:
 
 __all__ = [
     "RenderResult",
+    "RenderedRecord",
     "build_job",
     "build_jobs",
     "build_record",

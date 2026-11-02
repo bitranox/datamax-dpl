@@ -30,7 +30,7 @@ from datamax_dpl.domain.held_images import HeldImages
 from datamax_dpl.domain.label import Image, Label, Qr
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.raster import Bitmap
-from datamax_dpl.domain.render import RenderResult, build_jobs, build_record
+from datamax_dpl.domain.render import RenderedRecord, RenderResult, build_jobs, build_record
 from datamax_dpl.domain.render_context import RenderOptions, drawn_image_name
 from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS, STATUS_REQUEST
 
@@ -632,15 +632,16 @@ def test_a_batch_record_in_error_once_rendered_again_says_so_and_nothing_after_i
     first, second = Label(elements=[Qr(x=5, y=150, data="FIRST")]), Label(elements=[LOGO, ICON])
     logo, _icon = render_label(second, _ONE_IMAGE_BUDGET).downloads
     held = HeldImages(listed=frozenset({logo}))
-    one, after_one = build_record(first, _ONE_IMAGE_BUDGET, held=held)
-    two, _ = build_record(second, _ONE_IMAGE_BUDGET, held=after_one)
+    first_record = build_record(first, _ONE_IMAGE_BUDGET, held=held)
+    one = first_record.result
+    two = build_record(second, _ONE_IMAGE_BUDGET, held=first_record.held_after).result
     assert one.ok and two.ok
     batch = BatchResult(data=one.data + two.data, results=(one, two))
 
-    def render_first(held: HeldImages, *, halve: bool) -> tuple[RenderResult, HeldImages]:
+    def render_first(held: HeldImages, *, halve: bool) -> RenderedRecord:
         return build_record(first, _ONE_IMAGE_BUDGET, held=held, halve=halve)
 
-    def render_second(held: HeldImages, *, halve: bool) -> tuple[RenderResult, HeldImages]:
+    def render_second(held: HeldImages, *, halve: bool) -> RenderedRecord:
         return build_record(second, _ONE_IMAGE_BUDGET, held=held, halve=halve)
 
     printer = ModulePrinter(ImageModules(held=[("A", logo, 512)], lose={0}))

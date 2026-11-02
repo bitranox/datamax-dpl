@@ -792,30 +792,28 @@ _READ = frozenset({LOGO_SENT, "OTHER"})
 
 @pytest.mark.os_agnostic
 def test_with_no_clear_after_the_label_what_the_read_listed_stays_held_with_the_command_sent() -> None:
-    result, after = build_record(Label(elements=[_LOGO]), _options(**_NO_CLEAR))
+    record = build_record(Label(elements=[_LOGO]), _options(**_NO_CLEAR))
 
-    held = held_after_read(result, after, _READ)
+    held = held_after_read(record.result, record.held_after, _READ)
 
     assert held.listed == _READ
-    assert held.command_for(LOGO_SENT) == after.command_for(LOGO_SENT) is not None
+    assert held.command_for(LOGO_SENT) == record.held_after.command_for(LOGO_SENT) is not None
     assert held.command_for("OTHER") is None
 
 
 @pytest.mark.os_agnostic
 def test_a_clear_module_after_the_label_leaves_nothing_the_read_listed() -> None:
-    result, after = build_record(
-        Label(elements=[_LOGO]), _options(model="allegro-2", clear_graphics_before_label=False)
-    )
+    record = build_record(Label(elements=[_LOGO]), _options(model="allegro-2", clear_graphics_before_label=False))
 
-    assert held_after_read(result, after, _READ) == HeldImages(listed=frozenset())
+    assert held_after_read(record.result, record.held_after, _READ) == HeldImages(listed=frozenset())
 
 
 @pytest.mark.os_agnostic
 def test_the_prodigy_s_removes_after_the_label_take_out_only_its_own_names_from_what_the_read_listed() -> None:
     options = _options(model="prodigy", image_module=ImageModule.B, clear_graphics_before_label=False)
-    result, after = build_record(Label(elements=[_LOGO]), options)
+    record = build_record(Label(elements=[_LOGO]), options)
 
-    held = held_after_read(result, after, _READ)
+    held = held_after_read(record.result, record.held_after, _READ)
 
     assert held.listed == {"OTHER"}
     assert not held.holds(LOGO_SENT)

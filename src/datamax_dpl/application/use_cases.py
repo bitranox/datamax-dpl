@@ -33,7 +33,7 @@ from ..domain.held_images import DEFAULT_MODULE_UNREAD, HeldImages, held_images_
 from ..domain.label import Cut
 from ..domain.memory import MemoryDirectory, parse_module_directory
 from ..domain.placeholders import fill_label
-from ..domain.render import RenderResult, build_job, build_jobs, build_record
+from ..domain.render import RenderedRecord, RenderResult, build_job, build_jobs, build_record
 from ..domain.status import (
     CANCEL,
     CUT_NOW,
@@ -122,8 +122,8 @@ def render_batch(
     results = build_jobs((fill_label(per_record, record) for record in records), options, filled=True, held=held)
     if cut is None:
         return BatchResult(data=b"".join(result.data for result in results), results=results)
-    cuts, findings = batch_cuts(len(results), cut=cut, options=options)
-    batch = BatchResult(data=b"", results=results, batch_findings=findings, cut_after=cuts)
+    cuts = batch_cuts(len(results), cut=cut, options=options)
+    batch = BatchResult(data=b"", results=results, batch_findings=cuts.findings, cut_after=cuts.cut_after)
     return batch.model_copy(update={"data": b"".join(batch.record_jobs())})
 
 
@@ -142,7 +142,7 @@ def _batch_label(label: Label) -> tuple[Label, Cut | None]:
 class RecordRender(Protocol):
     """Render one label of a job given what the printer holds before it; see :func:`record_renders`."""
 
-    def __call__(self, held: HeldImages, *, halve: bool) -> tuple[RenderResult, HeldImages]:
+    def __call__(self, held: HeldImages, *, halve: bool) -> RenderedRecord:
         """Return the label's result and what the printer holds after it; ``halve`` halves its images."""
         ...
 
@@ -175,7 +175,7 @@ def record_renders(
 
 
 def _render_of(label: Label, options: RenderOptions, *, filled: bool) -> RecordRender:
-    def render(held: HeldImages, *, halve: bool) -> tuple[RenderResult, HeldImages]:
+    def render(held: HeldImages, *, halve: bool) -> RenderedRecord:
         return build_record(label, options, filled=filled, held=held, halve=halve)
 
     return render
