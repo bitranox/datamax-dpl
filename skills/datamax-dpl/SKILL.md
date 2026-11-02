@@ -26,7 +26,8 @@ while a print server is busy with an earlier job and then say how long they wait
 30.0 s (4 attempts)`), and `verify` waits as long for the printer to finish its job (`printer still
 busy after 30.0 s`): raise `status_wait`, or pass `--timeout`, which is their whole wait.
 Before a job no clear precedes, `print` and `verify` may first spend up to `[printer]
-stored_names_wait` (30 s) reading the printer's stored image names; `--timeout` leaves that wait.
+stored_names_wait` (30 s), plus the 1 s of silence that ends the answer, reading the printer's
+stored image names; `--timeout` leaves that wait.
 A job is sent in `[printer] send_chunk_bytes` pieces (1024) and the timeout bounds each one; a job
 cut off part way says to power-cycle the printer, which may be waiting for the rest.
 
@@ -110,7 +111,8 @@ cut off part way says to power-cycle the printer, which may be waiting for the r
 - Image module: downloads go to the model's built-in module (`image_module` in `capabilities`); a Prodigy/Prodigy Plus has none and refuses them (`image_module_unknown`) until `[printer] image_module` (A-E) names the module fitted.
 - Upload check (`print`, `verify`, two-way link): a download into a full module is lost silently,
   so a label's downloads go first, the printer's directory (`<STX>W`) is read within
-  `stored_names_wait`, and its format follows only once every downloaded name is listed. Else round
+  `stored_names_wait` (plus the 1 s of silence that ends the answer), and its format follows only
+  once every downloaded name is listed. Else round
   2 clears (`q` on built-in RAM, the Prodigy's `R`, never a plug-in module) and uploads again, round
   3 uploads halved (`image_upload_retried`); still missing, the label is refused and nothing more
   is sent (`image_upload_refused`). `[printer] upload_check_rounds` (1-3, default 3). An

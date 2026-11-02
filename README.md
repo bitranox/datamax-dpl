@@ -374,8 +374,8 @@ datamax-dpl verify examples/product-label.json --model dmx-600 --printer tcp://1
 until it is idle, for up to `status_wait` seconds in all (or `--timeout`; on a one-way channel it
 waits `[printer] one_way_settle` seconds instead), waits `settle_seconds`, takes one photo, and
 writes `expected-<time>.png` next to it. Before sending a job no clear precedes, `verify` and
-`print` may first spend up to `[printer] stored_names_wait` seconds (30) reading the printer's
-stored image names. On a two-way link both send a label's image downloads first and its format only
+`print` may first spend up to `[printer] stored_names_wait` seconds (30), plus the 1 s of silence
+that ends the printer's answer, reading the printer's stored image names. On a two-way link both send a label's image downloads first and its format only
 once the printer lists every one of them, clearing and uploading again, then uploading the images
 halved, before refusing the label (`[printer] upload_check_rounds`, see [CONFIG.md](CONFIG.md)).
 There the model's own image memory budget is left out, so images `validate` reports halved go at
