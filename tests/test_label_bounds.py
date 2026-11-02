@@ -12,8 +12,8 @@ from pydantic import ValidationError
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.calibration import across_label, along_label, calibration_labels
-from datamax_dpl.domain.enums import PrinterStop
-from datamax_dpl.domain.label import MAX_LENGTH, Label
+from datamax_dpl.domain.enums import FillPattern, PrinterStop
+from datamax_dpl.domain.label import MAX_LENGTH, Box, Label
 from datamax_dpl.domain.render_context import RenderOptions
 
 if TYPE_CHECKING:
@@ -318,3 +318,53 @@ def test_placeholder_filling_never_produces_a_numeric_string_in_a_number_field(
         cli_mod.cli, ["--json-bare", "validate", "--data", str(data), str(label)], obj=build_testing
     )
     assert result.exit_code == 0, result.output
+
+
+_TEXT = '{"type": "text", "x": 5, "y": 5, "text": "X"'
+#: Every coded field as a label with VALUE in its place, and the one code that field certainly holds.
+_CODED: list[tuple[str, int]] = [
+    (f'{{"attribute": VALUE, "elements": [{_TEXT}}}]}}', 1),
+    (f'{{"elements": [{_TEXT}, "attribute": VALUE}}]}}', 1),
+    (f'{{"elements": [{_TEXT}, "rotation": VALUE}}]}}', 0),
+    ('{"elements": [{"type": "box", "x": 5, "y": 5, "width": 9, "height": 9, "thickness": 1, "fill": VALUE}]}', 0),
+    ('{"elements": [{"type": "circle", "x": 5, "y": 5, "radius": 1, "fill": VALUE}]}', 0),
+    (
+        '{"elements": [{"type": "polygon", "fill": VALUE, '
+        '"points": [{"x": 0, "y": 0}, {"x": 5, "y": 0}, {"x": 0, "y": 5}]}]}',
+        0,
+    ),
+    (
+        '{"elements": [{"type": "scalable_text", "x": 5, "y": 5, "text": "X", "height_points": 10, '
+        '"attribute": VALUE}]}',
+        1,
+    ),
+    (
+        '{"elements": [{"type": "barcode", "x": 5, "y": 5, "symbology": "datamatrix", "data": "D", '
+        '"datamatrix": {"ecc": VALUE}}]}',
+        0,
+    ),
+]
+_CODED_IDS = ["label-attribute", "attribute", "rotation", "box-fill", "circle-fill", "polygon-fill", "scalable", "ecc"]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("template", "_code"), _CODED, ids=_CODED_IDS)
+@pytest.mark.parametrize("value", ["true", "false", '"1"', '"0"', '""', "1.0"])
+def test_a_coded_field_refuses_what_lax_validation_would_read_as_a_number(
+    template: str, _code: int, value: str
+) -> None:
+    with pytest.raises(ValidationError, match="needs a whole number"):
+        Label.model_validate(json.loads(template.replace("VALUE", value)))
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("template", "code"), _CODED, ids=_CODED_IDS)
+def test_a_coded_field_still_takes_its_code_from_json(template: str, code: int) -> None:
+    document = template.replace("VALUE", str(code))
+    assert Label.model_validate(json.loads(document)) == Label.model_validate_json(document)
+
+
+@pytest.mark.os_agnostic
+def test_a_coded_field_takes_the_enum_member_a_library_caller_passes() -> None:
+    box = Box(x=0, y=0, width=9, height=9, thickness=1, fill=FillPattern.SHADE_6)
+    assert box.fill is FillPattern.SHADE_6

@@ -14,7 +14,7 @@ Text fields may contain ``{name}`` placeholders, filled per record by
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -62,6 +62,22 @@ MAX_LENGTH = 100_000.0
 NonNegative = Annotated[float, Field(ge=0, le=MAX_LENGTH, strict=True, allow_inf_nan=False)]
 Positive = Annotated[float, Field(gt=0, le=MAX_LENGTH, strict=True, allow_inf_nan=False)]
 Multiplier = Annotated[int, Field(ge=1, le=MAX_MULTIPLIER, strict=True)]
+
+
+def _whole_number_only(value: object) -> object:
+    """Pass a whole number on, and refuse what lax validation would read as one.
+
+    A coded field cannot take ``strict``: a JSON number is not yet the enum member strict mode
+    asks for. Lax, it reads ``true`` as 1 and ``"5"`` as 5, which selects a code nobody wrote.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"needs a whole number, got {value!r}")
+    return value
+
+
+_Code = TypeVar("_Code")
+#: A field holding one of a fixed set of numbers: an int enum or an int Literal.
+_Coded = Annotated[_Code, BeforeValidator(_whole_number_only)]
 
 # The field takes the one member as a Literal rather than the enum class, so the JSON schema
 # reads {"const": "printer"}; a word still validates into PrinterStop.PRINTER. A refused word is
@@ -143,7 +159,7 @@ class Counter(_Frozen):
 class _Placed(_Frozen):
     x: NonNegative = Field(description="Distance from the left edge of the label.")
     y: NonNegative = Field(description="Distance from the bottom edge of the label.")
-    rotation: Rotation = Rotation.DEG_0
+    rotation: _Coded[Rotation] = Rotation.DEG_0
 
 
 class Text(_Placed):
@@ -166,7 +182,7 @@ class Text(_Placed):
     font_id: str | None = Field(default=None, pattern=r"^[0-9A-Za-z]{3}$")
     width_multiplier: Multiplier = 1
     height_multiplier: Multiplier = 1
-    attribute: Attribute | None = None
+    attribute: _Coded[Attribute] | None = None
     counter: Counter | None = None
 
     @model_validator(mode="after")
@@ -196,7 +212,7 @@ class ScalableText(_Placed):
     font_id: str = Field(default="S00", pattern=r"^S[0-9A-Za-z]{2}$")
     height_points: float = Field(ge=4, le=999, strict=True, allow_inf_nan=False)
     width_points: float | None = Field(default=None, ge=4, le=999, strict=True, allow_inf_nan=False)
-    attribute: Attribute | None = None
+    attribute: _Coded[Attribute] | None = None
 
 
 class Line(_Frozen):
@@ -242,7 +258,7 @@ class Box(_Frozen):
     height: Positive
     thickness: Positive
     side_thickness: Positive | None = None
-    fill: FillPattern = FillPattern.NONE
+    fill: _Coded[FillPattern] = FillPattern.NONE
 
 
 class Circle(_Frozen):
@@ -257,7 +273,7 @@ class Circle(_Frozen):
     x: NonNegative
     y: NonNegative
     radius: Positive
-    fill: FillPattern = FillPattern.NONE
+    fill: _Coded[FillPattern] = FillPattern.NONE
 
 
 class Point(_Frozen):
@@ -277,7 +293,7 @@ class Polygon(_Frozen):
 
     type: Literal["polygon"] = "polygon"
     points: list[Point] = Field(min_length=2, max_length=60)
-    fill: FillPattern = FillPattern.NONE
+    fill: _Coded[FillPattern] = FillPattern.NONE
 
 
 class Pdf417Options(_Frozen):
@@ -296,7 +312,7 @@ class Pdf417Options(_Frozen):
 class DataMatrixOptions(_Frozen):
     """DataMatrix parameters: ECC level, format id, rows and columns (0 = automatic)."""
 
-    ecc: Literal[0, 50, 80, 100, 140, 200] = 200
+    ecc: _Coded[Literal[0, 50, 80, 100, 140, 200]] = 200
     format_id: int = Field(default=0, ge=0, le=6, strict=True)
     rows: int = Field(default=0, ge=0, le=144, strict=True)
     columns: int = Field(default=0, ge=0, le=144, strict=True)
@@ -438,7 +454,7 @@ class Label(_Frozen):
     dot_size: DotSize | None = None
     column_offset: NonNegative | None = None
     row_offset: NonNegative | None = None
-    attribute: Attribute | None = None
+    attribute: _Coded[Attribute] | None = None
     mirror: bool = Field(default=False, strict=True)
     symbol_set: str | None = Field(default=None, pattern=r"^[A-Z0-9]{2}$")
     media: MediaSensor | None = None

@@ -153,7 +153,9 @@ All notable changes to this project are documented here. The format follows
   have that JSON type: numeric strings (`"x": "10"`), a boolean as a number
   (`"x": true`) and a number as a boolean are refused naming the field, and so
   is a whole float for an integer field (`"quantity": 2.0`). They were read as
-  10, 1 and 2, while `datamax-dpl schema` says number. An integer for a length
+  10, 1 and 2, while `datamax-dpl schema` says number. Coded numbers follow:
+  `"fill": "1"`, `"attribute": true` and `"datamatrix": {"ecc": false}` are
+  refused with `needs a whole number`. An integer for a length
   stays fine. `{name}` placeholders fill text and `data` only, so `--data` is
   not affected.
 - A key the `[printer]`, `[printers.<name>]`, `[camera]` or `[preview]`
