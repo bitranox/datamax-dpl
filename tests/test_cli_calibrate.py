@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -13,8 +14,11 @@ from lib_layered_config import Config
 
 from datamax_dpl.adapters import cli as cli_mod
 from datamax_dpl.adapters.cli.commands.calibrate import AxisChoice
+from datamax_dpl.adapters.cli.settings import check_printer_values
 from datamax_dpl.adapters.config.user_edit import write_printer_values
 from datamax_dpl.composition import AppServices, build_testing
+from datamax_dpl.domain.errors import ConfigurationError
+from datamax_dpl.domain.profiles import CalibrationKey
 from datamax_dpl.domain.units import Axis
 
 if TYPE_CHECKING:
@@ -23,7 +27,6 @@ if TYPE_CHECKING:
 
     from click.testing import CliRunner, Result
 
-    from datamax_dpl.domain.profiles import CalibrationKey
 
 _FORMAT_START = b"\x02L"
 #: The across frame on a 100 x 55 mm label in the Allegro 2's whole-dot unit at feed scale 0.977:
@@ -797,3 +800,46 @@ def test_every_axis_choice_names_the_labels_it_prints_across_first() -> None:
         AxisChoice.ALONG: (Axis.ALONG,),
         AxisChoice.BOTH: (Axis.ACROSS, Axis.ALONG),
     }
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ("--top", "nan", "--bottom", "1"),
+        ("--top", "1", "--bottom", "nan"),
+        ("--left", "nan", "--right", "1"),
+        ("--top", "inf", "--bottom", "1"),
+        ("--top", "-inf", "--bottom", "1"),
+        ("--top", "inf", "--bottom", "inf"),
+        ("--across", "nan", "--width", "100"),
+        ("--along", "inf", "--along-length", "200"),
+    ],
+    ids=" ".join,
+)
+def test_a_value_the_next_load_would_refuse_leaves_the_file_alone(
+    cli_runner: CliRunner, tmp_path: Path, flags: tuple[str, ...]
+) -> None:
+    """`--top nan` wrote offset_along = nan, and every later command then failed until a hand edit."""
+    config = tmp_path / "config.toml"
+    original = '# mine\n[printer]\nmodel = "generic"\n'
+    config.write_text(original, encoding="utf-8")
+    result = _set(cli_runner, _user_layer(config), *flags)
+    assert result.exit_code == 2, result.output
+    assert config.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf, 10.5])
+def test_values_the_settings_would_refuse_are_refused_before_a_write(value: float) -> None:
+    """The check every calibrate value passes, whichever calculation produced it."""
+    with pytest.raises(ConfigurationError, match=r"printer\.offset_along"):
+        check_printer_values(Config({}, {}), printer="", values={CalibrationKey.OFFSET_ALONG: value})
+
+
+@pytest.mark.os_agnostic
+def test_values_are_checked_with_the_section_they_join() -> None:
+    config = Config({"printers": {"lager": {"model": "generic"}}}, {})
+    check_printer_values(config, printer="lager", values={CalibrationKey.OFFSET_ALONG: 1.5})
+    with pytest.raises(ConfigurationError, match=r"printers\.lager\.offset_along"):
+        check_printer_values(config, printer="lager", values={CalibrationKey.OFFSET_ALONG: 11.0})

@@ -47,6 +47,8 @@ if TYPE_CHECKING:
     from lib_layered_config import Config
     from pydantic_core import ErrorDetails
 
+    from ...domain.profiles import CalibrationKey
+
 _T = TypeVar("_T")
 
 _BoundedStop = Annotated[float, Field(gt=0, le=MAX_STOP_POSITION_MM)]
@@ -226,6 +228,26 @@ def printer_settings(config: Config, overrides: PrinterOverrides) -> PrinterSett
     )
 
 
+def check_printer_values(config: Config, *, printer: str, values: Mapping[CalibrationKey, float]) -> None:
+    """Refuse values the next load of the configuration would refuse, before they are written.
+
+    Args:
+        config: The configuration the values join.
+        printer: The printer's name for ``[printers.<name>]``, or "" for ``[printer]``.
+        values: The values about to be written, each under the key it names.
+
+    Raises:
+        ConfigurationError: The section with these values in it does not validate; the message names the key.
+    """
+    written = {key.value: value for key, value in values.items()}
+    try:
+        PrinterSettings.model_validate(
+            {**_section(config, ConfigSection.PRINTER), **_named(config, printer), **written, "name": printer}
+        )
+    except ValidationError as exc:
+        raise ConfigurationError(_describe(exc, section=printer_section(printer))) from None
+
+
 def _named(config: Config, name: str) -> Mapping[str, Any]:
     """Return the ``[printers.<name>]`` section, or nothing when no name was chosen.
 
@@ -365,6 +387,7 @@ __all__ = [
     "PrinterOverrides",
     "PrinterSettings",
     "camera_settings",
+    "check_printer_values",
     "preview_settings",
     "printer_settings",
     "render_options",

@@ -34,10 +34,11 @@ from ..config_load import load_config
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
 from ..runner import CommandResult, run_command
-from ..settings import PrinterOverrides, printer_settings, render_options, require_uri
+from ..settings import PrinterOverrides, check_printer_values, printer_settings, render_options, require_uri
 from ..typed_click import option
 from .model_options import (
     command_overrides,
+    loaded_config,
     printer_opener,
     printer_options_decorator,
     render_options_decorator,
@@ -469,6 +470,7 @@ def cli_calibrate_set(
             )
             raise ConfigurationError(msg)
         values = {c.key: c.new for c in [*changes, *offsets]}
+        check_printer_values(loaded_config(cli_ctx), printer=name, values=values)
         written = cli_ctx.services.set_printer_values(printer=name, values=values, profile=cli_ctx.profile)
         effective = _effective_calibration(cli_ctx, name)
         changes = [c.read_back(effective) for c in changes]

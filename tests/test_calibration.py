@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from datamax_dpl.domain.calibration import (
@@ -281,3 +283,20 @@ def test_a_negative_border_or_an_offset_past_ten_millimetres_is_refused(
 ) -> None:
     with pytest.raises(ValueError, match=match):
         offset_from_borders(current, low=low, high=high)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("low", "high"),
+    [(math.nan, 1.0), (1.0, math.nan), (math.nan, math.nan), (math.inf, 1.0), (1.0, math.inf), (math.inf, math.inf)],
+    ids=repr,
+)
+def test_a_border_that_is_no_finite_number_is_refused(low: float, high: float) -> None:
+    with pytest.raises(ValueError, match="mm"):
+        offset_from_borders(0.0, low=low, high=high)
+
+
+@pytest.mark.os_agnostic
+def test_a_nan_current_offset_is_refused_too() -> None:
+    with pytest.raises(ValueError, match="mm"):
+        offset_from_borders(math.nan, low=1.0, high=1.0)

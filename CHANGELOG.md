@@ -297,6 +297,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `calibrate set` no longer writes a value the next load refuses: `--top nan`
+  wrote `offset_along = nan` into the user's configuration, after which every
+  command failed until the file was edited by hand. A border that is not
+  finite is refused, and the section with the new values in it is validated
+  before the file is touched.
 - A host name with an empty or over-long label (`tcp://a..b:9100`, a
   64-character label, more than 253 characters in all) is refused with
   `ConfigurationError` when the printer is opened, and a camera URL nothing

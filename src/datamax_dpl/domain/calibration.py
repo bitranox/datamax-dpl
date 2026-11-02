@@ -342,16 +342,18 @@ def offset_from_borders(current: float, *, low: float, high: float) -> float:
         The new offset in mm, rounded to 0.01; positive moves right or up.
 
     Raises:
-        ValueError: A border is negative, or the offset would pass 10 mm either way.
+        ValueError: A border is negative or not finite, or the offset would pass 10 mm either way.
 
     Example:
         >>> offset_from_borders(0.0, low=2.3, high=1.8)
         -0.25
     """
-    if low < 0 or high < 0:
-        raise ValueError(f"borders of {low:g} mm and {high:g} mm must both be 0 mm or more")
+    # Written to pass only a real number: NaN compares False with everything, and a NaN that got
+    # through would be stored as the offset, which the next load of the configuration refuses.
+    if not (low >= 0 and high >= 0 and math.isfinite(low) and math.isfinite(high)):
+        raise ValueError(f"borders of {low:g} mm and {high:g} mm must both be finite and 0 mm or more")
     offset = round(current + (high - low) / 2, 2)
-    if abs(offset) > MAX_OFFSET_MM:
+    if not abs(offset) <= MAX_OFFSET_MM:
         raise ValueError(
             f"borders of {low:g} mm and {high:g} mm give an offset of {offset:g} mm, past "
             f"{MAX_OFFSET_MM:g} mm: check the measurement"
