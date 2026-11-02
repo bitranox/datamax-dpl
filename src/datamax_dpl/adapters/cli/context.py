@@ -45,6 +45,8 @@ class CLIContext:
         config_error: Why the configuration could not be loaded, None when it loaded. The
             root records the exception; each command that reads the configuration reports it.
         mode: Output shape requested by ``--json`` / ``--json-bare``.
+        job_on_stdout: The command sends its job to standard output (printer URI ``-``), so what
+            it says to a person goes to stderr.
     """
 
     traceback: bool
@@ -55,6 +57,7 @@ class CLIContext:
     env_file: str | None = None
     config_error: Exception | None = None
     mode: OutputMode = HUMAN
+    job_on_stdout: bool = False
 
 
 def store_cli_context(

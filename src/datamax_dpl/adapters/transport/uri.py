@@ -50,7 +50,8 @@ DEFAULT_TCP_PORT = 9100
 DEFAULT_BAUD = 9600
 MAX_TCP_PORT = 65535
 
-_STDOUT = "-"
+#: The printer URI that writes the job to standard output.
+STDOUT_URI = "-"
 _TCP_PREFIX = "tcp://"
 _SERIAL_PREFIX = "serial://"
 _DEVICE_PREFIX = "device://"
@@ -200,7 +201,7 @@ def is_printer_uri(text: str) -> bool:
         >>> is_printer_uri("tcp://192.0.2.60:9100"), is_printer_uri("-"), is_printer_uri("lager")
         (True, True, False)
     """
-    return text == _STDOUT or text.startswith((_TCP_PREFIX, _SERIAL_PREFIX, _DEVICE_PREFIX, _FILE_PREFIX))
+    return text == STDOUT_URI or text.startswith((_TCP_PREFIX, _SERIAL_PREFIX, _DEVICE_PREFIX, _FILE_PREFIX))
 
 
 def is_printer_name(text: str) -> bool:
@@ -509,7 +510,7 @@ def _refuse_control_characters(text: str) -> None:
 def _parse(uri: str) -> PrinterUri:
     """Dispatch on the scheme prefix."""
     _refuse_control_characters(uri)
-    if uri == _STDOUT:
+    if uri == STDOUT_URI:
         return StdoutUri()
     if uri.startswith(_TCP_PREFIX):
         return _parse_tcp(uri)
@@ -614,6 +615,7 @@ __all__ = [
     "ACCEPTED_FORMS",
     "DEFAULT_BAUD",
     "DEFAULT_TCP_PORT",
+    "STDOUT_URI",
     "FLOW_CONTROL_BYTES",
     "MAX_TCP_PORT",
     "MAX_TIMEOUT_SECONDS",

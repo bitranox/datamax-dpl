@@ -193,7 +193,7 @@ def test_a_malformed_printer_uri_is_refused_before_anything_is_sent(
     result = run(cli_runner, args, factory(printer))
     assert result.exit_code == 2
     document = envelope(result)
-    assert document["error"] == "ValueError"
+    assert document["error"] == "ConfigurationError"
     assert "printer URI 'tcp://192.0.2.60:port'" in document["message"]
     assert printer.data == b""
 

@@ -39,9 +39,11 @@ from ..typed_click import option
 from .model_options import (
     command_overrides,
     loaded_config,
+    parsed_printer_uri,
     printer_opener,
     printer_options_decorator,
     render_options_decorator,
+    resolve_sending_settings,
     resolve_settings,
 )
 
@@ -203,7 +205,7 @@ def cli_calibrate_print(
 
     def body(cli_ctx: CLIContext) -> CommandResult:
         overrides = command_overrides(given)
-        settings = resolve_settings(cli_ctx, overrides)
+        settings = resolve_sending_settings(cli_ctx, overrides)
         axes = AxisChoice(axis).axes
         options = render_options(settings)
         sizes = _Sizes(width=width, height=height, along_length=along_length)
@@ -228,6 +230,7 @@ def cli_calibrate_print(
             human = "REFUSED: nothing sent" if hint is None else f"REFUSED: nothing sent\n{hint}"
             return CommandResult(ok=False, payload=payload, human=human)
         uri = require_uri(settings)
+        parsed_printer_uri(settings)
         # One send for both formats: a print server can refuse a reconnect for a second or two.
         report = send_bytes(
             b"".join(r.data for r in results.values()),

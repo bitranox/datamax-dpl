@@ -201,7 +201,7 @@ The model matrix, the limits and the full fallback table are in
 | `serial:///dev/ttyS0?baud=9600&parity=N&bytesize=8&stopbits=1&rtscts=0&xonxoff=0` | Serial port (`serial://COM3?...` on Windows); every parameter is optional. Can read answers. |
 | `device:///dev/usb/lp0`                                                           | A device file, write only.                                                                   |
 | `file:PATH` or `file:///abs/path`                                                 | Appends the job to a file.                                                                   |
-| `-`                                                                               | Writes the job to standard output.                                                           |
+| `-`                                                                               | Writes the job to standard output; what the command says goes to stderr. `--json` refuses it. |
 
 `status`, `detect` and `memory` need a channel that can read the printer's answer (tcp or serial).
 `status` and `memory` keep trying for `[printer] status_wait` seconds (default 30) while a print
@@ -363,8 +363,9 @@ instead of `data`.
 | Exit code | Meaning                                                                                                        |
 |-----------|----------------------------------------------------------------------------------------------------------------|
 | 0         | Done.                                                                                                          |
-| 1         | Refused: at least one finding is an error. Nothing was printed or written.                                     |
+| 1         | Refused: at least one finding is an error. Nothing more was printed or written; a `--data` batch may have printed earlier labels, and the `record` of the finding says where it stopped. |
 | 2         | Could not run: unreadable or invalid label, unknown model, bad configuration, printer or camera not reachable. |
+| 130       | Interrupted (Ctrl-C). Part of a job may already have been sent.                                                |
 | 141       | The reader of the output went away (`datamax-dpl schema \| head -1`); nothing more is said.                    |
 
 `info` and the config commands answer in the same envelopes (`config`: the dict `config --format

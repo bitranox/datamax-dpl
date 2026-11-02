@@ -40,10 +40,10 @@ from ....domain.status import PrinterStatus
 from ...camera import require_camera
 from ...config.sections import CAMERA_SECTION, PREVIEW_SECTION, printer_section
 from ...preview import pillow_available, preview_findings, render_preview_png
-from ...transport.uri import is_one_way, parse_printer_uri, unsupported_query
+from ...transport.uri import is_one_way, unsupported_query
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
-from ..label_io import LabelInputError, load_label, load_records
+from ..label_io import STDIN, LabelInputError, load_label, load_records
 from ..payloads import FindingOut, findings_text, render_payload
 from ..runner import CommandResult, run_command
 from ..settings import (
@@ -59,9 +59,11 @@ from .labels import render_loaded
 from .model_options import (
     command_overrides,
     loaded_config,
+    parsed_printer_uri,
     printer_opener,
     printer_options_decorator,
     render_options_decorator,
+    resolve_sending_settings,
     resolve_settings,
 )
 
@@ -87,7 +89,7 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
     """Render a label and send it to the printer; nothing is sent when a finding is an error."""
 
     def body(cli_ctx: CLIContext) -> CommandResult:
-        settings = resolve_settings(cli_ctx, command_overrides(given))
+        settings = resolve_sending_settings(cli_ctx, command_overrides(given))
         label = load_label(label_source)
         records = None if data is None else load_records(data)
         link = _link(settings)
@@ -178,26 +180,22 @@ def _link(settings: PrinterSettings) -> _Link:
     """The printer ``settings`` name and whether its channel is one-way.
 
     Raises:
-        ConfigurationError: No printer is given (:func:`require_uri`).
-        ValueError: The URI is malformed (:func:`parse_printer_uri`).
+        ConfigurationError: No printer is given, or its URI is malformed (:func:`parsed_printer_uri`).
     """
-    uri = require_uri(settings)
-    return _Link(uri=uri, one_way=is_one_way(parse_printer_uri(uri)))
+    return _Link(uri=require_uri(settings), one_way=is_one_way(parsed_printer_uri(settings)))
 
 
 def _queryable_uri(settings: PrinterSettings) -> str:
     """The URI of a printer that can answer; a query of a file must not leave one behind.
 
     Raises:
-        ConfigurationError: No printer is given (:func:`require_uri`).
+        ConfigurationError: No printer is given, or its URI is malformed (:func:`parsed_printer_uri`).
         UnsupportedOperationError: The channel cannot read an answer; it was not opened.
-        ValueError: The URI is malformed (:func:`parse_printer_uri`).
     """
-    uri = require_uri(settings)
-    parsed = parse_printer_uri(uri)
+    parsed = parsed_printer_uri(settings)
     if is_one_way(parsed):
         raise unsupported_query(parsed)
-    return uri
+    return require_uri(settings)
 
 
 def _print_options(settings: PrinterSettings, *, link: _Link) -> RenderOptions:
@@ -427,8 +425,9 @@ def _single(command: PrinterCommand, help_text: str) -> click.Command:
     @click.pass_context
     def run(ctx: click.Context, **given: Any) -> None:
         def body(cli_ctx: CLIContext) -> CommandResult:
-            settings = resolve_settings(cli_ctx, command_overrides(given))
+            settings = resolve_sending_settings(cli_ctx, command_overrides(given))
             uri = require_uri(settings)
+            parsed_printer_uri(settings)
             report = send_command(
                 command, uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)
             )
@@ -487,6 +486,8 @@ def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | 
     """Draw the label at the printer's resolution as a PNG (text lettered or grey cells, barcodes hatched)."""
 
     def body(cli_ctx: CLIContext) -> CommandResult:
+        if output == STDIN:
+            raise LabelInputError("preview --output - is not supported: a PNG goes to a file")
         settings = resolve_settings(cli_ctx, PrinterOverrides(model=model))
         label = load_label(label_source)
         if data is not None:
@@ -570,7 +571,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
     """Print a label, wait until the printer is done, photograph it, and write the expected preview beside it."""
 
     def body(cli_ctx: CLIContext) -> CommandResult:
-        settings = resolve_settings(cli_ctx, command_overrides(given))
+        settings = resolve_sending_settings(cli_ctx, command_overrides(given))
         # Loaded once and rendered from that copy: LABEL '-' is stdin, which cannot be read twice.
         label = load_label(label_source)
         link = _link(settings)

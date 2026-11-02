@@ -11,7 +11,8 @@ from ....domain.enums import CutterPresence, FallbackPolicy, HardwareOption
 from ....domain.errors import ConfigurationError
 from ....domain.profiles import Firmware, parse_firmware
 from ...config.sections import PRINTER_SECTION, printer_section
-from ..settings import PrinterOverrides, PrinterSettings, printer_settings, transport_tuning
+from ...transport.uri import STDOUT_URI, PrinterUri, parse_printer_uri
+from ..settings import PrinterOverrides, PrinterSettings, printer_settings, require_uri, transport_tuning
 from ..typed_click import option
 
 if TYPE_CHECKING:
@@ -130,6 +131,37 @@ def resolve_settings(cli_ctx: CLIContext, overrides: PrinterOverrides) -> Printe
     return printer_settings(loaded_config(cli_ctx), overrides)
 
 
+def resolve_sending_settings(cli_ctx: CLIContext, overrides: PrinterOverrides) -> PrinterSettings:
+    """The settings of a command that sends to the printer, which may be standard output.
+
+    A job on stdout owns that stream: a person's narration moves to stderr, and machine mode
+    refuses, as ``render --output -`` does, before anything is read or sent.
+
+    Raises:
+        ConfigurationError: As :func:`resolve_settings`, or the job would mix with the envelope.
+    """
+    settings = resolve_settings(cli_ctx, overrides)
+    if settings.uri == STDOUT_URI:
+        if cli_ctx.mode.machine:
+            raise ConfigurationError("printer - cannot be combined with --json: stdout carries the envelope")
+        cli_ctx.job_on_stdout = True
+    return settings
+
+
+def parsed_printer_uri(settings: PrinterSettings) -> PrinterUri:
+    """The printer URI ``settings`` name, parsed.
+
+    Raises:
+        ConfigurationError: No printer is given (:func:`~..settings.require_uri`), or its URI is
+            malformed; ``open_printer`` raises the same type for the same URI.
+    """
+    uri = require_uri(settings)
+    try:
+        return parse_printer_uri(uri)
+    except ValueError as exc:
+        raise ConfigurationError(str(exc)) from exc
+
+
 def printer_opener(cli_ctx: CLIContext, settings: PrinterSettings) -> OpenPrinter:
     """The printer opener for ``settings``: the composition's, with their transport tuning bound."""
     return cli_ctx.services.tuned_open_printer(transport_tuning(settings))
@@ -200,9 +232,11 @@ __all__ = [
     "firmware_option",
     "hardware_options",
     "loaded_config",
+    "parsed_printer_uri",
     "printer_choice_decorator",
     "printer_opener",
     "printer_options_decorator",
     "render_options_decorator",
+    "resolve_sending_settings",
     "resolve_settings",
 ]

@@ -312,6 +312,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Ctrl-C exits 130 with one line on stderr and, under `--json`, an error
+  envelope; it exited 1, which reads as a refusal with nothing printed.
+- The printer URI `-` keeps standard output to the job: `--json` and
+  `--json-bare` refuse it on `print`, `verify`, `calibrate print` and the
+  single printer commands, as `render -o -` does, and the human text goes to
+  stderr. A malformed printer URI is a `ConfigurationError` on the command
+  line too (it was a plain `ValueError` there). `preview -o -` is refused; it
+  wrote a file named `-`.
 - A label holds at most 2048 elements, refused when it is read; `attribute` 2
   on a model without the `A` command no longer holds every pair of overlapping
   fields in memory, and skips the comparison when more printer-drawn fields

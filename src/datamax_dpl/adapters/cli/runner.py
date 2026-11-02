@@ -4,7 +4,8 @@ Every label and printer command hands :func:`run_command` a body returning a
 :class:`CommandResult`. Any failure becomes an error envelope (machine mode) and one stderr line,
 with exit 1 for a refusal and 2 for anything that kept the command from running, a failure nobody
 foresaw included: a caller reads exit 1 as "the answer is no" and parses stdout whatever happened.
-The human text of a success goes to stdout, the envelope replaces it in machine mode.
+The human text of a success goes to stdout, or to stderr when the job itself went there; the envelope
+replaces it in machine mode.
 """
 
 from __future__ import annotations
@@ -95,7 +96,7 @@ def run_command(ctx: rich_click.Context, *, command: CommandName, body: Callable
         envelope = Envelope[BaseModel](ok=result.ok, command=command, data=result.payload, skipped=result.skipped)
         write_envelope(envelope, mode=cli_ctx.mode)
     elif result.human:
-        safe_console.echo(result.human)
+        safe_console.echo(result.human, err=cli_ctx.job_on_stdout)
     ctx.exit(Outcome.OK if result.ok else Outcome.REFUSED)
 
 
