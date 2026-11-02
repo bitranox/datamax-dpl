@@ -701,6 +701,32 @@ def test_a_name_no_round_sent_is_reported_held_whichever_read_lists_it(silent: s
 
 
 @pytest.mark.os_agnostic
+def test_a_record_in_error_once_rendered_from_the_names_read_again_in_round_2_is_refused_with_nothing_of_it_sent() -> (
+    None
+):
+    """Record 2's held names are in error, and only the names read again in its round 2 list ICON: it is refused there."""
+    held_in_error = PLUG_IN_TWO_WAY.model_copy(update={"held_image_severity": Severity.ERROR})
+    job = _icon_from_another_program(held_in_error, silent={0, 1, 2})
+    printer = ModulePrinter(job.modules)
+    batch = BatchResult(data=b"".join(r.data for r in job.renders), results=job.renders)
+
+    with pytest.raises(UploadRefusedError) as caught:
+        print_checked(batch, job.job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+
+    assert job.modules.downloads == [job.logo]
+    assert job.modules.downloaded_held == []
+    assert printer.data.count(FORMAT) == 1
+    sent = caught.value.result
+    assert isinstance(sent, BatchResult)
+    assert _message(sent.results[1], FindingCode.IMAGE_UPLOAD_RENDER_REFUSED) == (
+        "the label, rendered again for round 2, has errors (image ICON (sent as "
+        f"{job.icon}) is not downloaded: the printer already holds that name in module B, and a second download of "
+        "it prints nothing; the label prints the stored image); nothing of it was sent"
+    )
+    assert [f.code for f in caught.value.findings] == [FindingCode.IMAGE_UPLOAD_RENDER_REFUSED]
+
+
+@pytest.mark.os_agnostic
 def test_a_batch_whose_names_read_got_no_answer_renders_the_next_record_from_the_first_records_read() -> None:
     """The names read before the job got no answer; record 1's read lists ICON, which record 2 then places."""
     options = TWO_WAY.model_copy(update={"clear_graphics_before_label": False, "clear_graphics_after_label": False})
