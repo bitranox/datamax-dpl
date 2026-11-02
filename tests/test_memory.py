@@ -8,8 +8,9 @@ import pytest
 
 from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
 from datamax_dpl.application.use_cases import read_memory_directory
+from datamax_dpl.domain.enums import MemoryKind
 from datamax_dpl.domain.errors import PrinterTimeoutError, UnsupportedOperationError
-from datamax_dpl.domain.memory import MemoryKind, MemoryModule, parse_module_directory
+from datamax_dpl.domain.memory import MemoryModule, parse_module_directory
 from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS
 
 #: The manual's sample answer to ``<STX>WG`` (DPL Programmer's Manual, page 43-44) as printed:
@@ -29,12 +30,32 @@ ALLEGRO2_GRAPHICS = ("M7F", "M7R", "M7B", "M9F", "M9R", "M9B", "M10F", "M10R", "
 
 @pytest.mark.os_agnostic
 def test_the_request_letters_are_the_manuals() -> None:
-    assert dict(MEMORY_DIRECTORY_REQUESTS) == {"font": b"\x02WF", "graphic": b"\x02WG", "format": b"\x02WL"}
+    assert dict(MEMORY_DIRECTORY_REQUESTS) == {
+        MemoryKind.FONT: b"\x02WF",
+        MemoryKind.GRAPHIC: b"\x02WG",
+        MemoryKind.FORMAT: b"\x02WL",
+    }
+
+
+@pytest.mark.os_agnostic
+def test_every_memory_kind_has_its_request() -> None:
+    assert set(MEMORY_DIRECTORY_REQUESTS) == set(MemoryKind)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("kind", "wire"), [(MemoryKind.FONT, "font"), (MemoryKind.GRAPHIC, "graphic"), (MemoryKind.FORMAT, "format")]
+)
+def test_a_directory_s_kind_is_written_as_its_word(kind: MemoryKind, wire: str) -> None:
+    """The kind travels in the JSON of ``memory`` as the word, never as the member's name."""
+    directory = parse_module_directory(MANUAL_SAMPLE, kind=kind)
+    assert directory.model_dump_json().startswith(f'{{"kind":"{wire}",')
+    assert type(directory.model_validate_json(directory.model_dump_json()).kind) is MemoryKind
 
 
 @pytest.mark.os_agnostic
 def test_the_manual_sample_parses_into_its_two_modules() -> None:
-    directory = parse_module_directory(MANUAL_SAMPLE, kind="graphic")
+    directory = parse_module_directory(MANUAL_SAMPLE, kind=MemoryKind.GRAPHIC)
     assert directory.parsed
     assert directory.kind == "graphic"
     assert directory.modules == MANUAL_MODULES
@@ -46,7 +67,7 @@ def test_the_manual_sample_parses_into_its_two_modules() -> None:
 @pytest.mark.parametrize("after_header", [b"", b"\r", b" "], ids=["same-line", "own-line", "space"])
 def test_every_line_break_and_the_number_on_its_own_line_parse_alike(line_break: bytes, after_header: bytes) -> None:
     answer = MANUAL_SAMPLE.replace(b"MODULE:0", b"MODULE:" + after_header + b"0").replace(b"\r", line_break)
-    assert parse_module_directory(answer, kind="graphic").modules == MANUAL_MODULES
+    assert parse_module_directory(answer, kind=MemoryKind.GRAPHIC).modules == MANUAL_MODULES
 
 
 @pytest.mark.os_agnostic
@@ -54,7 +75,7 @@ def test_every_line_break_and_the_number_on_its_own_line_parse_alike(line_break:
     "answer", [b"No Modules Available\r", b"NO MODULES AVAILABLE\r\n", b"\x11No Modules Available"]
 )
 def test_no_modules_available_is_reported_as_such(answer: bytes) -> None:
-    directory = parse_module_directory(answer, kind="font")
+    directory = parse_module_directory(answer, kind=MemoryKind.FONT)
     assert directory.parsed
     assert directory.no_modules_available
     assert directory.modules == ()
@@ -62,20 +83,22 @@ def test_no_modules_available_is_reported_as_such(answer: bytes) -> None:
 
 @pytest.mark.os_agnostic
 def test_a_module_listing_is_not_no_modules_available() -> None:
-    assert not parse_module_directory(MANUAL_SAMPLE, kind="graphic").no_modules_available
+    assert not parse_module_directory(MANUAL_SAMPLE, kind=MemoryKind.GRAPHIC).no_modules_available
 
 
 @pytest.mark.os_agnostic
 def test_garbage_after_the_last_module_and_flow_control_bytes_are_ignored() -> None:
     answer = b"\x13" + MANUAL_SAMPLE + b"\x11\r\x02junk\r"
-    directory = parse_module_directory(answer, kind="graphic")
+    directory = parse_module_directory(answer, kind=MemoryKind.GRAPHIC)
     assert directory.parsed
     assert directory.modules == MANUAL_MODULES
 
 
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize(
-    ("kind", "names"), [("graphic", ALLEGRO2_GRAPHICS), ("font", ()), ("format", ())], ids=["graphic", "font", "format"]
+    ("kind", "names"),
+    [(MemoryKind.GRAPHIC, ALLEGRO2_GRAPHICS), (MemoryKind.FONT, ()), (MemoryKind.FORMAT, ())],
+    ids=["graphic", "font", "format"],
 )
 def test_a_real_allegro2_answer_parses_with_its_free_bytes(kind: MemoryKind, names: tuple[str, ...]) -> None:
     """The answers one Allegro 2 (firmware CA02 03.04) sent to <STX>WG, <STX>WF and <STX>WL on 2026-10-30.
@@ -83,7 +106,7 @@ def test_a_real_allegro2_answer_parses_with_its_free_bytes(kind: MemoryKind, nam
     Kept byte for byte: a space before the colon of the free-bytes header, CR line ends, and an
     XON (0x11) in front of the font answer. Every kind reports module A's same free bytes.
     """
-    raw = (FIXTURES / f"memory_allegro2_{kind}.txt").read_bytes()
+    raw = (FIXTURES / f"memory_allegro2_{kind.value}.txt").read_bytes()
     directory = parse_module_directory(raw, kind=kind)
     assert directory.parsed
     assert directory.modules == (MemoryModule(module="A", names=names, available_bytes=48631),)
@@ -107,7 +130,7 @@ def test_the_fixtures_keep_the_printers_bytes() -> None:
     ],
 )
 def test_the_free_bytes_header_allows_blanks_around_the_colon_and_any_case(header: bytes) -> None:
-    directory = parse_module_directory(b"MODULE: A\rLOGO\r" + header + b"00048631\r", kind="graphic")
+    directory = parse_module_directory(b"MODULE: A\rLOGO\r" + header + b"00048631\r", kind=MemoryKind.GRAPHIC)
     assert directory.parsed
     assert directory.modules == (MemoryModule(module="A", names=("LOGO",), available_bytes=48631),)
 
@@ -123,21 +146,21 @@ def test_the_free_bytes_header_allows_blanks_around_the_colon_and_any_case(heade
     ],
 )
 def test_a_free_bytes_line_that_cannot_be_read_unparses_the_directory_and_is_no_name(line: bytes) -> None:
-    directory = parse_module_directory(b"MODULE: A\rLOGO\r" + line + b"\r", kind="graphic")
+    directory = parse_module_directory(b"MODULE: A\rLOGO\r" + line + b"\r", kind=MemoryKind.GRAPHIC)
     assert not directory.parsed
     assert directory.modules == (MemoryModule(module="A", names=("LOGO",), available_bytes=None),)
 
 
 @pytest.mark.os_agnostic
 def test_a_module_without_its_free_bytes_unparses_the_directory() -> None:
-    directory = parse_module_directory(MANUAL_SAMPLE + b"MODULE: C\rSHIP\r", kind="format")
+    directory = parse_module_directory(MANUAL_SAMPLE + b"MODULE: C\rSHIP\r", kind=MemoryKind.FORMAT)
     assert not directory.parsed
     assert directory.modules[-1] == MemoryModule(module="C", names=("SHIP",), available_bytes=None)
 
 
 @pytest.mark.os_agnostic
 def test_a_free_bytes_header_with_no_number_after_it_unparses_the_directory() -> None:
-    directory = parse_module_directory(b"MODULE: A\rAVAILABLE BYTES IN MODULE:\r", kind="graphic")
+    directory = parse_module_directory(b"MODULE: A\rAVAILABLE BYTES IN MODULE:\r", kind=MemoryKind.GRAPHIC)
     assert not directory.parsed
     assert directory.modules == (MemoryModule(module="A", names=(), available_bytes=None),)
 
@@ -145,7 +168,7 @@ def test_a_free_bytes_header_with_no_number_after_it_unparses_the_directory() ->
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("answer", [b"?", b"VER DA - 01.01\r", b"\xff\xfe"])
 def test_an_answer_that_is_no_directory_is_kept_unparsed_and_not_raised(answer: bytes) -> None:
-    directory = parse_module_directory(answer, kind="graphic")
+    directory = parse_module_directory(answer, kind=MemoryKind.GRAPHIC)
     assert not directory.parsed
     assert directory.modules == ()
     assert directory.raw == answer.decode("ascii", errors="backslashreplace")
@@ -155,7 +178,7 @@ def test_an_answer_that_is_no_directory_is_kept_unparsed_and_not_raised(answer: 
 def test_reading_one_kind_sends_its_request_and_parses_the_answer() -> None:
     printer = RecordingPrinter(answers={b"\x02WG": MANUAL_SAMPLE})
     directories = read_memory_directory(
-        kinds=("graphic",), uri=PRINTER, timeout=2.0, idle=0.5, open_printer=open_recording_printer(printer)
+        kinds=(MemoryKind.GRAPHIC,), uri=PRINTER, timeout=2.0, idle=0.5, open_printer=open_recording_printer(printer)
     )
     assert [d.modules for d in directories] == [MANUAL_MODULES]
     assert printer.queries == [b"\x02WG"]
@@ -179,7 +202,7 @@ def test_reading_every_kind_asks_in_the_order_given_over_one_connection() -> Non
     answers = {b"\x02WF": b"No Modules Available\r", b"\x02WG": MANUAL_SAMPLE, b"\x02WL": b"MODULE: C\rSHIP\r"}
     printer = RecordingPrinter(answers=answers)
     directories = read_memory_directory(
-        kinds=("font", "graphic", "format"),
+        kinds=(MemoryKind.FONT, MemoryKind.GRAPHIC, MemoryKind.FORMAT),
         uri=PRINTER,
         timeout=2.0,
         idle=0.5,
@@ -195,7 +218,11 @@ def test_a_printer_that_does_not_answer_is_a_timeout() -> None:
     printer = RecordingPrinter()
     with pytest.raises(PrinterTimeoutError, match="no answer to"):
         read_memory_directory(
-            kinds=("graphic",), uri=PRINTER, timeout=2.0, idle=0.5, open_printer=open_recording_printer(printer)
+            kinds=(MemoryKind.GRAPHIC,),
+            uri=PRINTER,
+            timeout=2.0,
+            idle=0.5,
+            open_printer=open_recording_printer(printer),
         )
     assert printer.closed
 
@@ -205,12 +232,16 @@ def test_a_one_way_channel_cannot_read_a_directory() -> None:
     printer = RecordingPrinter(bidirectional=False)
     with pytest.raises(UnsupportedOperationError, match="cannot read the printer's answer"):
         read_memory_directory(
-            kinds=("graphic",), uri=PRINTER, timeout=2.0, idle=0.5, open_printer=open_recording_printer(printer)
+            kinds=(MemoryKind.GRAPHIC,),
+            uri=PRINTER,
+            timeout=2.0,
+            idle=0.5,
+            open_printer=open_recording_printer(printer),
         )
 
 
 def _unparsed(answer: bytes) -> None:
-    directory = parse_module_directory(answer, kind="graphic")
+    directory = parse_module_directory(answer, kind=MemoryKind.GRAPHIC)
     assert not directory.parsed
     assert directory.raw == answer.decode("ascii", errors="backslashreplace")
 
@@ -239,7 +270,7 @@ def test_a_module_letter_outside_a_to_e_is_unparsed(letter: bytes) -> None:
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("header", [b"MODULE : A", b"MODULE  :  A", b"module: A"])
 def test_the_module_line_allows_blanks_around_the_colon(header: bytes) -> None:
-    directory = parse_module_directory(header + b"\rAVAILABLE BYTES IN MODULE : 00048631\r", kind="font")
+    directory = parse_module_directory(header + b"\rAVAILABLE BYTES IN MODULE : 00048631\r", kind=MemoryKind.FONT)
     assert directory.parsed
     assert directory.modules == (MemoryModule(module="A", names=(), available_bytes=48631),)
 
@@ -258,7 +289,7 @@ def test_a_name_past_the_manuals_limits_is_unparsed(name: bytes) -> None:
 def test_a_name_of_sixteen_printable_characters_is_kept() -> None:
     name = "A-Z 0123456789_~"
     directory = parse_module_directory(
-        b"MODULE: B\r" + name.encode("ascii") + b"\rAVAILABLE BYTES IN MODULE : 00048631\r", kind="graphic"
+        b"MODULE: B\r" + name.encode("ascii") + b"\rAVAILABLE BYTES IN MODULE : 00048631\r", kind=MemoryKind.GRAPHIC
     )
     assert directory.parsed
     assert directory.modules[0].names == (name,)
@@ -294,14 +325,16 @@ def test_a_module_header_without_a_readable_letter_is_unparsed_also_when_its_lin
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("tail", [b"X", b"\x02junk", b"MODULES"])
 def test_an_unfinished_last_line_that_is_no_module_header_is_ignored(tail: bytes) -> None:
-    directory = parse_module_directory(MANUAL_SAMPLE + tail, kind="graphic")
+    directory = parse_module_directory(MANUAL_SAMPLE + tail, kind=MemoryKind.GRAPHIC)
     assert directory.parsed
     assert directory.modules == MANUAL_MODULES
 
 
 @pytest.mark.os_agnostic
 def test_a_name_that_only_starts_like_a_module_header_is_kept() -> None:
-    directory = parse_module_directory(b"MODULE: A\rMODULES\rAVAILABLE BYTES IN MODULE : 00048631\r", kind="graphic")
+    directory = parse_module_directory(
+        b"MODULE: A\rMODULES\rAVAILABLE BYTES IN MODULE : 00048631\r", kind=MemoryKind.GRAPHIC
+    )
     assert directory.parsed
     assert directory.modules == (MemoryModule(module="A", names=("MODULES",), available_bytes=48631),)
 
@@ -339,6 +372,10 @@ def test_a_bad_idle_is_refused_before_the_printer_is_opened() -> None:
     printer = RecordingPrinter(answers={b"\x02WG": MANUAL_SAMPLE})
     with pytest.raises(ValueError, match="idle must be above 0"):
         read_memory_directory(
-            kinds=("graphic",), uri=PRINTER, timeout=2.0, idle=0.0, open_printer=open_recording_printer(printer)
+            kinds=(MemoryKind.GRAPHIC,),
+            uri=PRINTER,
+            timeout=2.0,
+            idle=0.0,
+            open_printer=open_recording_printer(printer),
         )
     assert printer.opened == []

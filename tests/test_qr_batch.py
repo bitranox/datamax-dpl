@@ -16,7 +16,7 @@ from printer_server import ImageModules, module_printer
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.composition import build_production
-from datamax_dpl.domain.enums import Severity
+from datamax_dpl.domain.enums import MemoryKind, Severity
 from datamax_dpl.domain.label import Label
 from datamax_dpl.domain.render import build_job
 from datamax_dpl.domain.render_context import RenderOptions
@@ -112,7 +112,7 @@ def test_the_printed_command_sends_each_record_with_its_own_code(
     assert result.exit_code == 0, result.output
     options = RenderOptions(model="allegro-2")
     jobs = [build_job(_literal_label(summary, row), options, filled=True) for row in _rows(summary)]
-    assert bytes(server.received).replace(MEMORY_DIRECTORY_REQUESTS["graphic"], b"") == b"".join(
+    assert bytes(server.received).replace(MEMORY_DIRECTORY_REQUESTS[MemoryKind.GRAPHIC], b"") == b"".join(
         job.data for job in jobs
     )
     assert len({job.downloads for job in jobs}) == 4

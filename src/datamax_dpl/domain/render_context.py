@@ -296,8 +296,8 @@ def resolved_printer_state(
     )
 
 
-def resolved_image_module(options: RenderOptions, profile: PrinterProfile) -> str | None:
-    """Return the letter of the memory module a job's image downloads go to.
+def resolved_image_module(options: RenderOptions, profile: PrinterProfile) -> ImageModule | None:
+    """Return the memory module a job's image downloads go to.
 
     The configured module wins over the model's built-in one. Every context built for a job reads
     the module from here, so a probe context cannot name a different module than the render does.
@@ -307,18 +307,18 @@ def resolved_image_module(options: RenderOptions, profile: PrinterProfile) -> st
         profile: The model profile; ``image_module`` is its built-in module, None when it has none.
 
     Returns:
-        The module letter, or None when neither names one (the job then refuses downloads).
+        The module, or None when neither names one (the job then refuses downloads).
 
     Example:
         >>> from datamax_dpl.domain.profiles import get_profile
         >>> resolved_image_module(RenderOptions(model="dmx-600"), get_profile("dmx-600"))
-        'E'
+        <ImageModule.E: 'E'>
         >>> resolved_image_module(RenderOptions(image_module=ImageModule.B), get_profile("prodigy"))
-        'B'
+        <ImageModule.B: 'B'>
         >>> resolved_image_module(RenderOptions(), get_profile("prodigy")) is None
         True
     """
-    return profile.image_module if options.image_module is None else options.image_module.value
+    return profile.image_module if options.image_module is None else options.image_module
 
 
 @dataclass(frozen=True)
@@ -422,7 +422,7 @@ class RenderContext:
         unit: Unit the label's lengths are written in.
         dpl_unit: DPL distance unit of this job.
         findings: Where every step records what it noticed.
-        image_module: Letter of the memory module images are downloaded to, or None when the
+        image_module: The memory module images are downloaded to, or None when the
             model has none and the options name none: a download then refuses the job.
         printer_state: The persistent printer settings this label's job sets, from
             :func:`resolved_printer_state`; required, so no context carries an unresolved one.
@@ -461,7 +461,7 @@ class RenderContext:
     unit: Unit
     dpl_unit: DplUnit
     findings: FindingCollector
-    image_module: str | None
+    image_module: ImageModule | None
     printer_state: PrinterState
     cutter_installed: bool | None = None
     symbol_set: str | None = None
@@ -641,8 +641,8 @@ class RenderContext:
         )
         return False
 
-    def _module(self, *, element: int) -> str | None:
-        """Return the module letter a download goes to; with none, refuse the job once and return None.
+    def _module(self, *, element: int) -> ImageModule | None:
+        """Return the module a download goes to; with none, refuse the job once and return None.
 
         The refusal names the first element that downloads; a later download is dropped silently,
         since one finding already says why the job cannot be printed.
@@ -854,7 +854,7 @@ class RenderContext:
         return held == download_command(name, bitmap, module=self.image_module)
 
     def _queue_drawn(
-        self, name: str, bitmap: Bitmap, *, module: str, element: int, label_name: str | None = None
+        self, name: str, bitmap: Bitmap, *, module: ImageModule, element: int, label_name: str | None = None
     ) -> str:
         """Queue ``bitmap`` into ``module`` under ``name`` (from :meth:`_drawn_name`), once, and return the name.
 

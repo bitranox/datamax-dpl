@@ -23,7 +23,16 @@ from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.application.use_cases import render_batch
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.decoder import explain
-from datamax_dpl.domain.enums import CommandKind, FallbackPolicy, FindingCode, ImageModule, QrError, Severity, Unit
+from datamax_dpl.domain.enums import (
+    CommandKind,
+    FallbackPolicy,
+    FindingCode,
+    ImageModule,
+    MemoryKind,
+    QrError,
+    Severity,
+    Unit,
+)
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.findings import FindingCollector
 from datamax_dpl.domain.image_records import decode_image, download_command
@@ -415,7 +424,9 @@ def drawn_name(ctx: RenderContext, bitmap: Bitmap) -> str:
 
 def _queue_under(ctx: RenderContext, name: str, bitmap: Bitmap) -> None:
     """Put ``bitmap`` in the job's downloads under ``name``: a hash collision no real pair of bitmaps gives."""
-    ctx.downloads.append(ImageDownload(name=name, command=download_command(name, bitmap, module="A"), element=0))
+    ctx.downloads.append(
+        ImageDownload(name=name, command=download_command(name, bitmap, module=ImageModule.A), element=0)
+    )
 
 
 @pytest.mark.os_agnostic
@@ -428,7 +439,7 @@ def test_two_different_images_whose_names_collide_in_one_job_get_different_names
         unit=Unit.MM,
         dpl_unit=DplUnit.INCH_HUNDREDTHS,
         findings=FindingCollector(FallbackPolicy.DEGRADE),
-        image_module="A",
+        image_module=ImageModule.A,
         printer_state=resolved_printer_state(RenderOptions(), get_profile("generic"), label_media=None),
     )
     bitmap = Bitmap.from_rows(["#."])
@@ -537,7 +548,7 @@ def test_download_drawn_image_never_names_two_different_images_alike(
         unit=Unit.MM,
         dpl_unit=DplUnit.INCH_HUNDREDTHS,
         findings=FindingCollector(FallbackPolicy.DEGRADE),
-        image_module="A",
+        image_module=ImageModule.A,
         printer_state=resolved_printer_state(RenderOptions(), get_profile("generic"), label_media=None),
         reserved_image_names=frozenset({first}) if reserved else frozenset(),
     )
@@ -628,7 +639,7 @@ def test_print_sends_exactly_the_rendered_qr_job(cli_runner: CliRunner, tmp_path
     args = ["--json", "print", qr_file(tmp_path), "--model", "allegro-2", "--printer", PRINTER]
     result = run_cli(cli_runner, args, printer)
     assert result.exit_code == 0, result.output
-    job = b"".join(chunk for chunk in printer.sent if chunk != MEMORY_DIRECTORY_REQUESTS["graphic"])
+    job = b"".join(chunk for chunk in printer.sent if chunk != MEMORY_DIRECTORY_REQUESTS[MemoryKind.GRAPHIC])
     assert job == render(Label.model_validate(QR_DOCUMENT), RenderOptions(model="allegro-2")).data
 
 

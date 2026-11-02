@@ -19,6 +19,7 @@ from printer_server import answering, silent
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.composition import build_production
+from datamax_dpl.domain.enums import MemoryKind
 from datamax_dpl.domain.label import Label
 from datamax_dpl.domain.render import build_job
 from datamax_dpl.domain.render_context import RenderOptions
@@ -140,7 +141,7 @@ def test_status_shows_a_truncated_answer_it_skipped(
 def test_memory_over_tcp_lists_the_module_and_its_free_bytes(
     cli_runner: CliRunner, serve: Callable[[Play], PrinterServer]
 ) -> None:
-    request = MEMORY_DIRECTORY_REQUESTS["graphic"]
+    request = MEMORY_DIRECTORY_REQUESTS[MemoryKind.GRAPHIC]
     server = serve(answering(request, GRAPHIC_DIRECTORY))
 
     result = run(cli_runner, ["--json", "memory", "--kind", "graphic", "--idle", "0.3", "--printer", server.address])

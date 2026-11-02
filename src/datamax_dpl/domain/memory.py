@@ -15,12 +15,10 @@ read is returned unparsed with its raw text instead of raised.
 from __future__ import annotations
 
 import re
-from typing import Literal, TypeAlias
 
 from pydantic import BaseModel
 
-#: The kinds of stored data a directory lists, each asked with its own ``<STX>W`` letter.
-MemoryKind: TypeAlias = Literal["font", "graphic", "format"]
+from .enums import MemoryKind
 
 _LINE_BREAK = re.compile(r"\r\n|\r|\n")
 #: Line ends, then nothing but flow control and blanks: the answer's last line was finished.
@@ -124,16 +122,17 @@ def parse_module_directory(raw: bytes, *, kind: MemoryKind) -> MemoryDirectory:
 
     Example:
         >>> answer = b"MODULE: B\\rLOGO\\rAVAILABLE BYTES IN MODULE:00257919\\r"
-        >>> directory = parse_module_directory(answer, kind="graphic")
+        >>> directory = parse_module_directory(answer, kind=MemoryKind.GRAPHIC)
         >>> directory.parsed, directory.modules[0].names, directory.modules[0].available_bytes
         (True, ('LOGO',), 257919)
-        >>> parse_module_directory(b"MODULE: A\\rAVAILABLE BYTES IN MODULE : 00048631\\r", kind="font").parsed
+        >>> parse_module_directory(b"MODULE: A\\rAVAILABLE BYTES IN MODULE : 00048631\\r", kind=MemoryKind.FONT).parsed
         True
-        >>> parse_module_directory(b"MODULE: A\\rLOGO\\r", kind="graphic").parsed
+        >>> parse_module_directory(b"MODULE: A\\rLOGO\\r", kind=MemoryKind.GRAPHIC).parsed
         False
-        >>> parse_module_directory(b"MODULE: A\\rAVAILABLE BYTES IN MODULE : 00048631\\rMODU", kind="font").parsed
+        >>> cut = b"MODULE: A\\rAVAILABLE BYTES IN MODULE : 00048631\\rMODU"
+        >>> parse_module_directory(cut, kind=MemoryKind.FONT).parsed
         False
-        >>> parse_module_directory(b"No Modules Available\\r", kind="font").no_modules_available
+        >>> parse_module_directory(b"No Modules Available\\r", kind=MemoryKind.FONT).no_modules_available
         True
     """
     # latin-1 keeps one character per byte, so a non-ASCII byte stays one unprintable character
@@ -231,7 +230,6 @@ __all__ = [
     "MAX_NAME_LENGTH",
     "MODULE_LETTERS",
     "MemoryDirectory",
-    "MemoryKind",
     "MemoryModule",
     "parse_module_directory",
 ]

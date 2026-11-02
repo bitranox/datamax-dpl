@@ -14,11 +14,11 @@ Text fields may contain ``{name}`` placeholders, filled per record by
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, TypeAlias
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 
-from .enums import Attribute, FillPattern, MediaSensor, QrError, Rotation, SpeedCode, Unit
+from .enums import Attribute, FillPattern, MediaSensor, PrinterStop, QrError, Rotation, SpeedCode, Unit
 from .records import MAX_IMAGE_MAGNIFICATION
 from .symbology import Symbology
 
@@ -39,9 +39,11 @@ NonNegative = Annotated[float, Field(ge=0)]
 Positive = Annotated[float, Field(gt=0)]
 Multiplier = Annotated[int, Field(ge=1, le=MAX_MULTIPLIER)]
 
-#: The stop position word that sends no ``<STX>f`` (``job.PRINTER_STOP``), spelled once for every model.
-PrinterStop: TypeAlias = Literal["printer"]
-
+# The field takes the one member as a Literal rather than the enum class, so the JSON schema
+# reads {"const": "printer"}; a word still validates into PrinterStop.PRINTER. A refused word is
+# checked against the enum class, whose message quotes the word ("Input should be 'printer'")
+# where the Literal's would quote the member's repr.
+_PrinterWord = Literal[PrinterStop.PRINTER]
 _PRINTER_WORD: TypeAdapter[PrinterStop] = TypeAdapter(PrinterStop)
 
 
@@ -58,12 +60,11 @@ def stop_position_or_printer(number: TypeAdapter[float]) -> BeforeValidator:
         >>> from pydantic import TypeAdapter
         >>> validate = TypeAdapter(StopPosition).validate_python
         >>> validate("printer"), validate("2.5")
-        ('printer', 2.5)
+        (<PrinterStop.PRINTER: 'printer'>, 2.5)
     """
 
     def validate(value: object) -> object:
-        # job.PRINTER_STOP, spelled out: job imports transparency, which imports this module.
-        if value == "printer":
+        if value == PrinterStop.PRINTER:
             return value
         try:
             return number.validate_python(value)
@@ -78,7 +79,7 @@ def stop_position_or_printer(number: TypeAdapter[float]) -> BeforeValidator:
 
 
 #: A stop position: a length greater than 0, or ``"printer"`` to send none and keep the printer's own.
-StopPosition = Annotated[Positive | PrinterStop, stop_position_or_printer(TypeAdapter(Positive))]
+StopPosition = Annotated[Positive | _PrinterWord, stop_position_or_printer(TypeAdapter(Positive))]
 
 
 class _Frozen(BaseModel):
@@ -445,7 +446,6 @@ __all__ = [
     "Pdf417Options",
     "Point",
     "Polygon",
-    "PrinterStop",
     "Qr",
     "ScalableText",
     "StopPosition",

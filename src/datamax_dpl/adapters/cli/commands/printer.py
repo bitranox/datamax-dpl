@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
@@ -26,13 +27,13 @@ from ....application.use_cases import (
     stored_image_names,
 )
 from ....application.verify import IdleWait, verify_print
-from ....domain.enums import Severity, StatusProblem
+from ....domain.enums import ImageModule, MemoryKind, Severity, StatusProblem
 from ....domain.held_images import HeldImages
-from ....domain.memory import MemoryDirectory, MemoryKind
+from ....domain.memory import MemoryDirectory
 from ....domain.preview import canvas_for
 from ....domain.profiles import get_profile
 from ....domain.render import RenderResult
-from ....domain.status import MEMORY_DIRECTORY_REQUESTS, PrinterStatus
+from ....domain.status import PrinterStatus
 from ...preview import pillow_available, preview_findings, render_preview_png
 from ...transport.uri import is_one_way
 from ..constants import CLICK_CONTEXT_SETTINGS
@@ -183,7 +184,7 @@ def _render_to_print(
     which cannot be read a second time. Returns the job and the names it was rendered with.
     """
 
-    def read(module: str) -> HeldImages:
+    def read(module: ImageModule) -> HeldImages:
         uri = require_uri(settings)
         return stored_image_names(
             module=module,
@@ -264,19 +265,37 @@ class MemoryPayload(BaseModel):
 
 #: What the manual (``<STX>q`` Clear Module, page 35) says a "No Modules Available" answer means.
 NO_MODULES_MEANING = "the manual: corrupt or worn-out module"
-#: ``--kind`` value that lists fonts, graphics and formats, in that order.
-ALL_KINDS = "all"
-#: Each ``--kind`` value with the kinds it asks for.
-_KIND_CHOICES: Mapping[str, tuple[MemoryKind, ...]] = MappingProxyType(
-    {**{str(k): (k,) for k in MEMORY_DIRECTORY_REQUESTS}, ALL_KINDS: tuple(MEMORY_DIRECTORY_REQUESTS)}
+
+
+class KindChoice(str, Enum):
+    """Which stored data ``memory`` lists: one kind, or all three."""
+
+    ALL = "all"
+    FONT = MemoryKind.FONT.value
+    GRAPHIC = MemoryKind.GRAPHIC.value
+    FORMAT = MemoryKind.FORMAT.value
+
+    @property
+    def kinds(self) -> tuple[MemoryKind, ...]:
+        """The kinds to ask for, in order: fonts, graphics and formats for ``all``."""
+        return _KINDS[self]
+
+
+_KINDS: Mapping[KindChoice, tuple[MemoryKind, ...]] = MappingProxyType(
+    {
+        KindChoice.ALL: (MemoryKind.FONT, MemoryKind.GRAPHIC, MemoryKind.FORMAT),
+        KindChoice.FONT: (MemoryKind.FONT,),
+        KindChoice.GRAPHIC: (MemoryKind.GRAPHIC,),
+        KindChoice.FORMAT: (MemoryKind.FORMAT,),
+    }
 )
 
 
 @click.command("memory", context_settings=CLICK_CONTEXT_SETTINGS)
 @option(
     "--kind",
-    type=click.Choice(sorted(str(k) for k in _KIND_CHOICES)),
-    default="graphic",
+    type=click.Choice(sorted(choice.value for choice in KindChoice)),
+    default=KindChoice.GRAPHIC.value,
     show_default=True,
     help="Which stored data to list: fonts, graphics, label formats, or all three.",
 )
@@ -296,7 +315,7 @@ def cli_memory(ctx: click.Context, kind: str, idle: float, **given: Any) -> None
         settings = resolve_settings(cli_ctx, **given)
         uri = require_uri(settings)
         directories = read_memory_directory(
-            kinds=_KIND_CHOICES[kind],
+            kinds=KindChoice(kind).kinds,
             uri=uri,
             timeout=settings.timeout,
             idle=idle,
@@ -313,7 +332,7 @@ def _directory_lines(directories: tuple[MemoryDirectory, ...]) -> list[str]:
     """The human view: per kind, each module with its free bytes and the names it holds."""
     lines: list[str] = []
     for directory in directories:
-        lines.append(f"{directory.kind}:")
+        lines.append(f"{directory.kind.value}:")
         if not directory.parsed:
             lines.append(f"  answer not understood: {directory.raw!r}")
         if directory.no_modules_available:
@@ -502,6 +521,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
 
 
 __all__ = [
+    "KindChoice",
     "cli_cancel",
     "cli_capture",
     "cli_cut",

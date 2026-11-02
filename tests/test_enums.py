@@ -23,6 +23,7 @@ _PUBLIC_ENUMS = (
     "MediaSensor",
     "MediaType",
     "PrinterSetting",
+    "PrinterStop",
     "QrError",
     "Rotation",
     "Severity",

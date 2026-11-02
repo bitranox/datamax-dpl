@@ -24,13 +24,12 @@ from pydantic import BaseModel, ConfigDict
 from .encode_barcode import encode_barcode
 from .encode_graphics import encode_box, encode_circle, encode_image, encode_line, encode_polygon, encode_qr
 from .encode_text import encode_scalable_text, encode_text
-from .enums import Attribute, FindingCode, PrinterSetting, Severity, Unit
+from .enums import Attribute, FindingCode, ImageModule, PrinterSetting, PrinterStop, Severity, Unit
 from .errors import LabelRejectedError
 from .findings import Finding, FindingCollector
 from .held_images import EMPTY_MODULE, HeldImages
 from .image_budget import ImageBudget
 from .job import (
-    PRINTER_STOP,
     closing_clears,
     format_footer,
     format_header,
@@ -52,7 +51,7 @@ from .units import MM_PER_INCH, Axis, Correction, DplUnit, to_inches
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from .label import Element, Label, PrinterStop
+    from .label import Element, Label
     from .profiles import PrinterProfile
 
 _RECORD_PREFIXES = tuple("1234")
@@ -115,7 +114,7 @@ class RenderResult(BaseModel):
     halved_elements: tuple[int, ...]
     emulated_groups: tuple[tuple[int, ...], ...]
     closing: bytes
-    image_module: str | None = None
+    image_module: ImageModule | None = None
     names_unread: bool = False
     upload_end: int = 0
     retry_clear: bytes = b""
@@ -183,7 +182,7 @@ def _resolve(options: RenderOptions, model: CalibrationDefaults) -> CalibrationD
 
 def _tear_off_stop(explicit: float | PrinterStop | None, default: float | None) -> float | None:
     """Return the tear-off stop position a job sends: none for ``"printer"``, else as :func:`_pick`."""
-    if explicit == PRINTER_STOP:
+    if explicit is PrinterStop.PRINTER:
         return None
     return _pick(explicit, default)
 
@@ -199,7 +198,7 @@ def _model_defaults_used(options: RenderOptions, calibration: CalibrationDefault
     neutral = CalibrationDefaults()
     # The given value is "printer" for a stop position that keeps the printer's own: the job's
     # value is then None, so the model's default is not named.
-    candidates: list[tuple[str, float | str | None, float | None, float | None, str]] = [
+    candidates: list[tuple[str, float | PrinterStop | None, float | None, float | None, str]] = [
         ("scale_across", options.scale_across, calibration.scale_across, neutral.scale_across, ""),
         ("scale_along", options.scale_along, calibration.scale_along, neutral.scale_along, ""),
         ("offset_across", options.offset_across, calibration.offset_across, neutral.offset_across, " mm"),
@@ -483,7 +482,7 @@ def _image_budget(options: RenderOptions) -> ImageBudget | None:
     A configured budget always applies; the model's own only where ``model_image_budget`` says so.
     """
     if options.image_memory_bytes is not None:
-        return ImageBudget(limit=options.image_memory_bytes, source="configured")
+        return ImageBudget(limit=options.image_memory_bytes)
     if not options.model_image_budget:
         return None
     return _model_budget(options)
@@ -496,7 +495,7 @@ def _model_budget(options: RenderOptions) -> ImageBudget | None:
         return None
     return ImageBudget(
         limit=calibration.image_memory_bytes,
-        source=f"{options.model} default",
+        model=options.model,
         provenance=calibration.image_memory_provenance,
     )
 

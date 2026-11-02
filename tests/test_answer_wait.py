@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from datamax_dpl.application.use_cases import AnswerWait, query_status, read_memory_directory
+from datamax_dpl.domain.enums import MemoryKind
 from datamax_dpl.domain.errors import PrinterTimeoutError, TransportError
 from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS
 
@@ -189,7 +190,9 @@ def test_memory_reports_the_answer_wait_the_transport_capped_not_the_wait_asked_
     wait = AnswerWait(seconds=300.0, clock=clock, sleep=no_pause)
 
     with pytest.raises(PrinterTimeoutError) as caught:
-        read_memory_directory(kinds=("graphic",), uri=PRINTER, timeout=10.0, open_printer=open_channel, wait=wait)
+        read_memory_directory(
+            kinds=(MemoryKind.GRAPHIC,), uri=PRINTER, timeout=10.0, open_printer=open_channel, wait=wait
+        )
 
     assert str(caught.value).startswith(f"{PRINTER}: no answer in {MAX_ANSWER_SECONDS:.1f} s (1 attempt);")
     assert channel.closed

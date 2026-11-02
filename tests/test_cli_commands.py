@@ -17,9 +17,11 @@ from lib_layered_config import Config
 
 import datamax_dpl
 from datamax_dpl.adapters.cli import root as cli_mod
+from datamax_dpl.adapters.cli.commands.printer import KindChoice
 from datamax_dpl.adapters.memory import FakeCamera, RecordingPrinter
 from datamax_dpl.adapters.preview import render_preview_png
 from datamax_dpl.composition import build_testing
+from datamax_dpl.domain.enums import MemoryKind
 from datamax_dpl.domain.label import Label
 from datamax_dpl.domain.png import encode_png
 from datamax_dpl.domain.preview import preview_bitmap
@@ -561,6 +563,26 @@ def test_memory_kind_all_asks_fonts_graphics_and_formats(cli_runner: CliRunner) 
     assert [d["kind"] for d in directories] == ["font", "graphic", "format"]
     assert [d["no_modules_available"] for d in directories] == [True, False, False]
     assert printer.queries == [b"\x02WF", b"\x02WG", b"\x02WL"]
+
+
+@pytest.mark.os_agnostic
+def test_every_kind_choice_names_the_kinds_it_asks_for_in_order() -> None:
+    assert {choice: choice.kinds for choice in KindChoice} == {
+        KindChoice.ALL: (MemoryKind.FONT, MemoryKind.GRAPHIC, MemoryKind.FORMAT),
+        KindChoice.FONT: (MemoryKind.FONT,),
+        KindChoice.GRAPHIC: (MemoryKind.GRAPHIC,),
+        KindChoice.FORMAT: (MemoryKind.FORMAT,),
+    }
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("word", "query"), [("font", b"\x02WF"), ("graphic", b"\x02WG"), ("format", b"\x02WL")])
+def test_memory_takes_each_kind_by_its_word(cli_runner: CliRunner, word: str, query: bytes) -> None:
+    """The lower-case word selects the kind; click matches an Enum on its name, so the words are given as text."""
+    printer = RecordingPrinter(answers={query: DIRECTORY})
+    result = run(cli_runner, ["memory", "--kind", word, "--printer", PRINTER], factory(printer))
+    assert result.exit_code == 0, result.output
+    assert printer.queries == [query]
 
 
 @pytest.mark.os_agnostic

@@ -9,7 +9,16 @@ import pytest
 from pydantic import ValidationError
 
 from datamax_dpl.domain.calibration import along_label, default_along_length
-from datamax_dpl.domain.enums import FillPattern, FindingCode, ImageModule, MediaSensor, Rotation, Severity, Unit
+from datamax_dpl.domain.enums import (
+    FillPattern,
+    FindingCode,
+    ImageModule,
+    MediaSensor,
+    PrinterStop,
+    Rotation,
+    Severity,
+    Unit,
+)
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.label import Barcode, Box, Circle, DotSize, Element, Image, Label, Line, Point, Polygon, Text
 from datamax_dpl.domain.overlap import printed_dots
@@ -690,7 +699,8 @@ def test_a_stop_position_option_of_printer_leaves_the_cutter_stop_of_a_job_that_
 
 @pytest.mark.os_agnostic
 def test_a_stop_position_option_of_printer_leaves_no_stop_in_the_effective_calibration() -> None:
-    assert effective_calibration(RenderOptions(model="allegro-2", stop_position_mm="printer")).stop_position_mm is None
+    options = RenderOptions(model="allegro-2", stop_position_mm=PrinterStop.PRINTER)
+    assert effective_calibration(options).stop_position_mm is None
 
 
 @pytest.mark.os_agnostic
@@ -756,6 +766,18 @@ def test_a_stop_position_other_than_a_positive_number_or_printer_is_refused_once
         with pytest.raises(ValidationError) as caught:
             model.model_validate({**document, field: value})
         assert [(e["loc"], e["msg"]) for e in caught.value.errors()] == [((field,), message)]
+
+
+@pytest.mark.os_agnostic
+def test_a_stop_position_of_printer_is_held_as_the_member_and_written_as_the_word() -> None:
+    label = Label.model_validate(
+        {"stop_position": "printer", "elements": [{"type": "text", "x": 5, "y": 5, "text": "X"}]}
+    )
+    options = RenderOptions.model_validate({"model": "allegro-2", "stop_position_mm": "printer"})
+    assert label.stop_position is PrinterStop.PRINTER
+    assert options.stop_position_mm is PrinterStop.PRINTER
+    assert label.model_dump(mode="json")["stop_position"] == "printer"
+    assert '"stop_position_mm":"printer"' in options.model_dump_json()
 
 
 @pytest.mark.os_agnostic

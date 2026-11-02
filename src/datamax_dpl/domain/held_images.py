@@ -13,15 +13,16 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from .enums import ImageModule
+
 if TYPE_CHECKING:
     from .memory import MemoryDirectory
 
 #: Why the names are unknown when nobody asked the printer: an offline render, validate or preview.
 NOT_ASKED = "the printer was not asked"
-#: The module letter that stands for the printer's default module on every model (manual, ``<STX>X``).
-DEFAULT_MODULE = "C"
-#: Why the names of the default module are unknown: a directory lists real module letters only (one
-#: Allegro 2 listed just ``MODULE: A``), so which of them ``C`` is cannot be read from it.
+#: Why the names of the default module (:attr:`ImageModule.C`) are unknown: a directory lists real
+#: module letters only (one Allegro 2 listed just ``MODULE: A``), so which of them ``C`` is cannot
+#: be read from it.
 DEFAULT_MODULE_UNREAD = "C is the printer's default module; which letter it is was not read"
 
 
@@ -163,7 +164,7 @@ class HeldImages:
 EMPTY_MODULE = HeldImages(listed=frozenset())
 
 
-def held_images_from(directory: MemoryDirectory, *, module: str) -> HeldImages:
+def held_images_from(directory: MemoryDirectory, *, module: ImageModule) -> HeldImages:
     """Return what ``directory`` (a graphic ``<STX>W`` answer) says ``module`` holds.
 
     A module the answer lists with no names holds none. A module the answer does not list gives
@@ -174,7 +175,7 @@ def held_images_from(directory: MemoryDirectory, *, module: str) -> HeldImages:
 
     Args:
         directory: The printer's graphic directory.
-        module: The letter of the job's image module.
+        module: The job's image module.
 
     Returns:
         The names listed for ``module``, or unknown names with the reason.
@@ -182,22 +183,24 @@ def held_images_from(directory: MemoryDirectory, *, module: str) -> HeldImages:
     Example:
         >>> from datamax_dpl.domain.memory import parse_module_directory
         >>> raw = b"MODULE: A\\rLOGO\\rAVAILABLE BYTES IN MODULE: 00049083\\r"
-        >>> answer = parse_module_directory(raw, kind="graphic")
-        >>> held_images_from(answer, module="A").listed
+        >>> from datamax_dpl.domain.enums import MemoryKind
+        >>> answer = parse_module_directory(raw, kind=MemoryKind.GRAPHIC)
+        >>> held_images_from(answer, module=ImageModule.A).listed
         frozenset({'LOGO'})
-        >>> held_images_from(answer, module="B").unread_because
+        >>> held_images_from(answer, module=ImageModule.B).unread_because
         "the printer's directory answer did not list module B"
-        >>> held_images_from(answer, module="C").listed is None
+        >>> held_images_from(answer, module=ImageModule.C).listed is None
         True
     """
-    if module == DEFAULT_MODULE:
+    if module == ImageModule.C:
         return HeldImages(unread_because=DEFAULT_MODULE_UNREAD)
     if not directory.parsed:
         return HeldImages(unread_because="the printer's directory answer could not be read")
-    listings = [entry.names for entry in directory.modules if entry.module == module]
+    # The directory's letters are the printer's own text, kept as read even outside A-E.
+    listings = [entry.names for entry in directory.modules if entry.module == module.value]
     if not listings:
-        return HeldImages(unread_because=f"the printer's directory answer did not list module {module}")
+        return HeldImages(unread_because=f"the printer's directory answer did not list module {module.value}")
     return HeldImages(listed=frozenset(name for listing in listings for name in listing))
 
 
-__all__ = ["DEFAULT_MODULE", "DEFAULT_MODULE_UNREAD", "EMPTY_MODULE", "NOT_ASKED", "HeldImages", "held_images_from"]
+__all__ = ["DEFAULT_MODULE_UNREAD", "EMPTY_MODULE", "NOT_ASKED", "HeldImages", "held_images_from"]

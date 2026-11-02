@@ -246,16 +246,18 @@ class PrinterProfile:
         old_series_points: Font 9 point sizes this model has in the old ``000``-``010`` numbering.
         features: Support for each :class:`Feature`.
         synthetic: True for ``generic`` and ``permissive``, which are not real models.
+        family: The family whose feature set the model has; None for ``generic`` and
+            ``permissive``, which belong to none.
         default_dot_size: The dot size (width, height multiplier) the printer uses when a format
             sends no ``D`` command: 2x2 on every model except the DMX 600/800 (manual, ``D``).
         inch_unit_dots: Whole dots one 1/100 in prints as, on a model known to round it to whole
             dots; None where the exact 1/100 in is assumed. Measured 2 on the Allegro 2 only.
         calibration: Scale, offset and stop position measured for this model, applied where the
             render options leave them unset.
-        image_module: Letter of the memory module image downloads go to, the model's built-in
+        image_module: The memory module image downloads go to, the model's built-in
             RAM (manual, Appendix L); None for a model with no built-in module, where the render
             options must name the plug-in module fitted.
-        ram_modules: Letters of the model's built-in RAM modules (manual, Appendix L), the only
+        ram_modules: The model's built-in RAM modules (manual, Appendix L), the only
             modules a job clears with ``<STX>q``: a plug-in module may be flash, which every
             clear wears.
         max_format_rows: Highest dot row along the feed a format may reach at dot height 1,
@@ -288,11 +290,12 @@ class PrinterProfile:
     old_series_points: tuple[int, ...]
     features: dict[Feature, Support] = field(default_factory=dict[Feature, Support])
     synthetic: bool = False
+    family: ModelFamily | None = None
     default_dot_size: tuple[int, int] = (2, 2)
     inch_unit_dots: int | None = None
     calibration: CalibrationDefaults = CalibrationDefaults()
-    image_module: str | None = "A"
-    ram_modules: frozenset[str] = frozenset({"A"})
+    image_module: ImageModule | None = ImageModule.A
+    ram_modules: frozenset[ImageModule] = frozenset({ImageModule.A})
     max_format_rows: int | None = None
     start_of_print_mm: float | None = None
     max_label_length_mm: float | None = None
@@ -583,21 +586,21 @@ _CALIBRATION: dict[str, CalibrationDefaults] = {
 #: at power-off as they do on the Allegro 2. The Prodigy and Prodigy Plus have no built-in module
 #: (A and B are plug-ins): None, so a job downloading images there needs the module named.
 #: Only A has been seen on a printer (an Allegro 2).
-_IMAGE_MODULE: dict[str, str | None] = {
-    "allegro": ImageModule.A.value,
-    "allegro-2": ImageModule.A.value,
-    "dmx-400": ImageModule.A.value,
-    "dmx-430": ImageModule.A.value,
-    "prodigy-max-203": ImageModule.A.value,
-    "prodigy-max-300": ImageModule.A.value,
-    "pe42": ImageModule.A.value,
-    "pe43": ImageModule.A.value,
-    "ovation": ImageModule.A.value,
-    "ovation-300": ImageModule.A.value,
-    "ovation-2": ImageModule.A.value,
-    "titan-6200": ImageModule.A.value,
-    "dmx-600": ImageModule.E.value,
-    "dmx-800": ImageModule.E.value,
+_IMAGE_MODULE: dict[str, ImageModule | None] = {
+    "allegro": ImageModule.A,
+    "allegro-2": ImageModule.A,
+    "dmx-400": ImageModule.A,
+    "dmx-430": ImageModule.A,
+    "prodigy-max-203": ImageModule.A,
+    "prodigy-max-300": ImageModule.A,
+    "pe42": ImageModule.A,
+    "pe43": ImageModule.A,
+    "ovation": ImageModule.A,
+    "ovation-300": ImageModule.A,
+    "ovation-2": ImageModule.A,
+    "titan-6200": ImageModule.A,
+    "dmx-600": ImageModule.E,
+    "dmx-800": ImageModule.E,
     "prodigy": None,
     "prodigy-152": None,
     "prodigy-plus": None,
@@ -612,21 +615,21 @@ _IMAGE_MODULE: dict[str, str | None] = {
 #: or C, which stands for whichever module was made the default (manual, ``<STX>X``). A plug-in
 #: module may be flash, which each ``<STX>q`` wears (manual p.35), and NVRAM or C are not known to
 #: be RAM, so a job clears only the modules listed here. The Prodigy and Prodigy Plus have none.
-_RAM_MODULES: dict[str, frozenset[str]] = {
-    "allegro": frozenset({ImageModule.A.value}),
-    "allegro-2": frozenset({ImageModule.A.value}),
-    "dmx-400": frozenset({ImageModule.A.value}),
-    "dmx-430": frozenset({ImageModule.A.value}),
-    "prodigy-max-203": frozenset({ImageModule.A.value}),
-    "prodigy-max-300": frozenset({ImageModule.A.value}),
-    "pe42": frozenset({ImageModule.A.value}),
-    "pe43": frozenset({ImageModule.A.value}),
-    "ovation": frozenset({ImageModule.A.value}),
-    "ovation-300": frozenset({ImageModule.A.value}),
-    "ovation-2": frozenset({ImageModule.A.value}),
-    "titan-6200": frozenset({ImageModule.A.value}),
-    "dmx-600": frozenset({ImageModule.E.value}),
-    "dmx-800": frozenset({ImageModule.E.value}),
+_RAM_MODULES: dict[str, frozenset[ImageModule]] = {
+    "allegro": frozenset({ImageModule.A}),
+    "allegro-2": frozenset({ImageModule.A}),
+    "dmx-400": frozenset({ImageModule.A}),
+    "dmx-430": frozenset({ImageModule.A}),
+    "prodigy-max-203": frozenset({ImageModule.A}),
+    "prodigy-max-300": frozenset({ImageModule.A}),
+    "pe42": frozenset({ImageModule.A}),
+    "pe43": frozenset({ImageModule.A}),
+    "ovation": frozenset({ImageModule.A}),
+    "ovation-300": frozenset({ImageModule.A}),
+    "ovation-2": frozenset({ImageModule.A}),
+    "titan-6200": frozenset({ImageModule.A}),
+    "dmx-600": frozenset({ImageModule.E}),
+    "dmx-800": frozenset({ImageModule.E}),
     "prodigy": frozenset(),
     "prodigy-152": frozenset(),
     "prodigy-plus": frozenset(),
@@ -768,6 +771,7 @@ def _build(row: _Row) -> PrinterProfile:
         a_series_points=row.a_points,
         old_series_points=row.old_points,
         features=dict(_FAMILY_FEATURES[row.family]),
+        family=row.family,
         default_dot_size=(1, 1) if row.family in _FAMILIES_DEFAULTING_TO_D11 else (2, 2),
         inch_unit_dots=_INCH_UNIT_DOTS.get(row.id),
         calibration=_CALIBRATION.get(row.id, CalibrationDefaults()),
@@ -827,9 +831,9 @@ def _generic() -> PrinterProfile:
         synthetic=True,
         # Not the common subset: the Prodigy family has no built-in module, so a strict subset
         # would refuse every image. A is the built-in module of most models.
-        image_module=ImageModule.A.value,
+        image_module=ImageModule.A,
         # Generic has no clear module anyway; the modules every model has as RAM are none.
-        ram_modules=frozenset(m.value for m in ImageModule if all(m.value in p.ram_modules for p in models)),
+        ram_modules=frozenset(m for m in ImageModule if all(m in p.ram_modules for p in models)),
         # A setting goes out only where every model shares the default: a job for an unknown
         # model must not move another model's start of print or feed rate off its own default.
         start_of_print_mm=_common_value([p.start_of_print_mm for p in models]),
@@ -857,7 +861,7 @@ def _permissive() -> PrinterProfile:
         old_series_points=OLD_SERIES_POINTS,
         features=dict.fromkeys(Feature, YES),
         synthetic=True,
-        image_module=ImageModule.A.value,
+        image_module=ImageModule.A,
     )
 
 

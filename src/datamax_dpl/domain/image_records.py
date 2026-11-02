@@ -29,9 +29,12 @@ Example:
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
-from .enums import ImageModule
 from .raster import Bitmap
+
+if TYPE_CHECKING:
+    from .enums import ImageModule
 
 #: Start-of-text byte that opens every DPL system-level command.
 STX = b"\x02"
@@ -60,7 +63,6 @@ MAX_WIDTH = MAX_COUNT * _BITS_PER_BYTE
 #: The end record plus the empty piece after its final carriage return.
 _TAIL_RECORDS = 2
 _NAME_PATTERN = re.compile(r"[A-Za-z0-9_]{1,8}")
-_MODULE_LETTERS = frozenset(member.value for member in ImageModule)
 
 
 def _count(value: int) -> bytes:
@@ -177,35 +179,39 @@ def decode_image(data: bytes) -> Bitmap:
     return Bitmap.from_packed_rows(rows[::-1], width=len(rows[0]) * _BITS_PER_BYTE)
 
 
-def download_command(name: str, bitmap: Bitmap, *, module: str) -> bytes:
+def download_command(name: str, bitmap: Bitmap, *, module: ImageModule) -> bytes:
     """Return the complete command that stores ``bitmap`` on the printer under ``name``.
 
     Args:
         name: Image name, 1-8 characters of letters, digits and underscore.
         bitmap: The image.
-        module: Letter of the memory module the image is stored in, ``A`` to ``E``
-            (:class:`~datamax_dpl.domain.enums.ImageModule`).
+        module: The memory module the image is stored in.
 
     Returns:
         ``<STX>I<module>AF<name><CR>`` followed by :func:`encode_image` of the bitmap.
 
     Raises:
-        ValueError: When the name is not 1-8 letters, digits or underscores, the module is not
-            one of ``A`` to ``E``, or the image is too wide.
+        ValueError: When the name is not 1-8 letters, digits or underscores, or the image is too
+            wide.
 
     Example:
-        >>> download_command("DOT", Bitmap(1, 1), module="A")
+        >>> from datamax_dpl.domain.enums import ImageModule
+        >>> download_command("DOT", Bitmap(1, 1), module=ImageModule.A)
         b'\\x02IAAFDOT\\r800100\\rFFFF\\r'
-        >>> download_command("DOT", Bitmap(1, 1), module="E")[:4]
+        >>> download_command("DOT", Bitmap(1, 1), module=ImageModule.E)[:4]
         b'\\x02IEA'
     """
     if not _NAME_PATTERN.fullmatch(name):
         msg = f"image name must be 1-8 letters, digits or underscores, got {name!r}"
         raise ValueError(msg)
-    if module not in _MODULE_LETTERS:
-        msg = f"image module must be one of A to E, got {module!r}"
-        raise ValueError(msg)
-    return DOWNLOAD_PREFIX + module.encode("ascii") + DOWNLOAD_FORMAT + name.encode("ascii") + CR + encode_image(bitmap)
+    return (
+        DOWNLOAD_PREFIX
+        + module.value.encode("ascii")
+        + DOWNLOAD_FORMAT
+        + name.encode("ascii")
+        + CR
+        + encode_image(bitmap)
+    )
 
 
 __all__ = [

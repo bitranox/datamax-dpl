@@ -179,10 +179,13 @@ def encode_image(element: Image, *, index: int, ctx: RenderContext) -> list[byte
         placed = ctx.download_image(element.name, bitmap, element=index, edge=edge, magnification=element.magnification)
     elif element.name in ctx.bitmap_rows:
         placed = ctx.place_stored_image(element.name, element=index, edge=edge, magnification=element.magnification)
-    elif ctx.module_cleared_before:
+    elif ctx.module_cleared_before and ctx.image_module is not None:
+        # A module is cleared only where the job has one, so the second test never decides; it
+        # names the module for the message.
         ctx.findings.refuse(
             FindingCode.STORED_IMAGE_CLEARED,
-            f"image {element.name} has no bitmap, and clear_graphics_before_label clears module {ctx.image_module} "
+            f"image {element.name} has no bitmap, and clear_graphics_before_label clears module "
+            f"{ctx.image_module.value} "
             "before the label, which removes every image stored there; give the bitmap, or set "
             "clear_graphics_before_label = false to print an image the printer stores",
             element=index,

@@ -10,26 +10,33 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from .enums import Unit
+from .enums import ModelFamily, Unit
 from .profiles import MODEL_PROFILES, PrinterProfile
 from .status import MemoryReport
 
-#: Models whose manual entry lists the ``<STX>KQ`` memory report.
-MEMORY_REPORT_MODELS = frozenset(
+#: Families whose manual entry lists the ``<STX>KQ`` memory report: the DMX 600/800, Prodigy Max,
+#: PE42/PE43, Ovation and 6200 models.
+_MEMORY_REPORT_FAMILIES = frozenset(
     {
-        "dmx-600",
-        "dmx-800",
-        "prodigy-max-203",
-        "prodigy-max-300",
-        "pe42",
-        "pe43",
-        "ovation",
-        "ovation-300",
-        "ovation-2",
-        "titan-6200",
+        ModelFamily.DMX_600,
+        ModelFamily.DMX_800,
+        ModelFamily.MAX_PE,
+        ModelFamily.PE,
+        ModelFamily.OVATION,
+        ModelFamily.TITAN,
     }
 )
-_PRODIGY = frozenset({"prodigy", "prodigy-152"})
+
+
+def _models_of(families: frozenset[ModelFamily]) -> frozenset[str]:
+    """The ids of the models in ``families``, so a model added to a family is counted with it."""
+    return frozenset(model for model, profile in MODEL_PROFILES.items() if profile.family in families)
+
+
+#: Models whose manual entry lists the ``<STX>KQ`` memory report.
+MEMORY_REPORT_MODELS = _models_of(_MEMORY_REPORT_FAMILIES)
+#: The standard Prodigy and its 152 dpi variant: a printer that answers the serial test is neither.
+_PRODIGY = _models_of(frozenset({ModelFamily.PRODIGY}))
 #: Relative tolerance when matching the reported label width against a model's print width.
 WIDTH_TOLERANCE = 0.02
 _HUNDREDTHS = 100

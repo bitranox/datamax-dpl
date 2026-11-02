@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from datamax_dpl.domain.profiles import CalibrationDefaults, Feature, get_profile, list_profiles
+from datamax_dpl.domain.detect import MEMORY_REPORT_MODELS, Evidence, suggest_profiles
+from datamax_dpl.domain.enums import ImageModule, ModelFamily
+from datamax_dpl.domain.profiles import MODEL_PROFILES, CalibrationDefaults, Feature, get_profile, list_profiles
 
 
 def _values(calibration: CalibrationDefaults) -> tuple[float, float, float, float, float | None]:
@@ -46,23 +48,23 @@ def test_only_a_model_that_has_a_stop_position_ships_a_default_for_it() -> None:
 #: The module each model's built-in RAM is, from the manual's Appendix L: A on most models, E on
 #: the DMX 600/800 (A and B there are plug-ins, D is non-volatile), none on the Prodigy and
 #: Prodigy Plus (A and B are plug-ins). The two synthetic profiles keep A.
-_IMAGE_MODULES: dict[str, str | None] = {
-    "generic": "A",
-    "permissive": "A",
-    "allegro": "A",
-    "allegro-2": "A",
-    "dmx-400": "A",
-    "dmx-430": "A",
-    "prodigy-max-203": "A",
-    "prodigy-max-300": "A",
-    "pe42": "A",
-    "pe43": "A",
-    "ovation": "A",
-    "ovation-300": "A",
-    "ovation-2": "A",
-    "titan-6200": "A",
-    "dmx-600": "E",
-    "dmx-800": "E",
+_IMAGE_MODULES: dict[str, ImageModule | None] = {
+    "generic": ImageModule.A,
+    "permissive": ImageModule.A,
+    "allegro": ImageModule.A,
+    "allegro-2": ImageModule.A,
+    "dmx-400": ImageModule.A,
+    "dmx-430": ImageModule.A,
+    "prodigy-max-203": ImageModule.A,
+    "prodigy-max-300": ImageModule.A,
+    "pe42": ImageModule.A,
+    "pe43": ImageModule.A,
+    "ovation": ImageModule.A,
+    "ovation-300": ImageModule.A,
+    "ovation-2": ImageModule.A,
+    "titan-6200": ImageModule.A,
+    "dmx-600": ImageModule.E,
+    "dmx-800": ImageModule.E,
     "prodigy": None,
     "prodigy-152": None,
     "prodigy-plus": None,
@@ -72,10 +74,50 @@ _IMAGE_MODULES: dict[str, str | None] = {
 
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize(("model", "letter"), sorted(_IMAGE_MODULES.items()))
-def test_each_model_downloads_images_to_its_built_in_module(model: str, letter: str | None) -> None:
-    assert get_profile(model).image_module == letter
+def test_each_model_downloads_images_to_its_built_in_module(model: str, letter: ImageModule | None) -> None:
+    assert get_profile(model).image_module is letter
 
 
 @pytest.mark.os_agnostic
 def test_the_image_module_table_names_every_profile() -> None:
     assert {p.id for p in list_profiles()} == set(_IMAGE_MODULES)
+
+
+@pytest.mark.os_agnostic
+def test_every_ram_module_is_an_image_module_member() -> None:
+    """A clear compares the job's module with these, so a letter held as text would never match."""
+    for profile in list_profiles():
+        assert all(type(module) is ImageModule for module in profile.ram_modules), profile.id
+
+
+@pytest.mark.os_agnostic
+def test_every_real_model_names_its_family_and_the_synthetic_profiles_none() -> None:
+    for profile in list_profiles():
+        assert (profile.family is None) is profile.synthetic, profile.id
+    assert get_profile("prodigy-152").family is ModelFamily.PRODIGY
+
+
+#: The models whose manual entry lists the <STX>KQ memory report, as the manual names them.
+_MEMORY_REPORT_MODELS = {
+    "dmx-600",
+    "dmx-800",
+    "prodigy-max-203",
+    "prodigy-max-300",
+    "pe42",
+    "pe43",
+    "ovation",
+    "ovation-300",
+    "ovation-2",
+    "titan-6200",
+}
+
+
+@pytest.mark.os_agnostic
+def test_the_memory_report_models_follow_from_their_families_as_the_manual_lists_them() -> None:
+    assert set(MEMORY_REPORT_MODELS) == _MEMORY_REPORT_MODELS
+
+
+@pytest.mark.os_agnostic
+def test_a_serial_test_answer_rules_out_exactly_the_standard_prodigy_models() -> None:
+    candidates = suggest_profiles(Evidence(serial_test=True)).candidates
+    assert set(MODEL_PROFILES) - set(candidates) == {"prodigy", "prodigy-152"}

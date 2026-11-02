@@ -6,6 +6,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from datamax_dpl.domain.enums import ImageModule
 from datamax_dpl.domain.image_records import decode_image, download_command, encode_image
 from datamax_dpl.domain.raster import Bitmap
 
@@ -150,21 +151,14 @@ def test_decode_rejects_malformed_data(data: bytes, message: str) -> None:
 def test_download_command_wraps_records_in_header() -> None:
     """The command is STX I, the module, AF, the name, CR, then the image records."""
     bitmap = Bitmap.from_rows(["#......."])
-    assert download_command("LOGO_1", bitmap, module="A") == b"\x02IAAFLOGO_1\r800180\rFFFF\r"
+    assert download_command("LOGO_1", bitmap, module=ImageModule.A) == b"\x02IAAFLOGO_1\r800180\rFFFF\r"
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("module", ["A", "B", "C", "D", "E"])
-def test_download_command_names_the_module_it_stores_into(module: str) -> None:
+@pytest.mark.parametrize(("module", "letter"), [(m, m.value.encode("ascii")) for m in ImageModule])
+def test_download_command_names_the_module_it_stores_into(module: ImageModule, letter: bytes) -> None:
     command = download_command("LOGO", Bitmap(8, 1), module=module)
-    assert command.startswith(b"\x02I" + module.encode("ascii") + b"AFLOGO\r")
-
-
-@pytest.mark.os_agnostic
-@pytest.mark.parametrize("module", ["", "F", "a", "AB", "Z"])
-def test_download_command_rejects_a_module_that_is_not_a_to_e(module: str) -> None:
-    with pytest.raises(ValueError, match="image module must be one of A to E"):
-        download_command("LOGO", Bitmap(8, 1), module=module)
+    assert command.startswith(b"\x02I" + letter + b"AFLOGO\r")
 
 
 @pytest.mark.os_agnostic
@@ -172,4 +166,4 @@ def test_download_command_rejects_a_module_that_is_not_a_to_e(module: str) -> No
 def test_download_command_rejects_bad_names(name: str) -> None:
     """Names must be 1-8 letters, digits or underscores."""
     with pytest.raises(ValueError, match="image name"):
-        download_command(name, Bitmap(8, 1), module="A")
+        download_command(name, Bitmap(8, 1), module=ImageModule.A)

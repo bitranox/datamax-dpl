@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict
 
 from ..domain.batch import batch_cuts, with_cut
 from ..domain.detect import Detection, Evidence, suggest_profiles
-from ..domain.enums import Severity
+from ..domain.enums import ImageModule, MemoryKind, Severity
 from ..domain.errors import (
     AnswerNotEndedError,
     LabelRejectedError,
@@ -29,7 +29,7 @@ from ..domain.errors import (
     UnsupportedOperationError,
 )
 from ..domain.findings import Finding
-from ..domain.held_images import DEFAULT_MODULE, DEFAULT_MODULE_UNREAD, HeldImages, held_images_from
+from ..domain.held_images import DEFAULT_MODULE_UNREAD, HeldImages, held_images_from
 from ..domain.label import Cut
 from ..domain.memory import MemoryDirectory, parse_module_directory
 from ..domain.placeholders import fill_label
@@ -57,7 +57,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
 
     from ..domain.label import Label
-    from ..domain.memory import MemoryKind
     from ..domain.render_context import RenderOptions
     from .ports import Clock, OpenPrinter, PrinterTransport, Sleep
 
@@ -182,7 +181,7 @@ def _render_of(label: Label, options: RenderOptions, *, filled: bool) -> RecordR
     return render
 
 
-def _unread_module(result: RenderResult | BatchResult) -> str | None:
+def _unread_module(result: RenderResult | BatchResult) -> ImageModule | None:
     """The image module whose stored names a job needs and was not given, or None when it needs none."""
     results = result.results if isinstance(result, BatchResult) else (result,)
     return next((r.image_module for r in results if r.names_unread and r.image_module is not None), None)
@@ -194,7 +193,7 @@ ONE_WAY_LINK = "the link to the printer is one-way"
 
 def stored_image_names(
     *,
-    module: str,
+    module: ImageModule,
     uri: str,
     timeout: float,
     open_printer: OpenPrinter,
@@ -212,7 +211,7 @@ def stored_image_names(
     refused.
 
     Args:
-        module: The letter of the job's image module.
+        module: The job's image module.
         uri: The printer.
         timeout: Seconds for each connect and write.
         open_printer: Opens the channel.
@@ -223,7 +222,7 @@ def stored_image_names(
         one_way: True when ``uri`` names a channel that cannot read answers (a file, stdout, a
             device file), decided from the URI alone.
     """
-    if module == DEFAULT_MODULE:
+    if module == ImageModule.C:
         return HeldImages(unread_because=DEFAULT_MODULE_UNREAD)
     if one_way:
         return HeldImages(unread_because=ONE_WAY_LINK)
@@ -238,7 +237,7 @@ def stored_image_names(
 def read_stored_names(
     printer: PrinterTransport | None,
     *,
-    module: str,
+    module: ImageModule,
     uri: str,
     timeout: float,
     open_printer: OpenPrinter,
@@ -253,7 +252,7 @@ def read_stored_names(
 
     Args:
         printer: The open channel to ask first, or None to open one with ``open_printer``.
-        module: The letter of the job's image module.
+        module: The job's image module.
         uri: The printer.
         timeout: Seconds for each connect and write.
         open_printer: Opens a channel when there is none, or the one asked took no request.
@@ -273,7 +272,7 @@ def read_stored_names(
 
     try:
         channel, (directory,) = _ask_directories(
-            kinds=("graphic",),
+            kinds=(MemoryKind.GRAPHIC,),
             uri=uri,
             timeout=timeout,
             open_printer=open_first,
@@ -304,7 +303,7 @@ def _still_arriving(wait: AnswerWait) -> str:
 
 
 def with_stored_names(
-    render: Callable[[HeldImages | None], _Rendered], *, read: Callable[[str], HeldImages]
+    render: Callable[[HeldImages | None], _Rendered], *, read: Callable[[ImageModule], HeldImages]
 ) -> _Rendered:
     """Render a job to be printed, reading the printer's stored image names first where it needs them.
 
@@ -324,7 +323,7 @@ def with_stored_names(
 
 
 def render_with_stored_names(
-    render: Callable[[HeldImages | None], _Rendered], *, read: Callable[[str], HeldImages]
+    render: Callable[[HeldImages | None], _Rendered], *, read: Callable[[ImageModule], HeldImages]
 ) -> tuple[_Rendered, HeldImages | None]:
     """Render as :func:`with_stored_names` does, and also return the names the job was rendered with.
 

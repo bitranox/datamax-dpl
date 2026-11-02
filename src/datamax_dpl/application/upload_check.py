@@ -47,10 +47,10 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, NamedTuple
 
 from ..domain.batch import with_cut
-from ..domain.enums import FindingCode, Severity
+from ..domain.enums import FindingCode, ImageModule, Severity
 from ..domain.errors import LabelRejectedError
 from ..domain.findings import Finding
-from ..domain.held_images import DEFAULT_MODULE, EMPTY_MODULE, HeldImages
+from ..domain.held_images import EMPTY_MODULE, HeldImages
 from ..domain.profiles import get_profile
 from ..domain.render import held_after_read
 from .use_cases import AnswerWait, BatchResult, open_within, read_stored_names
@@ -200,7 +200,7 @@ class Link:
         self.printer.send(data)
         self.bytes_sent += len(data)
 
-    def read(self, module: str, *, wait: AnswerWait) -> HeldImages:
+    def read(self, module: ImageModule, *, wait: AnswerWait) -> HeldImages:
         """Read what ``module`` holds on the open channel; keep the channel that answered."""
         before = self.printer
         self.printer, held = read_stored_names(
@@ -224,22 +224,22 @@ def _missing(result: RenderResult, held: HeldImages) -> tuple[str, ...]:
     return tuple(name for name in names if name not in held.listed)
 
 
-def _what_was_read(module: str, missing: tuple[str, ...], held: HeldImages) -> str:
+def _what_was_read(module: ImageModule, missing: tuple[str, ...], held: HeldImages) -> str:
     """Say what the read after an upload found, for a finding's message."""
     if not missing:
-        return f"module {module} then listed every image"
+        return f"module {module.value} then listed every image"
     if held.listed is None:
-        return f"module {module} could not be read ({held.unread_because})"
-    return f"module {module} did not list {', '.join(missing)}"
+        return f"module {module.value} could not be read ({held.unread_because})"
+    return f"module {module.value} did not list {', '.join(missing)}"
 
 
-def _clear_text(result: RenderResult) -> str:
-    """Say which clear went before an upload again, for a finding's message."""
+def _clear_text(result: RenderResult, module: ImageModule) -> str:
+    """Say which clear went before an upload again into ``module``, for a finding's message."""
     if result.retry_clear_empties:
-        return f"cleared module {result.image_module}"
+        return f"cleared module {module.value}"
     if result.retry_clear:
         return "removed the label's own image names"
-    return f"sent no clear (module {result.image_module} may not be cleared)"
+    return f"sent no clear (module {module.value} may not be cleared)"
 
 
 class _PassedOn(NamedTuple):
@@ -319,9 +319,23 @@ class _Record:
             return skipped
         return None
 
+    def _module(self) -> ImageModule:
+        """The module the label's images go to.
+
+        Raises:
+            ValueError: The label has no module. A label is checked only when it downloads, and a
+                download needs a module: a job without one is refused (``image_module_unknown``)
+                before its check, so this names a broken caller, not a printer or a label.
+        """
+        module = self.result.image_module
+        if module is None:
+            msg = "a label whose upload is checked downloads its images into a module"
+            raise ValueError(msg)
+        return module
+
     def upload(self) -> tuple[str, ...]:
         """Send the label's upload, read the directory and return the names it does not list."""
-        module = self.result.image_module or ""
+        module = self._module()
         self.link.send(self.result.data[: self.result.upload_end])
         self._sent.update(self._rendered_after.sent)
         listed = self.link.read(module, wait=self.check.wait)
@@ -379,7 +393,7 @@ class _Record:
             self._retried(skipped.reason)
             return skipped
         self.link.send(self.result.retry_clear)
-        cleared = _clear_text(self.result)
+        cleared = _clear_text(self.result, self._module())
         if again is not None:
             self._rendered(again)
         missing = self.upload()
@@ -398,7 +412,7 @@ class _Record:
             stays = "a QR Code is never halved, so its name stays"
             return f"halving is skipped, it would download again ({stays}) {self._unread(twice)}"
         self.link.send(self.result.retry_clear)
-        cleared = _clear_text(self.result)
+        cleared = _clear_text(self.result, self._module())
         self._rendered((halved, after))
         missing = self.upload()
         self._retried(f"round 3: {cleared}, then uploaded the images halved 2x2; {self._last_read}")
@@ -476,15 +490,15 @@ def _unlisted_module(result: RenderResult) -> RenderResult | None:
 
     None for a label that downloads nothing, or whose module a directory lists.
     """
-    if not result.downloads or result.image_module != DEFAULT_MODULE:
+    if not result.downloads or result.image_module != ImageModule.C:
         return None
     built_in = get_profile(result.model).image_module
-    letter = f" (module {built_in} on the {result.model})" if built_in else ""
+    letter = "" if built_in is None else f" (module {built_in.value} on the {result.model})"
     refusal = Finding(
         code=FindingCode.IMAGE_MODULE_UNLISTED,
         severity=Severity.ERROR,
         message=(
-            f"image_module {DEFAULT_MODULE} is the printer's default module, which no directory lists by that "
+            f"image_module {ImageModule.C.value} is the printer's default module, which no directory lists by that "
             "letter, so the upload check can never see the images; nothing was sent. Set image_module to a "
             f"module letter the printer lists{letter}, or print over a one-way link"
         ),

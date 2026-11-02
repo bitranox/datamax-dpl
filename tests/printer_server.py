@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Protocol, TypeAlias
 
 from datamax_dpl.adapters.memory import RecordingPrinter
 from datamax_dpl.adapters.transport.uri import TcpUri
+from datamax_dpl.domain.enums import MemoryKind
 from datamax_dpl.domain.errors import PrinterTimeoutError
 from datamax_dpl.domain.image_budget import image_data_bytes
 from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS, STATUS_REQUEST
@@ -353,7 +354,7 @@ class ConnectionsServer:
 
 
 #: The graphic directory request, the one request :class:`ImageModules` answers.
-_GRAPHIC_DIRECTORY = MEMORY_DIRECTORY_REQUESTS["graphic"]
+_GRAPHIC_DIRECTORY = MEMORY_DIRECTORY_REQUESTS[MemoryKind.GRAPHIC]
 _STX = b"\x02"
 _SOH = b"\x01"
 #: Free bytes of an empty module A, as one Allegro 2 reported it (2026-10-31).

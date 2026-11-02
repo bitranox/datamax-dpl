@@ -22,7 +22,7 @@ from datamax_dpl.adapters.cli.settings import (
 )
 from datamax_dpl.adapters.memory import RecordingPrinter
 from datamax_dpl.composition import build_testing
-from datamax_dpl.domain.enums import ImageModule, Severity
+from datamax_dpl.domain.enums import ImageModule, PrinterStop, Severity
 from datamax_dpl.domain.errors import ConfigurationError
 from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.render_context import drawn_image_name
@@ -304,7 +304,7 @@ def test_the_largest_stop_position_dpl_takes_is_accepted() -> None:
 
 @pytest.mark.os_agnostic
 def test_a_configured_stop_position_of_printer_reaches_the_render_options() -> None:
-    assert _options({"printer": {"stop_position": "printer"}}).stop_position_mm == "printer"
+    assert _options({"printer": {"stop_position": "printer"}}).stop_position_mm is PrinterStop.PRINTER
 
 
 @pytest.mark.os_agnostic
@@ -312,7 +312,7 @@ def test_a_named_printers_stop_position_and_the_printer_sections_win_over_each_o
     config = {"printer": {"stop_position": 60}, "printers": {"x": {"stop_position": "printer"}}}
     flipped = {"printer": {"stop_position": "printer"}, "printers": {"x": {"stop_position": 60}}}
 
-    assert _options(config, printer="x").stop_position_mm == "printer"
+    assert _options(config, printer="x").stop_position_mm is PrinterStop.PRINTER
     assert _options(config).stop_position_mm == 60
     assert _options(flipped, printer="x").stop_position_mm == 60
 

@@ -9,11 +9,12 @@ another program or the front panel may have changed any of them since the last j
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 
 from .charset import DEFAULT_SYMBOL_SET
-from .enums import FindingCode, MediaSensor, PrinterSetting, SpeedCode
+from .enums import FindingCode, MediaSensor, PrinterSetting, PrinterStop, SpeedCode
 from .held_images import EMPTY_MODULE, HeldImages
+from .label import ScalableText
 from .profiles import Feature, SpeedRange
 from .records import STX, line
 from .transparency import emulates_transparency
@@ -29,9 +30,6 @@ CUT_NOW = STX + b"o"
 MAX_STOP_POSITION = 999
 #: The same limit in millimetres (253.746), for a stop position configured in mm.
 MAX_STOP_POSITION_MM = hundredths_to_mm(MAX_STOP_POSITION)
-#: The stop position that sends no ``<STX>f`` and keeps the printer's own setting, in the label
-#: and in the configuration alike.
-PRINTER_STOP: Final = "printer"
 #: Largest present distance ``<STX>Kf`` takes: four digits (manual page 53), hundredths of an inch
 #: because the job's system commands go out in inch mode.
 MAX_PRESENT_DISTANCE = 9999
@@ -238,7 +236,11 @@ def _report_label_settings_left_out(label: Label, ctx: RenderContext) -> None:
     """Report each setting the label asks for that ``send_settings`` keeps the job from sending."""
     asked: list[tuple[PrinterSetting, str, object]] = [
         (PrinterSetting.MEDIA, "media", label.media.value if label.media is not None else None),
-        (PrinterSetting.STOP, "stop_position", None if label.stop_position == PRINTER_STOP else label.stop_position),
+        (
+            PrinterSetting.STOP,
+            "stop_position",
+            None if label.stop_position is PrinterStop.PRINTER else label.stop_position,
+        ),
         (PrinterSetting.STOP, "present_distance", label.present_distance),
     ]
     for setting, name, value in asked:
@@ -336,7 +338,7 @@ def _configured_stop(label: Label, ctx: RenderContext) -> list[bytes]:
 
 
 def _present_commands(label: Label, ctx: RenderContext) -> list[bytes]:
-    if label.stop_position == PRINTER_STOP:
+    if label.stop_position is PrinterStop.PRINTER:
         # The label keeps the printer's own stop, so nothing is sent: not the configured stop it
         # wins over, and no deviation on a model without the command, which does exactly that.
         commands: list[bytes] = []
@@ -476,7 +478,7 @@ def _symbol_set_line(label: Label, ctx: RenderContext) -> list[bytes]:
     program left behind would otherwise print other characters for the same bytes.
     """
     if label.symbol_set is None and ctx.supports(Feature.SCALABLE_FONTS):
-        scalable = any(element.type == "scalable_text" for element in label.elements)
+        scalable = any(isinstance(element, ScalableText) for element in label.elements)
         return [line(f"yS{DEFAULT_SYMBOL_SET}")] if scalable else []
     if label.symbol_set is None:
         return []
@@ -583,7 +585,7 @@ def _clear_module_command(ctx: RenderContext) -> bytes | None:
     """
     if not ctx.clears_module or ctx.image_module is None:
         return None
-    return _system(f"q{ctx.image_module}")
+    return _system(f"q{ctx.image_module.value}")
 
 
 def _report_skipped_clear(ctx: RenderContext) -> None:
@@ -600,7 +602,7 @@ def _report_skipped_clear(ctx: RenderContext) -> None:
         return
     ctx.findings.info(
         FindingCode.GRAPHICS_CLEAR_SKIPPED,
-        f"image module {ctx.image_module} not cleared: it is not a built-in RAM module of {ctx.profile.name} "
+        f"image module {ctx.image_module.value} not cleared: it is not a built-in RAM module of {ctx.profile.name} "
         "(manual, Appendix L) and may be flash, which every clear (<STX>q) wears; no image name the printer is "
         "known to hold there is downloaded again",
     )
@@ -643,9 +645,12 @@ def _report_held_names(ctx: RenderContext) -> None:
     (:meth:`HeldImages.holds`) and is downloaded with no finding. Every finding takes the
     configured severity, which the policy leaves alone.
     """
+    module = ctx.image_module
+    if module is None:
+        # A job without a module queues no download (image_module_unknown refuses it): nothing to report.
+        return
     held = ctx.held_images
     severity = ctx.held_image_severity
-    module = ctx.image_module
     unread = False
     first: dict[str, ImageDownload] = {}
     for download in ctx.downloads:
@@ -659,15 +664,15 @@ def _report_held_names(ctx: RenderContext) -> None:
             ctx.findings.at(
                 severity,
                 FindingCode.IMAGE_NAME_HELD,
-                f"{download.described} is not downloaded: the printer already holds that name in module {module}, "
-                "and a second download of it prints nothing; the label prints the stored image",
+                f"{download.described} is not downloaded: the printer already holds that name in module "
+                f"{module.value}, and a second download of it prints nothing; the label prints the stored image",
                 element=download.element,
             )
     if unread:
         ctx.findings.at(
             severity,
             FindingCode.IMAGE_NAMES_UNREAD,
-            f"image names stored in module {module} were not read ({held.unread_because}): every image is "
+            f"image names stored in module {module.value} were not read ({held.unread_because}): every image is "
             "downloaded, and a name the printer already holds prints nothing",
         )
 
@@ -816,7 +821,6 @@ __all__ = [
     "MAX_PRESENT_DISTANCE",
     "MAX_STOP_POSITION",
     "MAX_STOP_POSITION_MM",
-    "PRINTER_STOP",
     "closing_clears",
     "format_footer",
     "format_header",

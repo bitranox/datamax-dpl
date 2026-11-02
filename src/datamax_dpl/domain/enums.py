@@ -499,6 +499,33 @@ class ImageModule(str, Enum):
     E = "E"
 
 
+class MemoryKind(str, Enum):
+    """A kind of data the printer stores, each listed by its own ``<STX>W`` request.
+
+    Example:
+        >>> MemoryKind("graphic") is MemoryKind.GRAPHIC
+        True
+    """
+
+    FONT = "font"
+    GRAPHIC = "graphic"
+    FORMAT = "format"
+
+
+class PrinterStop(str, Enum):
+    """The stop position word that sends no ``<STX>f`` and keeps the printer's own setting.
+
+    A stop position is otherwise a length; this is the one word it takes, in the label and in the
+    configuration alike.
+
+    Example:
+        >>> PrinterStop("printer") is PrinterStop.PRINTER
+        True
+    """
+
+    PRINTER = "printer"
+
+
 class MediaType(str, Enum):
     """Image format of a camera capture.
 
@@ -527,9 +554,11 @@ __all__ = [
     "LineDirection",
     "MediaSensor",
     "MediaType",
+    "MemoryKind",
     "ModelFamily",
     "OutputFormat",
     "PrinterSetting",
+    "PrinterStop",
     "QrError",
     "Rotation",
     "Severity",

@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 
 from ....application.use_cases import BatchResult, render_batch, render_label
 from ....domain.decoder import DecodedCommand, explain
+from ....domain.enums import ImageModule
 from ....domain.label import Label
 from ....domain.profiles import Feature, PrinterProfile, SpeedRange, get_profile, list_profiles
 from ..constants import CLICK_CONTEXT_SETTINGS
@@ -251,7 +252,7 @@ class CapabilitiesPayload(BaseModel):
     font9_points: list[int]
     # The built-in module image downloads go to unless [printer] image_module names another;
     # None on a model with no built-in module, which refuses downloads until one is configured.
-    image_module: str | None
+    image_module: ImageModule | None
     # Dot rows one format reaches at dot height 1 unless [printer] max_format_rows sets another;
     # None where the model has no known limit.
     max_format_rows: int | None
@@ -298,7 +299,7 @@ def _capabilities_text(payload: CapabilitiesPayload) -> str:
         ("slew_speed", payload.slew_speed),
         ("backup_speed", payload.backup_speed),
         ("font9_points", payload.font9_points),
-        ("image_module", payload.image_module),
+        ("image_module", None if payload.image_module is None else payload.image_module.value),
         ("max_format_rows", payload.max_format_rows),
     ]
     lines = [f"{key:18} {value}" for key, value in rows]

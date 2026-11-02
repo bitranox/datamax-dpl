@@ -15,10 +15,10 @@ from ...application.upload_check import MAX_UPLOAD_CHECK_ROUNDS, MIN_UPLOAD_CHEC
 from ...application.use_cases import RETRY_INTERVAL_SECONDS, STATUS_WAIT_SECONDS, STORED_NAMES_WAIT_SECONDS
 from ...application.verify import ONE_WAY_SETTLE_SECONDS, POLL_SECONDS
 from ...domain.camera import CameraSettings
-from ...domain.enums import CutterPresence, FallbackPolicy, HardwareOption, ImageModule, Severity
+from ...domain.enums import CutterPresence, FallbackPolicy, HardwareOption, ImageModule, PrinterStop, Severity
 from ...domain.errors import ConfigurationError
 from ...domain.job import MAX_STOP_POSITION_MM
-from ...domain.label import PrinterStop, stop_position_or_printer
+from ...domain.label import stop_position_or_printer
 from ...domain.render_context import RenderOptions
 from ...domain.timing import MAX_SEND_CHUNK_BYTES, MAX_TIMEOUT_SECONDS, SEND_CHUNK_BYTES, TransportTuning
 from ...domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE

@@ -21,6 +21,7 @@ from printer_server import LINGER_ZERO, answering, hanging_up, resetting, silent
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.composition import build_production
+from datamax_dpl.domain.enums import MemoryKind
 from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS, STATUS_REQUEST
 
 if TYPE_CHECKING:
@@ -355,7 +356,7 @@ def test_a_malformed_status_answer_is_reported_and_not_asked_again(cli_runner: C
 
 @pytest.mark.os_agnostic
 def test_memory_asks_again_on_a_new_connection_after_one_closed_unanswered(cli_runner: CliRunner, serve: Serve) -> None:
-    request = MEMORY_DIRECTORY_REQUESTS["graphic"]
+    request = MEMORY_DIRECTORY_REQUESTS[MemoryKind.GRAPHIC]
     server = serve(hanging_up(request), answering(request, GRAPHIC_DIRECTORY))
 
     result = run(cli_runner, ["--json", "memory", "--kind", "graphic", "--idle", "0.3", "--printer", server.address])

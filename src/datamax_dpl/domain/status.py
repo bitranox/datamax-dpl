@@ -20,13 +20,11 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from .enums import StatusProblem, Unit
+from .enums import MemoryKind, StatusProblem, Unit
 from .errors import PrinterProtocolError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-
-    from .memory import MemoryKind
 
 #: ``<SOH>A``: status as eight ``Y``/``N`` characters.
 STATUS_REQUEST = b"\x01A"
@@ -43,7 +41,7 @@ SERIAL_TEST_REQUEST = b"\x02k"
 #: ``<STX>Wa``: the memory module directory for one kind of data, ``a`` = ``F`` fonts, ``G``
 #: graphics, ``L`` label formats. The answer has no terminator; see :mod:`.memory`.
 MEMORY_DIRECTORY_REQUESTS: Mapping[MemoryKind, bytes] = MappingProxyType(
-    {"font": b"\x02WF", "graphic": b"\x02WG", "format": b"\x02WL"}
+    {MemoryKind.FONT: b"\x02WF", MemoryKind.GRAPHIC: b"\x02WG", MemoryKind.FORMAT: b"\x02WL"}
 )
 
 #: ``<SOH>#``: reset the printer.

@@ -24,7 +24,7 @@ from datamax_dpl.application.use_cases import AnswerWait, BatchResult, record_re
 from datamax_dpl.application.verify import verify_print
 from datamax_dpl.composition import build_production
 from datamax_dpl.domain.camera import CameraKind, CameraSettings, CapturedImage
-from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, MediaType, Severity
+from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, MediaType, MemoryKind, Severity
 from datamax_dpl.domain.errors import LabelRejectedError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.held_images import HeldImages
 from datamax_dpl.domain.label import Image, Label, Qr
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from datamax_dpl.application.ports import PrinterTransport
 
 STX = b"\x02"
-WG = MEMORY_DIRECTORY_REQUESTS["graphic"]
+WG = MEMORY_DIRECTORY_REQUESTS[MemoryKind.GRAPHIC]
 FORMAT = STX + b"L\r"
 URI = "tcp://192.0.2.60:9100"
 #: 64 x 64 dots: 512 bytes of dot data, 128 once halved (the fake counts dot data, not content).

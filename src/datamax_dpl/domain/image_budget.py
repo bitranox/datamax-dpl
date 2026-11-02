@@ -33,21 +33,24 @@ class ImageBudget:
 
     Attributes:
         limit: The budget in bytes of dot data (see :func:`image_data_bytes`).
-        source: ``configured``, or ``<model> default`` for a model's measured budget.
+        model: The model whose measured budget this is, or None for a configured one.
         provenance: How a model's budget was found; empty for a configured one.
 
     Example:
-        >>> ImageBudget(limit=500, source="configured").describe()
+        >>> ImageBudget(limit=500).describe()
         'the configured image memory budget is 500 bytes'
+        >>> ImageBudget(limit=40000, model="allegro-2").describe()
+        'the allegro-2 default image memory budget is 40000 bytes'
     """
 
     limit: int
-    source: str
+    model: str | None = None
     provenance: str = ""
 
     def describe(self) -> str:
         """Name the budget and where it comes from, for a finding's message."""
-        text = f"the {self.source} image memory budget is {self.limit} bytes"
+        source = "configured" if self.model is None else f"{self.model} default"
+        text = f"the {source} image memory budget is {self.limit} bytes"
         return f"{text} ({self.provenance})" if self.provenance else text
 
 

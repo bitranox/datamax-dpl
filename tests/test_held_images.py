@@ -33,7 +33,7 @@ from datamax_dpl.application.use_cases import (
     with_stored_names,
 )
 from datamax_dpl.composition import build_production
-from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, Severity
+from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, MemoryKind, Severity
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.held_images import HeldImages, held_images_from
 from datamax_dpl.domain.label import Image, Label, Qr
@@ -62,7 +62,7 @@ LOGO_SENT = drawn_image_name(Bitmap.from_rows(_BITMAP))
 ICON_SENT = drawn_image_name(Bitmap.from_rows(_ICON_BITMAP))
 _L = LOGO_SENT.encode("ascii")
 _I = ICON_SENT.encode("ascii")
-_WG = MEMORY_DIRECTORY_REQUESTS["graphic"]
+_WG = MEMORY_DIRECTORY_REQUESTS[MemoryKind.GRAPHIC]
 _HOLDS_LOGO = b"MODULE: A\r" + _L + b"\rAVAILABLE BYTES IN MODULE : 00049083\r"
 #: How ``print`` and ``verify`` say to lengthen the names read, as their wait carries it.
 _WAIT_LONGER = "wait longer with [printer] stored_names_wait"
@@ -283,7 +283,8 @@ def test_unknown_names_keep_every_download_and_say_so_once() -> None:
     assert "prints nothing" in finding.message
     assert "the printer was not asked" in finding.message
     assert result.names_unread
-    assert result.image_module == "A"
+    assert result.image_module is ImageModule.A
+    assert '"image_module":"A"' in result.model_dump_json()
 
 
 @pytest.mark.os_agnostic
@@ -572,19 +573,21 @@ def test_the_prodigy_s_remove_takes_only_the_label_s_names_so_a_stored_image_pri
 @pytest.mark.os_agnostic
 def test_the_directory_s_names_of_the_job_s_module_are_the_held_ones() -> None:
     directory = parse_module_directory(
-        _HOLDS_LOGO + b"MODULE: B\rICON\rAVAILABLE BYTES IN MODULE:00001000\r", kind="graphic"
+        _HOLDS_LOGO + b"MODULE: B\rICON\rAVAILABLE BYTES IN MODULE:00001000\r", kind=MemoryKind.GRAPHIC
     )
-    assert held_images_from(directory, module="A").listed == {LOGO_SENT}
-    assert held_images_from(directory, module="B").listed == {"ICON"}
+    assert held_images_from(directory, module=ImageModule.A).listed == {LOGO_SENT}
+    assert held_images_from(directory, module=ImageModule.B).listed == {"ICON"}
 
 
 @pytest.mark.os_agnostic
 def test_a_directory_that_does_not_list_the_job_s_module_leaves_its_names_unread() -> None:
     """An answer cut before module B's block reads as B unknown, never as B holding nothing."""
-    directory = parse_module_directory(b"MODULE: A\rOTHER\rAVAILABLE BYTES IN MODULE: 00049000\r", kind="graphic")
+    directory = parse_module_directory(
+        b"MODULE: A\rOTHER\rAVAILABLE BYTES IN MODULE: 00049000\r", kind=MemoryKind.GRAPHIC
+    )
     assert directory.parsed
 
-    held = held_images_from(directory, module="B")
+    held = held_images_from(directory, module=ImageModule.B)
 
     assert held.listed is None
     assert held.unread_because == "the printer's directory answer did not list module B"
@@ -594,23 +597,23 @@ def test_a_directory_that_does_not_list_the_job_s_module_leaves_its_names_unread
 def test_a_module_the_directory_lists_with_no_names_holds_none() -> None:
     directory = parse_module_directory(
         b"MODULE: A\rOTHER\rAVAILABLE BYTES IN MODULE: 00049000\rMODULE: B\rAVAILABLE BYTES IN MODULE: 00049088\r",
-        kind="graphic",
+        kind=MemoryKind.GRAPHIC,
     )
-    assert held_images_from(directory, module="B").listed == frozenset()
+    assert held_images_from(directory, module=ImageModule.B).listed == frozenset()
 
 
 @pytest.mark.os_agnostic
 def test_an_unreadable_directory_gives_no_names() -> None:
-    directory = parse_module_directory(b"MODULE: A\rLOGO\r", kind="graphic")
-    held = held_images_from(directory, module="A")
+    directory = parse_module_directory(b"MODULE: A\rLOGO\r", kind=MemoryKind.GRAPHIC)
+    held = held_images_from(directory, module=ImageModule.A)
     assert held.listed is None
     assert "could not be read" in held.unread_because
 
 
 @pytest.mark.os_agnostic
 def test_the_default_module_gives_no_names_whatever_the_directory_lists() -> None:
-    directory = parse_module_directory(_HOLDS_LOGO, kind="graphic")
-    held = held_images_from(directory, module="C")
+    directory = parse_module_directory(_HOLDS_LOGO, kind=MemoryKind.GRAPHIC)
+    held = held_images_from(directory, module=ImageModule.C)
     assert held.listed is None
     assert held.unread_because == "C is the printer's default module; which letter it is was not read"
 
@@ -621,7 +624,7 @@ def test_a_names_answer_that_never_ends_is_cut_at_the_wait(serve: Callable[..., 
     server = serve(trickling(_WG, _HOLDS_LOGO, every=0.2, for_seconds=8.0))
     started = time.monotonic()
     held = stored_image_names(
-        module="A",
+        module=ImageModule.A,
         uri=server.address,
         timeout=1.0,
         open_printer=build_production().open_printer,
@@ -642,7 +645,7 @@ def test_a_wait_shorter_than_the_ending_silence_still_reads_an_answer_that_comes
     """The wait bounds the answer's last byte; the 1 s of silence that ends the answer comes on top."""
     server = serve(answering(_WG, _HOLDS_LOGO))
     held = stored_image_names(
-        module="A",
+        module=ImageModule.A,
         uri=server.address,
         timeout=1.0,
         open_printer=build_production().open_printer,
@@ -658,7 +661,7 @@ def test_an_answer_whose_last_byte_comes_inside_the_wait_is_read(serve: Callable
     """Last byte at 0.7 s of a 1.5 s wait: read, although its ending silence runs to 1.7 s."""
     server = serve(answering_over(_WG, _HOLDS_LOGO, seconds=0.7))
     held = stored_image_names(
-        module="A",
+        module=ImageModule.A,
         uri=server.address,
         timeout=1.0,
         open_printer=build_production().open_printer,
@@ -675,7 +678,7 @@ def test_an_answer_still_arriving_when_the_wait_ends_is_unread(serve: Callable[.
     server = serve(answering_over(_WG, _HOLDS_LOGO, seconds=3.0))
     started = time.monotonic()
     held = stored_image_names(
-        module="A",
+        module=ImageModule.A,
         uri=server.address,
         timeout=1.0,
         open_printer=build_production().open_printer,
@@ -695,7 +698,7 @@ def test_a_printer_that_never_answers_the_names_request_is_unread_with_the_wait_
 ) -> None:
     server = serve(silent)
     held = stored_image_names(
-        module="A",
+        module=ImageModule.A,
         uri=server.address,
         timeout=1.0,
         open_printer=build_production().open_printer,
@@ -713,7 +716,7 @@ def _print(printer: RecordingPrinter, label: Label, options: RenderOptions) -> R
     """Render and print as ``print`` does, reading the names through ``printer`` where needed."""
     opener = open_recording_printer(printer)
 
-    def read(module: str) -> HeldImages:
+    def read(module: ImageModule) -> HeldImages:
         return stored_image_names(module=module, uri="tcp://192.0.2.60:9100", timeout=1.0, open_printer=opener)
 
     result = with_stored_names(lambda held: render_label(label, options, held=held), read=read)
