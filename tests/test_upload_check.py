@@ -387,7 +387,7 @@ READ_EMPTY = HeldImages(listed=frozenset())
 def _print_batch(modules: ImageModules, renders: Sequence[RenderResult], job: CheckedJob) -> BatchResult:
     """Print a batch of ``renders`` with ``job``'s upload check; return the batch as it went out."""
     printer = ModulePrinter(modules)
-    batch = BatchResult(data=b"".join(r.data for r in renders), results=tuple(renders))
+    batch = BatchResult(results=tuple(renders))
     report = print_checked(batch, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
     assert isinstance(report.result, BatchResult)
     assert printer.data.count(FORMAT) == len(renders)
@@ -572,7 +572,7 @@ def _refuse_third(third: RenderOptions, modules: ImageModules) -> tuple[ModulePr
     printer = ModulePrinter(modules)
     renders = (*render_batch(label, [{"n": "1"}, {"n": "2"}], PLUG_IN_TWO_WAY, held=READ_EMPTY).results,)
     renders = (*renders, render_label(label, third, held=READ_EMPTY))
-    batch = BatchResult(data=b"".join(r.data for r in renders), results=renders)
+    batch = BatchResult(results=renders)
     job = CheckedJob(
         renders=(
             *record_renders(label, [{"n": "1"}, {"n": "2"}], PLUG_IN_TWO_WAY),
@@ -629,7 +629,7 @@ def test_a_record_in_error_once_rendered_from_the_names_read_first_is_refused_wi
     one = build_record(first, PLUG_IN_TWO_WAY, held=held)
     two = build_record(second, held_in_error, held=one.held_after).result
     assert two.ok
-    batch = BatchResult(data=one.result.data + two.data, results=(one.result, two))
+    batch = BatchResult(results=(one.result, two))
     job = CheckedJob(
         renders=(*record_renders(first, None, PLUG_IN_TWO_WAY), *record_renders(second, None, held_in_error)),
         reset=None,
@@ -725,7 +725,7 @@ def test_a_record_in_error_once_rendered_from_round_2_s_read_again_is_refused_wi
     held_in_error = PLUG_IN_TWO_WAY.model_copy(update={"held_image_severity": Severity.ERROR})
     job = _icon_from_another_program(held_in_error, silent={0, 1, 2})
     printer = ModulePrinter(job.modules)
-    batch = BatchResult(data=b"".join(r.data for r in job.renders), results=job.renders)
+    batch = BatchResult(results=job.renders)
 
     with pytest.raises(UploadRefusedError) as caught:
         print_checked(batch, job.job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
@@ -1143,7 +1143,7 @@ def test_a_batch_record_in_error_once_rendered_again_says_so_and_nothing_after_i
     one = first_record.result
     two = build_record(second, _ONE_IMAGE_BUDGET, held=first_record.held_after).result
     assert one.ok and two.ok
-    batch = BatchResult(data=one.data + two.data, results=(one, two))
+    batch = BatchResult(results=(one, two))
 
     printer = ModulePrinter(ImageModules(held=[("A", logo, 512)], lose={0}))
     job = CheckedJob(

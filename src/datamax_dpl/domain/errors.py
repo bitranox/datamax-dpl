@@ -100,12 +100,17 @@ class CameraError(DatamaxDplError):
     """The camera could not take or deliver a photo."""
 
 
+class BatchTooLargeError(DatamaxDplError, ValueError):
+    """A batch's jobs passed the byte limit it was rendered under; the records after that were not rendered."""
+
+
 class PreviewTooLongError(DatamaxDplError, ValueError):
     """A preview would be longer than the limit it was asked to keep to; nothing was drawn."""
 
 
 __all__ = [
     "AnswerNotEndedError",
+    "BatchTooLargeError",
     "CameraError",
     "ConfigurationError",
     "DatamaxDplError",

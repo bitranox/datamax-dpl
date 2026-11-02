@@ -126,6 +126,7 @@ PRINTER_NUMBERS = [
     "reset_check_wait",
     "upload_check_rounds",
     "max_batch_records",
+    "max_batch_job_bytes",
     "verify_poll_interval",
     "one_way_settle",
     "send_chunk_bytes",
@@ -247,3 +248,14 @@ def test_a_dotenv_true_is_refused_as_a_number(tmp_path: Path) -> None:
     with pytest.raises(ConfigurationError) as caught:
         printer_settings(config, PrinterOverrides())
     assert str(caught.value) == "printer.timeout: needs a number, got true"
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("key", "largest"),
+    [("max_batch_records", 10_000_000), ("max_batch_job_bytes", 1_099_511_627_776)],
+)
+def test_a_batch_limit_takes_its_documented_largest_value_and_no_more(key: str, largest: int) -> None:
+    assert getattr(_printer({key: largest}), key) == largest
+    with pytest.raises(ConfigurationError, match=f"printer\\.{key}"):
+        _printer({key: largest + 1})

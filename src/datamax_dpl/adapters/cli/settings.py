@@ -70,6 +70,11 @@ _ConfiguredStop = Annotated[_BoundedStop | PrinterStop, stop_position_or_printer
 MAX_BATCH_RECORDS = 100_000
 #: Largest ``max_batch_records`` taken: more records than a 16 MiB file can hold, so "no limit".
 MAX_BATCH_RECORDS_LIMIT = 10_000_000
+#: Default of ``[printer] max_batch_job_bytes``, 1 GiB: 100000 records of a one-field label come to
+#: about 430 MB and must keep working at the default record limit.
+MAX_BATCH_JOB_BYTES = 1_073_741_824
+#: Largest ``max_batch_job_bytes`` taken, 1 TiB: past what any host here renders, so "no limit".
+MAX_BATCH_JOB_BYTES_LIMIT = 1_099_511_627_776
 
 
 class PrinterSettings(BaseModel):
@@ -116,6 +121,9 @@ class PrinterSettings(BaseModel):
     calibration_label_text: str = CALIBRATION_LABEL_TEXT
     # Most records one --data batch may hold: a batch is rendered whole before anything is sent.
     max_batch_records: int = Field(default=MAX_BATCH_RECORDS, gt=0, le=MAX_BATCH_RECORDS_LIMIT)
+    # Most bytes the records' jobs may come to: the record limit bounds one factor, and a label of
+    # hundreds of large fields multiplies it by more than a megabyte a record.
+    max_batch_job_bytes: int = Field(default=MAX_BATCH_JOB_BYTES, gt=0, le=MAX_BATCH_JOB_BYTES_LIMIT)
     # verify waits status_wait in all for the printer to finish its job, polling at this interval;
     # a one-way channel cannot poll, so verify waits one_way_settle instead (0 waits not at all).
     verify_poll_interval: float = Field(default=POLL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
@@ -158,6 +166,7 @@ class PrinterSettings(BaseModel):
         "reset_check_wait",
         "upload_check_rounds",
         "max_batch_records",
+        "max_batch_job_bytes",
         "verify_poll_interval",
         "one_way_settle",
         "send_chunk_bytes",

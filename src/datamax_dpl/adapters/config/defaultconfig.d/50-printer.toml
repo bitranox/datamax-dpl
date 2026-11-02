@@ -159,6 +159,17 @@ timeout = 10.0
 # Environment Variable: DATAMAX_DPL___PRINTER__MAX_BATCH_RECORDS=500000
 # max_batch_records = 100000
 
+# Purpose: Most bytes the jobs of one --data batch of 'render', 'validate' or
+#          'print' may come to. The record limit bounds one factor of what a
+#          batch costs; this one bounds the product, since a label of hundreds
+#          of large fields comes to more than a megabyte per record. Past it the
+#          command stops with exit 2 without rendering the rest. The default
+#          leaves room for 100000 records of a one-field label (about 430 MB).
+# Type: integer, greater than 0, at most 1099511627776 (bytes)
+# Default: 1073741824
+# Environment Variable: DATAMAX_DPL___PRINTER__MAX_BATCH_JOB_BYTES=268435456
+# max_batch_job_bytes = 1073741824
+
 # Purpose: Largest piece of a job handed to one write, over tcp and serial. The
 #          timeout bounds each piece rather than the whole job, so it means the
 #          printer took no data for that long: at the about 1390 bytes/s of a

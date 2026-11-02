@@ -51,7 +51,7 @@ from .transparency import Emulation, emulate_transparency
 from .units import MM_PER_INCH, Axis, Correction, DplUnit, to_inches
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Iterable, Iterator, Sequence
 
     from .label import Element, Label
     from .profiles import PrinterProfile
@@ -686,14 +686,31 @@ def build_jobs(
         >>> [len(job.downloads) for job in jobs]
         [1, 0]
     """
+    return tuple(iter_jobs(labels, options, held=held))
+
+
+def iter_jobs(
+    labels: Iterable[Label],
+    options: RenderOptions | None = None,
+    *,
+    held: HeldImages | None = None,
+) -> Iterator[RenderResult]:
+    """Render the labels of a batch one at a time, as :func:`build_jobs` does, for a caller that may stop early.
+
+    Args:
+        labels: The labels, in the order they are sent; each is taken only when its turn comes.
+        options: How to render; None renders for ``generic``.
+        held: The image names the printer holds before the first label; None when nobody asked it.
+
+    Yields:
+        Each label's result in turn.
+    """
     options = options or RenderOptions()
     state = held or HeldImages()
-    results: list[RenderResult] = []
     for label in labels:
         record = _build(label, options, held=state)
-        results.append(record.result)
+        yield record.result
         state = record.held_after
-    return tuple(results)
 
 
 def _halved(label: Label, options: RenderOptions, *, held: HeldImages) -> _Job:
@@ -895,6 +912,7 @@ __all__ = [
     "effective_calibration",
     "format_row_limit",
     "held_after_read",
+    "iter_jobs",
     "job_context",
     "render",
 ]

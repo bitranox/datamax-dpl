@@ -60,6 +60,7 @@ from .domain.enums import (
 )
 from .domain.errors import (
     AnswerNotEndedError,
+    BatchTooLargeError,
     CameraError,
     ConfigurationError,
     DatamaxDplError,
@@ -109,6 +110,7 @@ __all__ = [
     "Barcode",
     "BarcodeProblemCode",
     "BatchResult",
+    "BatchTooLargeError",
     "Box",
     "CalibrationLabels",
     "CameraError",

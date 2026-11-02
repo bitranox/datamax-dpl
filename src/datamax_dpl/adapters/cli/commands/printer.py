@@ -277,7 +277,7 @@ def _render_to_print(
             one_way=link.one_way,
         )
 
-    return render_with_stored_names(lambda held: render_loaded(label, records, options, held=held), read=read)
+    return render_with_stored_names(lambda held: render_loaded(label, records, options, settings, held=held), read=read)
 
 
 def wait_longer_hint(settings: PrinterSettings) -> str:

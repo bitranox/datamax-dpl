@@ -574,6 +574,7 @@ _COMMENTED_OUT_DEFAULTS = (
     "stored_names_wait",
     "upload_check_rounds",
     "max_batch_records",
+    "max_batch_job_bytes",
     "send_chunk_bytes",
     "verify_poll_interval",
     "one_way_settle",

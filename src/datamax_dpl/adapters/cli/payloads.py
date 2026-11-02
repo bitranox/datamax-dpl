@@ -97,7 +97,7 @@ def render_payload(
         dpl_unit=first.dpl_unit,
         records=len(results),
         fields=sum(r.record_count for r in results),
-        bytes=len(result.data),
+        bytes=result.job_bytes if batch else len(result.data),
         downloads=[name for r in results for name in r.downloads],
         findings=findings,
         dpl=readable(result.data) if include_dpl else None,

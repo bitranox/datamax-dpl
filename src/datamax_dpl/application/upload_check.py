@@ -891,8 +891,8 @@ def send_checked(
             break
     else:
         labels = _send_labels(link, job, cuts=result.cut_after or (False,) * len(result.results))
-    whole = BatchResult.joined(
-        (*labels.sent, *result.results[len(labels.sent) :]),
+    whole = BatchResult(
+        results=(*labels.sent, *result.results[len(labels.sent) :]),
         batch_findings=result.batch_findings,
         cut_after=result.cut_after,
     )
@@ -925,7 +925,8 @@ def print_checked(
     link = Link(printer=printer, uri=uri, timeout=timeout, open_printer=open_printer, reconnect=job.check.wait)
     try:
         if not printer.bidirectional:
-            link.send(result.data)
+            for piece in result.record_jobs() if isinstance(result, BatchResult) else (result.data,):
+                link.send(piece)
             return CheckedPrint(uri=uri, bytes_sent=link.bytes_sent, result=result)
         checked = send_checked(link, result, job)
     finally:

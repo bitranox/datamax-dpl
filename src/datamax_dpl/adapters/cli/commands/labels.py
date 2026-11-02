@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict
 from ....application.use_cases import BatchResult, render_batch, render_label
 from ....domain.decoder import DecodedCommand, explain
 from ....domain.enums import ImageModule
+from ....domain.errors import BatchTooLargeError
 from ....domain.label import Label
 from ....domain.profiles import Feature, PrinterProfile, SpeedRange, get_profile, list_profiles
 from ...config.sections import printer_section
@@ -47,14 +48,15 @@ def build(
     """Load the label (and records) and render it with the printer settings ``overrides`` merge into."""
     settings = resolve_settings(cli_ctx, overrides)
     label = load_label(label_source)
-    return render_loaded(label, None if data is None else load_batch(data, settings), render_options(settings))
+    records = None if data is None else load_batch(data, settings)
+    return render_loaded(label, records, render_options(settings), settings)
 
 
 def load_batch(source: str, settings: PrinterSettings) -> list[dict[str, str]]:
     """Read the records of a batch, one label each, up to ``[printer] max_batch_records``.
 
     Refused here because a batch is rendered whole before anything is sent and costs far more than
-    its file: a million one-digit records fit in 2 MB and took 96 s and 4.3 GB to render.
+    its file; ``[printer] max_batch_job_bytes`` bounds the other factor, what each record costs.
 
     Raises:
         LabelInputError: The file cannot be read or parsed, or holds no record or too many.
@@ -71,6 +73,7 @@ def render_loaded(
     label: Label,
     records: Sequence[Mapping[str, str]] | None,
     options: RenderOptions,
+    settings: PrinterSettings,
     *,
     held: HeldImages | None = None,
 ) -> RenderResult | BatchResult:
@@ -85,14 +88,22 @@ def render_loaded(
         records: Data records filling the placeholders, or None for one label.
         options: How to render (``render_options`` of the merged settings, or what a command
             makes of them).
+        settings: The merged settings, for ``max_batch_job_bytes`` and the name of its key.
         held: The image names the printer holds in the job's module; None when it was not asked.
 
     Returns:
         The single render, or the batch when ``records`` are given.
+
+    Raises:
+        BatchTooLargeError: The batch's jobs passed ``max_batch_job_bytes``; the message names the key.
     """
     if records is None:
         return render_label(label, options, held=held)
-    return render_batch(label, records, options, held=held)
+    try:
+        return render_batch(label, records, options, held=held, max_job_bytes=settings.max_batch_job_bytes)
+    except BatchTooLargeError as exc:
+        key = printer_section(settings.name).setting("max_batch_job_bytes")
+        raise BatchTooLargeError(f"{exc}; a larger job needs {key}") from None
 
 
 def _human(payload: RenderPayload, *, show_dpl: bool) -> str:

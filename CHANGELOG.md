@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `print` with `--data` no longer keeps every filled label for the whole send: a 399-field label with 8000 records
+  took 2.9 GB and now takes 210 MB, and 16000 records no longer die in the allocator under a 4 GB limit.
+- `[printer] max_batch_job_bytes` (default 1 GiB): a `--data` batch whose jobs pass it stops with exit 2 and
+  `BatchTooLargeError` naming the key, before the memory goes. `render_batch` takes `max_job_bytes`, no limit when
+  it is left out: a library caller rendering records it did not write sets one.
+- `BatchResult.data` is joined when it is first read, so `print` holds one copy of the job; the model no longer takes
+  `data` as an argument (build it from `results`), and `BatchResult.job_bytes` gives its size without joining.
 - A QR Code with text outside ASCII now holds UTF-8. Before, segno chose Latin-1 or Shift JIS X 0213
   with no marker and the reader guessed: the zxing-cpp decoder read a degree sign as a half-width
   katakana and a run of `ä` as CJK characters. Such text now takes more room, 2 bytes for `ä` and 3

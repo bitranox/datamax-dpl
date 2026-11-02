@@ -14,10 +14,11 @@ import time
 from contextlib import closing
 from dataclasses import dataclass
 from enum import Enum
+from functools import cached_property
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Generic, NamedTuple, Protocol, TypedDict, TypeVar
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
 
 from ..domain._invariants import require_update_fields
 from ..domain.batch import batch_cuts, with_cut
@@ -25,6 +26,7 @@ from ..domain.detect import Detection, Evidence, suggest_profiles
 from ..domain.enums import ImageModule, MemoryKind, Severity
 from ..domain.errors import (
     AnswerNotEndedError,
+    BatchTooLargeError,
     LabelRejectedError,
     PrinterProtocolError,
     PrinterTimeoutError,
@@ -36,7 +38,7 @@ from ..domain.held_images import DEFAULT_MODULE_UNREAD, HeldImages, held_images_
 from ..domain.label import Cut, Label
 from ..domain.memory import MemoryDirectory, parse_module_directory
 from ..domain.placeholders import fill_label
-from ..domain.render import RenderedRecord, RenderResult, build_job, build_jobs, build_record
+from ..domain.render import RenderedRecord, RenderResult, build_job, build_record, iter_jobs
 from ..domain.reset_label import calibration_job
 from ..domain.status import (
     CANCEL,
@@ -59,7 +61,7 @@ from ..domain.status import (
 from ..domain.timing import MAX_ANSWER_SECONDS, TimeoutName, check_timeout
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 
     from ..domain.render_context import RenderOptions
     from .ports import Clock, OpenPrinter, PrinterTransport, Sleep
@@ -72,7 +74,6 @@ class BatchResult(BaseModel):
     """A label rendered once per data record.
 
     Attributes:
-        data: All jobs back to back, in record order, with any batch cut commands between them.
         results: One render result per record.
         batch_findings: Findings about the batch as a whole (cutting across records).
     """
@@ -80,45 +81,34 @@ class BatchResult(BaseModel):
     # Base64 in JSON for the same reason as RenderResult: the joined jobs are not UTF-8.
     model_config = ConfigDict(frozen=True, extra="forbid", ser_json_bytes="base64", val_json_bytes="base64")
 
-    data: bytes
     results: tuple[RenderResult, ...]
     batch_findings: tuple[Finding, ...] = ()
     #: Whether a batch cut (``<STX>o``) follows each record; empty when the batch cuts across none.
     cut_after: tuple[bool, ...] = ()
 
-    @classmethod
-    def joined(
-        cls,
-        results: tuple[RenderResult, ...],
-        *,
-        batch_findings: tuple[Finding, ...] = (),
-        cut_after: tuple[bool, ...] = (),
-    ) -> BatchResult:
-        """Build the batch whose ``data`` is every record's job back to back, each with its batch cut.
+    # Joined on the first read and not before: a sender goes label by label and never needs a second
+    # copy of every record's job in memory, which at [printer] max_batch_job_bytes is a second GiB.
+    @computed_field
+    @cached_property
+    def data(self) -> bytes:
+        """All jobs back to back, in record order, with any batch cut commands between them."""
+        return b"".join(self.record_jobs())
 
-        Args:
-            results: One render result per record.
-            batch_findings: Findings about the batch as a whole.
-            cut_after: Whether a batch cut follows each record; empty when the batch cuts across none.
-        """
-        data = b"".join(_record_jobs(results, cut_after))
-        return cls(data=data, results=results, batch_findings=batch_findings, cut_after=cut_after)
-
-    def record_jobs(self) -> tuple[bytes, ...]:
+    def record_jobs(self) -> Iterator[bytes]:
         """Each record's bytes as ``data`` holds them, its batch cut included; joined they are ``data``."""
-        return _record_jobs(self.results, self.cut_after)
+        cuts = self.cut_after or (False,) * len(self.results)
+        return (with_cut(r.data, r.closing, cut=after) for r, after in zip(self.results, cuts, strict=True))
+
+    @property
+    def job_bytes(self) -> int:
+        """How many bytes ``data`` holds, without joining them."""
+        return sum(len(job) for job in self.record_jobs())
 
     @property
     def ok(self) -> bool:
         """True when no record and no batch finding is an error."""
         batch_ok = all(f.severity is not Severity.ERROR for f in self.batch_findings)
         return batch_ok and all(result.ok for result in self.results)
-
-
-def _record_jobs(results: tuple[RenderResult, ...], cut_after: tuple[bool, ...]) -> tuple[bytes, ...]:
-    """Each record's job with the batch cut that follows it, if any."""
-    cuts = cut_after or (False,) * len(results)
-    return tuple(with_cut(r.data, r.closing, cut=after) for r, after in zip(results, cuts, strict=True))
 
 
 def render_label(label: Label, options: RenderOptions, *, held: HeldImages | None = None) -> RenderResult:
@@ -130,7 +120,12 @@ def render_label(label: Label, options: RenderOptions, *, held: HeldImages | Non
 
 
 def render_batch(
-    label: Label, records: Iterable[Mapping[str, str]], options: RenderOptions, *, held: HeldImages | None = None
+    label: Label,
+    records: Iterable[Mapping[str, str]],
+    options: RenderOptions,
+    *,
+    held: HeldImages | None = None,
+    max_job_bytes: int | None = None,
 ) -> BatchResult:
     """Render ``label`` once per record, filling its ``{name}`` placeholders.
 
@@ -142,21 +137,44 @@ def render_batch(
         options: The model, fallback policy and job settings.
         held: What the printer holds in the image module before the first record, None when it
             was not asked; with no clear, a name an earlier record downloaded counts as held too.
+        max_job_bytes: Most bytes the records' jobs may come to, batch cuts left out. None sets no
+            limit, and memory then grows with records times label size (390 PDF417 fields took
+            1.1 MB per record), so a library caller rendering records it did not write sets one;
+            the command line takes it from ``[printer] max_batch_job_bytes``.
 
     Returns:
-        One render per record and the joined job; check ``ok`` before sending it.
+        One render per record and the job they join to; check ``ok`` before sending it.
 
     Raises:
+        BatchTooLargeError: The jobs passed ``max_job_bytes``; the records after that were not rendered.
         MissingFieldError: A record lacks a field a placeholder names.
         UnknownModelError: ``options.model`` names no profile.
         pydantic.ValidationError: A filled value breaks a field limit.
     """
     batch_label = _batch_label(label)
-    results = build_jobs((fill_label(batch_label.per_record, record) for record in records), options, held=held)
+    labels = (fill_label(batch_label.per_record, record) for record in records)
+    results = _within_limit(iter_jobs(labels, options, held=held), max_job_bytes=max_job_bytes)
     if batch_label.cut is None:
-        return BatchResult(data=b"".join(result.data for result in results), results=results)
+        return BatchResult(results=results)
     cuts = batch_cuts(len(results), cut=batch_label.cut, options=options)
-    return BatchResult.joined(results, batch_findings=cuts.findings, cut_after=cuts.cut_after)
+    return BatchResult(results=results, batch_findings=cuts.findings, cut_after=cuts.cut_after)
+
+
+def _within_limit(jobs: Iterable[RenderResult], *, max_job_bytes: int | None) -> tuple[RenderResult, ...]:
+    """Collect ``jobs`` in turn, stopping as soon as their bytes pass ``max_job_bytes``.
+
+    Raises:
+        BatchTooLargeError: They passed it; no job after that one was rendered.
+    """
+    results: list[RenderResult] = []
+    total = 0
+    for job in jobs:
+        total += len(job.data)
+        if max_job_bytes is not None and total > max_job_bytes:
+            msg = f"the batch passed {max_job_bytes} bytes of job at data record {len(results) + 1}"
+            raise BatchTooLargeError(msg)
+        results.append(job)
+    return tuple(results)
 
 
 class _CutUpdate(TypedDict):
@@ -215,6 +233,10 @@ def record_renders(
     the printer holds (an empty module after a clear) or with its images halved, and carries
     what the printer holds after it to the next label.
 
+    Every record is filled once here so that a bad one raises before anything goes out, and the
+    filled label is dropped: each render fills its label again when it runs, since a filled label
+    of 399 fields holds about 360 KB, which over a batch is far more than the job itself.
+
     Args:
         label: The label.
         records: The data records of a batch, or None for one label.
@@ -228,9 +250,11 @@ def record_renders(
         pydantic.ValidationError: A filled value breaks a field limit.
     """
     if records is None:
-        return (_render_of(label, options),)
+        return (_LabelRender(label=label, options=options),)
     per_record = _batch_label(label).per_record
-    return tuple(_render_of(fill_label(per_record, record), options) for record in records)
+    for record in records:
+        fill_label(per_record, record)
+    return tuple(_RecordFillRender(label=per_record, record=record, options=options) for record in records)
 
 
 @dataclass(frozen=True)
@@ -249,8 +273,21 @@ class _LabelRender:
         return calibration_job(self.label, self.options, text=text)
 
 
-def _render_of(label: Label, options: RenderOptions) -> RecordRender:
-    return _LabelRender(label=label, options=options)
+@dataclass(frozen=True)
+class _RecordFillRender:
+    """:class:`_LabelRender` for one data record, filling the shared label only when it renders."""
+
+    label: Label
+    record: Mapping[str, str]
+    options: RenderOptions
+
+    def __call__(self, held: HeldImages, *, halve: bool) -> RenderedRecord:
+        """Fill the label and render it for what the printer holds, its images halved when ``halve``."""
+        return build_record(fill_label(self.label, self.record), self.options, held=held, halve=halve)
+
+    def calibration(self, text: str) -> RenderResult:
+        """Fill the label and render the calibration label for it."""
+        return calibration_job(fill_label(self.label, self.record), self.options, text=text)
 
 
 def _unread_module(result: RenderResult | BatchResult) -> ImageModule | None:
@@ -443,7 +480,7 @@ def send_bytes(data: bytes, *, uri: str, timeout: float, open_printer: OpenPrint
 def print_result(
     result: RenderResult | BatchResult, *, uri: str, timeout: float, open_printer: OpenPrinter
 ) -> PrintReport:
-    """Send a rendered job, refusing one that has error findings.
+    """Send a rendered job, refusing one that has error findings; a batch goes one record's bytes at a time.
 
     Raises:
         LabelRejectedError: The job has an error finding; nothing was sent.
@@ -452,7 +489,14 @@ def print_result(
     if not result.ok:
         msg = "label has errors; nothing was sent"
         raise LabelRejectedError(msg)
-    return send_bytes(result.data, uri=uri, timeout=timeout, open_printer=open_printer)
+    if not isinstance(result, BatchResult):
+        return send_bytes(result.data, uri=uri, timeout=timeout, open_printer=open_printer)
+    sent = 0
+    with closing(open_printer(uri, timeout=timeout)) as printer:
+        for job in result.record_jobs():
+            printer.send(job)
+            sent += len(job)
+    return PrintReport(uri=uri, bytes_sent=sent)
 
 
 class PrinterCommand(str, Enum):
