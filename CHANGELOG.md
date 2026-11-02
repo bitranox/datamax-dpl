@@ -341,6 +341,9 @@ All notable changes to this project are documented here. The format follows
 - `status`, `memory` and `detect` on a one-way channel refuse without opening
   it: `--printer file:PATH` creates no empty file, and a missing folder gets
   the same refusal rather than "cannot open file".
+- A reader that goes away (`datamax-dpl schema | head -1`) is a quiet exit
+  with code 141 at any output size, with no "SystemExit: 1" line and no
+  "Exception ignored" at exit; a command that failed keeps its own exit code.
 
 ## [0.4.0] - 2026-10-30
 

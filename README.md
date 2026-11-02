@@ -355,6 +355,7 @@ instead of `data`.
 | 0         | Done.                                                                                                          |
 | 1         | Refused: at least one finding is an error. Nothing was printed or written.                                     |
 | 2         | Could not run: unreadable or invalid label, unknown model, bad configuration, printer or camera not reachable. |
+| 141       | The reader of the output went away (`datamax-dpl schema \| head -1`); nothing more is said.                    |
 
 `info` and the config commands answer in the same envelopes (`config`: the dict `config --format
 json` prints; `config-deploy` and `config-generate-examples`: the written paths under `paths`) and

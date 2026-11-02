@@ -9,9 +9,12 @@ Contents:
 
 from __future__ import annotations
 
+import contextlib
+import errno
+import os
 import sys
 import threading
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TextIO
 
 import click
 import lib_cli_exit_tools
@@ -26,6 +29,7 @@ from .context import (
     snapshot_traceback_state,
 )
 from .envelope import CommandName, ErrorEnvelope, OutputMode, write_envelope
+from .exit_codes import ExitCode
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -92,21 +96,74 @@ def _report_click_error(exc: click.ClickException, *, mode: OutputMode) -> None:
         write_envelope(envelope, mode=mode)
 
 
-def _run_cli(argv: Sequence[str] | None, *, services_factory: Callable[[], AppServices]) -> int:
-    """Execute the CLI with exception handling.
+def _reader_left(exc: BaseException) -> bool:
+    """Whether a command stopped because the reader of its output went away.
 
-    Args:
-        argv: Optional sequence of CLI arguments. None uses sys.argv.
-        services_factory: Factory function that returns AppServices. Passed via ctx.obj.
+    click's own main and rich's broken-pipe handler both turn the error into ``SystemExit(1)`` raised
+    while handling it, so the context is what tells that exit from a command's own. Only the direct
+    context counts: a transport error raised from a socket's broken pipe is about the printer.
 
-    Returns:
-        Exit code produced by the command.
+    Example:
+        >>> _reader_left(BrokenPipeError(errno.EPIPE, "Broken pipe"))
+        True
+        >>> _reader_left(SystemExit(1))
+        False
     """
-    from .root import cli  # noqa: PLC0415 - deferred: lazy-loads the command tree so importing main stays cheap
+    cause = exc.__context__ if isinstance(exc, SystemExit) else exc
+    return isinstance(cause, OSError) and cause.errno == errno.EPIPE
 
-    # Use Click's native invocation with obj parameter since lib_cli_exit_tools.run_cli
-    # doesn't support passing obj. We replicate its behavior while adding obj support.
-    args = list(argv) if argv is not None else sys.argv[1:]
+
+def _discard_stream(stream: TextIO) -> None:
+    """Point ``stream`` at the null device, so the interpreter's own flush at exit has nowhere to fail.
+
+    The bytes that could not be written stay in the buffer, and that flush would otherwise print
+    "Exception ignored" and exit 120 after every handler here has returned.
+    """
+    try:
+        null = os.open(os.devnull, os.O_WRONLY)
+    except OSError:
+        return
+    try:
+        os.dup2(null, stream.fileno())
+    except (OSError, ValueError):
+        # A stream with no descriptor (a captured one) has no exit flush to protect.
+        return
+    finally:
+        os.close(null)
+
+
+def _flush_failed_for_a_gone_reader(exc: OSError) -> bool:
+    """Whether a failed flush means the reader left; Windows reports a closed pipe as EINVAL there."""
+    return exc.errno == errno.EPIPE or (os.name == "nt" and exc.errno == errno.EINVAL)
+
+
+def _flush_streams() -> bool:
+    """Flush stdout and stderr; return whether a reader had gone.
+
+    Output smaller than the stream's buffer has reached nothing until here: its command returned
+    normally, so this is the one place every size passes through.
+
+    Raises:
+        OSError: A flush failed for another reason (a full disk behind a redirect).
+    """
+    streams: tuple[TextIO | None, ...] = (sys.stdout, sys.stderr)
+    gone = False
+    for stream in streams:
+        if stream is None:
+            continue
+        try:
+            stream.flush()
+        except OSError as exc:
+            if not _flush_failed_for_a_gone_reader(exc):
+                raise
+            _discard_stream(stream)
+            gone = True
+    return gone
+
+
+def _invoke_cli(args: list[str], *, services_factory: Callable[[], AppServices]) -> int:
+    """Run the command tree and report a usage error in the shape the command line asked for."""
+    from .root import cli  # noqa: PLC0415 - deferred: lazy-loads the command tree so importing main stays cheap
 
     try:
         # cli is a rich_click group whose own main() reimplements click's Command.main().
@@ -123,9 +180,31 @@ def _run_cli(argv: Sequence[str] | None, *, services_factory: Callable[[], AppSe
         )
         return exit_code if isinstance(exit_code, int) else 0
     except click.ClickException as exc:
-        _report_click_error(exc, mode=_usage_error_mode(args, exc, cli))
+        # The usage error is the outcome, whether or not its envelope still has a reader.
+        with contextlib.suppress(BrokenPipeError):
+            _report_click_error(exc, mode=_usage_error_mode(args, exc, cli))
         return exc.exit_code
+
+
+def _run_cli(argv: Sequence[str] | None, *, services_factory: Callable[[], AppServices]) -> int:
+    """Execute the CLI with exception handling.
+
+    Args:
+        argv: Optional sequence of CLI arguments. None uses sys.argv.
+        services_factory: Factory function that returns AppServices. Passed via ctx.obj.
+
+    Returns:
+        Exit code produced by the command.
+    """
+    # Use Click's native invocation with obj parameter since lib_cli_exit_tools.run_cli
+    # doesn't support passing obj. We replicate its behavior while adding obj support.
+    args = list(argv) if argv is not None else sys.argv[1:]
+
+    try:
+        return _invoke_cli(args, services_factory=services_factory)
     except BaseException as exc:
+        if _reader_left(exc):
+            return ExitCode.BROKEN_PIPE
         # Catch BaseException (not just Exception) to handle SystemExit, KeyboardInterrupt,
         # and all errors at the CLI boundary. This ensures consistent error formatting via
         # lib_cli_exit_tools regardless of exception type. Intentional, not a bug.
@@ -154,7 +233,8 @@ def main(
             Callers outside the adapters layer should pass ``build_production``.
 
     Returns:
-        Exit code reported by the CLI run.
+        Exit code reported by the CLI run, or ``ExitCode.BROKEN_PIPE`` when the command succeeded or
+        was cut off but the reader of its output had gone; a command's own failure keeps its code.
 
     Raises:
         ValueError: If services_factory is not provided.
@@ -170,7 +250,7 @@ def main(
 
     previous_state = snapshot_traceback_state()
     try:
-        return _run_cli(argv, services_factory=services_factory)
+        code = _run_cli(argv, services_factory=services_factory)
     finally:
         if restore_traceback:
             restore_traceback_state(previous_state)
@@ -178,6 +258,10 @@ def main(
         is_main_thread = threading.current_thread() is threading.main_thread()
         if is_main_thread and lib_log_rich.runtime.is_initialised():
             lib_log_rich.runtime.shutdown()
+    # After the logging shutdown, which writes too. A failure outranks the broken pipe: a refusal
+    # must not read as "the reader left" to a pipeline that reads the status.
+    gone = _flush_streams()
+    return ExitCode.BROKEN_PIPE if gone and code == ExitCode.SUCCESS else code
 
 
 __all__ = ["main"]
