@@ -189,10 +189,12 @@ no error, and the label then prints without that image (one Allegro 2, 2026-10-3
 link the upload check of `print` and `verify` catches that before the format goes out: where a clear
 may go it clears and uploads again, where none may go it uploads only the images the directory did
 not list (a name the module holds is never downloaded again, by that label or a later one of a
-`--data` batch; after a read with no answer it uploads none of the same names again, only halved
-images under new names, and a later label of the batch that would first reads the names once
-more, placing at full size what the module then lists), and it refuses the label rather than print it without the image. Only an `image` element without a `bitmap` that no element of the
-label downloads names a printer image by its own `name`.
+`--data` batch; after a read with no answer it reads the names again before uploading any of the
+same names, places at full size what the module then lists, and with no answer there uploads only
+halved images under new names; a later label of the batch that would download such a name first
+reads the names once more in the same way), and it refuses the label rather than print it without
+the image. Only an `image` element without a `bitmap` that no element of the label downloads names
+a printer image by its own `name`.
 
 Measured on an Allegro 2 (firmware CA02 03.04), not stated in the manual: the printer draws the
 FIRST row record at the BOTTOM of the image, and images holding `0000FFnn` repeat records print

@@ -545,22 +545,30 @@ missing: the label is refused (`image_upload_refused`), its format and every lab
 sent, and the module is cleared again where allowed. Where no clear may go, each round uploads
 only the images the last read did not list: a name the module holds is never downloaded again,
 which would print nothing. Where that read got no answer, any name it followed may have arrived, so
-round 2, which would send the same names, is skipped, and round 3 runs only where halving gives
-every download a new name (a QR Code keeps its name); else the label is refused. A round that,
-rendered again, has nothing left to download (every image it places is one the module holds)
-sends no upload and makes no read. Each label of a `--data` batch is checked on its own and tells
+round 2 first reads the names again, uploading nothing before that read: with an answer the label
+is rendered again from that listing and the round goes on (a label left with nothing to download
+passes at full size; else it uploads what is missing and reads again), with no answer round 2 is
+skipped. Round 3 then runs only where halving gives every download a new name (a QR Code keeps its
+name); else the label is refused. On the plain Prodigy round 3 starts from what the last read that
+answered listed less the label's own names its `<STX>R` removed, so a halved name the module
+already holds is placed, not downloaded again. A round that, rendered again, has nothing left to
+download (every image it places is one the module holds) sends no upload and makes no read after
+it. Each label of a `--data` batch is checked on its own and tells
 the next one what its last read that answered listed, with every clear sent after that read
 applied, a round's clear as well as the clear after the label: an empty module after a `<STX>q`,
 the listing without the label's own names after the plain Prodigy's removes. So no label
 downloads a name an earlier one stored, and none places a name a clear took out, which would
 print without that image. A name sent after a read with no answer, where no clear may go, may be
-held too: a later label that would download it again first reads the names once more. With an
-answer it is rendered again from that listing (a listed image prints at full size, and a label
-left with nothing to download goes out with no further check) and its rounds go on as usual;
-with no answer it skips its first upload as round 2 is skipped and goes on with round 3. A label
-that, rendered again for a round, from the names read before its round 1, or with what the labels
-before it left, has an error finding (too little image memory left, say) is refused there,
-before anything more of it goes out, and the batch stops. A one-way
+held too, and it is passed on with the picture it sent: a later label that would download it again
+first reads the names once more. With an answer it is rendered again from that listing (a listed
+name holds the picture that was sent under it, so the same picture prints at full size and
+another picture with the same content name is downloaded under another name, and a label left
+with nothing to download goes out with no further check) and its rounds go on as usual; with no
+answer it skips its first upload and its round 2 reads the names again, as above. A label that,
+rendered again for a round, from the names read before its round 1, or with what the labels before
+it left, has an error finding (too little image memory left, say) is refused there
+(`image_upload_render_refused` for a round's render), before anything more of it goes out, and
+the batch stops. A one-way
 link (a file, stdout, a device file) cannot read the directory and sends the job at once, as
 `render` writes it. A job that downloads into module `C` is refused on a two-way link before
 anything is sent (`image_module_unlisted`): the directory never lists the default module by that
@@ -574,26 +582,31 @@ server sent after the answer: the byte still waiting hides it (measured over Lin
 the rest then goes to a closed connection. A server that only stops sending (a half close) reads
 as closed and the rest goes on a new connection, which costs nothing else.
 
-How long a label waits at most before `image_upload_refused`, where every read gets no answer and
-every connection after one is refused until just before `stored_names_wait` (W, 30 s) runs out:
-each read with no answer waits W, after it the channel is closed, and the next send opens a new
-connection, tried again within W. On the model's built-in RAM (and the plain Prodigy's removes),
-where the clear before each round and after the refusal goes out, that is the first connect
-(refusals tried again for up to 3 s) + W for round 1's read + 2 W for each further round (its new
-connection, its read) + W for the connection of the clear after the refusal: 3 + 30 + 2 x 60 + 30
-= 183 s with the defaults, 3 + 2 x `upload_check_rounds` x W in general, and W more where the
-names are read before the job (the clear keys off). Where no clear may go (a plug-in module),
-round 2 is skipped after a read with no answer and the refusal sends nothing: W for the names
-read before the job + 3 + W + 2 W = 123 s. A later label of a batch starts on the channel the
-label before it left open: W for round 1's read + 2 W for round 3 = 90 s. One that reads the
-names once more before its round 1 (it would download a name sent before a read with no answer,
-which happens only where no clear may go) adds that read, at most one W: with no answer there,
-round 1 is left out and it waits W + 2 W = 90 s, as above; with the answer arriving just before
-W runs out, it waits W + W for round 1's read + 2 W for round 3 = 4 x 30 = 120 s. On built-in
-RAM no label reads first. These figures count a read that answers as keeping its channel; a
-print server that closes it after the answer adds the new connection, up to W more. A batch can
-wait that long for each label it gets through, and the time the job's bytes take to go out comes
-on top.
+How long a label waits at most before `image_upload_refused`, with W for `stored_names_wait` (30
+s) and the default 3 rounds. Every read waits up to W, whether it gets no answer or one that ends
+just before W runs out (the 1 s of silence that ends an answer comes on top). After a read with
+no answer the channel is closed: the next send opens a new connection, tried again within W, and
+a read made right after one opens its own within its own W. The first connect tries refusals
+again for up to 3 s.
+
+- Built-in RAM (`<STX>q`) and the plain Prodigy (`<STX>R` for the label's own names), where a
+  clear goes before each round and after the refusal. First label: 3 + W for round 1's read + 2 W
+  for round 2 (the new connection for its clear, its read) + 2 W for round 3 + W for the
+  connection of the clear after the refusal = 3 + 6 x 30 = 183 s, 3 + 2 x `upload_check_rounds` x
+  W in general; W more, 213 s, where the names are read before the job (no clear before the
+  downloads). A later label of a batch starts on the channel the label before it left open:
+  6 W = 180 s. No label reads the names first or again in round 2: a clear may go.
+- A plug-in module, where no clear may go and the names are always read before the job. First
+  label: W for that read + 3 + W for round 1's read (no answer) + W for round 2's read again (an
+  answer, a name missing) + W for its read after the upload (no answer) + 2 W for round 3 (the new
+  connection, its read) = 3 + 6 x 30 = 183 s, 3 + 2 x `upload_check_rounds` x W in general; the
+  refusal sends nothing. A later label: the same without the first two terms, 5 W = 150 s; one
+  that reads the names before its round 1 (it would download a name sent before a read with no
+  answer) adds that read, which answers just before W runs out: 6 W = 180 s.
+
+These figures count a read that answers as keeping its channel; a print server that closes it
+after the answer adds the new connection, up to W more. A batch can wait that long for each label
+it gets through, and the time the job's bytes take to go out comes on top.
 
 `max_format_rows` ships unset too. The Allegro 2 cuts a long format off; its model limit is 1648
 dot rows, about 201 mm at its default `scale_along`, the lowest row any test format was cut at on
