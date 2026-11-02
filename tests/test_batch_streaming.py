@@ -497,7 +497,7 @@ def test_stdin_is_read_once_and_gone_over_twice(cli_runner: CliRunner, tmp_path:
 def test_a_small_file_is_read_without_room_for_the_largest(tmp_path: Path) -> None:
     """``read(limit)`` allocates the limit first: a measure of one small file used to show 16 MiB."""
     path = tmp_path / "data.csv"
-    path.write_text("a\nr0\n", encoding="utf-8")
+    path.write_bytes(b"a\nr0\n")
     tracemalloc.start()
     try:
         assert read_input(str(path)) == b"a\nr0\n"
