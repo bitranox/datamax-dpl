@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.composition import build_testing
-from datamax_dpl.domain.enums import FindingCode
+from datamax_dpl.domain.enums import Attribute, FindingCode
 from datamax_dpl.domain.label import MAX_ELEMENTS, Box, Element, Label, Text
 from datamax_dpl.domain.profiles import MODEL_PROFILES
 from datamax_dpl.domain.render import RenderResult, build_job
@@ -56,7 +56,7 @@ def test_every_model_s_field_limit_stays_under_the_element_limit() -> None:
 def test_text_fields_past_the_field_limit_skip_the_overlap_sweep() -> None:
     """Printer-drawn fields each stay one record, so past the limit the job is refused without pairing them."""
     elements: list[Element] = [Text(x=5, y=5, text="AB") for _ in range(MAX_ELEMENTS)]
-    result, peak = _peak_of_build(Label(attribute=2, elements=elements))
+    result, peak = _peak_of_build(Label(attribute=Attribute.TRANSPARENT, elements=elements))
     codes = {finding.code for finding in result.findings}
     assert FindingCode.TOO_MANY_FIELDS in codes
     assert FindingCode.TRANSPARENCY_NOT_EMULATED not in codes
@@ -69,7 +69,7 @@ def test_text_fields_past_the_field_limit_skip_the_overlap_sweep() -> None:
 def test_overlapping_exact_fields_are_paired_without_holding_every_pair() -> None:
     """Fields that can merge are still swept, one pair at a time: they all land in one image."""
     elements: list[Element] = [Box(x=5 + i * 0.001, y=5, width=2, height=2, thickness=1) for i in range(1200)]
-    result, peak = _peak_of_build(Label(attribute=2, width=50, height=50, elements=elements))
+    result, peak = _peak_of_build(Label(attribute=Attribute.TRANSPARENT, width=50, height=50, elements=elements))
     assert FindingCode.TRANSPARENCY_EMULATED in {finding.code for finding in result.findings}
     assert peak < _PEAK_BYTES
 

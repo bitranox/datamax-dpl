@@ -309,11 +309,14 @@ def test_a_fifo_nobody_reads_is_refused_at_once(tmp_path: Path, scheme: str) -> 
 def test_open_printer_hands_a_device_its_timeout_and_piece_size() -> None:
     master, slave = os.openpty()
     try:
-        with (
-            pytest.raises(PrinterTimeoutError),
-            open_printer(f"device://{os.ttyname(slave)}", timeout=0.5, tuning=TransportTuning(send_chunk_bytes=64)) as printer,
-        ):
-            printer.send(_LARGE_JOB)
+        printer = open_printer(
+            f"device://{os.ttyname(slave)}", timeout=0.5, tuning=TransportTuning(send_chunk_bytes=64)
+        )
+        try:
+            with pytest.raises(PrinterTimeoutError):
+                printer.send(_LARGE_JOB)
+        finally:
+            printer.close()
     finally:
         os.close(slave)
         os.close(master)

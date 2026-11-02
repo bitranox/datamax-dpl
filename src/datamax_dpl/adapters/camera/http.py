@@ -144,7 +144,9 @@ def capture_with_http(settings: CameraSettings, *, stem: Path) -> StoredImage:
             media_type, body = _fetch(connection, settings, target=target, deadline=deadline)
         except CameraError as exc:
             # What the shut socket looks like varies (no answer, a cut body), and says nothing.
-            raise _late(settings.timeout) if deadline.passed else exc
+            if deadline.passed:
+                raise _late(settings.timeout) from exc
+            raise
         finally:
             connection.close()
         if deadline.passed:

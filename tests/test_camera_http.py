@@ -417,9 +417,8 @@ def test_a_camera_dripping_what_http_client_reads_inside_one_call_is_cut_off(
 def test_an_image_with_no_length_cut_off_by_the_deadline_is_not_stored(tmp_path: Path) -> None:
     """Such a body simply ends when its socket does, so an end here must not read as a whole image."""
     answer = _OK_HEAD + b"Connection: close\r\n\r\n" + TINY_PNG[:10]
-    with _RawCamera(answer, then_close=False) as raw:
-        with pytest.raises(CameraError, match=r"within 1 s"):
-            capture_with_http(CameraSettings(kind=CameraKind.HTTP, url=raw.url, timeout=1.0), stem=tmp_path / "s")
+    with _RawCamera(answer, then_close=False) as raw, pytest.raises(CameraError, match=r"within 1 s"):
+        capture_with_http(CameraSettings(kind=CameraKind.HTTP, url=raw.url, timeout=1.0), stem=tmp_path / "s")
     assert list(tmp_path.iterdir()) == []
 
 
@@ -427,9 +426,8 @@ def test_an_image_with_no_length_cut_off_by_the_deadline_is_not_stored(tmp_path:
 def test_a_body_shorter_than_it_announced_is_refused(tmp_path: Path) -> None:
     """A camera restarting mid-send: exit 0 and 100 bytes of a million would sit beside the preview."""
     answer = _OK_HEAD + b"Content-Length: 1000000\r\n\r\n" + b"x" * 100
-    with _RawCamera(answer) as raw:
-        with pytest.raises(CameraError, match="before it was complete"):
-            capture_with_http(CameraSettings(kind=CameraKind.HTTP, url=raw.url, timeout=5.0), stem=tmp_path / "s")
+    with _RawCamera(answer) as raw, pytest.raises(CameraError, match="before it was complete"):
+        capture_with_http(CameraSettings(kind=CameraKind.HTTP, url=raw.url, timeout=5.0), stem=tmp_path / "s")
     assert list(tmp_path.iterdir()) == []
 
 

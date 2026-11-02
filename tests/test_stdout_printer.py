@@ -31,7 +31,16 @@ def _command(name: str, tmp_path: Path) -> list[str]:
     if name == "print":
         return ["print", _label(tmp_path), "--printer", "-"]
     if name == "verify":
-        return ["--set", "camera.kind=file", "verify", _label(tmp_path), "--printer", "-", "--output-dir", str(tmp_path)]
+        return [
+            "--set",
+            "camera.kind=file",
+            "verify",
+            _label(tmp_path),
+            "--printer",
+            "-",
+            "--output-dir",
+            str(tmp_path),
+        ]
     if name == "calibrate print":
         return ["calibrate", "print", "--width", "50", "--height", "50", "--axis", "across", "--printer", "-"]
     return [name, "--printer", "-"]
@@ -94,7 +103,10 @@ def test_a_malformed_uri_is_a_configuration_error_on_every_command(
     cli_runner: CliRunner, tmp_path: Path, command: str
 ) -> None:
     """One fault, one name: the library raises the same type for the same URI."""
-    words = {"print": ["print", _label(tmp_path)], "calibrate print": ["calibrate", "print", "--width", "50", "--height", "50"]}.get(command, [command])
+    words = {
+        "print": ["print", _label(tmp_path)],
+        "calibrate print": ["calibrate", "print", "--width", "50", "--height", "50"],
+    }.get(command, [command])
     result = _invoke(cli_runner, ["--json-bare", *words, "--printer", "tcp://a b"])
     assert result.exit_code == 2, result.output
     document = json.loads(result.stdout)
@@ -103,7 +115,9 @@ def test_a_malformed_uri_is_a_configuration_error_on_every_command(
 
 
 @pytest.mark.os_agnostic
-def test_preview_refuses_dash_as_a_file_name(cli_runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_preview_refuses_dash_as_a_file_name(
+    cli_runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """``render -o -`` means stdout, so a file literally named ``-`` here would surprise."""
     monkeypatch.chdir(tmp_path)
     result = _invoke(cli_runner, ["--json-bare", "preview", _label(tmp_path), "-o", "-"])
