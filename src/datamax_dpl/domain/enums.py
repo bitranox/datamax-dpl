@@ -589,10 +589,9 @@ class PrinterStop(str, Enum):
 
 
 class ValidationErrorType(str, Enum):
-    """The pydantic error types this package tells apart in a refusal, or raises itself.
+    """The pydantic error types this package tells apart in a refusal.
 
-    ``FLOAT_PARSING``, ``VALUE_ERROR`` and ``STRING_TYPE`` are pydantic's own names (the ``type``
-    of an entry of ``ValidationError.errors()``); ``FIRMWARE_FORMAT`` is this package's.
+    The values are pydantic's own names, the ``type`` of an entry of ``ValidationError.errors()``.
 
     Example:
         >>> ValidationErrorType.VALUE_ERROR.value
@@ -601,8 +600,6 @@ class ValidationErrorType(str, Enum):
 
     FLOAT_PARSING = "float_parsing"
     VALUE_ERROR = "value_error"
-    STRING_TYPE = "string_type"
-    FIRMWARE_FORMAT = "firmware_format"
 
 
 class MediaType(str, Enum):

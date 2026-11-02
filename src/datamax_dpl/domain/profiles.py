@@ -19,9 +19,8 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, NamedTuple, TypeVar
 
 from pydantic import BeforeValidator
-from pydantic_core import PydanticCustomError
 
-from .enums import HardwareOption, ImageModule, ModelFamily, SpeedCode, ValidationErrorType
+from .enums import HardwareOption, ImageModule, ModelFamily, SpeedCode
 from .frozen_mapping import FrozenMapping
 from .label import DotSize
 from .units import Axis, hundredths_to_mm
@@ -1170,18 +1169,16 @@ _FIRMWARE = re.compile(r"(?P<major>[0-9]{1,3})\.(?P<minor>[0-9]{1,3})")
 def _firmware_field(value: object) -> object:
     """Parse the text a model is given for a firmware field; a :class:`Firmware` passes unchanged.
 
-    Raised as :class:`~pydantic_core.PydanticCustomError` so a refusal carries the parser's own
-    sentence: a plain ``ValueError`` would reach the config refusals prefixed with "Value error, ".
-    The type error keeps the wording pydantic gave the plain ``str`` field this replaced.
+    Raises:
+        ValueError: The value is neither text nor a :class:`Firmware` (worded as pydantic words it
+            for the plain ``str`` field this replaced), or the text is malformed; pydantic reports
+            either as a ``value_error`` whose cause carries this sentence.
     """
     if value is None or isinstance(value, Firmware):
         return value
     if not isinstance(value, str):
-        raise PydanticCustomError(ValidationErrorType.STRING_TYPE.value, "Input should be a valid string")
-    try:
-        return parse_firmware(value)
-    except ValueError as exc:
-        raise PydanticCustomError(ValidationErrorType.FIRMWARE_FORMAT.value, "{reason}", {"reason": str(exc)}) from None
+        raise ValueError("Input should be a valid string")
+    return parse_firmware(value)
 
 
 #: A model field holding a parsed firmware, None when unknown. It takes the text users write

@@ -16,7 +16,15 @@ from ...application.upload_check import MAX_UPLOAD_CHECK_ROUNDS, MIN_UPLOAD_CHEC
 from ...application.use_cases import RETRY_INTERVAL_SECONDS, STATUS_WAIT_SECONDS, STORED_NAMES_WAIT_SECONDS
 from ...application.verify import ONE_WAY_SETTLE_SECONDS, POLL_SECONDS
 from ...domain.camera import CameraSettings
-from ...domain.enums import CutterPresence, FallbackPolicy, HardwareOption, ImageModule, PrinterStop, Severity
+from ...domain.enums import (
+    CutterPresence,
+    FallbackPolicy,
+    HardwareOption,
+    ImageModule,
+    PrinterStop,
+    Severity,
+    ValidationErrorType,
+)
 from ...domain.errors import ConfigurationError
 from ...domain.job import MAX_STOP_POSITION_MM
 from ...domain.label import stop_position_or_printer
@@ -29,6 +37,7 @@ from ..transport.uri import is_printer_name, is_printer_uri
 
 if TYPE_CHECKING:
     from lib_layered_config import Config
+    from pydantic_core import ErrorDetails
 
 _T = TypeVar("_T")
 
@@ -157,7 +166,15 @@ def _section(config: Config, name: ConfigSection) -> Mapping[str, Any]:
 
 
 def _describe(exc: ValidationError, *, section: str) -> str:
-    return "; ".join(f"{section}.{'.'.join(str(p) for p in error['loc'])}: {error['msg']}" for error in exc.errors())
+    return "; ".join(f"{section}.{'.'.join(str(p) for p in error['loc'])}: {_reason(error)}" for error in exc.errors())
+
+
+def _reason(error: ErrorDetails) -> str:
+    """The reason as its validator wrote it, without the ``Value error, `` pydantic puts in front."""
+    cause = error.get("ctx", {}).get("error")
+    if error["type"] == ValidationErrorType.VALUE_ERROR and isinstance(cause, ValueError):
+        return str(cause)
+    return error["msg"]
 
 
 def printer_settings(config: Config, overrides: PrinterOverrides) -> PrinterSettings:

@@ -157,7 +157,6 @@ def _refuse(value: object) -> object:
     [
         (ValidationErrorType.FLOAT_PARSING, TypeAdapter(float), "x"),
         (ValidationErrorType.VALUE_ERROR, TypeAdapter(Annotated[int, AfterValidator(_refuse)]), 1),
-        (ValidationErrorType.STRING_TYPE, TypeAdapter(str), 3),
     ],
 )
 def test_each_pydantic_error_type_is_the_name_pydantic_reports(
@@ -171,10 +170,5 @@ def test_each_pydantic_error_type_is_the_name_pydantic_reports(
 
 @pytest.mark.os_agnostic
 def test_validation_error_type_values() -> None:
-    """The error type names, as refusals and the checks that tell them apart compare them."""
-    assert {member.value for member in ValidationErrorType} == {
-        "float_parsing",
-        "value_error",
-        "string_type",
-        "firmware_format",
-    }
+    """The error type names, as the checks that tell refusals apart compare them."""
+    assert {member.value for member in ValidationErrorType} == {"float_parsing", "value_error"}

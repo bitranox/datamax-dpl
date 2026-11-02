@@ -62,8 +62,8 @@ def test_render_options_refuse_a_malformed_firmware_when_built(given: str) -> No
         RenderOptions.model_validate({"firmware": given})
 
     (error,) = caught.value.errors()
-    assert (error["loc"], error["type"]) == (("firmware",), "firmware_format")
-    assert error["msg"] == f"firmware must look like 2.01, got {given!r}"
+    assert (error["loc"], error["type"]) == (("firmware",), "value_error")
+    assert error["msg"] == f"Value error, firmware must look like 2.01, got {given!r}"
 
 
 @pytest.mark.os_agnostic
