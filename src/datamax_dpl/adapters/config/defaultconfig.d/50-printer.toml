@@ -120,6 +120,14 @@ timeout = 10.0
 # Environment Variable: DATAMAX_DPL___PRINTER__UPLOAD_CHECK_ROUNDS=2
 # upload_check_rounds = 3
 
+# Purpose: Most records one --data batch of 'render', 'validate' or 'print' may
+#          hold. A batch is rendered whole before anything is sent and costs far
+#          more than its file, so more than this is refused (exit 2) first.
+# Type: integer, greater than 0, at most 10000000
+# Default: 100000
+# Environment Variable: DATAMAX_DPL___PRINTER__MAX_BATCH_RECORDS=500000
+# max_batch_records = 100000
+
 # Purpose: Largest piece of a job handed to one write, over tcp and serial. The
 #          timeout bounds each piece rather than the whole job, so it means the
 #          printer took no data for that long: at the about 1390 bytes/s of a

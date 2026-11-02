@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `[printer] max_batch_records` (default 100000): a `--data` batch with more
+  records is refused with exit 2 before anything is rendered. A million
+  records in a 2 MB file took 96 s and 4.3 GB.
 - `DatamaxDplError`, exported from the package root, is the base of every
   exception the package raises; `UnknownModelError`, `MissingFieldError`,
   `QrDataTooLongError` and `PreviewTooLongError` keep `LookupError` or
@@ -312,6 +315,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Filling a placeholder stops one character past the field's limit (a QR
+  repeating a 3 MiB value took 4.46 GB to be refused), `explain` stops at
+  100000 commands and reports the rest as not explained (16 MiB of CR took 15
+  GB), and `preview` refuses more fields than the model's format takes, as
+  `render` does.
+- `device:` and `file:` printers keep to `timeout` on POSIX: a stalled device
+  or a FIFO nobody reads hung for ever. Each piece of a job waits under
+  `select`, and a FIFO with no reader is refused at once. On Windows, and on
+  `-` everywhere, no timeout applies to a write.
 - The HTTP camera's `timeout` holds for the whole capture: dripped headers or
   chunk sizes ran past it without bound, and it now shuts the socket at the
   deadline (a TLS handshake is still bound per receive only). A body shorter

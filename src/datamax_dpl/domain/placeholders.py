@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, TypedDict
 
 from ._invariants import require_update_fields
 from .errors import DatamaxDplError
-from .label import Barcode, Element, Label, Qr, ScalableText, Text
+from .label import MAX_FIELD_DATA, MAX_PDF417_DATA, MAX_QR_DATA, Barcode, Element, Label, Qr, ScalableText, Text
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -57,34 +57,61 @@ def placeholders_in(text: str) -> list[str]:
     return [match[1] for match in _TOKEN.finditer(text) if match[1] is not None]
 
 
-def fill_text(text: str, record: Mapping[str, str]) -> str:
+def fill_text(text: str, record: Mapping[str, str], *, limit: int | None = None) -> str:
     """Replace every ``{name}`` in ``text`` by ``record[name]``.
 
+    Args:
+        text: The text holding the placeholders.
+        record: The value of each field name.
+        limit: Stop building the result once it is longer than this and return its first
+            ``limit + 1`` characters. A field that cannot hold it is refused anyway, and a short
+            template repeating a large value would otherwise take gigabytes to learn that. None
+            builds the whole text.
+
+    Returns:
+        The filled text; longer than ``limit`` exactly when the whole text would be.
+
     Raises:
-        MissingFieldError: A placeholder has no value in ``record``.
+        MissingFieldError: A placeholder has no value in ``record``; checked past ``limit`` too.
 
     Example:
         >>> fill_text("Lot {lot} {{x}}", {"lot": "A7"})
         'Lot A7 {x}'
+        >>> fill_text("{a}{a}{a}", {"a": "xyz"}, limit=4)
+        'xyzxy'
     """
+    pieces: list[str] = []
+    length = 0
+    end = 0
+    for match in _TOKEN.finditer(text):
+        value = _token_value(match, record)
+        if limit is None or length <= limit:
+            pieces += (text[end : match.start()], value)
+            length += match.start() - end + len(value)
+        end = match.end()
+    pieces.append(text[end:])
+    return "".join(pieces) if limit is None else "".join(pieces)[: limit + 1]
 
-    def substitute(match: re.Match[str]) -> str:
-        name = match[1]
-        if name is None:
-            return match[0][0]
-        if name not in record:
-            msg = f"data record has no field {name!r}"
-            raise MissingFieldError(msg)
-        return str(record[name])
 
-    return _TOKEN.sub(substitute, text)
+def _token_value(match: re.Match[str], record: Mapping[str, str]) -> str:
+    """What one token stands for: a literal brace, or the value its field holds."""
+    name = match[1]
+    if name is None:
+        return match[0][0]
+    if name not in record:
+        msg = f"data record has no field {name!r}"
+        raise MissingFieldError(msg)
+    return str(record[name])
 
 
 def _fill_element(element: Element, record: Mapping[str, str]) -> Element:
+    """Fill one element, building no more than its own field's limit can hold plus one character."""
     if isinstance(element, (Text, ScalableText)):
-        return element.model_copy(update=_TextUpdate(text=fill_text(element.text, record)))
-    if isinstance(element, (Barcode, Qr)):
-        return element.model_copy(update=_DataUpdate(data=fill_text(element.data, record)))
+        return element.model_copy(update=_TextUpdate(text=fill_text(element.text, record, limit=MAX_FIELD_DATA)))
+    if isinstance(element, Barcode):
+        return element.model_copy(update=_DataUpdate(data=fill_text(element.data, record, limit=MAX_PDF417_DATA)))
+    if isinstance(element, Qr):
+        return element.model_copy(update=_DataUpdate(data=fill_text(element.data, record, limit=MAX_QR_DATA)))
     return element
 
 

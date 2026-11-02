@@ -4,28 +4,54 @@ from __future__ import annotations
 
 import csv
 import json
-from typing import TYPE_CHECKING, Any
+import tracemalloc
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from lib_layered_config import Config
+from pydantic import ValidationError
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.label_io import MAX_INPUT_BYTES, LabelInputError, load_records, read_input
 from datamax_dpl.adapters.cli.settings import PreviewSettings, preview_settings
 from datamax_dpl.adapters.preview import render_preview_png
 from datamax_dpl.composition import build_testing
-from datamax_dpl.domain.decoder import explain
+from datamax_dpl.domain.decoder import MAX_EXPLAINED_COMMANDS, explain
 from datamax_dpl.domain.errors import ConfigurationError, PreviewTooLongError
-from datamax_dpl.domain.label import Barcode, Box, Circle, Image, Label, Line, Point, Polygon, Qr, ScalableText, Text
-from datamax_dpl.domain.preview import DEFAULT_PREVIEW_MAX_LENGTH_MM, canvas_for, check_preview_length
+from datamax_dpl.domain.label import (
+    MAX_FIELD_DATA,
+    MAX_PDF417_DATA,
+    MAX_QR_DATA,
+    Barcode,
+    Box,
+    Circle,
+    Element,
+    Image,
+    Label,
+    Line,
+    Point,
+    Polygon,
+    Qr,
+    ScalableText,
+    Text,
+)
+from datamax_dpl.domain.placeholders import MissingFieldError, fill_label, fill_text
+from datamax_dpl.domain.preview import (
+    DEFAULT_PREVIEW_MAX_LENGTH_MM,
+    SentAs,
+    canvas_for,
+    check_preview_length,
+    preview_bitmap,
+)
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.render import build_job
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.symbology import Symbology
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from click.testing import CliRunner
@@ -241,3 +267,185 @@ def test_explain_takes_every_byte_where_a_record_holds_a_multiplier(byte: int, p
     multipliers = bytearray(b"11")
     multipliers[position] = byte
     explain(b"\x02L\r1A" + bytes(multipliers) + b"00000000000000\rE\r")
+
+
+# ======================== What one small input can multiply into ========================
+
+
+def _peak_while(action: Callable[[], object]) -> int:
+    tracemalloc.start()
+    try:
+        action()
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+@pytest.mark.os_agnostic
+def test_a_placeholder_repeated_with_a_large_value_is_refused_without_building_it() -> None:
+    """1432 repeats of a 1 MiB value would be 1.4 GB, for a field that holds 4296 characters."""
+    label = Label(elements=[Qr(x=1, y=1, data="{a}" * 1432)])
+    record = {"a": "x" * (1024 * 1024)}
+
+    def fill() -> None:
+        with pytest.raises(ValidationError, match="at most 4296"):
+            fill_label(label, record)
+
+    assert _peak_while(fill) < 8 * 1024 * 1024
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("element", "limit"),
+    [
+        (Text(x=1, y=1, text="{a}"), MAX_FIELD_DATA),
+        (ScalableText(x=1, y=1, text="{a}", height_points=10), MAX_FIELD_DATA),
+        (Barcode(x=1, y=1, symbology=Symbology.PDF417, data="{a}"), MAX_PDF417_DATA),
+        (Qr(x=1, y=1, data="{a}"), MAX_QR_DATA),
+    ],
+    ids=lambda value: type(value).__name__ if not isinstance(value, int) else str(value),
+)
+def test_filling_stops_at_each_field_s_own_limit_and_no_earlier(element: Element, limit: int) -> None:
+    """A value exactly at the limit is kept whole; one past it is refused by the model, as ever."""
+    label = Label(elements=[element])
+    filled = fill_label(label, {"a": "7" * limit}).elements[0]
+    assert (filled.data if isinstance(filled, (Barcode, Qr)) else cast("Text", filled).text) == "7" * limit
+    with pytest.raises(ValidationError, match=f"at most {limit} "):
+        fill_label(label, {"a": "7" * (limit + 1)})
+
+
+@pytest.mark.os_agnostic
+def test_a_missing_field_past_the_limit_is_still_the_one_reported() -> None:
+    """A missing field comes ahead of a too-long one, whichever stands first in the text."""
+    with pytest.raises(MissingFieldError, match="later"):
+        fill_label(Label(elements=[Text(x=1, y=1, text="{a}{later}")]), {"a": "x" * 1000})
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "text", ["plain", "{a}", "x{a}y{{z}}{a}", "{{", "}}", "{}", "{a", "{{{a}}}"], ids=lambda text: text
+)
+def test_a_limit_only_ever_cuts_text_past_it(text: str) -> None:
+    """Short of the limit the text is the same with and without it."""
+    record = {"a": "VALUE"}
+    assert fill_text(text, record, limit=100) == fill_text(text, record)
+
+
+def _records_file(tmp_path: Path, name: str, count: int) -> str:
+    path = tmp_path / name
+    if name.endswith(".csv"):
+        path.write_text("name\n" + "x\n" * count, encoding="utf-8")
+    elif name.endswith(".jsonl"):
+        path.write_text('{"name": "x"}\n' * count, encoding="utf-8")
+    else:
+        path.write_text(json.dumps([{"name": "x"}] * count), encoding="utf-8")
+    return str(path)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("command", ["validate", "render", "print"])
+@pytest.mark.parametrize("name", ["data.csv", "data.jsonl", "data.json"])
+def test_a_batch_past_max_batch_records_is_refused_before_rendering(
+    cli_runner: CliRunner, tmp_path: Path, command: str, name: str
+) -> None:
+    """Exit 2 naming the key; nothing was rendered, so nothing reached the printer file."""
+    target = tmp_path / "job.dpl"
+    printer = ["--printer", f"file:{target}"] if command == "print" else []
+    args = ["--json-bare", "--set", "printer.max_batch_records=3", command, _write_label(tmp_path)]
+    result = _invoke(cli_runner, *args, "--data", _records_file(tmp_path, name, 4), *printer)
+    assert result.exit_code == 2, result.output
+    document = json.loads(result.stdout)
+    assert document["error"] == "LabelInputError"
+    assert "more than 3 data records" in document["message"]
+    assert "[printer] max_batch_records" in document["message"]
+    assert not target.exists()
+
+
+@pytest.mark.os_agnostic
+def test_a_batch_at_max_batch_records_goes_through(cli_runner: CliRunner, tmp_path: Path) -> None:
+    args = ["--json-bare", "--set", "printer.max_batch_records=3", "validate", _write_label(tmp_path)]
+    result = _invoke(cli_runner, *args, "--data", _records_file(tmp_path, "data.csv", 3))
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["ok"] is True
+
+
+@pytest.mark.os_agnostic
+def test_the_default_batch_limit_refuses_the_measured_input(cli_runner: CliRunner, tmp_path: Path) -> None:
+    """A million one-digit records, 2 MB: it took 96 s and 4.3 GB to render with no limit."""
+    records = _records_file(tmp_path, "data.csv", 1_000_000)
+    result = _invoke(cli_runner, "--json-bare", "validate", _write_label(tmp_path), "--data", records)
+    assert result.exit_code == 2, result.output
+    assert "more than 100000" in json.loads(result.stdout)["message"]
+
+
+@pytest.mark.os_agnostic
+def test_reading_a_csv_stops_just_past_the_limit(tmp_path: Path) -> None:
+    assert len(load_records(_records_file(tmp_path, "data.csv", 50), limit=3)) == 4
+    assert len(load_records(_records_file(tmp_path, "data.jsonl", 50), limit=3)) == 4
+    assert len(load_records(_records_file(tmp_path, "data.csv", 50))) == 50
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("stream", [b"\r", b"\x01A"], ids=["empty-lines", "immediate"])
+def test_explain_stops_at_its_command_limit_and_says_so(stream: bytes) -> None:
+    """One byte of input can be one command of about 1 KB: 16 MiB came to 15 GB and 70 s."""
+    result = explain(stream * (MAX_EXPLAINED_COMMANDS + 50))
+    assert len(result.commands) == MAX_EXPLAINED_COMMANDS
+    assert [problem for problem in result.problems if "not explained" in problem] == [
+        f"{MAX_EXPLAINED_COMMANDS} commands, the rest not explained"
+    ]
+    assert result.label is None
+
+
+@pytest.mark.os_agnostic
+def test_explain_stops_inside_a_format_too_and_rebuilds_no_label_from_a_part() -> None:
+    result = explain(b"\x02L\r" + b"121100000500025Hi\r" * MAX_EXPLAINED_COMMANDS + b"E\r")
+    assert len(result.commands) == MAX_EXPLAINED_COMMANDS
+    assert result.label is None
+    assert any("not explained" in problem for problem in result.problems)
+
+
+@pytest.mark.os_agnostic
+def test_explain_of_a_stream_at_its_limit_is_whole() -> None:
+    result = explain(b"\x01A" * MAX_EXPLAINED_COMMANDS)
+    assert len(result.commands) == MAX_EXPLAINED_COMMANDS
+    assert result.problems == ()
+
+
+def _boxes(count: int) -> Label:
+    elements: list[Element] = [Box(x=1, y=1, width=1, height=1, thickness=0.2) for _ in range(count)]
+    return Label(width=20, height=20, elements=elements)
+
+
+@pytest.mark.os_agnostic
+def test_a_preview_keeps_to_the_model_s_field_limit() -> None:
+    """Render stops such a label at the limit; drawing it anyway took 14.6 s for 5000 boxes."""
+    profile = get_profile("dmx-600")
+    with pytest.raises(PreviewTooLongError, match=f"takes at most {profile.max_fields}"):
+        preview_bitmap(_boxes(profile.max_fields + 1), profile)
+
+
+@pytest.mark.os_agnostic
+def test_a_preview_at_the_model_s_field_limit_is_drawn() -> None:
+    profile = get_profile("allegro-2")
+    assert preview_bitmap(_boxes(profile.max_fields), profile).width > 0
+
+
+@pytest.mark.os_agnostic
+def test_a_merged_group_counts_as_the_one_field_it_is_sent_as() -> None:
+    """A transparent label sends a group as one image, so past the limit in elements it still fits."""
+    profile = get_profile("allegro-2")
+    count = profile.max_fields + 1
+    sent = SentAs(merged=(tuple(range(count)),))
+    assert preview_bitmap(_boxes(count), profile, sent_as=sent).width > 0
+
+
+@pytest.mark.os_agnostic
+def test_the_preview_command_refuses_too_many_fields_with_an_envelope(cli_runner: CliRunner, tmp_path: Path) -> None:
+    label = {"elements": [{"type": "box", "x": 1, "y": 1, "width": 1, "height": 1, "thickness": 0.2}] * 401}
+    out = tmp_path / "p.png"
+    args = ["--json-bare", "preview", _write_label(tmp_path, label), "-o", str(out), "--model", "dmx-600"]
+    result = _invoke(cli_runner, *args)
+    assert result.exit_code == 2, result.output
+    assert json.loads(result.stdout)["error"] == "PreviewTooLongError"
+    assert not out.exists()

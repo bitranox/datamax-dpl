@@ -56,6 +56,12 @@ _BoundedStop = Annotated[float, Field(gt=0, le=MAX_STOP_POSITION_MM)]
 _ConfiguredStop = Annotated[_BoundedStop | PrinterStop, stop_position_or_printer(TypeAdapter(_BoundedStop))]
 
 
+#: Default of ``[printer] max_batch_records``.
+MAX_BATCH_RECORDS = 100_000
+#: Largest ``max_batch_records`` taken: more records than a 16 MiB file can hold, so "no limit".
+MAX_BATCH_RECORDS_LIMIT = 10_000_000
+
+
 class PrinterSettings(BaseModel):
     """The ``[printer]`` section, merged with a ``[printers.<name>]`` section when one is chosen.
 
@@ -92,6 +98,8 @@ class PrinterSettings(BaseModel):
     upload_check_rounds: int = Field(
         default=UPLOAD_CHECK_ROUNDS, ge=MIN_UPLOAD_CHECK_ROUNDS, le=MAX_UPLOAD_CHECK_ROUNDS
     )
+    # Most records one --data batch may hold: a batch is rendered whole before anything is sent.
+    max_batch_records: int = Field(default=MAX_BATCH_RECORDS, gt=0, le=MAX_BATCH_RECORDS_LIMIT)
     # verify waits status_wait in all for the printer to finish its job, polling at this interval;
     # a one-way channel cannot poll, so verify waits one_way_settle instead (0 waits not at all).
     verify_poll_interval: float = Field(default=POLL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
@@ -132,6 +140,7 @@ class PrinterSettings(BaseModel):
         "status_retry_interval",
         "stored_names_wait",
         "upload_check_rounds",
+        "max_batch_records",
         "verify_poll_interval",
         "one_way_settle",
         "send_chunk_bytes",

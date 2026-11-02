@@ -22,6 +22,10 @@ from .symbology import SYMBOLOGY_BY_IDENTIFIER
 
 _SOH, _STX, _CR = 0x01, 0x02, 0x0D
 _PRINTABLE = range(32, 127)
+#: Most commands one result lists. A sanity limit, so no settings key: a command takes about 1 KB of
+#: result and can be a single byte of input, so the 16 MiB a file may hold would come to 15 GB. This
+#: is a batch of about 1000 labels, more than anyone reads through.
+MAX_EXPLAINED_COMMANDS = 100_000
 #: A record header is 15 characters: a b c d eee ffff gggg.
 _HEADER_LENGTH = 15
 
@@ -112,7 +116,8 @@ class Explanation(BaseModel):
     Attributes:
         commands: Every command in order.
         label: The rebuilt label when the stream holds exactly one format, else None.
-        problems: Records that could not be rebuilt, and why.
+        problems: Records that could not be rebuilt, and why; a stream past
+            :data:`MAX_EXPLAINED_COMMANDS` says how far it was explained, and rebuilds no label.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -154,6 +159,18 @@ class _State:
     #: Index in ``elements`` of the field the latest record produced, or None when that record
     #: produced none; a counter line counts exactly that field.
     latest_field: int | None = None
+    #: The stream held more than :data:`MAX_EXPLAINED_COMMANDS`, so no label is rebuilt from a part.
+    stopped: bool = False
+
+
+def _full(state: _State) -> bool:
+    """Whether the result holds all the commands it may; reports the rest as not explained, once."""
+    if len(state.commands) < MAX_EXPLAINED_COMMANDS:
+        return False
+    if not state.stopped:
+        state.stopped = True
+        state.problems.append(f"{MAX_EXPLAINED_COMMANDS} commands, the rest not explained")
+    return True
 
 
 def _add(state: _State, kind: CommandKind, raw: bytes, meaning: str) -> None:
@@ -200,7 +217,7 @@ def _system(data: bytes, pos: int, state: _State) -> int:
 
 def _scan(data: bytes, state: _State) -> None:
     pos = 0
-    while pos < len(data):
+    while pos < len(data) and not _full(state):
         byte = data[pos]
         if byte == _SOH:
             letter = chr(data[pos + 1]) if pos + 1 < len(data) else ""
@@ -219,7 +236,7 @@ def _scan(data: bytes, state: _State) -> None:
 
 def _format(data: bytes, pos: int, state: _State) -> int:
     state.formats += 1
-    while pos < len(data):
+    while pos < len(data) and not _full(state):
         end = _until_cr(data, pos)
         text = data[pos:end].rstrip(b"\r")
         pos = end
@@ -480,7 +497,7 @@ def _rebuild(state: _State) -> Label | None:
     if state.formats > 1:
         state.problems.append(f"{state.formats} label formats: only a stream with exactly one is rebuilt as a label")
         return None
-    if state.formats != 1 or not state.elements:
+    if state.stopped or state.formats != 1 or not state.elements:
         return None
     cut_errors = state.invalid_cut.error_count() if state.invalid_cut is not None else 0
     try:
@@ -526,4 +543,4 @@ def explain(data: bytes) -> Explanation:
     return Explanation(commands=tuple(state.commands), label=_rebuild(state), problems=tuple(state.problems))
 
 
-__all__ = ["DecodedCommand", "Explanation", "explain", "readable"]
+__all__ = ["MAX_EXPLAINED_COMMANDS", "DecodedCommand", "Explanation", "explain", "readable"]

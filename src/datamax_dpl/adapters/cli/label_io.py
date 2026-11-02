@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import io
+import itertools
 import sys
 from pathlib import Path
 from typing import cast
@@ -81,21 +82,23 @@ def load_label(source: str) -> Label:
     return parse_label(read_input(source), source=source)
 
 
-def _records_from_json(data: bytes, source: str) -> list[dict[str, str]]:
+def _records_from_json(data: bytes, source: str, *, limit: int | None) -> list[dict[str, str]]:
     try:
         document = orjson.loads(data)
     except orjson.JSONDecodeError:
-        return _records_from_json_lines(data, source)
+        return _records_from_json_lines(data, source, limit=limit)
     parsed: object = document
     rows: list[object] = cast("list[object]", parsed) if isinstance(parsed, list) else [parsed]
     return [_as_record(row, source=source, number=i + 1) for i, row in enumerate(rows)]
 
 
-def _records_from_json_lines(data: bytes, source: str) -> list[dict[str, str]]:
+def _records_from_json_lines(data: bytes, source: str, *, limit: int | None) -> list[dict[str, str]]:
     records: list[dict[str, str]] = []
     for number, raw in enumerate(data.splitlines(), start=1):
         if not raw.strip():
             continue
+        if limit is not None and len(records) > limit:
+            break
         try:
             parsed: object = orjson.loads(raw)
             records.append(_as_record(parsed, source=source, number=number))
@@ -111,7 +114,7 @@ def _as_record(row: object, *, source: str, number: int) -> dict[str, str]:
     return {str(key): "" if value is None else str(value) for key, value in mapping.items()}
 
 
-def _records_from_csv(data: bytes, source: str) -> list[dict[str, str]]:
+def _records_from_csv(data: bytes, source: str, *, limit: int | None) -> list[dict[str, str]]:
     try:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
@@ -119,19 +122,27 @@ def _records_from_csv(data: bytes, source: str) -> list[dict[str, str]]:
     # strict: without it a stray quote silently merges every row after it into one field.
     reader = csv.DictReader(io.StringIO(text, newline=""), strict=True)
     try:
-        return [{key: value or "" for key, value in row.items() if key is not None} for row in reader]
+        rows = reader if limit is None else itertools.islice(reader, limit + 1)
+        return [{key: value or "" for key, value in row.items() if key is not None} for row in rows]
     except csv.Error as exc:
         raise LabelInputError(f"{source} is not valid CSV: line {reader.line_num}: {exc}") from None
 
 
-def load_records(source: str) -> list[dict[str, str]]:
+def load_records(source: str, *, limit: int | None = None) -> list[dict[str, str]]:
     """Read data records: CSV for ``*.csv``, else JSON array, JSON object or JSON lines.
+
+    Args:
+        source: The file, or ``-`` for stdin.
+        limit: Stop reading CSV or JSON lines once past this many records, so a caller refusing
+            more than that does not hold them all first. More than ``limit`` come back when
+            there are more; a JSON array has been parsed whole by then and comes back whole.
 
     Raises:
         LabelInputError: The file cannot be read or parsed, or holds no record.
     """
     data = read_input(source)
-    records = _records_from_csv(data, source) if source.lower().endswith(".csv") else _records_from_json(data, source)
+    parse = _records_from_csv if source.lower().endswith(".csv") else _records_from_json
+    records = parse(data, source, limit=limit)
     if not records:
         raise LabelInputError(f"{source} holds no data record")
     return records

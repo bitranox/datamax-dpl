@@ -124,6 +124,7 @@ PRINTER_NUMBERS = [
     "status_retry_interval",
     "stored_names_wait",
     "upload_check_rounds",
+    "max_batch_records",
     "verify_poll_interval",
     "one_way_settle",
     "send_chunk_bytes",

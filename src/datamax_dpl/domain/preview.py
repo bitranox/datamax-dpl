@@ -789,6 +789,16 @@ def _check_masks(label: Label, canvas: Canvas, masks: Mapping[int, Bitmap]) -> N
             raise ValueError(msg)
 
 
+def _check_field_count(fields: int, profile: PrinterProfile) -> None:
+    """Refuse a picture of more fields than the model's format takes, before any is drawn.
+
+    The encoder stops at the same limit; every field drawn here costs a layer of the whole canvas.
+    """
+    if fields > profile.max_fields:
+        msg = f"preview of {fields} fields: {profile.name} takes at most {profile.max_fields}; nothing was drawn"
+        raise PreviewTooLongError(msg)
+
+
 def preview_bitmap(
     label: Label,
     profile: PrinterProfile,
@@ -819,12 +829,14 @@ def preview_bitmap(
         attribute.
 
     Raises:
+        PreviewTooLongError: The job would send more fields than the model's format takes.
         ValueError: ``options`` are for another model than ``profile``; a mask is for an element
             that is neither a text field nor a barcode, or is not the size of its area.
     """
     sent = sent_as or SentAs()
     groups = {group[0]: group for group in sent.merged}
     merged = {index for group in sent.merged for index in group}
+    _check_field_count(len(label.elements) - len(merged) + len(groups), profile)
     canvas = canvas_for(label, profile, options=options)
     lettering = masks or {}
     _check_masks(label, canvas, lettering)

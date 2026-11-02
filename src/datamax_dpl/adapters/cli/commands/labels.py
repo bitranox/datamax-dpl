@@ -18,9 +18,10 @@ from ....domain.decoder import DecodedCommand, explain
 from ....domain.enums import ImageModule
 from ....domain.label import Label
 from ....domain.profiles import Feature, PrinterProfile, SpeedRange, get_profile, list_profiles
+from ...config.sections import printer_section
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
-from ..label_io import STDIN, load_label, load_records, read_input
+from ..label_io import STDIN, LabelInputError, load_label, load_records, read_input
 from ..payloads import RenderPayload, findings_text, render_payload
 from ..runner import CommandResult, run_command
 from ..settings import PrinterOverrides, render_options
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
     from ....domain.render import RenderResult
     from ....domain.render_context import RenderOptions
     from ..context import CLIContext
+    from ..settings import PrinterSettings
 
 _LABEL_HELP = "Label JSON file ('-' for stdin); 'datamax-dpl schema' prints its format."
 _DATA_HELP = "Data records (CSV, JSON array or JSON lines) filling {name} placeholders, one label each."
@@ -45,7 +47,24 @@ def build(
     """Load the label (and records) and render it with the printer settings ``overrides`` merge into."""
     settings = resolve_settings(cli_ctx, overrides)
     label = load_label(label_source)
-    return render_loaded(label, None if data is None else load_records(data), render_options(settings))
+    return render_loaded(label, None if data is None else load_batch(data, settings), render_options(settings))
+
+
+def load_batch(source: str, settings: PrinterSettings) -> list[dict[str, str]]:
+    """Read the records of a batch, one label each, up to ``[printer] max_batch_records``.
+
+    Refused here because a batch is rendered whole before anything is sent and costs far more than
+    its file: a million one-digit records fit in 2 MB and took 96 s and 4.3 GB to render.
+
+    Raises:
+        LabelInputError: The file cannot be read or parsed, or holds no record or too many.
+    """
+    limit = settings.max_batch_records
+    records = load_records(source, limit=limit)
+    if len(records) > limit:
+        key = printer_section(settings.name).setting("max_batch_records")
+        raise LabelInputError(f"{source} holds more than {limit} data records; a larger batch needs {key}")
+    return records
 
 
 def render_loaded(

@@ -55,7 +55,7 @@ from ..settings import (
     require_uri,
 )
 from ..typed_click import argument, option
-from .labels import render_loaded
+from .labels import load_batch, render_loaded
 from .model_options import (
     command_overrides,
     loaded_config,
@@ -91,7 +91,7 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
     def body(cli_ctx: CLIContext) -> CommandResult:
         settings = resolve_sending_settings(cli_ctx, command_overrides(given))
         label = load_label(label_source)
-        records = None if data is None else load_records(data)
+        records = None if data is None else load_batch(data, settings)
         link = _link(settings)
         options = _print_options(settings, link=link)
         rendered = _render_to_print(label, records, options, settings, cli_ctx, link=link)
