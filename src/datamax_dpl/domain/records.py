@@ -51,10 +51,17 @@ def multiplier_char(value: int) -> str:
 def multiplier_value(char: str) -> int:
     """Inverse of :func:`multiplier_char`.
 
+    Raises:
+        ValueError: ``char`` is not an ASCII letter or digit. Decoded job bytes reach this, and
+            outside ASCII ``isdigit`` holds for ``"\\xb2"`` and ``upper`` makes two letters of
+            ``"\\xdf"``.
+
     Example:
         >>> multiplier_value("O")
         24
     """
+    if not (char.isascii() and char.isalnum()):
+        raise ValueError(f"not a multiplier: {char!r}")
     if char.isdigit():
         return int(char)
     return ord(char.upper()) - ord("A") + _DIGIT_MULTIPLIERS + 1

@@ -230,3 +230,13 @@ def test_explain_survives_a_job_cut_at_every_byte() -> None:
 def test_explain_never_raises_on_arbitrary_bytes(tail: bytes) -> None:
     """Whatever follows a format's start, the answer is commands and problems."""
     explain(b"\x02L\r" + tail)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("position", [0, 1], ids=["width", "height"])
+@pytest.mark.parametrize("byte", range(256))
+def test_explain_takes_every_byte_where_a_record_holds_a_multiplier(byte: int, position: int) -> None:
+    """Latin-1 holds a digit int() refuses, \\xb2, and a letter upper() doubles, \\xdf."""
+    multipliers = bytearray(b"11")
+    multipliers[position] = byte
+    explain(b"\x02L\r1A" + bytes(multipliers) + b"00000000000000\rE\r")

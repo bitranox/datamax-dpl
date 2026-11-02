@@ -312,6 +312,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `explain` reports a record whose width or height byte is no multiplier as a
+  problem; a byte such as `0xDF` raised `TypeError` out of it.
 - A camera that answers with anything but a usable image no longer leaves its
   socket to the garbage collector; `capture_with_http` closes the response on
   every route.
