@@ -435,9 +435,6 @@ refuses.
 | `qr_past_print_width` | error    | The field, quiet zone included, ends past the model's printable width. |
 | `qr_dot_size_not_one` | warning  | The label's `dot_size` is not 1x1, which prints every module larger.   |
 
-Unverified on paper: the magnified image record, the orientation of the symbol and whether a
-printed QR Code scans have not been checked on a real printer.
-
 ```json
 {
   "elements": [
@@ -445,6 +442,62 @@ printed QR Code scans have not been checked on a real printer.
   ]
 }
 ```
+
+#### Sizes
+
+Every QR Code version from 1 to 40 is supported at every `module_dots` from 1 to 9. There is no
+version key: the smallest version that holds the data is used, and only `qr_data_too_long` and
+`qr_past_print_width` refuse a size. This table shows some versions at 203 dpi (8 dots per mm),
+error level `M`, with the width of the symbol alone, rounded to 0.5 mm:
+
+| Version | Modules | Bytes at level M | Width at 3 dots | Width at 4 dots |
+|---------|---------|------------------|-----------------|-----------------|
+| V3      | 29      | 42               | 11 mm           | 14.5 mm         |
+| V5      | 37      | 84               | 14 mm           | 18.5 mm         |
+| V6      | 41      | 106              | 15.5 mm         | 20.5 mm         |
+| V8      | 49      | 152              | 18.5 mm         | 24.5 mm         |
+| V10     | 57      | 213              | 21.5 mm         | 28.5 mm         |
+| V13     | 69      | 331              | 26 mm           | 34.5 mm         |
+| V20     | 97      | 666              | 36.5 mm         | 48.5 mm         |
+| V40     | 177     | 2331             | 66.5 mm         | 88.5 mm         |
+
+- **Other versions:** a version has `17 + 4 * version` modules.
+- **Quiet zone:** the default of 4 modules on every side adds 3 mm to the width at 3 dots and 4 mm
+  at 4 dots, in both directions. Plan the label for that size.
+- **Other resolutions:** the width is `modules * module_dots * 25.4 / dpi` mm, so the same
+  `module_dots` prints smaller at 300 dpi.
+- **Bytes:** byte mode holds text as UTF-8. An ASCII character takes 1 byte, `ä`, `ß` and `°` take
+  2, and `€` and CJK characters take 3.
+- **Digits and capitals:** data of only digits, or only capitals, digits and ` $%*+-./:`, needs
+  less room. V20 at `M` holds 1600 digits or 970 such characters.
+- **Other levels:** `L` holds more than the table says, `Q` and `H` less.
+- **The `data` limit:** 4296 characters is the most V40 holds at `L` of those capitals and digits.
+  Digits alone would fit 7089 but stop at this limit.
+- **Image memory:** the job is the same size at 3 and 4 dots, because the symbol is downloaded at
+  one dot per module and the printer magnifies it.
+- **Prodigy and Prodigy Plus:** these models have no built-in image memory, so a QR Code, like any
+  image, is refused with `image_module_unknown` until `image_module` names the module fitted.
+
+Nothing checks that a QR Code fits the label's height: V40 at 4 dots is accepted on a 55 mm label
+with no finding.
+
+#### Scanning
+
+Printed on one Allegro 2 on 100x55 mm gap labels, level `M`, quiet zone 4, and read with one
+phone. Every label printed complete; only the reading got harder. These are that phone's results,
+not limits, and sizes denser than the good ones need a test with the real reader. The side includes
+the quiet zone.
+
+| Module size       | Version | Characters | Side     | Phone scan         |
+|-------------------|---------|------------|----------|--------------------|
+| 3 dots (0.375 mm) | 13      | 300        | 29 mm    | fine               |
+| 4 dots (0.5 mm)   | 15      | 400        | 42.5 mm  | fine               |
+| 4 dots (0.5 mm)   | 20      | 666        | 52.5 mm  | fine               |
+| 3 dots (0.375 mm) | 29      | 1264       | 53 mm    | difficult          |
+| 2 dots (0.25 mm)  | 40      | 2331       | 46.25 mm | difficult / failed |
+
+Text outside ASCII was checked with the zxing-cpp decoder library, not with a phone. Other models
+have not printed a QR Code.
 
 ## Placeholders and data records
 

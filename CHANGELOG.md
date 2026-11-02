@@ -6,8 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A QR Code with text outside ASCII now holds UTF-8. Before, segno chose Latin-1 or Shift JIS X 0213
+  with no marker and the reader guessed: the zxing-cpp decoder read a degree sign as a half-width
+  katakana and a run of `ä` as CJK characters. Such text now takes more room, 2 bytes for `ä` and 3
+  for a CJK character that went in kanji mode at 13 bits, so the same data can need a larger version
+  or be refused with `qr_data_too_long`. Digits and capitals are not affected.
+
 ### Added
 
+- `docs/label-spec.md` lists the QR Code sizes and how they scanned on an Allegro 2.
 - A calibration label after a printer reset. Before the first label of a
   two-way `print`, `print --data`, `verify` or `print_checked`, the job reads
   `<SOH>A` once within `[printer] reset_check_wait` (default 3 s); no answer

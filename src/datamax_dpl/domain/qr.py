@@ -5,12 +5,16 @@ drawn here and sent as an image: one dot per module, placed with the image recor
 height set to the module size. The quiet zone is not part of the bitmap; it is space the encoder
 keeps free around the symbol.
 
-Two segno defaults are switched off on purpose:
+Three segno defaults are switched off on purpose:
 
 * ``micro=False``: segno picks a Micro QR for short data, which many phone and handheld readers
   do not decode; the element always makes a full QR Code (21 modules or more).
 * ``boost_error=False``: segno raises the error level when the version has room for it, so the
   level a caller asked for would not be the level printed.
+* ``encoding="utf-8"``: segno tries Latin-1 and Shift JIS X 0213 first and marks neither, so the
+  reader guesses. The zxing-cpp decoder read a degree sign as a half-width katakana and a run of
+  a-umlauts as CJK characters. UTF-8 read back correctly in every sample, at two bytes per umlaut
+  instead of one.
 
 Example:
     >>> from datamax_dpl.domain.enums import QrError
@@ -40,7 +44,7 @@ def qr_bitmap(data: str, *, error: QrError) -> Bitmap:
     """Return the QR Code symbol for ``data`` as a bitmap, one pixel per module, top row first.
 
     Args:
-        data: The text to encode; segno picks the most compact mode (numeric, alphanumeric, byte).
+        data: The text to encode; segno picks the most compact mode (numeric, alphanumeric, byte as UTF-8).
         error: The error correction level, kept as given.
 
     Returns:
@@ -55,7 +59,7 @@ def qr_bitmap(data: str, *, error: QrError) -> Bitmap:
         21
     """
     try:
-        symbol = segno.make(data, error=error.value, micro=False, boost_error=False)
+        symbol = segno.make(data, error=error.value, micro=False, boost_error=False, encoding="utf-8")
     except segno.DataOverflowError as exc:
         msg = f"QR data of {len(data)} characters does not fit any QR Code version at error level {error.value}"
         raise QrDataTooLongError(msg) from exc

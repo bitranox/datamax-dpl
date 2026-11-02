@@ -204,12 +204,12 @@ The model matrix, the limits and the full fallback table are in
 
 `--printer` (or `[printer] uri` in the configuration) says where the job goes:
 
-| URI                                                                               | Channel                                                                                      |
-|-----------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
-| `tcp://HOST:PORT`                                                                 | Raw socket; the port defaults to 9100. Can read answers.                                     |
-| `serial:///dev/ttyS0?baud=9600&parity=N&bytesize=8&stopbits=1&rtscts=0&xonxoff=0` | Serial port (`serial://COM3?...` on Windows); every parameter is optional. Can read answers. |
-| `device:///dev/usb/lp0`                                                           | A device file, write only.                                                                   |
-| `file:PATH` or `file:///abs/path`                                                 | Appends the job to a file.                                                                   |
+| URI                                                                               | Channel                                                                                       |
+|-----------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------|
+| `tcp://HOST:PORT`                                                                 | Raw socket; the port defaults to 9100. Can read answers.                                      |
+| `serial:///dev/ttyS0?baud=9600&parity=N&bytesize=8&stopbits=1&rtscts=0&xonxoff=0` | Serial port (`serial://COM3?...` on Windows); every parameter is optional. Can read answers.  |
+| `device:///dev/usb/lp0`                                                           | A device file, write only.                                                                    |
+| `file:PATH` or `file:///abs/path`                                                 | Appends the job to a file.                                                                    |
 | `-`                                                                               | Writes the job to standard output; what the command says goes to stderr. `--json` refuses it. |
 
 `--timeout` bounds connecting and each piece of a job. On POSIX that covers `device:` and `file:`
@@ -373,13 +373,13 @@ The real answer is indented one value per line; each finding is shown on one lin
 command cannot run at all, the envelope carries `error` (the exception type) and `message`
 instead of `data`.
 
-| Exit code | Meaning                                                                                                        |
-|-----------|----------------------------------------------------------------------------------------------------------------|
-| 0         | Done.                                                                                                          |
+| Exit code | Meaning                                                                                                                                                                                  |
+|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0         | Done.                                                                                                                                                                                    |
 | 1         | Refused: at least one finding is an error. Nothing more was printed or written; a `--data` batch may have printed earlier labels, and the `record` of the finding says where it stopped. |
-| 2         | Could not run: unreadable or invalid label, unknown model, bad configuration, printer or camera not reachable. |
-| 130       | Interrupted (Ctrl-C). Part of a job may already have been sent.                                                |
-| 141       | The reader of the output went away (`datamax-dpl schema \| head -1`); nothing more is said.                    |
+| 2         | Could not run: unreadable or invalid label, unknown model, bad configuration, printer or camera not reachable.                                                                           |
+| 130       | Interrupted (Ctrl-C). Part of a job may already have been sent.                                                                                                                          |
+| 141       | The reader of the output went away (`datamax-dpl schema \| head -1`); nothing more is said.                                                                                              |
 
 `info` and the config commands answer in the same envelopes (`config`: the dict `config --format
 json` prints; `config-deploy` and `config-generate-examples`: the written paths under `paths`) and
@@ -433,8 +433,9 @@ datamax-dpl. Inside Claude Code:
 ## Status and limits
 
 - Built from the Datamax DPL Programmer's Manual 88-2051-01 Rev D2 (1998) only. Models and
-  commands that came later are not supported. QR codes are printed as downloaded images
-  (unverified on paper).
+  commands that came later are not supported. QR codes are printed as downloaded images, in
+  every version from 1 to 40; [the label spec](docs/label-spec.md#sizes) lists their sizes and how
+  they scanned on an Allegro 2.
 - Only an Allegro 2 has been checked on a real printer; no camera has been attached yet.
 - An Allegro 2 cuts a long format off, at a row that depends on the format's content in a way
   that is not understood: a tall element from the bottom was cut at rows 1648 to 1652, a format
