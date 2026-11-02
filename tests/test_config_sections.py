@@ -7,6 +7,7 @@ sends a user to a key that does not exist.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +31,7 @@ from datamax_dpl.adapters.config.sections import (
     SectionPath,
     printer_section,
 )
+from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.camera import CameraKind, CameraSettings
 from datamax_dpl.domain.errors import CameraError, ConfigurationError
 
@@ -37,6 +39,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     import rich_click as click
+    from click.testing import CliRunner
 
 
 @pytest.mark.os_agnostic
@@ -214,3 +217,36 @@ def test_a_named_printer_without_a_uri_is_not_told_that_no_printer_was_given() -
         require_uri(PrinterSettings(name="lager"))
     wanted = "printer 'lager' has no uri: set [printers.lager] uri, or [printer] uri for every printer"
     assert str(caught.value) == wanted
+
+
+TIMEOUT_KEYS = [
+    ("camera.timeout", ["capture"]),
+    ("camera.settle_seconds", ["capture"]),
+    ("printer.timeout", ["status", "--printer", "tcp://192.0.2.60:9100"]),
+]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("key", "command"), TIMEOUT_KEYS)
+@pytest.mark.parametrize("value", ["1e30", "2147484", "inf"])
+def test_a_configured_timeout_past_the_bound_is_refused_naming_its_key(
+    cli_runner: CliRunner, key: str, command: list[str], value: str
+) -> None:
+    """1e30 reached the clock as an OverflowError with no envelope."""
+    result = cli_runner.invoke(
+        cli_mod.cli,
+        ["--json", "--set", f"{key}={value}", "--set", "camera.kind=file", *command],
+        obj=build_testing,
+    )
+    assert result.exit_code == 2, result.output
+    message = json.loads(result.stdout)["message"]
+    assert key in message
+    assert "2147483" in message
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("section", ["camera", "printer"])
+def test_a_timeout_at_the_bound_is_accepted(section: str) -> None:
+    config = Config({section: {"timeout": 2147483.0}}, {})
+    settings = camera_settings(config) if section == "camera" else printer_settings(config, PrinterOverrides())
+    assert settings.timeout == 2147483.0

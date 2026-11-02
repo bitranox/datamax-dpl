@@ -344,6 +344,9 @@ All notable changes to this project are documented here. The format follows
 - A reader that goes away (`datamax-dpl schema | head -1`) is a quiet exit
   with code 141 at any output size, with no "SystemExit: 1" line and no
   "Exception ignored" at exit; a command that failed keeps its own exit code.
+- `[camera] timeout` and `[camera] settle_seconds` above 2147483 seconds are
+  refused naming the key, where they gave an `OverflowError` with no envelope;
+  `[printer] timeout` past that bound names its key too.
 
 ## [0.4.0] - 2026-10-30
 

@@ -73,7 +73,7 @@ class PrinterSettings(BaseModel):
     firmware: ParsedFirmware = None
     uri: str = ""
     policy: FallbackPolicy = FallbackPolicy.DEGRADE
-    timeout: float = Field(default=10.0, gt=0)
+    timeout: float = Field(default=10.0, gt=0, le=MAX_TIMEOUT_SECONDS)
     # How long status and memory keep trying for the first answer while a print server is still
     # busy with an earlier job (and verify waits for the printer to finish), and the pause between
     # two of their connections.

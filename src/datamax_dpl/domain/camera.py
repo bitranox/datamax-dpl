@@ -14,6 +14,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from .enums import MediaType
+from .timing import MAX_TIMEOUT_SECONDS
 
 
 class CameraKind(str, Enum):
@@ -50,8 +51,8 @@ class CameraSettings(BaseModel):
     user: str = ""
     password: SecretStr = SecretStr("")
     directory: str = ""
-    settle_seconds: float = Field(default=1.0, ge=0)
-    timeout: float = Field(default=20.0, gt=0)
+    settle_seconds: float = Field(default=1.0, ge=0, le=MAX_TIMEOUT_SECONDS)
+    timeout: float = Field(default=20.0, gt=0, le=MAX_TIMEOUT_SECONDS)
 
 
 class CapturedImage(BaseModel):
