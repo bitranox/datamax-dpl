@@ -332,7 +332,9 @@ def test_a_missing_label_height_is_named_too(
     result = _calibrate(cli_runner, config_cli_context(config), "--printer", "lager")
 
     assert result.exit_code == 2
-    assert "set label_height in [printers.lager]" in json.loads(result.stdout)["message"]
+    assert json.loads(result.stdout)["message"] == (
+        "no label height: pass --height in mm, or set label_height in [printers.lager]"
+    )
 
 
 @pytest.mark.os_agnostic

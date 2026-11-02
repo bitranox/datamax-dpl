@@ -10,7 +10,7 @@ no, for example a label with an error finding), 2 could not run.
 from __future__ import annotations
 
 import sys
-from enum import IntEnum
+from enum import Enum, IntEnum
 from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny
@@ -24,6 +24,38 @@ class Outcome(IntEnum):
     OK = 0
     REFUSED = 1
     ERROR = 2
+
+
+class CommandName(str, Enum):
+    """The command an envelope answers for, as its ``command`` field spells it.
+
+    A subcommand carries its group: ``calibrate print``.
+
+    Example:
+        >>> CommandName.CALIBRATE_PRINT.value
+        'calibrate print'
+    """
+
+    CAPABILITIES = "capabilities"
+    CALIBRATE_PRINT = "calibrate print"
+    CALIBRATE_SET = "calibrate set"
+    CANCEL = "cancel"
+    CAPTURE = "capture"
+    CUT = "cut"
+    DETECT = "detect"
+    EXPLAIN = "explain"
+    FEED = "feed"
+    MEMORY = "memory"
+    MODELS = "models"
+    PAUSE = "pause"
+    PREVIEW = "preview"
+    PRINT = "print"
+    RENDER = "render"
+    RESET = "reset"
+    SCHEMA = "schema"
+    STATUS = "status"
+    VALIDATE = "validate"
+    VERIFY = "verify"
 
 
 class OutputMode(BaseModel):
@@ -58,7 +90,7 @@ class Envelope(BaseModel, Generic[PayloadT]):
     """
 
     ok: bool
-    command: str
+    command: CommandName
     data: SerializeAsAny[PayloadT]
     skipped: list[str] = Field(default_factory=list[str])
 
@@ -67,7 +99,7 @@ class ErrorEnvelope(BaseModel):
     """The answer when a command could not run or refused before producing a payload."""
 
     ok: bool = False
-    command: str
+    command: CommandName
     error: str
     message: str
 
@@ -79,7 +111,7 @@ def write_envelope(document: BaseModel, *, mode: OutputMode) -> None:
     sys.stdout.flush()
 
 
-def report_failure(exc: BaseException, *, command: str, mode: OutputMode) -> None:
+def report_failure(exc: BaseException, *, command: CommandName, mode: OutputMode) -> None:
     """Report a failure: an error envelope on stdout in machine mode, one line on stderr always."""
     sys.stderr.write(f"Error: {exc}\n")
     if mode.machine:
@@ -88,6 +120,7 @@ def report_failure(exc: BaseException, *, command: str, mode: OutputMode) -> Non
 
 __all__ = [
     "HUMAN",
+    "CommandName",
     "Envelope",
     "ErrorEnvelope",
     "Outcome",

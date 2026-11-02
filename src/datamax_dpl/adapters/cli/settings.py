@@ -7,6 +7,7 @@ the boundary, so a typo in a config file is reported as a configuration error wi
 from __future__ import annotations
 
 from collections.abc import Mapping
+from enum import Enum
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, TypedDict, TypeVar, cast
 
@@ -148,8 +149,16 @@ if not _CommandLineValues.__required_keys__ <= PrinterSettings.model_fields.keys
     raise RuntimeError("_CommandLineValues names a field PrinterSettings does not have")
 
 
-def _section(config: Config, name: str) -> Mapping[str, Any]:
-    section: object = config.get(name, {})
+class _Section(str, Enum):
+    """A configuration section these settings are read from, named as the file and refusals name it."""
+
+    PRINTER = "printer"
+    PRINTERS = "printers"
+    CAMERA = "camera"
+
+
+def _section(config: Config, name: _Section) -> Mapping[str, Any]:
+    section: object = config.get(name.value, {})
     return cast("Mapping[str, Any]", section) if isinstance(section, Mapping) else {}
 
 
@@ -164,9 +173,11 @@ def printer_settings(config: Config, overrides: PrinterOverrides) -> PrinterSett
         ConfigurationError: A configured value is invalid; the message names the key.
     """
     name = overrides.printer if overrides.printer and not is_printer_uri(overrides.printer) else ""
-    section = "printer" if not name else f"printers.{name}"
+    section = _Section.PRINTER.value if not name else f"{_Section.PRINTERS.value}.{name}"
     try:
-        base = PrinterSettings.model_validate({**_section(config, "printer"), **_named(config, name), "name": name})
+        base = PrinterSettings.model_validate(
+            {**_section(config, _Section.PRINTER), **_named(config, name), "name": name}
+        )
     except ValidationError as exc:
         raise ConfigurationError(_describe(exc, section=section)) from None
     uri = overrides.printer if overrides.printer and is_printer_uri(overrides.printer) else None
@@ -194,7 +205,7 @@ def _named(config: Config, name: str) -> Mapping[str, Any]:
     Raises:
         ConfigurationError: A configured section has an invalid name, or none is called ``name``.
     """
-    printers = _section(config, "printers")
+    printers = _section(config, _Section.PRINTERS)
     invalid = sorted(key for key in printers if not is_printer_name(key))
     if invalid:
         msg = f"printers.{invalid[0]}: a printer name takes letters, digits, '_' and '-' (not first), no ':'"
@@ -221,9 +232,9 @@ def camera_settings(config: Config) -> CameraSettings:
         ConfigurationError: A configured value is invalid; the message names the key.
     """
     try:
-        return CameraSettings.model_validate(dict(_section(config, "camera")))
+        return CameraSettings.model_validate(dict(_section(config, _Section.CAMERA)))
     except ValidationError as exc:
-        raise ConfigurationError(_describe(exc, section="camera")) from None
+        raise ConfigurationError(_describe(exc, section=_Section.CAMERA.value)) from None
 
 
 _CUTTER: Mapping[CutterPresence, bool | None] = MappingProxyType(

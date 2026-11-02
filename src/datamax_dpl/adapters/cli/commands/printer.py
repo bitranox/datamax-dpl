@@ -38,6 +38,7 @@ from ....domain.status import PrinterStatus
 from ...preview import pillow_available, preview_findings, render_preview_png
 from ...transport.uri import is_one_way, parse_printer_uri
 from ..constants import CLICK_CONTEXT_SETTINGS
+from ..envelope import CommandName
 from ..label_io import load_label, load_records
 from ..payloads import FindingOut, findings_text, render_payload
 from ..runner import CommandResult, run_command
@@ -105,7 +106,7 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
         payload = render_payload(sent, include_dpl=False, printer=uri, bytes_sent=bytes_sent)
         return CommandResult(ok=True, payload=payload, human=f"sent {bytes_sent} bytes to {uri}")
 
-    run_command(ctx, command="print", body=body)
+    run_command(ctx, command=CommandName.PRINT, body=body)
 
 
 def _upload_refused(exc: UploadRefusedError, *, uri: str) -> CommandResult:
@@ -150,7 +151,7 @@ def cli_status(ctx: click.Context, **given: Any) -> None:
         lines = [f"{state.flag.value:16} {'yes' if state.is_set else 'no'}" for state in status.flags()]
         return CommandResult(ok=not status.problems, payload=payload, human="\n".join(lines))
 
-    run_command(ctx, command="status", body=body)
+    run_command(ctx, command=CommandName.STATUS, body=body)
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,7 +271,7 @@ def cli_detect(ctx: click.Context, **given: Any) -> None:
         human = "\n".join([*report.detection.reasons, "fits: " + (", ".join(report.detection.candidates) or "none")])
         return CommandResult(ok=bool(report.detection.candidates), payload=report, human=human)
 
-    run_command(ctx, command="detect", body=body)
+    run_command(ctx, command=CommandName.DETECT, body=body)
 
 
 class MemoryPayload(BaseModel):
@@ -340,7 +341,7 @@ def cli_memory(ctx: click.Context, kind: str, idle: float, **given: Any) -> None
         payload = MemoryPayload(printer=uri, directories=list(directories))
         return CommandResult(ok=True, payload=payload, human="\n".join(_directory_lines(directories)))
 
-    run_command(ctx, command="memory", body=body)
+    run_command(ctx, command=CommandName.MEMORY, body=body)
 
 
 def _directory_lines(directories: tuple[MemoryDirectory, ...]) -> list[str]:
@@ -369,6 +370,18 @@ class SentPayload(BaseModel):
     bytes_sent: int
 
 
+#: The envelope's command name for each single printer command; the CLI command takes the same spelling.
+_SINGLE_COMMAND_NAMES: Mapping[PrinterCommand, CommandName] = MappingProxyType(
+    {
+        PrinterCommand.RESET: CommandName.RESET,
+        PrinterCommand.CANCEL: CommandName.CANCEL,
+        PrinterCommand.PAUSE: CommandName.PAUSE,
+        PrinterCommand.FEED: CommandName.FEED,
+        PrinterCommand.CUT: CommandName.CUT,
+    }
+)
+
+
 def _single(command: PrinterCommand, help_text: str) -> click.Command:
     @click.command(command.value, context_settings=CLICK_CONTEXT_SETTINGS, help=help_text)
     @printer_options_decorator
@@ -383,7 +396,7 @@ def _single(command: PrinterCommand, help_text: str) -> click.Command:
             payload = SentPayload(printer=uri, command=command, bytes_sent=report.bytes_sent)
             return CommandResult(ok=True, payload=payload, human=f"{command.value} sent to {uri}")
 
-        run_command(ctx, command=command.value, body=body)
+        run_command(ctx, command=_SINGLE_COMMAND_NAMES[command], body=body)
 
     return run
 
@@ -443,7 +456,7 @@ def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | 
             human += "\n" + findings_text(payload.findings)
         return CommandResult(ok=True, payload=payload, human=human)
 
-    run_command(ctx, command="preview", body=body)
+    run_command(ctx, command=CommandName.PREVIEW, body=body)
 
 
 @click.command("capture", context_settings=CLICK_CONTEXT_SETTINGS)
@@ -457,7 +470,7 @@ def cli_capture(ctx: click.Context, output_dir: str) -> None:
         photo = cli_ctx.services.capture_image(camera, output_dir=Path(output_dir))
         return CommandResult(ok=True, payload=photo, human=f"photo {photo.path}")
 
-    run_command(ctx, command="capture", body=body)
+    run_command(ctx, command=CommandName.CAPTURE, body=body)
 
 
 class VerifyPayload(BaseModel):
@@ -534,7 +547,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
         human = f"photo:    {payload.photo}\nexpected: {payload.expected}"
         return CommandResult(ok=True, payload=payload, human=human)
 
-    run_command(ctx, command="verify", body=body)
+    run_command(ctx, command=CommandName.VERIFY, body=body)
 
 
 __all__ = [

@@ -12,12 +12,14 @@ import importlib.util
 import json
 from typing import TYPE_CHECKING, Any
 
+import click
 import pytest
 from lib_layered_config import Config
 
 import datamax_dpl
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.commands.printer import KindChoice
+from datamax_dpl.adapters.cli.envelope import CommandName
 from datamax_dpl.adapters.memory import FakeCamera, PrinterOpen, RecordingPrinter
 from datamax_dpl.adapters.preview import render_preview_png
 from datamax_dpl.composition import build_testing
@@ -253,6 +255,22 @@ def test_single_commands_send_their_bytes(cli_runner: CliRunner, command: str, e
     result = run(cli_runner, [command, "--printer", PRINTER], factory(printer))
     assert result.exit_code == 0, result.output
     assert printer.data == expected
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("command", ["cut", "feed", "reset", "cancel", "pause"])
+def test_a_single_commands_envelope_names_the_command_as_it_was_typed(cli_runner: CliRunner, command: str) -> None:
+    result = run(cli_runner, ["--json-bare", command, "--printer", PRINTER], factory(RecordingPrinter()))
+    assert result.stdout.startswith(f'{{"ok":true,"command":"{command}",'), result.output
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("name", list(CommandName), ids=lambda name: name.value)
+def test_every_envelope_command_name_is_a_command_the_cli_has(name: CommandName) -> None:
+    command: click.Command = cli_mod.cli
+    for word in name.value.split(" "):
+        assert isinstance(command, click.Group)
+        command = command.commands[word]
 
 
 @pytest.mark.os_agnostic

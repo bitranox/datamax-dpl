@@ -19,6 +19,7 @@ from ....domain.enums import ImageModule
 from ....domain.label import Label
 from ....domain.profiles import Feature, PrinterProfile, SpeedRange, get_profile, list_profiles
 from ..constants import CLICK_CONTEXT_SETTINGS
+from ..envelope import CommandName
 from ..label_io import STDIN, load_label, load_records, read_input
 from ..payloads import RenderPayload, findings_text, render_payload
 from ..runner import CommandResult, run_command
@@ -109,7 +110,7 @@ def cli_render(ctx: click.Context, label_source: str, data: str | None, output: 
         human = "" if output == STDIN else _human(payload, show_dpl=output is None)
         return CommandResult(ok=result.ok, payload=payload, human=human)
 
-    run_command(ctx, command="render", body=body)
+    run_command(ctx, command=CommandName.RENDER, body=body)
 
 
 def _write_output(output: str, data: bytes, *, raw_stdout_allowed: bool) -> None:
@@ -139,7 +140,7 @@ def cli_validate(ctx: click.Context, label_source: str, data: str | None, **give
         human = f"{verdict}: {_human(payload, show_dpl=False)}"
         return CommandResult(ok=result.ok, payload=payload, human=human)
 
-    run_command(ctx, command="validate", body=body)
+    run_command(ctx, command=CommandName.VALIDATE, body=body)
 
 
 class ExplainPayload(BaseModel):
@@ -166,7 +167,7 @@ def cli_explain(ctx: click.Context, dpl_source: str) -> None:
         lines = [f"{c.kind.value:9} {c.raw:40} {c.meaning}" for c in explanation.commands] + list(explanation.problems)
         return CommandResult(ok=not explanation.problems, payload=payload, human="\n".join(lines))
 
-    run_command(ctx, command="explain", body=body)
+    run_command(ctx, command=CommandName.EXPLAIN, body=body)
 
 
 class SchemaPayload(BaseModel):
@@ -187,7 +188,7 @@ def cli_schema(ctx: click.Context) -> None:
         human = orjson.dumps(schema, option=orjson.OPT_INDENT_2).decode("utf-8")
         return CommandResult(ok=True, payload=SchemaPayload(label_schema=schema), human=human)
 
-    run_command(ctx, command="schema", body=body)
+    run_command(ctx, command=CommandName.SCHEMA, body=body)
 
 
 class ModelSummary(BaseModel):
@@ -230,7 +231,7 @@ def cli_models(ctx: click.Context) -> None:
         lines = [f"{s.id:18} {s.name:28} {s.dpi:>7g} dpi  {s.print_width_in:>5g} in" for s in summaries]
         return CommandResult(ok=True, payload=ModelsPayload(models=summaries), human="\n".join(lines))
 
-    run_command(ctx, command="models", body=body)
+    run_command(ctx, command=CommandName.MODELS, body=body)
 
 
 class CapabilitiesPayload(BaseModel):
@@ -317,7 +318,7 @@ def cli_capabilities(ctx: click.Context, model: str) -> None:
         payload = capabilities_payload(get_profile(model))
         return CommandResult(ok=True, payload=payload, human=_capabilities_text(payload))
 
-    run_command(ctx, command="capabilities", body=body)
+    run_command(ctx, command=CommandName.CAPABILITIES, body=body)
 
 
 __all__ = [

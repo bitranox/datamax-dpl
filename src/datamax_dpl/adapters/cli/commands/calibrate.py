@@ -30,6 +30,7 @@ from ...transport.uri import is_printer_uri
 from .. import safe_console
 from ..config_load import load_config
 from ..constants import CLICK_CONTEXT_SETTINGS
+from ..envelope import CommandName
 from ..runner import CommandResult, run_command
 from ..settings import PrinterOverrides, printer_settings, render_options, require_uri
 from ..typed_click import option
@@ -61,6 +62,13 @@ class AxisChoice(str, Enum):
     def axes(self) -> tuple[Axis, ...]:
         """The labels to print, across first."""
         return (Axis.ACROSS, Axis.ALONG) if self is AxisChoice.BOTH else (Axis(self.value),)
+
+
+class _LabelSide(str, Enum):
+    """A label size the calibration labels need; it names the option and the setting that give it."""
+
+    WIDTH = "width"
+    HEIGHT = "height"
 
 
 class CalibratePrintPayload(BaseModel):
@@ -223,7 +231,7 @@ def cli_calibrate_print(
             human.append(payload.hint or f"along bar {payload.along_length_mm:g} mm")
         return CommandResult(ok=True, payload=payload, human="\n".join(human))
 
-    run_command(ctx, command="calibrate print", body=body)
+    run_command(ctx, command=CommandName.CALIBRATE_PRINT, body=body)
 
 
 def _set_default_along_length(cli_ctx: CLIContext, printer: str | None, *, width: float | None) -> float | None:
@@ -359,23 +367,23 @@ def _labels(
     labels: dict[Axis, Label] = {}
     bar = ALONG_LENGTH_MM
     for axis in axes:
-        label_width = _size("width", sizes.width, settings.label_width, settings)
+        label_width = _size(_LabelSide.WIDTH, sizes.width, settings.label_width, settings)
         if axis is Axis.ALONG:
             bar = _along_bar_length(sizes.along_length, settings=settings, width=label_width, options=options)
             labels[axis] = along_label(width=label_width, length=bar, title=_title(settings, calibration.scale_along))
             continue
-        label_height = _size("height", sizes.height, settings.label_height, settings)
+        label_height = _size(_LabelSide.HEIGHT, sizes.height, settings.label_height, settings)
         labels[axis] = across_label(width=label_width, height=label_height, title=_across_title(settings, calibration))
     return _CalibrationLabels(labels=labels, along_length=bar)
 
 
-def _size(side: str, given: float | None, configured: float | None, settings: PrinterSettings) -> float:
+def _size(side: _LabelSide, given: float | None, configured: float | None, settings: PrinterSettings) -> float:
     if given is not None:
         return given
     if configured is not None:
         return configured
     where = f"[printers.{settings.name}]" if settings.name else "[printer]"
-    msg = f"no label {side}: pass --{side} in mm, or set label_{side} in {where}"
+    msg = f"no label {side.value}: pass --{side.value} in mm, or set label_{side.value} in {where}"
     raise ConfigurationError(msg)
 
 
@@ -429,7 +437,7 @@ def cli_calibrate_set(
         calibration = effective_calibration(options)
         measured = {Axis.ACROSS: across, Axis.ALONG: along}
         nominal = {
-            Axis.ACROSS: lambda: across_frame_width(_size("width", width, settings.label_width, settings)),
+            Axis.ACROSS: lambda: across_frame_width(_size(_LabelSide.WIDTH, width, settings.label_width, settings)),
             Axis.ALONG: lambda: _along_bar_length(along_length, settings=settings, width=width, options=options),
         }
         changes = [
@@ -458,7 +466,7 @@ def cli_calibrate_set(
         human += [f"{o.key.value} {o.old:g} -> {o.new:g} mm (borders {o.low:g} and {o.high:g} mm)" for o in offsets]
         return CommandResult(ok=True, payload=payload, human="\n".join([*human, f"written to {written}"]))
 
-    run_command(ctx, command="calibrate set", body=body)
+    run_command(ctx, command=CommandName.CALIBRATE_SET, body=body)
 
 
 def _along_bar_length(

@@ -18,7 +18,7 @@ from ...domain.placeholders import MissingFieldError
 from ...domain.profiles import UnknownModelError
 from . import safe_console
 from .context import CLIContext, get_cli_context
-from .envelope import Envelope, Outcome, report_failure, write_envelope
+from .envelope import CommandName, Envelope, Outcome, report_failure, write_envelope
 from .label_io import LabelInputError, validation_lines
 
 if TYPE_CHECKING:
@@ -58,14 +58,14 @@ class CommandResult:
     skipped: list[str] = field(default_factory=list[str])
 
 
-def _fail(exc: BaseException, *, command: str, cli_ctx: CLIContext) -> Outcome:
+def _fail(exc: BaseException, *, command: CommandName, cli_ctx: CLIContext) -> Outcome:
     if isinstance(exc, ValidationError):
         exc = LabelInputError(validation_lines(exc))
     report_failure(exc, command=command, mode=cli_ctx.mode)
     return Outcome.REFUSED if isinstance(exc, REFUSALS) else Outcome.ERROR
 
 
-def run_command(ctx: click.Context, *, command: str, body: Callable[[CLIContext], CommandResult]) -> None:
+def run_command(ctx: click.Context, *, command: CommandName, body: Callable[[CLIContext], CommandResult]) -> None:
     """Run ``body`` and exit with its outcome.
 
     Raises:
