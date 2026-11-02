@@ -20,7 +20,7 @@ from datamax_dpl.adapters.transport import open_printer
 from datamax_dpl.adapters.transport.serial import SerialTransport
 from datamax_dpl.adapters.transport.tcp import MAX_ANSWER_BYTES, MAX_IDLE_ANSWER_BYTES
 from datamax_dpl.adapters.transport.uri import SerialUri
-from datamax_dpl.application.use_cases import MEMORY_REPORT_LINES, detect_printer
+from datamax_dpl.application.use_cases import MEMORY_REPORT_LINES, detect_printer, query_status, read_reset_report
 from datamax_dpl.composition import build_production
 from datamax_dpl.domain.errors import AnswerNotEndedError, PrinterProtocolError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.status import STATUS_REQUEST, is_status_line
@@ -261,7 +261,8 @@ PARTLY_WRITTEN = (
 TWO_PIECES_WRITTEN = (
     "at least 200 of 1000 bytes were written, so the printer may be waiting for the rest of the job: power-cycle it"
 )
-#: A pulled USB serial adapter: pyserial passes the OS error on.
+#: A pulled USB serial adapter as a write and out_waiting report it: pyserial passes the OS error on.
+#: Its reset_*_buffer raise termios.error instead, which a real hung-up pty below drives.
 PULLED = OSError(errno.EIO, "Input/output error")
 
 
@@ -720,3 +721,53 @@ def test_the_cli_prints_a_label_to_a_serial_uri(pty_printer: PtyPrinter, cli_run
     reader.join(JOIN_SECONDS)
     assert result.exit_code == 0, result.output
     assert bytes(pty_printer.received) == expected
+
+
+class _GonePort:
+    """A real serial port on a pty whose far end goes away once it is open: what a pulled adapter does."""
+
+    def __init__(self, master: int, slave: int) -> None:
+        self.master, self.slave = master, slave
+
+    def open(self, uri: str, *, timeout: float) -> SerialTransport:
+        del uri
+        port = SerialTransport.open(SerialUri(path=os.ttyname(self.slave)), timeout=timeout)
+        os.close(self.master)
+        return port
+
+
+@pytest.fixture
+def gone_port() -> Iterator[_GonePort]:
+    if sys.platform == "win32":
+        pytest.skip("os.openpty is POSIX only")
+    master, slave = os.openpty()
+    yield _GonePort(master, slave)
+    os.close(slave)
+
+
+@pytest.mark.os_posix
+@pytest.mark.skipif(sys.platform == "win32", reason="os.openpty is POSIX only")
+def test_a_query_of_a_port_whose_far_end_went_is_a_transport_error(gone_port: _GonePort) -> None:
+    with gone_port.open("", timeout=0.5) as printer, pytest.raises(TransportError):
+        printer.query(b"\x01A", timeout=0.5)
+
+
+@pytest.mark.os_posix
+@pytest.mark.skipif(sys.platform == "win32", reason="os.openpty is POSIX only")
+def test_a_read_answer_of_a_port_whose_far_end_went_is_a_transport_error(gone_port: _GonePort) -> None:
+    with gone_port.open("", timeout=0.5) as printer, pytest.raises(TransportError):
+        printer.read_answer(b"\x02WG", timeout=0.5, idle=0.1)
+
+
+@pytest.mark.os_posix
+@pytest.mark.skipif(sys.platform == "win32", reason="os.openpty is POSIX only")
+def test_a_status_of_a_port_whose_far_end_went_is_a_transport_error(gone_port: _GonePort) -> None:
+    with pytest.raises(TransportError):
+        query_status(uri="serial:///dev/gone", timeout=0.5, open_printer=gone_port.open)
+
+
+@pytest.mark.os_posix
+@pytest.mark.skipif(sys.platform == "win32", reason="os.openpty is POSIX only")
+def test_the_reset_read_of_a_port_whose_far_end_went_means_nothing(gone_port: _GonePort) -> None:
+    with gone_port.open("", timeout=0.5) as printer:
+        assert read_reset_report(printer, wait=0.2) is False

@@ -9,6 +9,7 @@ needs, so the rest of the code never depends on pyserial's wider surface. Ports 
 from __future__ import annotations
 
 import contextlib
+import sys
 import time
 from typing import TYPE_CHECKING, NamedTuple, Protocol
 
@@ -30,6 +31,15 @@ from .uri import (
     no_answer,
     truncated_job_advice,
 )
+
+# pyserial's reset_*_buffer call termios.tcflush, whose error is NOT an OSError: on a port whose far
+# end has gone (a pulled USB adapter) it would leave as termios.error, past every handler here.
+if sys.platform == "win32":
+    _PORT_ERRORS: tuple[type[Exception], ...] = (OSError,)
+else:
+    import termios
+
+    _PORT_ERRORS = (OSError, termios.error)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -332,14 +342,14 @@ class SerialTransport(ClosingTransport):
 
     def _drop_queued_output(self) -> None:
         """Discard what the port has not sent yet; a port that refuses has nothing to discard."""
-        with contextlib.suppress(OSError):
+        with contextlib.suppress(*_PORT_ERRORS):
             self._port.reset_output_buffer()
 
     def _drop_waiting_input(self) -> None:
         """Discard what arrived before a request, which belongs to an earlier exchange."""
         try:
             self._port.reset_input_buffer()
-        except OSError as exc:
+        except _PORT_ERRORS as exc:
             raise TransportError(f"cannot read from serial {self._uri.path}: {exc}") from exc
 
     def _read_start(self, wait: Wait) -> bytes:
