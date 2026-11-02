@@ -38,10 +38,19 @@ from datamax_dpl.application.use_cases import (
 from datamax_dpl.application.verify import verify_print
 from datamax_dpl.composition import build_production, build_testing
 from datamax_dpl.domain.camera import CameraKind, CameraSettings
-from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, MediaSensor, MemoryKind, Severity, Unit
+from datamax_dpl.domain.enums import (
+    Attribute,
+    FallbackPolicy,
+    FindingCode,
+    ImageModule,
+    MediaSensor,
+    MemoryKind,
+    Severity,
+    Unit,
+)
 from datamax_dpl.domain.errors import ConfigurationError, PrinterProtocolError
 from datamax_dpl.domain.held_images import held_images_from
-from datamax_dpl.domain.label import Cut, Element, Image, Label, Text
+from datamax_dpl.domain.label import Cut, DotSize, Element, Image, Label, Text
 from datamax_dpl.domain.memory import parse_module_directory
 from datamax_dpl.domain.profiles import list_profiles
 from datamax_dpl.domain.render import RenderResult
@@ -1099,3 +1108,36 @@ def test_a_lone_surrogate_is_refused_up_front_and_not_at_the_reset() -> None:
     """A value that is not UTF-8 reaches argv or the environment this way, and no field can hold it."""
     with pytest.raises(ValueError, match="not text"):
         ResetCheck(text="a" + chr(0xDCFF) + "b")
+
+
+_PLAIN_FIELDS: dict[str, Any] = {"width": 100.0, "height": 60.0, "elements": [Text(x=5, y=5, text="Hi")]}
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("mirror", True),
+        ("row_offset", 10.0),
+        ("column_offset", 10.0),
+        ("dot_size", DotSize(width=1, height=1)),
+        ("attribute", Attribute.INVERSE),
+        ("count_by", 5),
+        ("plain_zero", True),
+    ],
+    ids=["mirror", "row_offset", "column_offset", "dot_size", "attribute", "count_by", "plain_zero"],
+)
+def test_a_calibration_label_leaves_out_the_format_settings_of_the_job(field: str, value: object) -> None:
+    """It only has to feed one label to find the edge, whatever the job does with its own."""
+    options = RenderOptions(model="dmx-800")
+    plain = calibration_job(Label(**_PLAIN_FIELDS), options, text="Feed")
+    fancy = calibration_job(Label.model_validate({**_PLAIN_FIELDS, field: value}), options, text="Feed")
+    assert fancy.data == plain.data
+
+
+@pytest.mark.os_agnostic
+def test_a_calibration_label_of_a_job_cutting_every_third_label_cuts_itself_once() -> None:
+    options = RenderOptions(model="dmx-800")
+    own = calibration_job(Label(**_PLAIN_FIELDS, cut=Cut(every=1, at_end=False)), options, text="Feed")
+    job = calibration_job(Label(**_PLAIN_FIELDS, cut=Cut(every=3, at_end=True)), options, text="Feed")
+    assert job.data == own.data

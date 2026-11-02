@@ -480,3 +480,35 @@ def test_the_preview_limit_setting_stops_at_the_longest_label() -> None:
     assert preview_settings(Config({"preview": {"max_length_mm": MAX_LENGTH}}, {})).max_length_mm == MAX_LENGTH
     with pytest.raises(ConfigurationError, match=r"preview\.max_length_mm"):
         preview_settings(Config({"preview": {"max_length_mm": MAX_LENGTH + 1}}, {}))
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "element",
+    [Text(x=1, y=1, text="{a}" * 80), Barcode(x=1, y=1, symbology=Symbology.PDF417, data="{a}" * 300)],
+    ids=["text", "barcode"],
+)
+def test_a_repeated_large_value_is_refused_without_building_it(element: Text | Barcode) -> None:
+    """Fill stops at the field's limit: 300 copies of 2 MiB would otherwise be built first."""
+    record = {"a": "x" * (2 * 1024 * 1024)}
+    tracemalloc.start()
+    try:
+        with pytest.raises(ValidationError):
+            fill_label(Label(elements=[element]), record)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < 16 * 1024 * 1024
+
+
+@pytest.mark.os_agnostic
+def test_a_command_stops_reading_records_at_the_limit(cli_runner: CliRunner, tmp_path: Path) -> None:
+    """The bad line sits past the limit: read to it, the command would report it and hold every record."""
+    records = tmp_path / "records.jsonl"
+    records.write_text('{"a": "1"}\n{"a": "2"}\n{"a": "3"}\nnot json\n', encoding="utf-8")
+    label = _write_label(tmp_path, {"elements": [{"type": "text", "x": 1, "y": 1, "text": "{a}"}]})
+    result = _invoke(
+        cli_runner, "--json-bare", "--set", "printer.max_batch_records=2", "validate", "--data", str(records), label
+    )
+    assert result.exit_code == 2
+    assert "more than 2" in json.loads(result.stdout)["message"]

@@ -6,7 +6,7 @@ import string
 
 import pytest
 
-from datamax_dpl.domain.decoder import explain, readable
+from datamax_dpl.domain.decoder import MAX_EXPLAINED_COMMANDS, explain, readable
 from datamax_dpl.domain.enums import CommandKind, Rotation, SpeedCode, Unit
 from datamax_dpl.domain.label import Barcode, Box, Circle, Counter, Cut, Image, Label, Line, Point, Polygon, Text
 from datamax_dpl.domain.render import render
@@ -289,3 +289,13 @@ def test_a_problem_says_what_is_wrong_and_names_no_python_class() -> None:
 @pytest.mark.os_agnostic
 def test_a_counter_it_cannot_read_is_a_problem_in_words() -> None:
     assert explain(b"\x02L\r121100000500025Hi\r+xy\rE\r").problems == ("+xy: counter not understood",)
+
+
+@pytest.mark.os_agnostic
+def test_a_label_before_a_stream_past_the_limit_is_not_rebuilt() -> None:
+    """One whole format, then more commands than are explained: a part must not read as the whole job."""
+    result = explain(b"\x02L\r121100000500025Hi\rE\r" + b"\x01A" * (MAX_EXPLAINED_COMMANDS + 50))
+    assert result.label is None
+    assert [problem for problem in result.problems if "not explained" in problem] == [
+        f"{MAX_EXPLAINED_COMMANDS} commands, the rest not explained"
+    ]

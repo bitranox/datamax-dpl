@@ -194,12 +194,13 @@ def test_a_file_with_a_byte_order_mark_is_read_as_every_loader_reads_it(tmp_path
 
 
 @pytest.mark.os_agnostic
-def test_a_file_that_is_no_toml_is_refused_naming_it(tmp_path: Path) -> None:
+@pytest.mark.parametrize("content", [b"[printer\n", b"\xff\xfe[printer]\n"], ids=["not TOML", "not text"])
+def test_a_file_that_is_no_toml_is_refused_naming_it(tmp_path: Path, content: bytes) -> None:
     path = tmp_path / "config.toml"
-    path.write_text("[printer\n", encoding="utf-8")
+    path.write_bytes(content)
     with pytest.raises(ConfigurationError, match=r"cannot read .*config\.toml"):
         write_printer_values([path], printer="", values=_ALONG)
-    assert path.read_text(encoding="utf-8") == "[printer\n"
+    assert path.read_bytes() == content
 
 
 @pytest.mark.os_agnostic

@@ -501,7 +501,7 @@ _DEV_FULL = Path("/dev/full")
 def test_an_answer_that_cannot_be_written_is_a_failure_with_one_line(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Short output reaches the disk only at a flush past every command's own handling."""
+    """``validate`` writes its answer through the command's own handling, which sees the full disk first."""
     label = tmp_path / "ok.json"
     label.write_text(json.dumps({"elements": [{"type": "text", "x": 5, "y": 5, "text": "A"}]}), encoding="utf-8")
     with _DEV_FULL.open("w", encoding="utf-8") as full:
@@ -512,6 +512,17 @@ def test_an_answer_that_cannot_be_written_is_a_failure_with_one_line(
     assert code == 2
     assert err.count("could not write the output") == 1
     assert "OSError" not in err
+
+
+@pytest.mark.skipif(not _DEV_FULL.exists(), reason="only Linux has a device that refuses every write")
+def test_short_output_lost_at_the_final_flush_is_a_failure_with_one_line() -> None:
+    """``info`` stays in the stream's buffer until the flush past every command's own handling."""
+    with _DEV_FULL.open("wb") as full:
+        done = subprocess.run(
+            [sys.executable, "-m", "datamax_dpl", "info"], stdout=full, stderr=subprocess.PIPE, timeout=120, check=False
+        )
+    assert done.returncode == 2
+    assert done.stderr.count(b"could not write the output") == 1
 
 
 @pytest.mark.skipif(not _DEV_FULL.exists(), reason="only Linux has a device that refuses every write")

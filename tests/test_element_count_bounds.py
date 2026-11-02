@@ -40,6 +40,7 @@ def _peak_of_build(label: Label) -> tuple[RenderResult, int]:
 @pytest.mark.os_agnostic
 def test_a_label_takes_at_most_the_element_limit() -> None:
     """One element past the limit is refused when the label is read; the limit itself is a label."""
+    assert MAX_ELEMENTS == 2048
     assert len(Label(elements=[Text(x=1, y=1, text="A")] * MAX_ELEMENTS).elements) == MAX_ELEMENTS
     with pytest.raises(ValidationError, match="elements"):
         Label(elements=[Text(x=1, y=1, text="A")] * (MAX_ELEMENTS + 1))
