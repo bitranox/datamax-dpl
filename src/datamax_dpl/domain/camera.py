@@ -43,7 +43,7 @@ class CameraSettings(BaseModel):
         <CameraKind.NONE: 'none'>
     """
 
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     kind: CameraKind = CameraKind.NONE
     command: list[str] = Field(default_factory=list[str])

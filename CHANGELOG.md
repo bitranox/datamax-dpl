@@ -136,6 +136,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- A key the `[printer]`, `[printers.<name>]`, `[camera]` or `[preview]`
+  section does not declare is now refused naming it (`printer.timout: Extra
+  inputs are not permitted`, exit 2), and so is a section that is no table
+  (`printer = 5`). Both were dropped silently, so a typo left the setting at
+  its default. A named printer's section is checked when that printer is
+  chosen.
 - `--timeout` on `status` and `memory` is now the whole wait for the first
   answer, retries included, in place of `status_wait`; before, it bounded
   one connect and one answer wait. Without `wait`, `query_status` and

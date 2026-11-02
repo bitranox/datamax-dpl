@@ -66,7 +66,7 @@ class PrinterSettings(BaseModel):
         'generic'
     """
 
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     model: str = "generic"
     # Parsed here, so a malformed version is refused naming its key before any job is built.
@@ -168,9 +168,15 @@ if not _CommandLineValues.__required_keys__ <= PrinterSettings.model_fields.keys
     raise RuntimeError("_CommandLineValues names a field PrinterSettings does not have")
 
 
+def _table(section: object, *, path: str) -> Mapping[str, Any]:
+    """Return ``section`` as a table, refusing any other value: dropping it would hide every key meant."""
+    if isinstance(section, Mapping):
+        return cast("Mapping[str, Any]", section)
+    raise ConfigurationError(f"{path}: needs a table of settings, got {type(section).__name__}")
+
+
 def _section(config: Config, name: ConfigSection) -> Mapping[str, Any]:
-    section: object = config.get(name.value, {})
-    return cast("Mapping[str, Any]", section) if isinstance(section, Mapping) else {}
+    return _table(config.get(name.value, {}), path=name.value)
 
 
 def _describe(exc: ValidationError, *, section: SectionPath) -> str:
@@ -236,12 +242,11 @@ def _named(config: Config, name: str) -> Mapping[str, Any]:
         raise ConfigurationError(msg)
     if not name:
         return {}
-    section: object = printers.get(name)
-    if not isinstance(section, Mapping):
+    if name not in printers:
         configured = ", ".join(sorted(printers)) or "none"
         msg = f"no printer named '{name}' in {SectionPath(ConfigSection.PRINTERS).header}; configured: {configured}"
         raise ConfigurationError(msg)
-    return cast("Mapping[str, Any]", section)
+    return _table(printers[name], path=SectionPath(ConfigSection.PRINTERS, name).dotted)
 
 
 def _given(override: _T | None, configured: _T) -> _T:
@@ -269,7 +274,7 @@ class PreviewSettings(BaseModel):
         2000.0
     """
 
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     # Finite: infinity would read as "no limit", which is what the key exists to prevent.
     max_length_mm: float = Field(default=DEFAULT_PREVIEW_MAX_LENGTH_MM, gt=0, allow_inf_nan=False)
