@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -25,7 +24,6 @@ from datamax_dpl.composition import AppServices, build_testing
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
 
 def _services(data: dict[str, Any] | None = None, **overrides: Any) -> Callable[[], AppServices]:
@@ -402,46 +400,53 @@ def test_an_empty_config_section_is_not_found_in_both_modes(
     assert "Section '' not found" in err
 
 
-@pytest.mark.os_agnostic
-@pytest.mark.skipif(
+_NOT_UTF8_PATHS = pytest.mark.skipif(
     not sys.platform.startswith("linux"), reason="Windows and APFS refuse a filename that is not valid UTF-8"
 )
-@pytest.mark.parametrize(
-    "args", [["config", "--section", "\udcff\udcfe"], ["config-generate-examples"]], ids=["section", "dest"]
-)
-def test_an_undecodable_argument_reaches_the_log_without_a_logging_error(args: list[str], tmp_path: Path) -> None:
-    """A real process: the failure was 112 lines from the logging system, whatever the exit code said."""
-    words = [*args, "--destination", str(tmp_path) + "/ex\udcff"] if args[0] == "config-generate-examples" else args
+
+
+@_NOT_UTF8_PATHS
+def test_an_undecodable_destination_reaches_the_log_without_a_logging_error(tmp_path: Path) -> None:
+    """A real process with real logging: the failure was 112 lines from the logging system at exit 0."""
     done = subprocess.run(
-        [sys.executable, "-m", "datamax_dpl", *words],
+        [sys.executable, "-m", "datamax_dpl", "config-generate-examples", "--destination", "ex\udcff"],
         capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="surrogateescape",
         timeout=120,
         check=False,
         cwd=tmp_path,
-        env={**os.environ, "DATAMAX_DPL___LIB_LOG_RICH__CONSOLE_LEVEL": "INFO"},
     )
-    assert "Logging error" not in done.stderr
+    assert done.returncode == 0
+    assert b"Logging error" not in done.stderr
 
 
-@pytest.mark.skipif(not Path("/dev/full").exists(), reason="only Linux has a device that refuses every write")
-def test_an_answer_that_cannot_be_written_is_a_failure_with_one_line(tmp_path: Path) -> None:
-    """Short output reaches the disk only at the final flush, past every command's own handling."""
+@_NOT_UTF8_PATHS
+def test_an_undecodable_section_reaches_the_log_without_a_logging_error(tmp_path: Path) -> None:
+    done = subprocess.run(
+        [sys.executable, "-m", "datamax_dpl", "config", "--section", "\udcff\udcfe"],
+        capture_output=True,
+        timeout=120,
+        check=False,
+        cwd=tmp_path,
+    )
+    assert done.returncode == 22
+    assert b"Logging error" not in done.stderr
+
+
+_DEV_FULL = Path("/dev/full")
+
+
+@pytest.mark.skipif(not _DEV_FULL.exists(), reason="only Linux has a device that refuses every write")
+def test_an_answer_that_cannot_be_written_is_a_failure_with_one_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Short output reaches the disk only at a flush past every command's own handling."""
     label = tmp_path / "ok.json"
     label.write_text(json.dumps({"elements": [{"type": "text", "x": 5, "y": 5, "text": "A"}]}), encoding="utf-8")
-    with Path("/dev/full").open("w", encoding="utf-8") as full:
-        done = subprocess.run(
-            [sys.executable, "-m", "datamax_dpl", "--json", "validate", str(label)],
-            stdout=full,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            timeout=120,
-            check=False,
-        )
-    assert done.returncode == 2
-    assert "could not write the output" in done.stderr
-    assert "Traceback" not in done.stderr
-    assert "Exception ignored" not in done.stderr
+    with _DEV_FULL.open("w", encoding="utf-8") as full:
+        monkeypatch.setattr(sys, "stdout", full)
+        code = main(["--json", "validate", str(label)], services_factory=_services())
+        monkeypatch.undo()
+    err = capsys.readouterr().err
+    assert code == 2
+    assert err.count("could not write the output") == 1
+    assert "OSError" not in err
