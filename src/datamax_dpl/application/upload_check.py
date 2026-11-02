@@ -42,7 +42,7 @@ from ..domain.errors import LabelRejectedError
 from ..domain.findings import Finding
 from ..domain.held_images import DEFAULT_MODULE, EMPTY_MODULE, HeldImages
 from ..domain.profiles import get_profile
-from .use_cases import AnswerWait, BatchResult, read_stored_names
+from .use_cases import AnswerWait, BatchResult, open_within, read_stored_names
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -145,6 +145,8 @@ class Link:
         uri: The printer.
         timeout: Seconds for each connect and write.
         open_printer: Opens a new channel.
+        reconnect: How long a send keeps trying to open a new channel where a failed read left
+            none (``stored_names_wait``, as the read itself); None connects once.
         bytes_sent: Job bytes written so far, the directory requests not counted.
     """
 
@@ -152,6 +154,7 @@ class Link:
     uri: str
     timeout: float
     open_printer: OpenPrinter
+    reconnect: AnswerWait | None
     bytes_sent: int = 0
     _opened: list[PrinterTransport] = field(default_factory=list["PrinterTransport"])
 
@@ -160,7 +163,13 @@ class Link:
         if not data:
             return
         if self.printer is None:
-            self.printer = self.open_printer(self.uri, timeout=self.timeout)
+            self.printer = (
+                self.open_printer(self.uri, timeout=self.timeout)
+                if self.reconnect is None
+                else open_within(
+                    uri=self.uri, timeout=self.timeout, open_printer=self.open_printer, wait=self.reconnect
+                )
+            )
             self._opened.append(self.printer)
         self.printer.send(data)
         self.bytes_sent += len(data)
@@ -419,7 +428,7 @@ def print_checked(
         msg = "label has errors; nothing was sent"
         raise LabelRejectedError(msg)
     printer = open_printer(uri, timeout=timeout)
-    link = Link(printer=printer, uri=uri, timeout=timeout, open_printer=open_printer)
+    link = Link(printer=printer, uri=uri, timeout=timeout, open_printer=open_printer, reconnect=job.check.wait)
     try:
         if not printer.bidirectional:
             link.send(result.data)

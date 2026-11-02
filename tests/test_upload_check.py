@@ -25,7 +25,7 @@ from datamax_dpl.application.verify import verify_print
 from datamax_dpl.composition import build_production
 from datamax_dpl.domain.camera import CameraKind, CameraSettings, CapturedImage
 from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, MediaType, Severity
-from datamax_dpl.domain.errors import LabelRejectedError, TransportError
+from datamax_dpl.domain.errors import LabelRejectedError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.held_images import HeldImages
 from datamax_dpl.domain.label import Image, Label, Qr
 from datamax_dpl.domain.profiles import get_profile
@@ -330,6 +330,71 @@ def test_a_read_whose_connection_was_closed_goes_on_a_new_one_and_the_format_fol
     assert second.queries == [WG]
     assert second.data.count(FORMAT) == 1
     assert second.closed
+
+
+class _RefusingFor:
+    """Opens ``first``, then refuses every connect for ``seconds`` by ``clock``, then opens a new printer.
+
+    A print server whose read got no answer refused the next connection for 7 s and more (one
+    Allegro 2 behind its print server, 2026-11-01).
+    """
+
+    def __init__(self, first: ModulePrinter, *, seconds: float, clock: Callable[[], float]) -> None:
+        self.first, self.seconds, self.clock = first, seconds, clock
+        self.refused = 0
+        self.channels: list[ModulePrinter] = []
+        self._until: float | None = None
+
+    def __call__(self, uri: str, *, timeout: float) -> PrinterTransport:
+        if not self.channels:
+            self.channels.append(self.first)
+            return self.first
+        if self._until is None:
+            self._until = self.clock() + self.seconds
+        if self.clock() < self._until:
+            self.refused += 1
+            raise TransportError(f"cannot connect to {uri}: Connection refused", unanswered=True)
+        self.channels.append(ModulePrinter(self.first.modules))
+        return self.channels[-1]
+
+
+def _fake_time() -> tuple[Callable[[], float], Callable[[float], None]]:
+    now = [0.0]
+
+    def sleep(seconds: float) -> None:
+        now[0] += seconds
+
+    return (lambda: now[0]), sleep
+
+
+@pytest.mark.os_agnostic
+def test_a_connect_refused_after_a_read_with_no_answer_is_tried_again_within_the_wait() -> None:
+    clock, sleep = _fake_time()
+    opener = _RefusingFor(ModulePrinter(ImageModules(answers=False)), seconds=7.5, clock=clock)
+    wait = AnswerWait(seconds=30.0, retry_interval=0.25, clock=clock, sleep=sleep)
+    result, job = _job(Label(elements=[LOGO]), ALLEGRO, None, 3)
+    job = job._replace(check=UploadCheck(wait=wait, rounds=3))
+
+    with pytest.raises(UploadRefusedError):
+        print_checked(result, job, uri=URI, timeout=5.0, open_printer=opener)
+
+    assert opener.refused >= 7.5 / 0.25
+    assert opener.first.modules.requests == 3
+    assert opener.channels[-1].sent[-1] == STX + b"qA"
+
+
+@pytest.mark.os_agnostic
+def test_a_connect_refused_for_longer_than_the_wait_ends_the_job_with_the_wait_named() -> None:
+    clock, sleep = _fake_time()
+    opener = _RefusingFor(ModulePrinter(ImageModules(answers=False)), seconds=60.0, clock=clock)
+    wait = AnswerWait(seconds=2.0, retry_interval=0.25, wait_longer="wait longer", clock=clock, sleep=sleep)
+    result, job = _job(Label(elements=[LOGO]), ALLEGRO, None, 3)
+    job = job._replace(check=UploadCheck(wait=wait, rounds=3))
+
+    with pytest.raises(PrinterTimeoutError, match="wait longer"):
+        print_checked(result, job, uri=URI, timeout=5.0, open_printer=opener)
+
+    assert opener.refused > 1
 
 
 @pytest.mark.os_agnostic

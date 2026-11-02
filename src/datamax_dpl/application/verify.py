@@ -193,7 +193,7 @@ def _print_and_wait(
             printer.send(result.data)
             status = wait_idle(printer, uri=uri, timeout=timeout, open_printer=open_printer, wait=wait)
             return _Printed(result=result, bytes_sent=len(result.data), status=status)
-        link = Link(printer=printer, uri=uri, timeout=timeout, open_printer=open_printer)
+        link = Link(printer=printer, uri=uri, timeout=timeout, open_printer=open_printer, reconnect=checked.check.wait)
         try:
             return _send_checked_and_wait(link, checked, wait=wait)
         finally:

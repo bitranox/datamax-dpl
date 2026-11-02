@@ -471,6 +471,24 @@ def query_status(
     return parse_ascii_status(answer)
 
 
+def open_within(*, uri: str, timeout: float, open_printer: OpenPrinter, wait: AnswerWait) -> PrinterTransport:
+    """Open the printer, again after ``wait.retry_interval`` while a connect takes no request, within ``wait``.
+
+    For a sender whose channel a failed read closed: a print server that got no answer from its
+    printer refused the next connection for 7 s and more (one Allegro 2, 2026-11-01), so one
+    connect would end the job where waiting as the read does lets it go on.
+
+    Raises:
+        PrinterTimeoutError: Every connect was refused (or failed taking no request) until the
+            wait ran out; the message counts the attempts and quotes the last failure.
+        TransportError: Any failure that is not ``unanswered``, raised as is.
+    """
+    printer, _ = _first_answer(
+        lambda _channel, _left: None, uri=uri, timeout=timeout, open_printer=open_printer, wait=wait
+    )
+    return printer
+
+
 def poll_status(
     printer: PrinterTransport, *, uri: str, timeout: float, open_printer: OpenPrinter, wait: AnswerWait, started: float
 ) -> tuple[PrinterTransport, PrinterStatus]:
@@ -783,6 +801,7 @@ __all__ = [
     "PrinterCommand",
     "RecordRender",
     "detect_printer",
+    "open_within",
     "poll_status",
     "print_result",
     "query_status",
