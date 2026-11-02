@@ -3,8 +3,7 @@
 datamax-dpl needs Python 3.10 or newer. Every install registers one command, `datamax-dpl`;
 `python -m datamax_dpl` runs the same CLI.
 
-The package is not on PyPI yet. Until it is, install from GitHub; the PyPI lines below work once
-the first release is published.
+The package is on PyPI; a commit not released yet installs from GitHub.
 
 ## Extras
 

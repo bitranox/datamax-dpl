@@ -74,7 +74,8 @@ datamax-dpl validate examples/product-label.json --model dmx-600
 ```
 
 ```text
-OK: model dmx-600, 1 label(s), 5 field(s), 149 bytes
+OK: model dmx-600, 1 label(s), 5 field(s), 178 bytes
+INFO    software_switches_not_sent: software switches (<STX>V) not sent: whether the cutter is installed is unknown
 INFO    check_digit_added [element 3]: the printer adds check digit 1
 INFO    cutter_assumed: cut commands assume the printer's cutter is installed and enabled
 ```
@@ -127,8 +128,16 @@ for finding in result.findings:
 
 `render` raises `LabelRejectedError` when a finding is an error; `build_job` returns the same
 result without raising. For data records use `render_batch(label, records, options)`, and to send
-bytes open a transport with `open_printer(uri, timeout=10)` and call `send(data)` on it. All of
-these are imported from `datamax_dpl`.
+bytes open a transport with `open_printer(uri, timeout=10)` and call `send(data)` on it. `explain(data)`
+reads DPL bytes back. All of these are imported from `datamax_dpl`.
+
+`send(data)` writes the job as it is: it does not check what the printer stored, so an image
+download a full module lost gives a label with that image missing, and no error. On a channel that
+can read answers (tcp, serial), `print_checked(job, CheckedJob(renders=record_renders(label, None,
+options), check=UploadCheck(wait=AnswerWait(seconds=30))),
+uri=uri, timeout=10, open_printer=open_printer)` is the route `print` takes: it reads the printer's
+directory after each label's downloads and raises `UploadRefusedError` before a format would print
+without its image.
 
 Everything the package raises on purpose derives from `DatamaxDplError`, also imported from
 `datamax_dpl`, so `except DatamaxDplError` catches it all. Below it, `TransportError` covers what a

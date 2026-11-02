@@ -9,9 +9,11 @@ import pkgutil
 import re
 
 import pytest
+from printer_server import ImageModules, ModulePrinter
 
 import datamax_dpl
 from datamax_dpl.adapters.config import get_config
+from datamax_dpl.adapters.memory import open_recording_printer
 from datamax_dpl.adapters.preview import preview_findings, render_preview_png
 from datamax_dpl.domain.render_context import RenderOptions
 
@@ -170,3 +172,53 @@ def test_the_base_keeps_the_builtin_a_caller_may_already_catch(name: str, builti
     exception = getattr(datamax_dpl, name)
     assert issubclass(exception, builtin)
     assert issubclass(exception, datamax_dpl.DatamaxDplError)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "name", ["PrinterTransport", "TransportTuning", "HeldImages", "Explanation", "DplUnit", "print_checked"]
+)
+def test_what_a_public_signature_names_can_be_imported_from_the_root(name: str) -> None:
+    """A strict-typing caller annotates with these, and builds ``tuning=`` and ``held=`` from them."""
+    assert name in datamax_dpl.__all__
+    assert getattr(datamax_dpl, name) is not None
+
+
+def _lost_download_label() -> tuple[datamax_dpl.Label, RenderOptions]:
+    """An image a module with almost no room loses; each bitmap row differs, so it takes real space."""
+    rows = ["".join("#" if (row * 7 + column * 13) % 5 == 0 else "." for column in range(64)) for row in range(64)]
+    return datamax_dpl.Label(elements=[datamax_dpl.Image(x=1, y=1, name="LOGO", bitmap=rows)]), RenderOptions(
+        model="allegro-2"
+    )
+
+
+@pytest.mark.os_agnostic
+def test_send_skips_the_upload_check_as_the_readme_says() -> None:
+    """The plain route raises nothing, and the format places an image the module does not hold."""
+    label, options = _lost_download_label()
+    modules = ImageModules(capacity=100)
+    channel = open_recording_printer(ModulePrinter(modules))("tcp://192.0.2.60:9100", timeout=10)
+    channel.send(datamax_dpl.render(label, options).data)
+    channel.close()
+    assert modules.placed_missing
+
+
+@pytest.mark.os_agnostic
+def test_the_checked_route_the_readme_names_refuses_that_label() -> None:
+    """Built only from root names, as the sentence in README and SKILL spells it."""
+    label, options = _lost_download_label()
+    modules = ImageModules(capacity=100)
+    job = datamax_dpl.render(label, options)
+    checked = datamax_dpl.CheckedJob(
+        renders=datamax_dpl.record_renders(label, None, options),
+        check=datamax_dpl.UploadCheck(wait=datamax_dpl.AnswerWait(seconds=1)),
+    )
+    with pytest.raises(datamax_dpl.UploadRefusedError):
+        datamax_dpl.print_checked(
+            job,
+            checked,
+            uri="tcp://192.0.2.60:9100",
+            timeout=1,
+            open_printer=open_recording_printer(ModulePrinter(modules)),
+        )
+    assert modules.placed_missing == []

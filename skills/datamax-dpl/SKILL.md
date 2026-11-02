@@ -180,7 +180,8 @@ configured stop only the info `configured_stop_position_unsupported` (prints und
   `--printer` (default `[printer] uri`) and `--timeout`. To stop a job printing garbage:
   `cancel`, then `pause` to resume.
 - `capture --output-dir DIR` takes one photo, to check the `[camera]` settings before `verify`.
-  `config-generate-examples --destination DIR` writes example config files listing every key.
+  `config-deploy --target user` writes the user's config holding every key, each documented;
+  `config-generate-examples` only shows where each layer reads from, with a generic sample.
 
 ## Several printers, and calibrating one
 
@@ -257,7 +258,17 @@ Settings live in a layered config: `datamax-dpl config` shows the merged result,
 `render` raises `LabelRejectedError` on an error finding; `build_job` returns the result with
 `.findings` instead. `render_batch(label, records, options)` does the `--data` case and never
 raises on an error finding: it returns a `BatchResult`, so check `.ok`.
-`timeout` is in seconds. A printer that refuses, is unreachable or stops answering raises
+`send(data)` writes the job as it is: it does not check what the printer stored, so an image
+download a full module lost gives a label with that image missing, and no error. On a channel that
+can read answers (tcp, serial), `print_checked(job, CheckedJob(renders=record_renders(label, None,
+options), check=UploadCheck(wait=AnswerWait(seconds=30))),
+uri=uri, timeout=10, open_printer=open_printer)` is the route `print` takes: it reads the printer's
+directory after each label's downloads and raises `UploadRefusedError` before a format would print
+without its image.
+
+The element types are the classes `Text`, `ScalableText`, `Barcode`, `Qr`, `Line`, `Box`, `Circle`,
+`Polygon` and `Image`, with `Cut`, `Counter`, `Pdf417Options` and `DataMatrixOptions` for their
+settings. `timeout` is in seconds. A printer that refuses, is unreachable or stops answering raises
 `TransportError` from `open_printer` or `send` (a timeout is its subclass): catch that. A bad URI
 raises `ConfigurationError`; `DatamaxDplError` is the base of both, and of every other type the
 package raises, except pydantic's `ValidationError` and a plain `ValueError` for an argument.

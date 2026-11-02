@@ -61,6 +61,8 @@ turn the outcome into output and an exit code.
 ### Domain (`src/datamax_dpl/domain/`)
 
 - `label.py` - the label model: job settings and the nine element types.
+- `_invariants.py` - import-time checks that an update's fields and a lookup table stay in step with
+  the models and enums they name.
 - `enums.py` - units, rotations, fill patterns, attributes, speed letters, media, policy, severity.
 - `units.py` - length conversion between label units, DPL units and printer dots.
 - `symbology.py` - barcode symbologies and their DPL identifiers.

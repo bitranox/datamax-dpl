@@ -40,6 +40,7 @@ ALLOWED_TOP_LEVEL = frozenset(
         "examples",
         ".claude-plugin",
         "skills",
+        ".env.example",
     }
 )
 REQUIRED_TOP_LEVEL = frozenset({"PKG-INFO", "pyproject.toml", "src", "tests"})
@@ -62,7 +63,16 @@ def _copy_tree_with_decoys(destination: Path) -> Path:
     """Copy the buildable tree and plant the files a working tree carries but must not ship."""
     root = destination / "tree"
     root.mkdir()
-    for name in ("pyproject.toml", "README.md", "LICENSE", "CHANGELOG.md", "CONFIG.md", ".gitignore", "conftest.py"):
+    for name in (
+        "pyproject.toml",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md",
+        "CONFIG.md",
+        ".gitignore",
+        "conftest.py",
+        ".env.example",
+    ):
         shutil.copy2(PROJECT_ROOT / name, root / name)
     for name in ("src", "docs", "tests", "scripts"):
         shutil.copytree(PROJECT_ROOT / name, root / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
@@ -128,7 +138,9 @@ def test_the_sdist_carries_what_its_test_suite_reads(sdist_members: list[str]) -
     scripts = list((PROJECT_ROOT / "scripts").glob("*.py"))
     assert fixtures, "no fixture found, so nothing below would be judged"
     assert scripts, "no script found, so nothing below would be judged"
-    needed = {path.relative_to(PROJECT_ROOT).as_posix() for path in (*fixtures, *scripts)} | {"conftest.py"}
+    # Each a file a test opens by its path from the project root.
+    read_directly = {"conftest.py", ".env.example", "README.md", "CONFIG.md", "CHANGELOG.md", "pyproject.toml"}
+    needed = {path.relative_to(PROJECT_ROOT).as_posix() for path in (*fixtures, *scripts)} | read_directly
     assert not needed - set(sdist_members)
 
 

@@ -650,6 +650,9 @@ def build_job(label: Label, options: RenderOptions | None = None, *, held: HeldI
         held: The image names the printer holds in the job's module; None when nobody asked it.
             Only a label no clear precedes uses them.
 
+    Returns:
+        The job and every finding; check ``ok`` before sending ``data``.
+
     Raises:
         UnknownModelError: ``options.model`` names no profile.
     """

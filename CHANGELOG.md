@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `print_checked`, `CheckedJob`, `UploadCheck`, `AnswerWait`,
+  `record_renders`, `PrinterTransport`, `TransportTuning`, `HeldImages`,
+  `Explanation` and `DplUnit` import from the package root. README and the
+  skill say what `send(job.data)` skips and spell the checked route.
 - `[printer] max_batch_records` (default 100000): a `--data` batch with more
   records is refused with exit 2 before anything is rendered. A million
   records in a 2 MB file took 96 s and 4.3 GB.

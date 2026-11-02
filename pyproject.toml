@@ -134,6 +134,7 @@ include = [
     "/examples",
     "/.claude-plugin",
     "/skills",
+    "/.env.example",
 ]
 exclude = ["/docs/*.pdf"] # vendor manual: copyrighted, kept locally, never shipped
 
