@@ -102,10 +102,10 @@ def cli_render(ctx: click.Context, label_source: str, data: str | None, output: 
 
     def body(cli_ctx: CLIContext) -> CommandResult:
         result = build(label_source, data, given, cli_ctx)
-        payload = render_payload(result, include_dpl=output is None)
-        if output is not None and result.ok:
-            _write_output(output, result.data, raw_stdout_allowed=not cli_ctx.mode.machine)
-            payload = payload.model_copy(update={"output": output})
+        written = output if output is not None and result.ok else None
+        if written is not None:
+            _write_output(written, result.data, raw_stdout_allowed=not cli_ctx.mode.machine)
+        payload = render_payload(result, include_dpl=output is None, output=written)
         human = "" if output == STDIN else _human(payload, show_dpl=output is None)
         return CommandResult(ok=result.ok, payload=payload, human=human)
 

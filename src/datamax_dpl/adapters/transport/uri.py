@@ -175,20 +175,17 @@ def is_printer_name(text: str) -> bool:
     return _PRINTER_NAME.fullmatch(text) is not None
 
 
-def is_one_way(uri: str) -> bool:
+def is_one_way(uri: PrinterUri) -> bool:
     """Return True when ``uri`` names a channel that cannot read the printer's answer.
 
     Decided from the URI alone, without opening it: a file, stdout and a device file are written
     only, and opening a file just to learn that would create it.
 
-    Raises:
-        ValueError: As :func:`parse_printer_uri`.
-
     Example:
-        >>> is_one_way("file:job.dpl"), is_one_way("-"), is_one_way("tcp://192.0.2.60:9100")
-        (True, True, False)
+        >>> [is_one_way(parse_printer_uri(text)) for text in ("file:job.dpl", "-", "tcp://192.0.2.60:9100")]
+        [True, True, False]
     """
-    return not isinstance(parse_printer_uri(uri), (TcpUri, SerialUri))
+    return not isinstance(uri, (TcpUri, SerialUri))
 
 
 def parse_printer_uri(uri: str) -> PrinterUri:

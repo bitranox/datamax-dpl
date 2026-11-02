@@ -217,8 +217,13 @@ _CUTTER: Mapping[CutterPresence, bool | None] = MappingProxyType(
 )
 
 
-def render_options(settings: PrinterSettings) -> RenderOptions:
+def render_options(settings: PrinterSettings, *, model_image_budget: bool = True) -> RenderOptions:
     """The render options a printer configuration implies.
+
+    Args:
+        settings: The printer configuration.
+        model_image_budget: Whether the model's own image memory budget applies (see
+            :class:`~datamax_dpl.domain.render_context.RenderOptions`).
 
     Example:
         >>> render_options(PrinterSettings(model="dmx-600", cutter=CutterPresence.YES)).cutter_installed
@@ -240,6 +245,7 @@ def render_options(settings: PrinterSettings) -> RenderOptions:
         image_module=settings.image_module,
         max_format_rows=settings.max_format_rows,
         held_image_severity=settings.held_image_severity,
+        model_image_budget=model_image_budget,
     )
 
 

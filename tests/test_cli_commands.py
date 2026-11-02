@@ -181,6 +181,21 @@ def test_print_without_a_printer_is_a_configuration_error(cli_runner: CliRunner,
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize("command", ["print", "verify"])
+def test_a_malformed_printer_uri_is_refused_before_anything_is_sent(
+    cli_runner: CliRunner, tmp_path: Path, command: str
+) -> None:
+    printer = RecordingPrinter()
+    args = ["--json", command, write_json(tmp_path / "l.json", SIMPLE), "--printer", "tcp://192.0.2.60:port"]
+    result = run(cli_runner, args, factory(printer))
+    assert result.exit_code == 2
+    document = envelope(result)
+    assert document["error"] == "ValueError"
+    assert "printer URI 'tcp://192.0.2.60:port'" in document["message"]
+    assert printer.data == b""
+
+
+@pytest.mark.os_agnostic
 def test_status_reports_idle_and_problems(cli_runner: CliRunner) -> None:
     idle = run(
         cli_runner, ["--json", "status", "--printer", PRINTER], factory(RecordingPrinter(answers={b"\x01A": IDLE}))

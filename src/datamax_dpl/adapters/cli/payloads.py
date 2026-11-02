@@ -68,8 +68,23 @@ class RenderPayload(_Payload):
     bytes_sent: int | None = None
 
 
-def render_payload(result: RenderResult | BatchResult, *, include_dpl: bool) -> RenderPayload:
-    """Build the payload for one render result or a batch of them."""
+def render_payload(
+    result: RenderResult | BatchResult,
+    *,
+    include_dpl: bool,
+    output: str | None = None,
+    printer: str | None = None,
+    bytes_sent: int | None = None,
+) -> RenderPayload:
+    """Build the payload for one render result or a batch of them.
+
+    Args:
+        result: What was rendered.
+        include_dpl: Whether the DPL itself goes into the payload, as text and as base64.
+        output: The file the DPL was written to, if any.
+        printer: The printer the job was sent to, if any.
+        bytes_sent: How many bytes reached the printer, if anything was sent.
+    """
     results = result.results if isinstance(result, BatchResult) else (result,)
     batch = isinstance(result, BatchResult)
     findings = [FindingOut.of(f, record=i if batch else None) for i, r in enumerate(results) for f in r.findings]
@@ -86,6 +101,9 @@ def render_payload(result: RenderResult | BatchResult, *, include_dpl: bool) -> 
         findings=findings,
         dpl=readable(result.data) if include_dpl else None,
         dpl_base64=base64.b64encode(result.data).decode("ascii") if include_dpl else None,
+        output=output,
+        printer=printer,
+        bytes_sent=bytes_sent,
     )
 
 

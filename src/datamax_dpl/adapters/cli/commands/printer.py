@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -35,7 +36,7 @@ from ....domain.profiles import get_profile
 from ....domain.render import RenderResult
 from ....domain.status import PrinterStatus
 from ...preview import pillow_available, preview_findings, render_preview_png
-from ...transport.uri import is_one_way
+from ...transport.uri import is_one_way, parse_printer_uri
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..label_io import load_label, load_records
 from ..payloads import FindingOut, findings_text, render_payload
@@ -75,16 +76,17 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
         settings = resolve_settings(cli_ctx, **given)
         label = load_label(label_source)
         records = None if data is None else load_records(data)
-        uri = require_uri(settings)
-        options = _print_options(settings, uri=uri)
-        rendered = _render_to_print(label, records, options, settings, cli_ctx)
+        link = _link(settings)
+        options = _print_options(settings, link=link)
+        rendered = _render_to_print(label, records, options, settings, cli_ctx, link=link)
         result = rendered.result
+        uri = link.uri
         if not result.ok:
             return CommandResult(
                 ok=False, payload=render_payload(result, include_dpl=False), human="REFUSED: nothing sent"
             )
         open_printer = printer_opener(cli_ctx, settings)
-        if is_one_way(uri):
+        if link.one_way:
             # A one-way link cannot read the directory: the job goes out at once, as it always did.
             report = print_result(result, uri=uri, timeout=settings.timeout, open_printer=open_printer)
             sent, bytes_sent = result, report.bytes_sent
@@ -99,7 +101,7 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
             except UploadRefusedError as exc:
                 return _upload_refused(exc, uri=uri)
             sent, bytes_sent = checked.result, checked.bytes_sent
-        payload = render_payload(sent, include_dpl=False).model_copy(update={"printer": uri, "bytes_sent": bytes_sent})
+        payload = render_payload(sent, include_dpl=False, printer=uri, bytes_sent=bytes_sent)
         return CommandResult(ok=True, payload=payload, human=f"sent {bytes_sent} bytes to {uri}")
 
     run_command(ctx, command="print", body=body)
@@ -107,9 +109,7 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
 
 def _upload_refused(exc: UploadRefusedError, *, uri: str) -> CommandResult:
     """The result of a print or verify whose upload check refused a label: its findings, what was sent."""
-    payload = render_payload(exc.result, include_dpl=False).model_copy(
-        update={"printer": uri, "bytes_sent": exc.bytes_sent}
-    )
+    payload = render_payload(exc.result, include_dpl=False, printer=uri, bytes_sent=exc.bytes_sent)
     errors = [finding for finding in payload.findings if finding.severity is Severity.ERROR]
     return CommandResult(ok=False, payload=payload, human=f"REFUSED: {exc}\n{findings_text(errors)}")
 
@@ -152,8 +152,27 @@ def cli_status(ctx: click.Context, **given: Any) -> None:
     run_command(ctx, command="status", body=body)
 
 
-def _print_options(settings: PrinterSettings, *, uri: str) -> RenderOptions:
-    """The render options ``print`` and ``verify`` render with for the printer at ``uri``.
+@dataclass(frozen=True, slots=True)
+class _Link:
+    """The printer a ``print`` or ``verify`` goes to: its URI, parsed once, and whether it can answer."""
+
+    uri: str
+    one_way: bool
+
+
+def _link(settings: PrinterSettings) -> _Link:
+    """The printer ``settings`` name and whether its channel is one-way.
+
+    Raises:
+        ConfigurationError: No printer is given (:func:`require_uri`).
+        ValueError: The URI is malformed (:func:`parse_printer_uri`).
+    """
+    uri = require_uri(settings)
+    return _Link(uri=uri, one_way=is_one_way(parse_printer_uri(uri)))
+
+
+def _print_options(settings: PrinterSettings, *, link: _Link) -> RenderOptions:
+    """The render options ``print`` and ``verify`` render with for the printer at ``link``.
 
     A two-way link leaves out the model's own image memory budget: its upload check reads whether
     the printer stored the images, which says more than a count of dot data can (user decision
@@ -161,15 +180,12 @@ def _print_options(settings: PrinterSettings, *, uri: str) -> RenderOptions:
 
     Example:
         >>> settings = PrinterSettings(model="allegro-2")
-        >>> _print_options(settings, uri="tcp://192.0.2.60:9100").model_image_budget
+        >>> _print_options(settings, link=_Link(uri="tcp://192.0.2.60:9100", one_way=False)).model_image_budget
         False
-        >>> _print_options(settings, uri="file:job.dpl").model_image_budget
+        >>> _print_options(settings, link=_Link(uri="file:job.dpl", one_way=True)).model_image_budget
         True
     """
-    options = render_options(settings)
-    if is_one_way(uri):
-        return options
-    return options.model_copy(update={"model_image_budget": False})
+    return render_options(settings, model_image_budget=link.one_way)
 
 
 def _render_to_print(
@@ -178,6 +194,8 @@ def _render_to_print(
     options: RenderOptions,
     settings: PrinterSettings,
     cli_ctx: CLIContext,
+    *,
+    link: _Link,
 ) -> RenderedJob[RenderResult | BatchResult]:
     """Render a job to be printed, reading the printer's stored image names where no clear precedes it.
 
@@ -186,14 +204,13 @@ def _render_to_print(
     """
 
     def read(module: ImageModule) -> HeldImages:
-        uri = require_uri(settings)
         return stored_image_names(
             module=module,
-            uri=uri,
+            uri=link.uri,
             timeout=settings.timeout,
             open_printer=printer_opener(cli_ctx, settings),
             wait=_stored_names_wait(settings, cli_ctx),
-            one_way=is_one_way(uri),
+            one_way=link.one_way,
         )
 
     return render_with_stored_names(lambda held: render_loaded(label, records, options, held=held), read=read)
@@ -467,17 +484,18 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
         settings = resolve_settings(cli_ctx, **given)
         # Loaded once and rendered from that copy: LABEL '-' is stdin, which cannot be read twice.
         label = load_label(label_source)
-        uri = require_uri(settings)
-        options = _print_options(settings, uri=uri)
-        rendered = _render_to_print(label, None, options, settings, cli_ctx)
+        link = _link(settings)
+        options = _print_options(settings, link=link)
+        rendered = _render_to_print(label, None, options, settings, cli_ctx, link=link)
         result = rendered.result
+        uri = link.uri
         if not isinstance(result, RenderResult) or not result.ok:
             return CommandResult(ok=False, payload=render_payload(result, include_dpl=False), human="REFUSED")
         folder = Path(output_dir)
         services = cli_ctx.services
         checked = (
             None
-            if is_one_way(uri)
+            if link.one_way
             else CheckedJob(
                 renders=record_renders(label, None, options),
                 check=_upload_check(settings, cli_ctx),
