@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 
     from click.testing import CliRunner, Result
 
+    from datamax_dpl.domain.profiles import CalibrationKey
+
 _FORMAT_START = b"\x02L"
 #: The across frame on a 100 x 55 mm label in the Allegro 2's whole-dot unit at feed scale 0.977:
 #: the frame stands 2 mm in from every edge, so 96 mm across is 384 units and 51 mm along is
@@ -401,7 +403,7 @@ def _user_layer(
                 data.setdefault(section, {}).setdefault(name, {}).update(keys)
         return Config(data, {})
 
-    def write(*, printer: str, values: Mapping[str, float], profile: str | None = None) -> Path:
+    def write(*, printer: str, values: Mapping[CalibrationKey, float], profile: str | None = None) -> Path:
         if profiles is not None:
             profiles.append(profile)
         return write_printer_values([base], printer=printer, values=values)

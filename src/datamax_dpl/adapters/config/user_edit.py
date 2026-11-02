@@ -28,6 +28,8 @@ if TYPE_CHECKING:
 
     from tomlkit.toml_document import TOMLDocument
 
+    from datamax_dpl.domain.profiles import CalibrationKey
+
 
 class _Section(Protocol):
     """The part of a tomlkit document or table used here: tomlkit leaves ``get`` untyped."""
@@ -65,13 +67,13 @@ def user_layer_files(*, profile: str | None = None, platform: str | None = None)
     return [base, *drop_ins]
 
 
-def write_printer_values(files: Sequence[Path], *, printer: str, values: Mapping[str, float]) -> Path:
+def write_printer_values(files: Sequence[Path], *, printer: str, values: Mapping[CalibrationKey, float]) -> Path:
     """Set ``values`` in the printer's section of the last file holding it, else the first file.
 
     Args:
         files: The layer's files in merge order, the base file first.
         printer: The printer's name for ``[printers.<name>]``, or "" for ``[printer]``.
-        values: The keys and values to set.
+        values: The values to set, each under the configuration key it names.
 
     Returns:
         The file written.
@@ -82,18 +84,20 @@ def write_printer_values(files: Sequence[Path], *, printer: str, values: Mapping
     document = _load(target)
     table = _ensure(document, section)
     for key, value in values.items():
-        table[key] = value
+        table[key.value] = value
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(tomlkit.dumps(document), encoding="utf-8")
     return target
 
 
-def set_user_printer_values(*, printer: str, values: Mapping[str, float], profile: str | None = None) -> Path:
+def set_user_printer_values(
+    *, printer: str, values: Mapping[CalibrationKey, float], profile: str | None = None
+) -> Path:
     """Write ``values`` into the user layer and drop the cached configuration so it is read again.
 
     Args:
         printer: The printer's name, or "" for the ``[printer]`` section.
-        values: The keys and values to set.
+        values: The values to set, each under the configuration key it names.
         profile: The configuration profile, or None for none.
 
     Returns:

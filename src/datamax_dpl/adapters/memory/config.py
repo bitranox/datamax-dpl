@@ -18,6 +18,8 @@ from ...domain.enums import DeployTarget, OutputFormat
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from ...domain.profiles import CalibrationKey
+
 
 def get_config_in_memory(
     *,
@@ -48,7 +50,9 @@ def deploy_configuration_in_memory(
     return []
 
 
-def set_user_printer_values_in_memory(*, printer: str, values: Mapping[str, float], profile: str | None = None) -> Path:
+def set_user_printer_values_in_memory(
+    *, printer: str, values: Mapping[CalibrationKey, float], profile: str | None = None
+) -> Path:
     """Simulate writing the user configuration -- no filesystem changes, returns a synthetic path."""
     return Path(tempfile.gettempdir()) / "datamax_dpl" / "config.toml"
 

@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
     from ..domain.camera import CameraSettings, CapturedImage
     from ..domain.enums import DeployTarget, OutputFormat
+    from ..domain.profiles import CalibrationKey
     from ..domain.timing import TransportTuning
 
 
@@ -36,10 +37,11 @@ class GetConfig(Protocol):
 class SetPrinterValues(Protocol):
     """Write values into a printer's section of the user configuration layer; return the file written.
 
-    ``printer`` names a ``[printers.<name>]`` section, or is "" for ``[printer]``.
+    ``printer`` names a ``[printers.<name>]`` section, or is "" for ``[printer]``; each key of
+    ``values`` is written as the configuration key it names.
     """
 
-    def __call__(self, *, printer: str, values: Mapping[str, float], profile: str | None = ...) -> Path: ...
+    def __call__(self, *, printer: str, values: Mapping[CalibrationKey, float], profile: str | None = ...) -> Path: ...
 
 
 class GetDefaultConfigPath(Protocol):

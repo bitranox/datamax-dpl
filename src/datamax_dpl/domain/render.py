@@ -43,7 +43,7 @@ from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText,
 from .overlap import inexact_rectangle, printed_dots
 from .placeholders import label_placeholders
 from .preview import SentAs
-from .profiles import CalibrationDefaults, Feature, get_profile, parse_firmware
+from .profiles import CalibrationDefaults, CalibrationKey, Feature, get_profile, parse_firmware
 from .render_context import RenderContext, RenderOptions, resolved_image_module, resolved_printer_state
 from .transparency import Emulation, emulate_transparency
 from .units import MM_PER_INCH, Axis, Correction, DplUnit, to_inches
@@ -201,41 +201,100 @@ def _tear_off_stop(explicit: float | PrinterStop | None, default: float | None) 
     return _pick(explicit, default)
 
 
-def _model_defaults_used(options: RenderOptions, calibration: CalibrationDefaults) -> dict[str, str]:
+@dataclass(frozen=True, slots=True)
+class _ModelDefault:
+    """One value of the model's calibration a job uses, as the report names it.
+
+    Attributes:
+        text: The option and its value, e.g. ``offset_along -0.25 mm``.
+        offset_axis: The axis of an offset; None for a scale factor or the stop position.
+        stop_position: True for the stop position, which is named only where the job sends one.
+    """
+
+    text: str
+    offset_axis: Axis | None = None
+    stop_position: bool = False
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _Candidate:
+    """A value the model's calibration may supply: as the options give it, as resolved, as neutral."""
+
+    option: str
+    given: float | PrinterStop | None
+    value: float | None
+    nominal: float | None
+    unit: str = ""
+    offset_axis: Axis | None = None
+    stop_position: bool = False
+
+
+def _model_defaults_used(options: RenderOptions, calibration: CalibrationDefaults) -> tuple[_ModelDefault, ...]:
     """Return each value of ``calibration`` the options did not set and that is not neutral.
 
-    Keyed by option name (``offset_along``), with its text for the report. A value counts as the
-    model's when the job's value is not the one the options hold, so this follows whatever rule
-    resolved ``calibration``. A neutral default prints exactly what no calibration prints, so
-    naming it would tell the reader nothing.
+    A value counts as the model's when the job's value is not the one the options hold, so this
+    follows whatever rule resolved ``calibration``. A neutral default prints exactly what no
+    calibration prints, so naming it would tell the reader nothing.
     """
     neutral = CalibrationDefaults()
-    # The given value is "printer" for a stop position that keeps the printer's own: the job's
-    # value is then None, so the model's default is not named.
-    candidates: list[tuple[str, float | PrinterStop | None, float | None, float | None, str]] = [
-        ("scale_across", options.scale_across, calibration.scale_across, neutral.scale_across, ""),
-        ("scale_along", options.scale_along, calibration.scale_along, neutral.scale_along, ""),
-        ("offset_across", options.offset_across, calibration.offset_across, neutral.offset_across, " mm"),
-        ("offset_along", options.offset_along, calibration.offset_along, neutral.offset_along, " mm"),
-        ("stop_position", options.stop_position_mm, calibration.stop_position_mm, neutral.stop_position_mm, " mm"),
-    ]
-    return {
-        name: f"{name} {value:g}{unit}"
-        for name, given, value, nominal, unit in candidates
-        if value is not None and value not in (given, nominal)
-    }
+    candidates = (
+        _Candidate(
+            option=CalibrationKey.SCALE_ACROSS.value,
+            given=options.scale_across,
+            value=calibration.scale_across,
+            nominal=neutral.scale_across,
+        ),
+        _Candidate(
+            option=CalibrationKey.SCALE_ALONG.value,
+            given=options.scale_along,
+            value=calibration.scale_along,
+            nominal=neutral.scale_along,
+        ),
+        _Candidate(
+            option=CalibrationKey.OFFSET_ACROSS.value,
+            given=options.offset_across,
+            value=calibration.offset_across,
+            nominal=neutral.offset_across,
+            unit=" mm",
+            offset_axis=Axis.ACROSS,
+        ),
+        _Candidate(
+            option=CalibrationKey.OFFSET_ALONG.value,
+            given=options.offset_along,
+            value=calibration.offset_along,
+            nominal=neutral.offset_along,
+            unit=" mm",
+            offset_axis=Axis.ALONG,
+        ),
+        # The given value is "printer" for a stop position that keeps the printer's own: the job's
+        # value is then None, so the model's default is not named.
+        _Candidate(
+            option="stop_position",
+            given=options.stop_position_mm,
+            value=calibration.stop_position_mm,
+            nominal=neutral.stop_position_mm,
+            unit=" mm",
+            stop_position=True,
+        ),
+    )
+    return tuple(
+        _ModelDefault(text=f"{c.option} {c.value:g}{c.unit}", offset_axis=c.offset_axis, stop_position=c.stop_position)
+        for c in candidates
+        if c.value is not None and c.value not in (c.given, c.nominal)
+    )
 
 
-def _report_model_defaults(label: Label, ctx: RenderContext, *, provenance: str, from_model: dict[str, str]) -> None:
+def _report_model_defaults(
+    label: Label, ctx: RenderContext, *, provenance: str, from_model: tuple[_ModelDefault, ...]
+) -> None:
     """Record which model defaults this job uses, naming the stop position only where it is sent."""
     if not stops_at_tear_off(label, ctx) or PrinterSetting.STOP not in ctx.printer_state.send:
         # The label's own or the cutter's stop position replaces the model's, and a job that sends
         # no stop position sends none: either way the model's is never sent.
-        from_model = {name: text for name, text in from_model.items() if name != "stop_position"}
+        from_model = tuple(default for default in from_model if not default.stop_position)
     if from_model:
-        ctx.findings.info(
-            FindingCode.MODEL_DEFAULTS_APPLIED, f"model defaults ({provenance}): {', '.join(from_model.values())}"
-        )
+        named = ", ".join(default.text for default in from_model)
+        ctx.findings.info(FindingCode.MODEL_DEFAULTS_APPLIED, f"model defaults ({provenance}): {named}")
 
 
 def _bitmap_rows(label: Label) -> dict[str, tuple[str, ...]]:
@@ -278,7 +337,7 @@ def _context(label: Label, options: RenderOptions, *, halve: bool, held: HeldIma
         along=Correction(scale=calibration.scale_along, unit_dots=profile.inch_unit_dots),
         offset_across=calibration.offset_across,
         offset_along=calibration.offset_along,
-        model_offset_axes=frozenset(axis for axis in Axis if f"offset_{axis.value}" in from_model),
+        model_offset_axes=frozenset(default.offset_axis for default in from_model if default.offset_axis is not None),
         stop_position_mm=calibration.stop_position_mm,
         cutter_stop_position_mm=options.cutter_stop_position_mm,
         reserved_image_names=_stored_names(label, bitmap_rows),

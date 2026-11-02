@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 import rich_click as click
 from pydantic import BaseModel, ConfigDict
@@ -23,6 +23,7 @@ from ....domain.calibration import (
 from ....domain.enums import FindingCode
 from ....domain.errors import ConfigurationError
 from ....domain.findings import Finding
+from ....domain.profiles import CalibrationKey
 from ....domain.render import build_job, effective_calibration, format_row_limit
 from ....domain.units import Axis
 from ...transport.uri import is_printer_uri
@@ -86,7 +87,7 @@ class _Change(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    key: str
+    key: CalibrationKey
     old: float
     new: float
     effective: float | None
@@ -98,6 +99,17 @@ class ScaleChange(_Change):
     measured: float
     nominal: float
 
+    def read_back(self, effective: CalibrationDefaults | None) -> ScaleChange:
+        """This change with the value the configuration now resolves its key to; None: not loaded."""
+        return ScaleChange(
+            key=self.key,
+            old=self.old,
+            new=self.new,
+            effective=None if effective is None else effective.value(self.key),
+            measured=self.measured,
+            nominal=self.nominal,
+        )
+
 
 class OffsetChange(_Change):
     """A position offset from the two borders measured on opposite sides of the frame, in mm.
@@ -108,8 +120,16 @@ class OffsetChange(_Change):
     low: float
     high: float
 
-
-_ChangeT = TypeVar("_ChangeT", bound=_Change)
+    def read_back(self, effective: CalibrationDefaults | None) -> OffsetChange:
+        """This change with the value the configuration now resolves its key to; None: not loaded."""
+        return OffsetChange(
+            key=self.key,
+            old=self.old,
+            new=self.new,
+            effective=None if effective is None else effective.value(self.key),
+            low=self.low,
+            high=self.high,
+        )
 
 
 class CalibrateSetPayload(BaseModel):
@@ -161,14 +181,22 @@ def cli_calibrate_print(
         built = _labels(settings, axes, options=options, sizes=sizes)
         labels, bar = built.labels, built.along_length
         results = {part: build_job(label, options) for part, label in labels.items()}
-        payload = _print_payload(settings, effective_calibration(options), axes=axes, results=list(results.values()))
-        if Axis.ALONG in labels:
-            payload = payload.model_copy(update={"along_length_mm": bar})
+        printed = _Printed(
+            calibration=effective_calibration(options),
+            axes=axes,
+            results=list(results.values()),
+            along_length_mm=bar if Axis.ALONG in labels else None,
+        )
         if not all(result.ok for result in results.values()):
+            fits: float | None = None
+            hint: str | None = None
             if _only_the_along_bar_too_long(results):
-                along = labels[Axis.ALONG]
-                payload = _with_length_hint(payload, along, settings=settings, options=options, below=bar)
-            human = "REFUSED: nothing sent" if payload.hint is None else f"REFUSED: nothing sent\n{payload.hint}"
+                fits = _longest_fit(labels[Axis.ALONG], settings=settings, options=options, below=bar)
+                hint = _length_hint(fits)
+            payload = _print_payload(
+                settings, printed, printer=settings.uri, bytes_sent=0, along_length_that_fits=fits, hint=hint
+            )
+            human = "REFUSED: nothing sent" if hint is None else f"REFUSED: nothing sent\n{hint}"
             return CommandResult(ok=False, payload=payload, human=human)
         uri = require_uri(settings)
         # One send for both formats: a print server can refuse a reconnect for a second or two.
@@ -178,10 +206,11 @@ def cli_calibrate_print(
             timeout=settings.timeout,
             open_printer=printer_opener(cli_ctx, settings),
         )
-        payload = payload.model_copy(update={"printer": uri, "bytes_sent": report.bytes_sent})
-        if payload.along_length_mm is not None:
+        hint = None
+        if printed.along_length_mm is not None:
             measured_against = _set_default_along_length(cli_ctx, given.get("printer"), width=width)
-            payload = _with_set_hint(payload, bar=payload.along_length_mm, measured_against=measured_against)
+            hint = _set_hint(bar=printed.along_length_mm, measured_against=measured_against)
+        payload = _print_payload(settings, printed, printer=uri, bytes_sent=report.bytes_sent, hint=hint)
         human = [f"sent {', '.join(axes)} to {uri}"]
         if payload.along_length_mm is not None:
             human.append(payload.hint or f"along bar {payload.along_length_mm:g} mm")
@@ -205,16 +234,14 @@ def _set_default_along_length(cli_ctx: CLIContext, printer: str | None, *, width
         return None
 
 
-def _with_set_hint(
-    payload: CalibratePrintPayload, *, bar: float, measured_against: float | None
-) -> CalibratePrintPayload:
+def _set_hint(*, bar: float, measured_against: float | None) -> str | None:
     """Name the --along-length 'calibrate set' needs when it would not default to the bar drawn."""
     if measured_against == bar:
-        return payload
+        return None
     hint = f"along bar {bar:g} mm: pass --along-length {bar:g} to 'calibrate set'"
     if measured_against is not None:
         hint += f", which otherwise measures against {measured_against:g} mm"
-    return payload.model_copy(update={"hint": hint})
+    return hint
 
 
 def _only_the_along_bar_too_long(results: dict[Axis, RenderResult]) -> bool:
@@ -225,14 +252,11 @@ def _only_the_along_bar_too_long(results: dict[Axis, RenderResult]) -> bool:
     )
 
 
-def _with_length_hint(
-    payload: CalibratePrintPayload, label: Label, *, settings: PrinterSettings, options: RenderOptions, below: float
-) -> CalibratePrintPayload:
-    """Add the longest along length that fits to the payload of a refused along label."""
+def _longest_fit(label: Label, *, settings: PrinterSettings, options: RenderOptions, below: float) -> float | None:
+    """The longest along length that fits, for a refused along label; None when not even 20 mm does."""
     title = _title(settings, effective_calibration(options).scale_along)
     # along_label always sets the width, so the 0 never reaches longest_along_length.
-    fits = longest_along_length(width=label.width or 0.0, title=title, options=options, below=below)
-    return payload.model_copy(update={"along_length_that_fits": fits, "hint": _length_hint(fits)})
+    return longest_along_length(width=label.width or 0.0, title=title, options=options, below=below)
 
 
 def _length_hint(fits: float | None) -> str:
@@ -248,25 +272,48 @@ def _length_hint(fits: float | None) -> str:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _Printed:
+    """What the calibration labels were built with, whether or not they are sent.
+
+    Attributes:
+        calibration: The factors and offsets the labels printed with.
+        axes: The labels, in print order.
+        results: Each label's render.
+        along_length_mm: The along bar's length; None when no along label was built.
+    """
+
+    calibration: CalibrationDefaults
+    axes: tuple[Axis, ...]
+    results: list[RenderResult]
+    along_length_mm: float | None
+
+
 def _print_payload(
     settings: PrinterSettings,
-    calibration: CalibrationDefaults,
+    printed: _Printed,
     *,
-    axes: tuple[Axis, ...],
-    results: list[RenderResult],
+    printer: str,
+    bytes_sent: int,
+    along_length_that_fits: float | None = None,
+    hint: str | None = None,
 ) -> CalibratePrintPayload:
-    """The payload before anything is sent: the values the labels printed with and every finding."""
+    """The payload: the values the labels printed with, every finding, and what was sent where."""
+    calibration = printed.calibration
     return CalibratePrintPayload(
-        printer=settings.uri,
+        printer=printer,
         name=settings.name,
         model=settings.model,
-        labels=list(axes),
+        labels=list(printed.axes),
         scale_across=calibration.scale_across,
         scale_along=calibration.scale_along,
         offset_across=calibration.offset_across,
         offset_along=calibration.offset_along,
-        bytes_sent=0,
-        findings=[finding for result in results for finding in result.findings],
+        bytes_sent=bytes_sent,
+        findings=[finding for result in printed.results for finding in result.findings],
+        along_length_mm=printed.along_length_mm,
+        along_length_that_fits=along_length_that_fits,
+        hint=hint,
     )
 
 
@@ -391,16 +438,17 @@ def cli_calibrate_set(
             raise ConfigurationError(msg)
         values = {c.key: c.new for c in [*changes, *offsets]}
         written = cli_ctx.services.set_printer_values(printer=name, values=values, profile=cli_ctx.profile)
-        changes = _with_effective(cli_ctx, name, changes)
-        offsets = _with_effective(cli_ctx, name, offsets)
+        effective = _effective_calibration(cli_ctx, name)
+        changes = [c.read_back(effective) for c in changes]
+        offsets = [o.read_back(effective) for o in offsets]
         warnings = [_warning(c, written=str(written)) for c in [*changes, *offsets] if c.effective != c.new]
         for warning in warnings:
             safe_console.echo(warning, err=True)
         payload = CalibrateSetPayload(
             printer=name, file=str(written), changes=changes, offsets=offsets, warnings=warnings
         )
-        human = [f"{c.key} {c.old:g} -> {c.new:g} (measured {c.measured:g} of {c.nominal:g} mm)" for c in changes]
-        human += [f"{o.key} {o.old:g} -> {o.new:g} mm (borders {o.low:g} and {o.high:g} mm)" for o in offsets]
+        human = [f"{c.key.value} {c.old:g} -> {c.new:g} (measured {c.measured:g} of {c.nominal:g} mm)" for c in changes]
+        human += [f"{o.key.value} {o.old:g} -> {o.new:g} mm (borders {o.low:g} and {o.high:g} mm)" for o in offsets]
         return CommandResult(ok=True, payload=payload, human="\n".join([*human, f"written to {written}"]))
 
     run_command(ctx, command="calibrate set", body=body)
@@ -438,9 +486,10 @@ def _printer_name(given: str | None) -> str:
 
 
 def _change(axis: Axis, calibration: CalibrationDefaults, *, measured: float, nominal: float) -> ScaleChange:
-    old = calibration.scale_across if axis is Axis.ACROSS else calibration.scale_along
+    key = CalibrationKey.scale(axis)
+    old = calibration.value(key)
     new = scale_from_measurement(old, measured=measured, nominal=nominal)
-    return ScaleChange(key=f"scale_{axis.value}", measured=measured, nominal=nominal, old=old, new=new, effective=None)
+    return ScaleChange(key=key, measured=measured, nominal=nominal, old=old, new=new, effective=None)
 
 
 def _offsets(
@@ -452,11 +501,12 @@ def _offsets(
     right: float | None,
 ) -> list[OffsetChange]:
     pairs = [
-        ("offset_across", calibration.offset_across, (left, "--left"), (right, "--right")),
-        ("offset_along", calibration.offset_along, (bottom, "--bottom"), (top, "--top")),
+        (CalibrationKey.OFFSET_ACROSS, (left, "--left"), (right, "--right")),
+        (CalibrationKey.OFFSET_ALONG, (bottom, "--bottom"), (top, "--top")),
     ]
     offsets: list[OffsetChange] = []
-    for key, old, (low, low_flag), (high, high_flag) in pairs:
+    for key, (low, low_flag), (high, high_flag) in pairs:
+        old = calibration.value(key)
         if low is None and high is None:
             continue
         if low is None or high is None:
@@ -468,29 +518,29 @@ def _offsets(
     return offsets
 
 
-def _with_effective(cli_ctx: CLIContext, name: str, changes: list[_ChangeT]) -> list[_ChangeT]:
+def _effective_calibration(cli_ctx: CLIContext, name: str) -> CalibrationDefaults | None:
     """Read the configuration again: a .env file, an environment variable or --set can still win.
 
-    The value read back is the effective one, so a key no layer sets reads as the model's default,
-    never as unreadable; ``effective`` stays None only when the configuration does not load.
+    The values read back are the effective ones, so a key no layer sets reads as the model's
+    default, never as unreadable; None only when the configuration does not load.
     """
     loaded = load_config(
         cli_ctx.services, profile=cli_ctx.profile, env_file=cli_ctx.env_file, set_overrides=cli_ctx.set_overrides
     )
     if loaded.error is not None:
-        return changes
+        return None
     settings = printer_settings(loaded.config, PrinterOverrides(printer=name or None))
-    effective = effective_calibration(render_options(settings))
-    return [c.model_copy(update={"effective": getattr(effective, c.key)}) for c in changes]
+    return effective_calibration(render_options(settings))
 
 
 def _warning(change: _Change, *, written: str) -> str:
     if change.effective is None:
         return (
-            f"warning: wrote {change.key} = {change.new:g} to {written}, but the configuration could not be read back"
+            f"warning: wrote {change.key.value} = {change.new:g} to {written}, but the configuration could not be "
+            "read back"
         )
     return (
-        f"warning: {change.key} is {change.effective:g}, not {change.new:g}: a .env file, an environment "
+        f"warning: {change.key.value} is {change.effective:g}, not {change.new:g}: a .env file, an environment "
         f"variable or --set wins over {written}"
     )
 

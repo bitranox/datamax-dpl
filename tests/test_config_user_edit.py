@@ -9,6 +9,7 @@ import tomlkit
 
 from datamax_dpl.adapters.config.loader import get_config
 from datamax_dpl.adapters.config.user_edit import set_user_printer_values, user_layer_files, write_printer_values
+from datamax_dpl.domain.profiles import CalibrationKey
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -39,7 +40,7 @@ def _table(path: Path, *keys: str) -> dict[str, object]:
 def test_a_missing_file_is_created_with_the_printers_section(tmp_path: Path) -> None:
     base = tmp_path / "user" / "config.toml"
 
-    written = write_printer_values([base], printer="lager", values={"scale_along": 0.9721})
+    written = write_printer_values([base], printer="lager", values={CalibrationKey.SCALE_ALONG: 0.9721})
 
     assert written == base
     assert base.read_text(encoding="utf-8") == "[printers.lager]\nscale_along = 0.9721\n"
@@ -50,7 +51,9 @@ def test_comments_and_key_order_survive_and_the_value_is_replaced(tmp_path: Path
     base = tmp_path / "config.toml"
     base.write_text(_COMMENTED, encoding="utf-8")
 
-    write_printer_values([base], printer="lager", values={"scale_along": 0.9721, "scale_across": 0.992})
+    write_printer_values(
+        [base], printer="lager", values={CalibrationKey.SCALE_ALONG: 0.9721, CalibrationKey.SCALE_ACROSS: 0.992}
+    )
 
     text = base.read_text(encoding="utf-8")
     assert text == _COMMENTED.replace("scale_along = 0.977\n", "scale_along = 0.9721\n") + "scale_across = 0.992\n"
@@ -61,7 +64,7 @@ def test_no_name_writes_the_printer_section(tmp_path: Path) -> None:
     base = tmp_path / "config.toml"
     base.write_text(_COMMENTED, encoding="utf-8")
 
-    write_printer_values([base], printer="", values={"scale_along": 0.98})
+    write_printer_values([base], printer="", values={CalibrationKey.SCALE_ALONG: 0.98})
 
     assert _table(base, "printer") == {"model": "allegro-2", "scale_along": 0.98}
 
@@ -75,7 +78,7 @@ def test_the_last_file_holding_the_section_gets_the_value_since_it_wins(tmp_path
     first.write_text("[printers.lager]\nscale_along = 0.977\n", encoding="utf-8")
     second.write_text("[printers.kasse]\nscale_along = 1.01\n", encoding="utf-8")
 
-    written = write_printer_values([base, first, second], printer="lager", values={"scale_along": 0.9721})
+    written = write_printer_values([base, first, second], printer="lager", values={CalibrationKey.SCALE_ALONG: 0.9721})
 
     assert written == first
     assert _table(first, "printers", "lager") == {"scale_along": 0.9721}
@@ -89,7 +92,7 @@ def test_without_the_section_anywhere_the_base_file_gets_it(tmp_path: Path) -> N
     dot_d.parent.mkdir()
     dot_d.write_text("[printer]\n# [printers.lager]\n# scale_along = 0.977\n", encoding="utf-8")
 
-    written = write_printer_values([base, dot_d], printer="lager", values={"scale_along": 0.9721})
+    written = write_printer_values([base, dot_d], printer="lager", values={CalibrationKey.SCALE_ALONG: 0.9721})
 
     assert written == base
 
@@ -113,7 +116,7 @@ def test_the_user_layer_is_the_base_file_then_its_existing_toml_drop_ins_by_name
 def test_the_written_value_is_what_the_next_configuration_load_reads(clear_config_cache: None) -> None:
     assert get_config().get("printers") is None
 
-    written = set_user_printer_values(printer="lager", values={"scale_along": 0.9721})
+    written = set_user_printer_values(printer="lager", values={CalibrationKey.SCALE_ALONG: 0.9721})
 
     assert written == user_layer_files()[0]
     printers = cast("dict[str, dict[str, object]]", get_config().get("printers"))

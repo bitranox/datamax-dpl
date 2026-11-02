@@ -21,7 +21,7 @@ from typing import NamedTuple, TypeVar
 
 from .enums import HardwareOption, ImageModule, ModelFamily, SpeedCode
 from .label import DotSize
-from .units import hundredths_to_mm
+from .units import Axis, hundredths_to_mm
 
 
 class Feature(str, Enum):
@@ -162,6 +162,33 @@ A_SERIES_POINTS: tuple[int, ...] = (4, 5, 6, 8, 10, 12, 14, 18, 24, 30, 36, 48, 
 OLD_SERIES_POINTS: tuple[int, ...] = (5, 6, 8, 10, 12, 14, 18, 24, 30, 36, 48)
 
 
+class CalibrationKey(str, Enum):
+    """A printer's scale factor or offset, as its configuration key names it.
+
+    ``calibrate set`` writes these keys into a printer's section, and a render reports a model
+    default by them.
+
+    Example:
+        >>> CalibrationKey.scale(Axis.ALONG).value, CalibrationKey.offset(Axis.ACROSS).value
+        ('scale_along', 'offset_across')
+    """
+
+    SCALE_ACROSS = "scale_across"
+    SCALE_ALONG = "scale_along"
+    OFFSET_ACROSS = "offset_across"
+    OFFSET_ALONG = "offset_along"
+
+    @classmethod
+    def scale(cls, axis: Axis) -> CalibrationKey:
+        """The scale factor's key on ``axis``."""
+        return cls.SCALE_ACROSS if axis is Axis.ACROSS else cls.SCALE_ALONG
+
+    @classmethod
+    def offset(cls, axis: Axis) -> CalibrationKey:
+        """The offset's key on ``axis``."""
+        return cls.OFFSET_ACROSS if axis is Axis.ACROSS else cls.OFFSET_ALONG
+
+
 @dataclass(frozen=True)
 class CalibrationDefaults:
     """How a model prints, as measured on one printer of it, used where the caller sets nothing.
@@ -197,6 +224,23 @@ class CalibrationDefaults:
     provenance: str = ""
     image_memory_bytes: int | None = None
     image_memory_provenance: str = ""
+
+    def value(self, key: CalibrationKey) -> float:
+        """Return the scale factor or offset ``key`` names.
+
+        Example:
+            >>> CalibrationDefaults(offset_along=-0.25).value(CalibrationKey.OFFSET_ALONG)
+            -0.25
+        """
+        match key:
+            case CalibrationKey.SCALE_ACROSS:
+                return self.scale_across
+            case CalibrationKey.SCALE_ALONG:
+                return self.scale_along
+            case CalibrationKey.OFFSET_ACROSS:
+                return self.offset_across
+            case CalibrationKey.OFFSET_ALONG:
+                return self.offset_along
 
 
 @dataclass(frozen=True)
@@ -1163,6 +1207,7 @@ __all__ = [
     "OLD_SERIES_POINTS",
     "PROFILES",
     "CalibrationDefaults",
+    "CalibrationKey",
     "Feature",
     "Firmware",
     "PrinterProfile",

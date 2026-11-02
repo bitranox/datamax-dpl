@@ -16,6 +16,7 @@ from datamax_dpl.domain.profiles import (
     NO,
     YES,
     CalibrationDefaults,
+    CalibrationKey,
     Feature,
     PrinterProfile,
     Support,
@@ -179,3 +180,14 @@ def test_a_profile_deep_copies_and_dataclasses_asdict_reads_its_features() -> No
     assert copied == profile
     assert copied.features is not profile.features
     assert dataclasses.asdict(profile)["features"] == profile.features
+
+
+@pytest.mark.os_agnostic
+def test_a_calibration_key_reads_the_value_it_names_and_is_the_configuration_key() -> None:
+    calibration = CalibrationDefaults(scale_across=1.1, scale_along=1.2, offset_across=0.3, offset_along=0.4)
+    assert {key.value: calibration.value(key) for key in CalibrationKey} == {
+        "scale_across": 1.1,
+        "scale_along": 1.2,
+        "offset_across": 0.3,
+        "offset_along": 0.4,
+    }
