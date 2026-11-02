@@ -13,14 +13,15 @@ import pytest
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory import FakeCamera, RecordingPrinter, open_recording_printer
-from datamax_dpl.application.use_cases import print_result, render_batch
+from datamax_dpl.application.upload_check import CheckedJob, UploadCheck
+from datamax_dpl.application.use_cases import AnswerWait, print_result, record_renders, render_batch
 from datamax_dpl.application.verify import verify_print
 from datamax_dpl.composition import build_production, build_testing
 from datamax_dpl.domain.camera import CameraKind, CameraSettings
 from datamax_dpl.domain.enums import FallbackPolicy, FindingCode
-from datamax_dpl.domain.errors import LabelRejectedError
+from datamax_dpl.domain.errors import ConfigurationError, LabelRejectedError
 from datamax_dpl.domain.label import Label
-from datamax_dpl.domain.profiles import get_profile
+from datamax_dpl.domain.profiles import UnknownModelError
 from datamax_dpl.domain.render import build_job
 from datamax_dpl.domain.render_context import RenderOptions
 
@@ -81,7 +82,6 @@ def test_a_library_caller_of_verify_print_gets_the_refusal(tmp_path: Path) -> No
         verify_print(
             build_job(label, options),
             label,
-            get_profile("allegro"),
             options=options,
             uri=PRINTER,
             timeout=1.0,
@@ -90,7 +90,56 @@ def test_a_library_caller_of_verify_print_gets_the_refusal(tmp_path: Path) -> No
             open_printer=open_recording_printer(printer),
             capture=camera,
             sleep=lambda _seconds: None,
-            clock=lambda: 0.0,
+        )
+    assert (printer.opened, printer.sent, camera.calls) == ([], [], 0)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("renders", [0, 2])
+def test_verify_print_refuses_a_checked_job_that_is_not_one_label(tmp_path: Path, renders: int) -> None:
+    """The check sends what ``checked`` holds, the picture shows ``label``: they must be the same one."""
+    label = Label.model_validate(SIMPLE)
+    options = RenderOptions(model="allegro-2")
+    printer = RecordingPrinter()
+    camera = FakeCamera()
+    job = CheckedJob(
+        renders=record_renders(label, None, options) * renders, check=UploadCheck(wait=AnswerWait(seconds=1.0))
+    )
+    with pytest.raises(ConfigurationError, match=f"holds {renders} renders; nothing was printed"):
+        verify_print(
+            build_job(label, options),
+            label,
+            options=options,
+            uri=PRINTER,
+            timeout=1.0,
+            camera=CameraSettings(kind=CameraKind.FILE),
+            output_dir=tmp_path,
+            open_printer=open_recording_printer(printer),
+            capture=camera,
+            sleep=lambda _seconds: None,
+            checked=job,
+        )
+    assert (printer.opened, printer.sent, camera.calls) == ([], [], 0)
+
+
+@pytest.mark.os_agnostic
+def test_verify_print_takes_the_expected_pictures_model_from_the_options_before_printing(tmp_path: Path) -> None:
+    """The picture is drawn for the options' model, so an unknown one must stop the job, not follow it."""
+    label = Label.model_validate(SIMPLE)
+    printer = RecordingPrinter()
+    camera = FakeCamera()
+    with pytest.raises(UnknownModelError):
+        verify_print(
+            build_job(label, RenderOptions(model="allegro-2")),
+            label,
+            options=RenderOptions(model="no-such-model"),
+            uri=PRINTER,
+            timeout=1.0,
+            camera=CameraSettings(kind=CameraKind.FILE),
+            output_dir=tmp_path,
+            open_printer=open_recording_printer(printer),
+            capture=camera,
+            sleep=lambda _seconds: None,
         )
     assert (printer.opened, printer.sent, camera.calls) == ([], [], 0)
 

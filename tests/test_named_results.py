@@ -103,7 +103,9 @@ def test_send_checked_returns_the_job_as_sent_and_whether_every_label_went() -> 
     opener = open_recording_printer(printer)
     result = render_label(HELLO, OPTIONS)
     job = CheckedJob(renders=record_renders(HELLO, None, OPTIONS), check=UploadCheck(wait=AnswerWait(seconds=1.0)))
-    link = Link(printer=opener(URI, timeout=1.0), uri=URI, timeout=1.0, open_printer=opener, reconnect=None)
+    link = Link(
+        printer=opener(URI, timeout=1.0), uri=URI, timeout=1.0, open_printer=opener, reconnect=AnswerWait(seconds=1.0)
+    )
 
     send = send_checked(link, result, job)
 

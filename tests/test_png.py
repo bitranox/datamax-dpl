@@ -14,7 +14,7 @@ from hypothesis import strategies as st
 from datamax_dpl.adapters.preview import render_preview_png
 from datamax_dpl.domain.enums import FillPattern, Rotation, Unit
 from datamax_dpl.domain.label import Label, Line, Text
-from datamax_dpl.domain.png import PNG_SIGNATURE, encode_png, encode_png_rgb
+from datamax_dpl.domain.png import PNG_SIGNATURE, encode_png
 from datamax_dpl.domain.preview import canvas_for, preview_bitmap, text_box
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.raster import Bitmap
@@ -112,34 +112,6 @@ def test_large_white_label_compresses_well() -> None:
     assert len(data) < 812 * 1218 // 8 // 4
 
 
-# ======================== 8-bit RGB ========================
-
-
-@pytest.mark.os_agnostic
-def test_rgb_png_round_trips_pixels() -> None:
-    """RGB rows come back byte for byte under colour type 2, depth 8."""
-    pixels = [bytes([255, 0, 0, 0, 255, 0]), bytes([0, 0, 255, 10, 20, 30])]
-    png = read_png(encode_png_rgb(pixels, width=2, height=2))
-    assert (png.width, png.height, png.depth, png.colour) == (2, 2, 8, 2)
-    assert png.scanlines == pixels
-
-
-@pytest.mark.os_agnostic
-@pytest.mark.parametrize(
-    ("pixels", "width", "height", "message"),
-    [
-        ([], 0, 0, "at least 1 x 1"),
-        ([b"\x00\x00\x00"], 1, 2, "expected 2 rows"),
-        ([b"\x00\x00"], 1, 1, "every row must be 3 bytes"),
-        ([b"\x00" * 6, b"\x00" * 3], 2, 2, "every row must be 6 bytes"),
-    ],
-)
-def test_rgb_png_rejects_bad_input(pixels: list[bytes], width: int, height: int, message: str) -> None:
-    """Wrong sizes or row lengths raise ValueError."""
-    with pytest.raises(ValueError, match=message):
-        encode_png_rgb(pixels, width=width, height=height)
-
-
 # ======================== cross-check with Pillow ========================
 
 
@@ -154,18 +126,6 @@ def test_pillow_reads_gray_png_like_the_bitmap() -> None:
         for y in range(14):
             for x in range(22):
                 assert (image.getpixel((x, y)) == 0) == bitmap.get(x // 2, y // 2)
-
-
-@pytest.mark.os_agnostic
-def test_pillow_reads_rgb_png() -> None:
-    """Where Pillow is installed it opens the RGB PNG with the same colours."""
-    image_module = pytest.importorskip("PIL.Image")
-    pixels = [bytes([255, 0, 0, 0, 255, 0]), bytes([0, 0, 255, 10, 20, 30])]
-    with image_module.open(io.BytesIO(encode_png_rgb(pixels, width=2, height=2))) as image:
-        image.load()
-        assert image.mode == "RGB"
-        assert image.getpixel((0, 0)) == (255, 0, 0)
-        assert image.getpixel((1, 1)) == (10, 20, 30)
 
 
 #: Grey level between the black lettering and the white paper.

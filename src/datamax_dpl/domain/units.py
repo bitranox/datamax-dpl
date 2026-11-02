@@ -210,21 +210,6 @@ def to_dots(value: float, unit: Unit, *, dpi: float, correction: Correction = NO
     return max(1, round(exact_dots(value, unit, dpi=dpi, correction=correction)))
 
 
-def from_dpl(value: int, *, source: DplUnit, unit: Unit, dpi: float) -> float:
-    """Convert an integer DPL distance back to ``unit``.
-
-    Example:
-        >>> from_dpl(100, source=DplUnit.INCH_HUNDREDTHS, unit=Unit.MM, dpi=203)
-        25.4
-    """
-    inches = value / source.per_inch
-    if unit is Unit.MM:
-        return round(inches * MM_PER_INCH, 4)
-    if unit is Unit.DOTS:
-        return round(inches * dpi, 4)
-    return round(inches, 6)
-
-
 __all__ = [
     "MAX_OFFSET_MM",
     "MAX_SCALE",
@@ -236,7 +221,6 @@ __all__ = [
     "Correction",
     "DplUnit",
     "exact_dots",
-    "from_dpl",
     "hundredths_to_mm",
     "to_dots",
     "to_dpl",

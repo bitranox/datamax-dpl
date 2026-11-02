@@ -253,15 +253,20 @@ def wait_longer_hint(settings: PrinterSettings) -> str:
     return f"wait longer with {printer_section(settings.name).setting('status_wait')} or --timeout"
 
 
-def _answer_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> AnswerWait:
-    """How long ``status`` and ``memory`` keep trying for the first answer (``--timeout`` already folded in)."""
+def _wait(settings: PrinterSettings, cli_ctx: CLIContext, *, seconds: float, wait_longer: str) -> AnswerWait:
+    """A wait of ``seconds`` on the printer's retry interval and the services' clock and sleep."""
     return AnswerWait(
-        seconds=settings.status_wait,
+        seconds=seconds,
         retry_interval=settings.status_retry_interval,
-        wait_longer=wait_longer_hint(settings),
+        wait_longer=wait_longer,
         clock=cli_ctx.services.clock,
         sleep=cli_ctx.services.sleep,
     )
+
+
+def _answer_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> AnswerWait:
+    """How long ``status`` and ``memory`` keep trying for the first answer (``--timeout`` already folded in)."""
+    return _wait(settings, cli_ctx, seconds=settings.status_wait, wait_longer=wait_longer_hint(settings))
 
 
 def stored_names_wait_longer_hint(settings: PrinterSettings) -> str:
@@ -276,12 +281,8 @@ def stored_names_wait_longer_hint(settings: PrinterSettings) -> str:
 
 def _stored_names_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> AnswerWait:
     """How long ``print`` and ``verify`` keep trying to read the stored image names: ``stored_names_wait``."""
-    return AnswerWait(
-        seconds=settings.stored_names_wait,
-        retry_interval=settings.status_retry_interval,
-        wait_longer=stored_names_wait_longer_hint(settings),
-        clock=cli_ctx.services.clock,
-        sleep=cli_ctx.services.sleep,
+    return _wait(
+        settings, cli_ctx, seconds=settings.stored_names_wait, wait_longer=stored_names_wait_longer_hint(settings)
     )
 
 
@@ -599,7 +600,6 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
             report = verify_print(
                 result,
                 label,
-                get_profile(settings.model),
                 options=options,
                 uri=uri,
                 timeout=settings.timeout,
@@ -608,7 +608,6 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
                 open_printer=printer_opener(cli_ctx, settings),
                 capture=services.capture_image,
                 sleep=services.sleep,
-                clock=services.clock,
                 wait=_idle_wait(settings, cli_ctx),
                 checked=checked,
             )

@@ -20,9 +20,8 @@ from datamax_dpl.application.use_cases import BUSY_HINT, AnswerWait, query_statu
 from datamax_dpl.application.verify import IdleWait, verify_print, wait_idle
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.camera import CameraKind, CameraSettings
-from datamax_dpl.domain.errors import CameraError, PrinterTimeoutError, TransportError
+from datamax_dpl.domain.errors import CameraError, PrinterProtocolError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.label import Label
-from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.render import render
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.timing import DEFAULT_TRANSPORT_TUNING, MAX_ANSWER_SECONDS, TransportTuning
@@ -142,6 +141,16 @@ def _opener(*channels: PrinterTransport) -> Callable[..., PrinterTransport]:
         return next(later)
 
     return open_printer
+
+
+class _DroppedBeforeTheRequest(RecordingPrinter):
+    """A channel that lost its connection before the status request reached the printer."""
+
+    def query(
+        self, request: bytes, *, timeout: float, terminator: bytes = b"\r", lines: int = 1, accept: Any = None
+    ) -> bytes:
+        del request, timeout, terminator, lines, accept
+        raise TransportError("closed before the request", unanswered=True)
 
 
 def _never_opens(uri: str, *, timeout: float) -> PrinterTransport:
@@ -403,7 +412,6 @@ def test_verify_refuses_an_unusable_wait_before_the_label_is_sent(case: str, tmp
         verify_print(
             render(label, options),
             label,
-            get_profile("generic"),
             options=options,
             uri=PRINTER,
             timeout=1.0,
@@ -412,7 +420,6 @@ def test_verify_refuses_an_unusable_wait_before_the_label_is_sent(case: str, tmp
             open_printer=open_recording_printer(printer),
             capture=FakeCamera(),
             sleep=clock.sleep,
-            clock=clock,
             wait=_BAD_WAITS[case](clock),
         )
 
@@ -542,7 +549,6 @@ def test_a_library_caller_without_a_camera_is_not_told_about_a_config_file(tmp_p
         verify_print(
             render(label, options),
             label,
-            get_profile("generic"),
             options=options,
             uri=PRINTER,
             timeout=1.0,
@@ -551,7 +557,37 @@ def test_a_library_caller_without_a_camera_is_not_told_about_a_config_file(tmp_p
             open_printer=open_recording_printer(RecordingPrinter()),
             capture=FakeCamera(),
             sleep=clock.sleep,
-            clock=clock,
         )
     assert "[camera]" not in str(caught.value)
     assert "CameraSettings.kind" in str(caught.value)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("answer", "outcome"),
+    [
+        (b"XNNNNNNNN\r", "refused"),
+        (IDLE, "idle"),  # The control: without it, a channel never reached would also look unleaked.
+    ],
+)
+def test_a_connection_opened_for_a_poll_is_closed_however_its_answer_reads(answer: bytes, outcome: str) -> None:
+    """A poll that opened a new connection hands it back only with a status; a raise must close it here."""
+    second = RecordingPrinter(answers={b"\x01A": answer})
+    clock = Clock()
+
+    def open_second(uri: str, *, timeout: float) -> PrinterTransport:
+        del uri, timeout
+        return second
+
+    def poll() -> PrinterStatus:
+        return wait_idle(
+            _DroppedBeforeTheRequest(), uri=PRINTER, timeout=1.0, open_printer=open_second, wait=_wait(clock)
+        )
+
+    if outcome == "refused":
+        with pytest.raises(PrinterProtocolError):
+            poll()
+    else:
+        assert poll().idle
+    assert second.queries  # The new connection really was asked.
+    assert second.closed

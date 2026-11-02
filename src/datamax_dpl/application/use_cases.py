@@ -4,7 +4,7 @@ Every use case takes its collaborators (printer opener, camera, clock) as keywor
 the CLI wires production adapters and the tests wire in-memory ones.
 
 A job that no clear precedes must not download an image name the printer already holds (it would
-print nothing), so before such a job is printed :func:`with_stored_names` reads the printer's
+print nothing), so before such a job is printed :func:`render_with_stored_names` reads the printer's
 graphic directory and renders again; every other render, and every offline one, reads nothing.
 """
 
@@ -329,18 +329,12 @@ def read_stored_names(
     Returns:
         The channel that answered and what it says ``module`` holds (see :class:`StoredNamesRead`).
     """
-    first = [] if printer is None else [printer]
-
-    def open_first(uri: str, *, timeout: float) -> PrinterTransport:
-        # The first attempt is the open channel itself; only a failure that took no request opens another.
-        return first.pop() if first else open_printer(uri, timeout=timeout)
-
     try:
         asked = _ask_directories(
             kinds=(MemoryKind.GRAPHIC,),
             uri=uri,
             timeout=timeout,
-            open_printer=open_first,
+            open_printer=open_printer if printer is None else _open_channel_first(printer, open_printer),
             idle=DIRECTORY_IDLE_SECONDS,
             wait=wait,
             answer_within_wait=True,
@@ -369,26 +363,6 @@ def _still_arriving(wait: AnswerWait) -> str:
     return f"the answer was still arriving at the end of the {wait.seconds:g} s wait{advice}"
 
 
-def with_stored_names(
-    render: Callable[[HeldImages | None], _Rendered], *, read: Callable[[ImageModule], HeldImages]
-) -> _Rendered:
-    """Render a job to be printed, reading the printer's stored image names first where it needs them.
-
-    The job is rendered once without them. Only when no clear precedes its downloads and it
-    downloads an image (``RenderResult.names_unread``) are the names of its module read with
-    ``read`` and the job rendered again with them; a job that clears first reads nothing.
-
-    Args:
-        render: Renders the job with the given names (None: not asked).
-        read: Returns what the printer holds in the module it is given, e.g. via
-            :func:`stored_image_names`.
-
-    Returns:
-        The job to send.
-    """
-    return render_with_stored_names(render, read=read).result
-
-
 @dataclass(frozen=True)
 class RenderedJob(Generic[_Rendered]):
     """A job rendered to be printed, and the stored image names it was rendered with.
@@ -406,7 +380,16 @@ class RenderedJob(Generic[_Rendered]):
 def render_with_stored_names(
     render: Callable[[HeldImages | None], _Rendered], *, read: Callable[[ImageModule], HeldImages]
 ) -> RenderedJob[_Rendered]:
-    """Render as :func:`with_stored_names` does, and also return the names the job was rendered with.
+    """Render a job to be printed, reading the printer's stored image names first where it needs them.
+
+    The job is rendered once without them. Only when no clear precedes its downloads and it
+    downloads an image (``RenderResult.names_unread``) are the names of its module read with
+    ``read`` and the job rendered again with them; a job that clears first reads nothing.
+
+    Args:
+        render: Renders the job with the given names (None: not asked).
+        read: Returns what the printer holds in the module it is given, e.g. via
+            :func:`stored_image_names`.
 
     Returns:
         The job to send and what the printer was read to hold (see :class:`RenderedJob`).
@@ -596,17 +579,36 @@ def poll_status(
 
     Raises:
         PrinterTimeoutError: The wait ran out without an answer; ``printer`` is then closed.
-        PrinterProtocolError: The answer was not a status string.
+        PrinterProtocolError: The answer was not a status string; a new connection is then closed,
+            ``printer`` stays the caller's.
         TransportError: Any other failure, raised as is.
     """
+    answered = _first_answer(
+        _ask_status,
+        uri=uri,
+        timeout=timeout,
+        open_printer=_open_channel_first(printer, open_printer),
+        wait=wait,
+        started=started,
+    )
+    try:
+        return StatusPoll(channel=answered.channel, status=parse_ascii_status(answered.answer))
+    except PrinterProtocolError:
+        # The caller gets no channel from a raise, so nobody else can close the one opened here.
+        if answered.channel is not printer:
+            answered.channel.close()
+        raise
+
+
+def _open_channel_first(printer: PrinterTransport, open_printer: OpenPrinter) -> OpenPrinter:
+    """An opener whose first attempt is the channel already open, as a retried request needs one."""
     first = [printer]
 
-    def open_again(uri: str, *, timeout: float) -> PrinterTransport:
-        # The first attempt is the open channel itself; only a failure that took no request opens another.
+    def open_once(uri: str, *, timeout: float) -> PrinterTransport:
+        # Only a failure that took no request opens another.
         return first.pop() if first else open_printer(uri, timeout=timeout)
 
-    answered = _first_answer(_ask_status, uri=uri, timeout=timeout, open_printer=open_again, wait=wait, started=started)
-    return StatusPoll(channel=answered.channel, status=parse_ascii_status(answered.answer))
+    return open_once
 
 
 def _ask_status(channel: PrinterTransport, left: float) -> bytes:
@@ -759,7 +761,6 @@ def read_memory_directory(
     open_printer: OpenPrinter,
     idle: float = DIRECTORY_IDLE_SECONDS,
     wait: AnswerWait | None = None,
-    answer_within_wait: bool = False,
 ) -> tuple[MemoryDirectory, ...]:
     """Ask the printer for the memory module directory of each kind (``<STX>W``), in order.
 
@@ -776,9 +777,7 @@ def read_memory_directory(
         open_printer: Opens the channel.
         idle: Seconds of silence that end an answer.
         wait: How long to keep trying for the first answer; None waits ``timeout`` seconds in all.
-        answer_within_wait: True when the first answer's last byte must also arrive within
-            ``wait``, so the wait bounds the read up to the ``idle`` silence that ends it; False
-            leaves an answer that began in time the transport's own bound
+            An answer that began in time has the transport's own bound
             (:data:`~datamax_dpl.domain.timing.MAX_ANSWER_SECONDS`).
 
     Returns:
@@ -801,7 +800,7 @@ def read_memory_directory(
         open_printer=open_printer,
         idle=idle,
         wait=wait,
-        answer_within_wait=answer_within_wait,
+        answer_within_wait=False,
     )
     asked.channel.close()
     return asked.answer
@@ -818,6 +817,9 @@ def _ask_directories(
     answer_within_wait: bool,
 ) -> _Answered[tuple[MemoryDirectory, ...]]:
     """Ask for each directory of ``kinds`` (at least one) as :func:`read_memory_directory` does.
+
+    ``answer_within_wait`` True makes the first answer's last byte arrive within ``wait`` too, so
+    the wait bounds the read up to the ``idle`` silence that ends it.
 
     Returns the channel that answered, still open, and the directories. A failure closes every
     channel it opened and raises as :func:`read_memory_directory` does.
@@ -918,5 +920,4 @@ __all__ = [
     "send_bytes",
     "send_command",
     "stored_image_names",
-    "with_stored_names",
 ]

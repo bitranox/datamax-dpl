@@ -287,18 +287,6 @@ class Severity(str, Enum):
     ERROR = "error"
 
 
-class LineDirection(str, Enum):
-    """Orientation of an axis-aligned line.
-
-    Example:
-        >>> LineDirection.HORIZONTAL.value
-        'horizontal'
-    """
-
-    HORIZONTAL = "horizontal"
-    VERTICAL = "vertical"
-
-
 class FindingCode(str, Enum):
     """Stable identifier of a finding, the value scripts and LLMs match on.
 
@@ -634,7 +622,6 @@ __all__ = [
     "FindingCode",
     "HardwareOption",
     "ImageModule",
-    "LineDirection",
     "MediaSensor",
     "MediaType",
     "MemoryKind",

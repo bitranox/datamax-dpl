@@ -319,6 +319,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A status poll that opened a new connection closes it when the answer is not
+  a status string.
+- `verify_print` takes the model from `options` and has lost its `profile` and
+  `clock` parameters: a profile for another model drew the wrong expected
+  picture. A `checked` job that is not exactly one label is refused with
+  `ConfigurationError` before anything is printed.
 - Filling a placeholder stops one character past the field's limit (a QR
   repeating a 3 MiB value took 4.46 GB to be refused), `explain` stops at
   100000 commands and reports the rest as not explained (16 MiB of CR took 15

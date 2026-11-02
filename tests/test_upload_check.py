@@ -35,7 +35,6 @@ from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, M
 from datamax_dpl.domain.errors import ConfigurationError, LabelRejectedError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.held_images import HeldImages
 from datamax_dpl.domain.label import Image, Label, Qr, Text
-from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.render import RenderedRecord, RenderResult, build_jobs, build_record
 from datamax_dpl.domain.render_context import RenderOptions, drawn_image_name
@@ -1285,7 +1284,6 @@ def test_verify_refused_by_the_upload_check_sends_no_format_and_takes_no_photo(t
         verify_print(
             _single(result),
             label,
-            get_profile("allegro-2"),
             options=ALLEGRO,
             uri=URI,
             timeout=5.0,
@@ -1294,7 +1292,6 @@ def test_verify_refused_by_the_upload_check_sends_no_format_and_takes_no_photo(t
             open_printer=open_recording_printer(printer),
             capture=capture,
             sleep=lambda _seconds: None,
-            clock=lambda: 0.0,
             checked=job,
         )
 
@@ -1399,7 +1396,6 @@ def test_verify_checks_the_upload_and_draws_the_expected_picture_from_the_halved
     report = verify_print(
         _single(result),
         label,
-        get_profile("allegro-2"),
         options=ALLEGRO,
         uri=URI,
         timeout=5.0,
@@ -1408,7 +1404,6 @@ def test_verify_checks_the_upload_and_draws_the_expected_picture_from_the_halved
         open_printer=open_recording_printer(printer),
         capture=capture,
         sleep=lambda _seconds: None,
-        clock=lambda: 0.0,
         checked=job,
     )
 
@@ -1806,7 +1801,7 @@ def test_send_checked_refuses_a_result_and_renders_that_disagree_before_sending(
         uri=URI,
         timeout=1.0,
         open_printer=open_recording_printer(printer),
-        reconnect=None,
+        reconnect=AnswerWait(seconds=1.0),
     )
     with pytest.raises(ConfigurationError, match=r"3 labels.*2 renders"):
         send_checked(link, result, job)

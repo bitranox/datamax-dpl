@@ -29,8 +29,8 @@ from datamax_dpl.application.use_cases import (
     print_result,
     render_batch,
     render_label,
+    render_with_stored_names,
     stored_image_names,
-    with_stored_names,
 )
 from datamax_dpl.composition import build_production
 from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, MemoryKind, Severity
@@ -732,7 +732,7 @@ def _print(printer: RecordingPrinter, label: Label, options: RenderOptions) -> R
     def read(module: ImageModule) -> HeldImages:
         return stored_image_names(module=module, uri="tcp://192.0.2.60:9100", timeout=1.0, open_printer=opener)
 
-    result = with_stored_names(lambda held: render_label(label, options, held=held), read=read)
+    result = render_with_stored_names(lambda held: render_label(label, options, held=held), read=read).result
     print_result(result, uri="tcp://192.0.2.60:9100", timeout=1.0, open_printer=opener)
     return result
 

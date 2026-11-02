@@ -15,9 +15,10 @@ from typing import TYPE_CHECKING, NamedTuple
 from pydantic import BaseModel, ConfigDict
 
 from ..domain.camera import CameraKind, CameraSettings, CapturedImage
-from ..domain.errors import CameraError, LabelRejectedError, PrinterTimeoutError
+from ..domain.errors import CameraError, ConfigurationError, LabelRejectedError, PrinterTimeoutError
 from ..domain.png import encode_png
 from ..domain.preview import preview_bitmap
+from ..domain.profiles import get_profile
 from ..domain.render import RenderResult
 from ..domain.status import PrinterStatus
 from ..domain.timing import MAX_TIMEOUT_SECONDS, TimeoutName, check_timeout
@@ -28,9 +29,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from ..domain.label import Label
-    from ..domain.profiles import PrinterProfile
     from ..domain.render_context import RenderOptions
-    from .ports import CaptureImage, Clock, OpenPrinter, PrinterTransport, Sleep
+    from .ports import CaptureImage, OpenPrinter, PrinterTransport, Sleep
 
 #: Default of ``[printer] verify_poll_interval``: seconds between two status polls while the label prints.
 POLL_SECONDS = 0.5
@@ -212,16 +212,14 @@ def _send_checked_and_wait(link: Link, checked: CheckedJob, *, wait: IdleWait) -
     send = send_checked_label(link, checked)
     if not send.all_sent:
         raise UploadRefusedError(send.result, bytes_sent=link.bytes_sent)
-    # The rest of the job went out on the channel that answered the last read, so one is open.
-    channel = link.printer or link.open_printer(link.uri, timeout=link.timeout)
-    status = wait_idle(channel, uri=link.uri, timeout=link.timeout, open_printer=link.open_printer, wait=wait)
+    # On the channel the rest of the job went out on, or a new one that closes with the link.
+    status = wait_idle(link.channel(), uri=link.uri, timeout=link.timeout, open_printer=link.open_printer, wait=wait)
     return _Printed(result=send.result, bytes_sent=link.bytes_sent, status=status)
 
 
 def verify_print(
     result: RenderResult,
     label: Label,
-    profile: PrinterProfile,
     *,
     options: RenderOptions,
     uri: str,
@@ -231,7 +229,6 @@ def verify_print(
     open_printer: OpenPrinter,
     capture: CaptureImage,
     sleep: Sleep,
-    clock: Clock,
     wait: IdleWait | None = None,
     checked: CheckedJob | None = None,
 ) -> VerifyReport:
@@ -239,13 +236,15 @@ def verify_print(
 
     ``options`` are the ones ``result`` was rendered with: the expected picture places each field
     at the row and column that job writes, its images as the job sent them. ``wait`` is how long
-    the printer may take to finish (see :class:`IdleWait`); None waits ``timeout`` seconds in all
-    on ``clock`` and ``sleep``. ``checked`` sends a label that downloads an image after its upload
-    check on a two-way channel (see :mod:`~datamax_dpl.application.upload_check`); None sends the
-    job at once.
+    the printer may take to finish (see :class:`IdleWait`); None waits ``timeout`` seconds in all.
+    ``checked`` sends a label that downloads an image after its upload check on a two-way channel
+    (see :mod:`~datamax_dpl.application.upload_check`); None sends the job at once.
 
     Raises:
         LabelRejectedError: The job has error findings; nothing was printed.
+        ConfigurationError: ``checked`` does not hold exactly the one label this prints; nothing
+            was printed.
+        UnknownModelError: ``options.model`` names no profile; nothing was printed.
         UploadRefusedError: The printer did not list the label's images after every round, or the
             label, rendered again for what the printer then held, has an error finding; its format
             was not sent, and no photo was taken.
@@ -261,7 +260,11 @@ def verify_print(
         # The domain's field, not a config key: a library caller passes CameraSettings directly.
         msg = "no camera configured (CameraSettings.kind is none); nothing was printed"
         raise CameraError(msg)
-    idle_wait = IdleWait(answer=AnswerWait(seconds=timeout, clock=clock, sleep=sleep)) if wait is None else wait
+    if checked is not None and len(checked.renders) != 1:
+        msg = f"verify prints one label; the checked job holds {len(checked.renders)} renders; nothing was printed"
+        raise ConfigurationError(msg)
+    profile = get_profile(options.model)
+    idle_wait = IdleWait(answer=AnswerWait(seconds=timeout, sleep=sleep)) if wait is None else wait
     # Before the job goes out: refused afterwards, it would leave a label printed and not photographed.
     check_idle_wait(idle_wait)
     printed = _print_and_wait(

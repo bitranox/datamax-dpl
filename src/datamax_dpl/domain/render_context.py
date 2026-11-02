@@ -569,7 +569,8 @@ class RenderContext:
             return f"{self.profile.name} does not have it"
         if support.min_firmware is not None:
             needed = support.min_firmware
-            return f"{self.profile.name} needs firmware {needed.major}.{needed.minor:02d} or later (pass --firmware)"
+            version = f"{needed.major}.{needed.minor:02d}"
+            return f"{self.profile.name} needs firmware {version} or later (the firmware setting)"
         option = support.option.value if support.option is not None else ""
         return f"{self.profile.name} needs the '{option}' option installed"
 

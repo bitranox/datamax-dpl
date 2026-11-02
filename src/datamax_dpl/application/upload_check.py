@@ -211,7 +211,7 @@ class Link:
         timeout: Seconds for each connect and write.
         open_printer: Opens a new channel.
         reconnect: How long a send keeps trying to open a new channel where a failed read left
-            none (``stored_names_wait``, as the read itself); None connects once.
+            none (``stored_names_wait``, as the read itself).
         bytes_sent: Job bytes written so far, the directory requests not counted.
     """
 
@@ -219,7 +219,7 @@ class Link:
     uri: str
     timeout: float
     open_printer: OpenPrinter
-    reconnect: AnswerWait | None
+    reconnect: AnswerWait
     bytes_sent: int = 0
     _opened: list[PrinterTransport] = field(default_factory=list["PrinterTransport"])
 
@@ -236,17 +236,17 @@ class Link:
         if self.printer is not None and self.printer.peer_closed():
             self.printer.close()
             self.printer = None
+        self.channel().send(data)
+        self.bytes_sent += len(data)
+
+    def channel(self) -> PrinterTransport:
+        """The open channel, a new one when a failed read left none; :meth:`close_opened` closes a new one."""
         if self.printer is None:
-            self.printer = (
-                self.open_printer(self.uri, timeout=self.timeout)
-                if self.reconnect is None
-                else open_within(
-                    uri=self.uri, timeout=self.timeout, open_printer=self.open_printer, wait=self.reconnect
-                )
+            self.printer = open_within(
+                uri=self.uri, timeout=self.timeout, open_printer=self.open_printer, wait=self.reconnect
             )
             self._opened.append(self.printer)
-        self.printer.send(data)
-        self.bytes_sent += len(data)
+        return self.printer
 
     def read(self, module: ImageModule, *, wait: AnswerWait) -> HeldImages:
         """Read what ``module`` holds on the open channel; keep the channel that answered."""
