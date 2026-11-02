@@ -20,7 +20,7 @@ from datamax_dpl.application.use_cases import BUSY_HINT, AnswerWait, query_statu
 from datamax_dpl.application.verify import IdleWait, verify_print, wait_idle
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.camera import CameraKind, CameraSettings
-from datamax_dpl.domain.errors import PrinterTimeoutError, TransportError
+from datamax_dpl.domain.errors import CameraError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.label import Label
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.render import render
@@ -530,3 +530,28 @@ def test_verify_on_a_one_way_channel_waits_the_configured_settle(cli_runner: Cli
 
     assert envelope["exit_code"] == 0, envelope
     assert clock.sleeps == [2.5, 1.0]
+
+
+@pytest.mark.os_agnostic
+def test_a_library_caller_without_a_camera_is_not_told_about_a_config_file(tmp_path: Path) -> None:
+    """verify_print takes CameraSettings directly, so the refusal names that, not a [camera] section."""
+    clock = Clock()
+    label = Label.model_validate(LABEL)
+    options = RenderOptions(model="generic")
+    with pytest.raises(CameraError) as caught:
+        verify_print(
+            render(label, options),
+            label,
+            get_profile("generic"),
+            options=options,
+            uri=PRINTER,
+            timeout=1.0,
+            camera=CameraSettings(),
+            output_dir=tmp_path,
+            open_printer=open_recording_printer(RecordingPrinter()),
+            capture=FakeCamera(),
+            sleep=clock.sleep,
+            clock=clock,
+        )
+    assert "[camera]" not in str(caught.value)
+    assert "CameraSettings.kind" in str(caught.value)

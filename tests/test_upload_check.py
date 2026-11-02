@@ -19,15 +19,22 @@ from printer_server import ImageModules, ModulePrinter, module_printer, module_p
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
-from datamax_dpl.application.upload_check import CheckedJob, UploadCheck, UploadRefusedError, print_checked
+from datamax_dpl.application.upload_check import (
+    CheckedJob,
+    Link,
+    UploadCheck,
+    UploadRefusedError,
+    print_checked,
+    send_checked,
+)
 from datamax_dpl.application.use_cases import AnswerWait, BatchResult, record_renders, render_batch, render_label
 from datamax_dpl.application.verify import verify_print
 from datamax_dpl.composition import build_production
 from datamax_dpl.domain.camera import CameraKind, CameraSettings, CapturedImage
 from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, MediaType, MemoryKind, Severity
-from datamax_dpl.domain.errors import LabelRejectedError, PrinterTimeoutError, TransportError
+from datamax_dpl.domain.errors import ConfigurationError, LabelRejectedError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.held_images import HeldImages
-from datamax_dpl.domain.label import Image, Label, Qr
+from datamax_dpl.domain.label import Image, Label, Qr, Text
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.render import RenderedRecord, RenderResult, build_jobs, build_record
@@ -1647,3 +1654,44 @@ def test_a_batch_cut_across_records_sits_in_each_records_job_and_the_jobs_join_t
     assert batch.cut_after == (False, True, True)
     assert b"".join(batch.record_jobs()) == batch.data
     assert [job.count(STX + b"o") for job in batch.record_jobs()] == [0, 1, 1]
+
+
+def _two_label_mismatch() -> tuple[BatchResult, CheckedJob]:
+    """A result for three records and renders for two: the two arguments describe different batches."""
+    label = Label(elements=[Text(x=1, y=1, text="{n}")])
+    options = RenderOptions(model="dmx-600")
+    three = [{"n": "1"}, {"n": "2"}, {"n": "3"}]
+    result = render_batch(label, three, options)
+    return result, CheckedJob(renders=record_renders(label, three[:2], options), check=_check())
+
+
+@pytest.mark.os_agnostic
+def test_print_checked_refuses_a_result_and_renders_that_disagree_before_opening_the_printer() -> None:
+    """Two labels printed and then a raw zip error is what a mismatch did; nothing may go out."""
+    result, job = _two_label_mismatch()
+    opened: list[str] = []
+
+    def open_printer(uri: str, *, timeout: float) -> PrinterTransport:
+        opened.append(uri)
+        raise AssertionError("the printer must not be opened")
+
+    with pytest.raises(ConfigurationError, match="3 labels.*2 renders"):
+        print_checked(result, job, uri=URI, timeout=1.0, open_printer=open_printer)
+    assert opened == []
+
+
+@pytest.mark.os_agnostic
+def test_send_checked_refuses_a_result_and_renders_that_disagree_before_sending() -> None:
+    """The same check holds for a caller with its own link."""
+    result, job = _two_label_mismatch()
+    printer = RecordingPrinter()
+    link = Link(
+        printer=printer,
+        uri=URI,
+        timeout=1.0,
+        open_printer=open_recording_printer(printer),
+        reconnect=None,
+    )
+    with pytest.raises(ConfigurationError, match="3 labels.*2 renders"):
+        send_checked(link, result, job)
+    assert printer.data == b""

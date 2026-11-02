@@ -51,6 +51,23 @@ _CAPTURE_BY_KIND: Mapping[CameraKind, _Capture] = MappingProxyType(
 CAPTURE_STAMP_FORMAT = "%Y%m%dT%H%M%S%fZ"
 
 
+def require_camera(settings: CameraSettings) -> None:
+    """Refuse settings that name no camera, naming the key that does.
+
+    Raises:
+        CameraError: ``kind`` names no camera.
+
+    Example:
+        >>> from datamax_dpl.domain.camera import CameraSettings
+        >>> require_camera(CameraSettings())
+        Traceback (most recent call last):
+        ...
+        datamax_dpl.domain.errors.CameraError: no camera configured: set [camera] kind
+    """
+    if settings.kind not in _CAPTURE_BY_KIND:
+        raise CameraError(f"no camera configured: set {CAMERA_SECTION.setting('kind')}")
+
+
 def capture_image(settings: CameraSettings, *, output_dir: Path) -> CapturedImage:
     """Take one photo with the configured camera and store it in ``output_dir``.
 
@@ -73,9 +90,8 @@ def capture_image(settings: CameraSettings, *, output_dir: Path) -> CapturedImag
         ...
         datamax_dpl.domain.errors.CameraError: no camera configured: set [camera] kind
     """
-    capture = _CAPTURE_BY_KIND.get(settings.kind)
-    if capture is None:
-        raise CameraError(f"no camera configured: set {CAMERA_SECTION.setting('kind')}")
+    require_camera(settings)
+    capture = _CAPTURE_BY_KIND[settings.kind]
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -97,4 +113,5 @@ __all__ = [
     "capture_image",
     "capture_with_command",
     "capture_with_http",
+    "require_camera",
 ]

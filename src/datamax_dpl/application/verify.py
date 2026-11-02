@@ -258,7 +258,8 @@ def verify_print(
         msg = "label has errors; nothing was printed"
         raise LabelRejectedError(msg)
     if camera.kind is CameraKind.NONE:
-        msg = "no camera configured: set [camera] kind; nothing was printed"
+        # The domain's field, not a config key: a library caller passes CameraSettings directly.
+        msg = "no camera configured (CameraSettings.kind is none); nothing was printed"
         raise CameraError(msg)
     idle_wait = IdleWait(answer=AnswerWait(seconds=timeout, clock=clock, sleep=sleep)) if wait is None else wait
     # Before the job goes out: refused afterwards, it would leave a label printed and not photographed.

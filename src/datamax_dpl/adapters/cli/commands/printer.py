@@ -28,14 +28,16 @@ from ....application.use_cases import (
     stored_image_names,
 )
 from ....application.verify import IdleWait, verify_print
+from ....domain.camera import CameraSettings
 from ....domain.enums import ImageModule, MemoryKind, Severity, StatusProblem
+from ....domain.errors import CameraError, PreviewTooLongError
 from ....domain.held_images import HeldImages
 from ....domain.memory import NO_MODULES_MEANING, MemoryDirectory
-from ....domain.errors import PreviewTooLongError
 from ....domain.preview import canvas_for, check_preview_length
 from ....domain.profiles import get_profile
 from ....domain.render import RenderResult
 from ....domain.status import PrinterStatus
+from ...camera import require_camera
 from ...config.sections import CAMERA_SECTION, PREVIEW_SECTION, printer_section
 from ...preview import pillow_available, preview_findings, render_preview_png
 from ...transport.uri import is_one_way, parse_printer_uri
@@ -530,6 +532,19 @@ class VerifyPayload(BaseModel):
     expected: str
 
 
+def _printable_camera(camera: CameraSettings) -> CameraSettings:
+    """Return settings that name a camera, refusing before any label goes out.
+
+    Raises:
+        CameraError: They name none; no label was printed.
+    """
+    try:
+        require_camera(camera)
+    except CameraError as exc:
+        raise CameraError(f"{exc}; nothing was printed") from exc
+    return camera
+
+
 @click.command("verify", context_settings=CLICK_CONTEXT_SETTINGS)
 @argument("label_source", metavar="LABEL")
 @option("--output-dir", default=".", help="Folder for the photo and the expected preview.")
@@ -554,6 +569,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
             return CommandResult(ok=False, payload=render_payload(result, include_dpl=False), human="REFUSED")
         folder = Path(output_dir)
         services = cli_ctx.services
+        camera = _printable_camera(camera_settings(loaded_config(cli_ctx)))
         checked = (
             None
             if link.one_way
@@ -571,7 +587,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
                 options=options,
                 uri=uri,
                 timeout=settings.timeout,
-                camera=camera_settings(loaded_config(cli_ctx)),
+                camera=camera,
                 output_dir=folder,
                 open_printer=printer_opener(cli_ctx, settings),
                 capture=services.capture_image,

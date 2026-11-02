@@ -60,7 +60,7 @@ from typing import TYPE_CHECKING, Generic, NamedTuple, TypedDict, TypeVar
 
 from ..domain.batch import with_cut
 from ..domain.enums import FindingCode, ImageModule, Severity
-from ..domain.errors import LabelRejectedError
+from ..domain.errors import ConfigurationError, LabelRejectedError
 from ..domain.findings import Finding
 from ..domain.frozen_mapping import FrozenMapping
 from ..domain.held_images import EMPTY_MODULE, HeldImages
@@ -737,6 +737,18 @@ class _LabelsSent:
     all_sent: bool
 
 
+def _refuse_mismatch(result: RenderResult | BatchResult, job: CheckedJob) -> None:
+    """Refuse a result and renders describing different batches, before a label of either goes out.
+
+    Raises:
+        ConfigurationError: Their label counts differ.
+    """
+    labels = len(result.results) if isinstance(result, BatchResult) else 1
+    if labels != len(job.renders):
+        msg = f"the job holds {labels} labels but {len(job.renders)} renders; nothing was sent"
+        raise ConfigurationError(msg)
+
+
 def _send_labels(link: Link, job: CheckedJob, *, cuts: Sequence[bool]) -> _LabelsSent:
     """Send each label of ``job`` in turn, with a batch cut after each label ``cuts`` marks."""
     sent: list[RenderResult] = []
@@ -775,7 +787,11 @@ def send_checked(
     Returns:
         The job as it went out, each label reached with the rounds' findings, and whether every
         label was sent (see :class:`CheckedSend`).
+
+    Raises:
+        ConfigurationError: ``result`` and ``job.renders`` hold different numbers of labels.
     """
+    _refuse_mismatch(result, job)
     if not isinstance(result, BatchResult):
         return send_checked_label(link, job)
     # Refused before the first record goes out: a record that downloads nothing would print, and
@@ -808,11 +824,14 @@ def print_checked(
             (``image_upload_render_refused``); its format and everything after it were not sent.
             Or the job downloads into module C, which no directory lists
             (``image_module_unlisted``); nothing was sent.
+        ConfigurationError: ``result`` and ``job.renders`` hold different numbers of labels; nothing
+            was sent.
         TransportError: The printer could not be reached or written.
     """
     if not result.ok:
         msg = "label has errors; nothing was sent"
         raise LabelRejectedError(msg)
+    _refuse_mismatch(result, job)
     printer = open_printer(uri, timeout=timeout)
     link = Link(printer=printer, uri=uri, timeout=timeout, open_printer=open_printer, reconnect=job.check.wait)
     try:

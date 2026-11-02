@@ -20,6 +20,7 @@ import datamax_dpl
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.commands.printer import KindChoice
 from datamax_dpl.adapters.cli.envelope import CommandName
+from datamax_dpl.adapters.config.sections import CAMERA_SECTION
 from datamax_dpl.adapters.memory import FakeCamera, PrinterOpen, RecordingPrinter
 from datamax_dpl.adapters.preview import render_preview_png
 from datamax_dpl.composition import build_testing
@@ -549,6 +550,9 @@ def test_verify_without_a_camera_prints_nothing(cli_runner: CliRunner, tmp_path:
     result = run(cli_runner, ["--json", "verify", label, "--printer", PRINTER], factory(printer))
     assert result.exit_code == 2
     assert envelope(result)["error"] == "CameraError"
+    # The one key spelling lives in the camera adapter, so a renamed section cannot leave this behind.
+    key = CAMERA_SECTION.setting("kind")
+    assert envelope(result)["message"] == f"no camera configured: set {key}; nothing was printed"
     assert printer.data == b""
 
 

@@ -260,6 +260,9 @@ All notable changes to this project are documented here. The format follows
   `timeout`). The CLI's command helpers take typed values: `PrinterOverrides`
   for `resolve_settings` and `labels.build`, `CommandName` for `run_command`
   and `report_failure`.
+- A library caller of `verify_print` with no camera is told
+  `CameraSettings.kind is none`, not a config section it may not have; the CLI
+  still names `[camera] kind`.
 
 ### Removed
 
@@ -329,6 +332,9 @@ All notable changes to this project are documented here. The format follows
 - `fill_label` then `render` or `build_job` on a label using the `{{ }}`
   escape no longer warns `placeholders_unfilled` about the literal braces: the
   label carries that it was filled (`Label.filled`).
+- `print_checked` and `send_checked` refuse a result and `job.renders` holding
+  different numbers of labels with `ConfigurationError` before the printer is
+  opened; `send_checked` raised a bare `ValueError` after sending the setup.
 
 ## [0.4.0] - 2026-10-30
 
