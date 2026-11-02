@@ -540,7 +540,7 @@ _MOST_GROWTH = 1.5
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("command", ["validate", "render", "print"])
+@pytest.mark.parametrize("command", ["validate", "render", "print", "print-one-way"])
 def test_peak_memory_does_not_grow_with_the_records(command: str, tmp_path: Path) -> None:
     few = _peak(command, _FEW, tmp_path / "few")
     many = _peak(command, _MANY, tmp_path / "many")

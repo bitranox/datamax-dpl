@@ -3,10 +3,11 @@
 A test runs this as a script: a figure taken inside the suite would hold everything the suite has
 imported and left behind.
 
-The environment says what to run: ``PEAK_COMMAND`` is ``validate``, ``render`` (to a file) or ``print``
-(over TCP to a printer that keeps nothing), ``PEAK_RECORDS`` how many records, ``PEAK_DIRECTORY`` where
-its files go. ``PEAK_UNTRACED`` measures nothing and leaves the figure to whatever started it
-(``ru_maxrss``): tracing a large batch takes minutes.
+The environment says what to run: ``PEAK_COMMAND`` is ``validate``, ``render`` (to a file), ``print``
+(over TCP to a printer that keeps nothing) or ``print-one-way`` (to a file, a link that reads no
+answer), ``PEAK_RECORDS`` how many records, ``PEAK_DIRECTORY`` where its files go.
+``PEAK_UNTRACED`` measures nothing and leaves the figure to whatever started it (``ru_maxrss``):
+tracing a large batch takes minutes.
 """
 
 from __future__ import annotations
@@ -47,6 +48,8 @@ def _arguments(command: str, directory: Path, *, port: int) -> list[str]:
     common = [label, "--data", data, "--model", "dmx-600"]
     if command == "print":
         return ["--json-bare", "print", *common, "--printer", f"tcp://127.0.0.1:{port}"]
+    if command == "print-one-way":
+        return ["--json-bare", "print", *common, "--printer", f"file:{directory / 'sent.dpl'}"]
     if command == "render":
         return ["--json-bare", "render", *common, "-o", str(directory / "job.dpl")]
     return ["--json-bare", "validate", *common]
