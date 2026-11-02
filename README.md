@@ -131,7 +131,9 @@ result without raising. For data records use `render_batch(label, records, optio
 every label. For a large batch `iter_batch(label, records, options)` yields one `RenderResult` at a
 time and reads one record ahead, and `check_batch(label, records, options)` goes over all of them and
 returns a `BatchReport` holding no job, whose `renders()` goes to `print_checked` and whose
-`record_jobs()` yields the job's pieces: memory does not grow with the records. To send
+`record_jobs()` yields the job's pieces: memory does not grow with the records. Time does: each
+record renders once to check and once to send, and on a two-way link each label with a new image costs
+its directory read, about 1 s plus the printer's answer, about 17 minutes per 1000 distinct codes. To send
 bytes open a transport with `open_printer(uri, timeout=10)` and call `send(data)` on it. `explain(data)`
 reads DPL bytes back, as the command `datamax-dpl explain job.dpl` does. All of these are imported
 from `datamax_dpl`.
