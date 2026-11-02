@@ -139,11 +139,23 @@ def _figures(result: RenderResult | BatchReport, *, settings: PrinterSettings) -
     )
 
 
+class ShownJob(NamedTuple):
+    """The DPL a payload shows.
+
+    Attributes:
+        job: The bytes, which go in as text.
+        with_base64: Whether they go in as base64 too, which only an envelope shows: on a large job
+            that is a third more than the job, for no reader.
+    """
+
+    job: bytes | bytearray
+    with_base64: bool = False
+
+
 def render_payload(
     result: RenderResult | BatchReport,
     *,
-    job: bytes | bytearray | None = None,
-    with_base64: bool = False,
+    shown: ShownJob | None = None,
     output: str | None = None,
     sent: SentTo | None = None,
     settings: PrinterSettings | None = None,
@@ -152,9 +164,7 @@ def render_payload(
 
     Args:
         result: What was rendered.
-        job: The DPL to put in the payload as text; None shows none.
-        with_base64: Whether it goes in as base64 too, which only an envelope shows: on a large
-            job that is a third more than the job, for no reader.
+        shown: The DPL to put in the payload; None shows none.
         output: The file the DPL was written to, if any.
         sent: The printer the job went to and how many bytes reached it, if anything was sent.
         settings: The merged settings, for the names of the keys that keep more of a batch.
@@ -172,8 +182,8 @@ def render_payload(
         findings_total=figures.findings_total,
         findings_by_code=figures.findings_by_code,
         report_note=figures.note,
-        dpl=None if job is None else readable(job),
-        dpl_base64=base64.b64encode(job).decode("ascii") if job is not None and with_base64 else None,
+        dpl=None if shown is None else readable(shown.job),
+        dpl_base64=base64.b64encode(shown.job).decode("ascii") if shown is not None and shown.with_base64 else None,
         output=output,
         printer=None if sent is None else sent.printer,
         bytes_sent=None if sent is None else sent.bytes_sent,
@@ -220,13 +230,14 @@ def _counts_of_a_cut(payload: RenderPayload) -> str:
 _TOLD_INFOS = (FindingCode.PRINTER_RESET_CALIBRATED, FindingCode.PRINTER_RESET_NOT_CALIBRATED)
 
 
-def _worth_telling(finding: FindingOut) -> bool:
+def worth_telling(finding: FindingOut) -> bool:
+    """Whether a person is told of ``finding`` when the job went out: what they would else find only on paper."""
     return finding.severity is not Severity.INFO or finding.code in _TOLD_INFOS
 
 
 def went_out_text(payload: RenderPayload) -> str:
     """The human view of a job that went out: what a reader would otherwise find only on the paper."""
-    return payload_findings_text(payload, [f for f in payload.findings if _worth_telling(f)])
+    return payload_findings_text(payload, [f for f in payload.findings if worth_telling(f)])
 
 
 def refused_text(payload: RenderPayload) -> str:
@@ -249,9 +260,11 @@ __all__ = [
     "FindingOut",
     "RenderPayload",
     "SentTo",
+    "ShownJob",
     "findings_text",
     "payload_findings_text",
     "refused_text",
     "render_payload",
     "went_out_text",
+    "worth_telling",
 ]

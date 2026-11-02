@@ -24,7 +24,7 @@ from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
 from ..job_file import write_batch
 from ..label_io import STDIN, LabelInputError, Records, load_label, load_records, read_input
-from ..payloads import RenderPayload, payload_findings_text, refused_text, render_payload, went_out_text
+from ..payloads import RenderPayload, ShownJob, payload_findings_text, refused_text, render_payload, went_out_text
 from ..runner import CommandResult, run_command
 from ..settings import render_options, report_limits
 from ..typed_click import argument, option
@@ -131,7 +131,9 @@ class _JobHolder:
             self.job.clear()
 
 
-def _batch_held_whole(label: Label, records: Records, options: RenderOptions, settings: PrinterSettings) -> _RenderedJob:
+def _batch_held_whole(
+    label: Label, records: Records, options: RenderOptions, settings: PrinterSettings
+) -> _RenderedJob:
     """Render a batch whose answer is its job, the one path that holds it all.
 
     The job's bytes are all it holds, one record after another with nothing around each.
@@ -177,7 +179,8 @@ def cli_render(ctx: click.Context, label_source: str, data: str | None, output: 
         rendered = _rendered(label, records, settings, output=output, raw_stdout_allowed=not machine)
         result = rendered.result
         written = output if output is not None and result.ok else None
-        payload = render_payload(result, job=rendered.job, with_base64=machine, output=written, settings=settings)
+        shown = None if rendered.job is None else ShownJob(rendered.job, with_base64=machine)
+        payload = render_payload(result, shown=shown, output=written, settings=settings)
         if output == STDIN:
             # The job owns stdout, so what a reader must know about it goes to stderr, refused or not.
             notes = went_out_text(payload) if result.ok else refused_text(payload)

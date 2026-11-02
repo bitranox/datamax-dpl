@@ -17,10 +17,12 @@ from datamax_dpl.domain.label import Label, Text
 from datamax_dpl.domain.render_context import RenderOptions
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from click.testing import CliRunner
 
+_Rows = list[dict[str, str]]
 _LABEL = Label(elements=[Text(x=10, y=10, text="{a}"), Text(x=10, y=50, text="{b}")])
 _DMX = RenderOptions(model="dmx-600")
 _GOOD = {"a": "x", "b": "y"}
@@ -58,25 +60,42 @@ def test_every_route_names_the_record_in_a_failure_of_its_own(
 ) -> None:
     label, data = _bad_batch(tmp_path, bad=bad)
     verb, *rest = [word.format(out=tmp_path / "out.dpl") for word in command]
-    result = cli_runner.invoke(cli_mod.cli, [verb, label, "--data", data, "--model", "dmx-600", *rest], obj=build_production)
+    result = cli_runner.invoke(
+        cli_mod.cli, [verb, label, "--data", data, "--model", "dmx-600", *rest], obj=build_production
+    )
     assert result.exit_code == 2, result.output
     assert f"data record {_BAD}" in result.stderr
     assert says in result.stderr
     assert not (tmp_path / "out.dpl").exists()
 
 
+def _iter_batch(rows: _Rows) -> object:
+    return list(iter_batch(_LABEL, rows, _DMX))
+
+
+def _check_batch(rows: _Rows) -> object:
+    return check_batch(_LABEL, rows, _DMX)
+
+
+def _render_batch(rows: _Rows) -> object:
+    return render_batch(_LABEL, rows, _DMX)
+
+
+def _record_renders(rows: _Rows) -> object:
+    return record_renders(_LABEL, rows, _DMX)
+
+
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize(
     "go_over",
     [
-        pytest.param(lambda rows: list(iter_batch(_LABEL, rows, _DMX)), id="iter_batch"),
-        pytest.param(lambda rows: check_batch(_LABEL, rows, _DMX), id="check_batch"),
-        pytest.param(lambda rows: render_batch(_LABEL, rows, _DMX), id="render_batch"),
-        pytest.param(lambda rows: record_renders(_LABEL, rows, _DMX), id="record_renders"),
+        pytest.param(_iter_batch, id="iter_batch"),
+        pytest.param(_check_batch, id="check_batch"),
+        pytest.param(_render_batch, id="render_batch"),
+        pytest.param(_record_renders, id="record_renders"),
     ],
 )
-def test_the_library_raises_the_same_types_naming_the_record(go_over: object) -> None:
-    assert callable(go_over)
+def test_the_library_raises_the_same_types_naming_the_record(go_over: Callable[[_Rows], object]) -> None:
     with pytest.raises(MissingFieldError, match=rf"data record {_BAD} has no field 'b'"):
         go_over([_GOOD, _GOOD, {"a": "x"}])
     with pytest.raises(ValidationError) as caught:

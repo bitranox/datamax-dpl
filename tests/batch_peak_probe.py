@@ -20,6 +20,7 @@ import socket
 import sys
 import threading
 import tracemalloc
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -55,19 +56,15 @@ def _arguments(command: str, directory: Path, *, port: int) -> list[str]:
     label = str(directory / "label.json")
     data = str(directory / "data.csv")
     common = [label, "--data", data, "--model", "dmx-600"]
-    if command == "print":
-        return ["--json-bare", "print", *common, "--printer", f"tcp://127.0.0.1:{port}"]
-    if command == "print-one-way":
-        return ["--json-bare", "print", *common, "--printer", f"file:{directory / 'sent.dpl'}"]
-    if command == "render":
-        return ["--json-bare", "render", *common, "-o", str(directory / "job.dpl")]
-    if command == "render-stdout":
-        return ["render", *common, "-o", "-"]
-    if command == "render-held":
-        return ["--json-bare", "render", *common]
-    if command == "render-held-human":
-        return ["render", *common]
-    return ["--json-bare", "validate", *common]
+    return {
+        "print": ["--json-bare", "print", *common, "--printer", f"tcp://127.0.0.1:{port}"],
+        "print-one-way": ["--json-bare", "print", *common, "--printer", f"file:{directory / 'sent.dpl'}"],
+        "render": ["--json-bare", "render", *common, "-o", str(directory / "job.dpl")],
+        "render-stdout": ["render", *common, "-o", "-"],
+        "render-held": ["--json-bare", "render", *common],
+        "render-held-human": ["render", *common],
+        "validate": ["--json-bare", "validate", *common],
+    }[command]
 
 
 def _invoke(arguments: list[str]) -> int:
@@ -112,15 +109,18 @@ def main() -> int:
     listener = socket.create_server(("127.0.0.1", 0))
     server = threading.Thread(target=_serve, args=(listener,), daemon=True)
     server.start()
-    arguments = _arguments(command, directory, port=listener.getsockname()[1])
+    port = listener.getsockname()[1]
     rows = "".join(f"r{number}\n" for number in range(int(records)))
     (directory / "data.csv").write_text("a\n" + rows, encoding="utf-8")
     del rows
     if "PEAK_UNTRACED" in os.environ:
-        code = _invoke(arguments)
+        code = _invoke(_arguments(command, directory, port=port))
         print(0)
         return code
-    run = (lambda: _library_one_way(directory, label)) if command == "library-one-way" else lambda: _invoke(arguments)
+    if command == "library-one-way":
+        run = partial(_library_one_way, directory, label)
+    else:
+        run = partial(_invoke, _arguments(command, directory, port=port))
     tracemalloc.start()
     code = run()
     peak = tracemalloc.get_traced_memory()[1]

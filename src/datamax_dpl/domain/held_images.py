@@ -110,7 +110,7 @@ class HeldImages:
         return name in self.sent or (self.listed is not None and name in self.listed)
 
     def digest_for(self, name: str) -> bytes | None:
-        """Return the :func:`command_digest` of the picture the batch knows, or took, the printer to hold under ``name``.
+        """Return the :func:`command_digest` of the picture the batch knows the printer to hold under ``name``.
 
         A name the batch sent gives the digest of the command that sent it, a listed name an earlier
         label placed gives that of the picture that label took it for; any other name gives None.

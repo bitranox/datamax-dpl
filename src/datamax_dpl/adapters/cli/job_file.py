@@ -165,7 +165,7 @@ def _route(output: str, check: Callable[[Callable[[BatchEntry], None]], BatchRep
     """Write beside the target where that leaves it what it was, else directly."""
     try:
         # The path as given: /dev/stdout on a pipe resolves to a name nothing can open.
-        found = os.stat(output)
+        found = Path(output).stat()
     except FileNotFoundError:
         found = None
     except OSError:

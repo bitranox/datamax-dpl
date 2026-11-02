@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
     from types import FrameType
 
 
@@ -42,7 +42,7 @@ def raise_if_interrupted() -> None:
 
 
 @contextmanager
-def noting_interrupts() -> Iterator[None]:
+def noting_interrupts() -> Generator[None, None, None]:
     """Note each Ctrl-C for the length of one run of the command.
 
     A handler the host set, or ``SIG_IGN`` from a shell that started this in the background, stays:

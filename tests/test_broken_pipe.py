@@ -145,7 +145,17 @@ def test_a_printer_that_cannot_be_reached_is_not_a_reader_that_left(tmp_path: Pa
     server.close()
     label, _ = _label_and_data(tmp_path)
     done = subprocess.run(  # noqa: S603 - fixed argv: this interpreter and the package under test
-        [sys.executable, "-m", "datamax_dpl", "print", label, "--model", "dmx-600", "--printer", f"tcp://127.0.0.1:{port}"],
+        [
+            sys.executable,
+            "-m",
+            "datamax_dpl",
+            "print",
+            label,
+            "--model",
+            "dmx-600",
+            "--printer",
+            f"tcp://127.0.0.1:{port}",
+        ],
         capture_output=True,
         env={**os.environ, "XDG_CONFIG_HOME": str(tmp_path), "HOME": str(tmp_path)},
         check=False,

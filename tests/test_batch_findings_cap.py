@@ -144,7 +144,9 @@ def test_the_cap_holds_on_the_send_pass_over_tcp_in_both_modes(
 def test_an_envelope_with_only_the_batch_s_own_findings_has_no_note(cli_runner: CliRunner, tmp_path: Path) -> None:
     """The batch's findings always stay, so they count as kept."""
     label = tmp_path / "label.json"
-    label.write_text(Label(elements=[Text(x=10, y=10, text="{a}")], cut=Cut(every=2)).model_dump_json(), encoding="utf-8")
+    label.write_text(
+        Label(elements=[Text(x=10, y=10, text="{a}")], cut=Cut(every=2)).model_dump_json(), encoding="utf-8"
+    )
     data = tmp_path / "data.csv"
     data.write_bytes(b"a\nr0\nr1\n")
     args = ["--json-bare", "validate", str(label), "--data", str(data), "--model", "dmx-800"]

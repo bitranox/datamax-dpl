@@ -17,6 +17,7 @@ from ....application.use_cases import (
     DIRECTORY_IDLE_SECONDS,
     AnswerWait,
     BatchReport,
+    BatchResult,
     PrinterCommand,
     detect_printer,
     print_result,
@@ -25,6 +26,7 @@ from ....application.use_cases import (
     record_renders,
     render_label,
     render_with_stored_names,
+    report_of,
     send_command,
     stored_image_names,
 )
@@ -45,7 +47,7 @@ from ...transport.uri import is_one_way, unsupported_query
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
 from ..label_io import STDIN, LabelInputError, load_label, load_records
-from ..payloads import FindingOut, SentTo, findings_text, refused_text, render_payload, went_out_text
+from ..payloads import FindingOut, SentTo, findings_text, refused_text, render_payload, went_out_text, worth_telling
 from ..runner import CommandResult, run_command
 from ..settings import (
     PrinterOverrides,
@@ -133,7 +135,9 @@ def _render_refused(result: RenderResult | BatchReport, *, verdict: str, setting
 
 def _upload_refused(exc: UploadRefusedError, *, uri: str, settings: PrinterSettings) -> CommandResult:
     """The result of a print or verify whose upload check refused a label: its findings, what was sent."""
-    payload = render_payload(exc.result, sent=SentTo(uri, exc.bytes_sent), settings=settings)
+    # A command sends a report or one label; a held batch is the library's, and reports the same way.
+    result = report_of(exc.result) if isinstance(exc.result, BatchResult) else exc.result
+    payload = render_payload(result, sent=SentTo(uri, exc.bytes_sent), settings=settings)
     return CommandResult(ok=False, payload=payload, human=f"REFUSED: {exc}\n{refused_text(payload)}")
 
 
@@ -665,7 +669,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
             expected=str(expected),
             findings=[] if report.result is None else [FindingOut.of(f) for f in report.result.findings],
         )
-        told = [f for f in payload.findings if _worth_telling(f)]
+        told = [f for f in payload.findings if worth_telling(f)]
         human = "\n".join([f"photo:    {payload.photo}", f"expected: {payload.expected}", *_told_lines(told)])
         return CommandResult(ok=True, payload=payload, human=human)
 

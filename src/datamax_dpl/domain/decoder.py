@@ -131,9 +131,7 @@ class Explanation(BaseModel):
 #: is eight times the job.
 _READABLE_PIECE_BYTES = 64 * 1024
 _READABLE_NAMES = {_SOH: "<SOH>", _STX: "<STX>", _CR: "<CR>", 0x1B: "<ESC>"}
-_READABLE_BYTES = tuple(
-    _READABLE_NAMES.get(b, chr(b) if b in _PRINTABLE else f"<{b:02X}>") for b in range(256)
-)
+_READABLE_BYTES = tuple(_READABLE_NAMES.get(b, chr(b) if b in _PRINTABLE else f"<{b:02X}>") for b in range(256))
 
 
 def readable(data: bytes | bytearray) -> str:

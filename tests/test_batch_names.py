@@ -9,13 +9,14 @@ from itertools import product
 import pytest
 
 from datamax_dpl import HeldImages, ReportLimits, check_batch, iter_batch
+from datamax_dpl.domain.enums import ImageModule
 from datamax_dpl.domain.held_images import command_digest
 from datamax_dpl.domain.label import Label, Qr, Text
-from datamax_dpl.domain.render import build_record
+from datamax_dpl.domain.render import RenderResult, build_record
 from datamax_dpl.domain.render_context import RenderOptions
 
 #: A plug-in module: no clear may run, so every name stays known for the rest of the batch.
-_NO_CLEAR = RenderOptions(model="allegro-2", image_module="B")
+_NO_CLEAR = RenderOptions(model="allegro-2", image_module=ImageModule.B)
 _FEW = ReportLimits(findings=1, downloads=1)
 #: Four large codes per record, the product a flat figure per name hid.
 _LONG = "x" * 200
@@ -62,7 +63,8 @@ def _seconds_per_record(names: int) -> float:
 @pytest.mark.os_agnostic
 def test_a_record_takes_as_long_with_many_names_held() -> None:
     """Copying the map per record made a whole batch quadratic: 14 ms a record at 100000 names, 0.2 ms at 1000."""
-    few, many = [], []
+    few: list[float] = []
+    many: list[float] = []
     for _ in range(4):
         few.append(_seconds_per_record(1000))
         many.append(_seconds_per_record(100_000))
@@ -110,7 +112,7 @@ def test_iter_batch_carries_what_build_record_says_record_by_record() -> None:
     [listed] = build_record(Label(elements=[Qr(x=1, y=1, data="A")]), _NO_CLEAR).result.downloads
     for options, start in product(arms, (HeldImages(), HeldImages(listed=frozenset({listed})))):
         held = start
-        stepwise = []
+        stepwise: list[RenderResult] = []
         for row in rows:
             filled = Label(elements=[Qr(x=1, y=1, data=row["a"])])
             record = build_record(filled, options, held=held)
