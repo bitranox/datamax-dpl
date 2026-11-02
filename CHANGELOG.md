@@ -116,6 +116,16 @@ All notable changes to this project are documented here. The format follows
   `datamax_dpl`; `PrinterProfile.family` (a `ModelFamily`, None for `generic`
   and `permissive`), `PrinterProfile.image_module` and
   `PrinterProfile.ram_modules` (a frozenset of `ImageModule`) are new.
+- Library: `PrinterSetting` imports from `datamax_dpl`: the enum of persistent
+  printer settings a job can send before its format (`media`, `stop`,
+  `start_of_print`, `max_label_length`, `feed_rate`, `software_switches`), as
+  `RenderOptions.send_settings` holds them.
+- Library: `pillow_available()` imports from `datamax_dpl`: True when the
+  `preview` extra (Pillow) is installed.
+- Library: `preview_findings(label)` imports from `datamax_dpl`: the findings
+  for what the preview PNG of a label cannot show: one
+  `preview_text_approximated` (info) when the label has text and Pillow is
+  not installed, else none.
 
 ### Changed
 
