@@ -130,6 +130,16 @@ result without raising. For data records use `render_batch(label, records, optio
 bytes open a transport with `open_printer(uri, timeout=10)` and call `send(data)` on it. All of
 these are imported from `datamax_dpl`.
 
+Everything the package raises on purpose derives from `DatamaxDplError`, also imported from
+`datamax_dpl`, so `except DatamaxDplError` catches it all. Below it, `TransportError` covers what a
+printer channel does (a timeout, a refused connection, a bad answer), `ConfigurationError` a bad URI
+or setting, `LabelRejectedError` a refused label, and `CameraError` a capture. `UnknownModelError`
+and `MissingFieldError` are `LookupError`s too, `QrDataTooLongError` and `PreviewTooLongError`
+`ValueError`s too. Three things stay outside the base: pydantic's `ValidationError` for a label or
+options document that does not validate, `lib_layered_config.ConfigError` from `get_config` for a
+configuration file it cannot read, and a plain `ValueError` for an argument out of range (a timeout,
+a calibration size), as each function's `Raises` section says.
+
 ## The label format
 
 A label is a JSON document with job settings (unit, size, quantity, cutting, speeds, heat, media)

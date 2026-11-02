@@ -258,7 +258,9 @@ Settings live in a layered config: `datamax-dpl config` shows the merged result,
 `.findings` instead. `render_batch(label, records, options)` does the `--data` case and never
 raises on an error finding: it returns a `BatchResult`, so check `.ok`.
 `timeout` is in seconds. A printer that refuses, is unreachable or stops answering raises
-`TransportError` from `open_printer` or `send` (a timeout is its subclass): catch that.
+`TransportError` from `open_printer` or `send` (a timeout is its subclass): catch that. A bad URI
+raises `ConfigurationError`; `DatamaxDplError` is the base of both, and of every other type the
+package raises, except pydantic's `ValidationError` and a plain `ValueError` for an argument.
 
 `list_profiles()` and `get_profile("dmx-600")` return the model profiles (a profile holds what
 `capabilities` shows); `fill_label(label, record)` fills the placeholders for one record;

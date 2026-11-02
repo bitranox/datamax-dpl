@@ -22,6 +22,7 @@ from pydantic import BeforeValidator
 from pydantic_core import PydanticCustomError
 
 from .enums import HardwareOption, ImageModule, ModelFamily, SpeedCode
+from .errors import DatamaxDplError
 from .frozen_mapping import FrozenMapping
 from .label import DotSize
 from .units import Axis, hundredths_to_mm
@@ -1112,7 +1113,7 @@ PROFILES: Mapping[str, PrinterProfile] = FrozenMapping(
 )
 
 
-class UnknownModelError(LookupError):
+class UnknownModelError(DatamaxDplError, LookupError):
     """Raised for a model id that has no profile."""
 
 

@@ -160,6 +160,8 @@ def _get_config(*, profile: str | None = None, start_dir: str | None = None, dot
 
     Raises:
         ValueError: ``profile`` is not a valid profile name.
+        ConfigError: A configuration file could not be read or parsed; lib_layered_config's own type,
+            which names the layer and the file.
 
     Note:
         This function is cached (maxsize=4). The first call loads and parses all

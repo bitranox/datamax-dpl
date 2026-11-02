@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, TypedDict
 
+from .errors import DatamaxDplError
 from .label import Barcode, Element, Label, Qr, ScalableText, Text
 
 if TYPE_CHECKING:
@@ -45,7 +46,7 @@ if not _ElementsUpdate.__required_keys__ <= Label.model_fields.keys():  # pragma
     raise RuntimeError("_ElementsUpdate names a field Label does not have")
 
 
-class MissingFieldError(LookupError):
+class MissingFieldError(DatamaxDplError, LookupError):
     """A placeholder names a field the data record does not have."""
 
 

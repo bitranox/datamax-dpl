@@ -25,13 +25,14 @@ from typing import TYPE_CHECKING
 
 import segno
 
+from .errors import DatamaxDplError
 from .raster import Bitmap
 
 if TYPE_CHECKING:
     from .enums import QrError
 
 
-class QrDataTooLongError(ValueError):
+class QrDataTooLongError(DatamaxDplError, ValueError):
     """The data fits no QR Code version (1-40) at the requested error level."""
 
 

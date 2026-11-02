@@ -20,8 +20,10 @@ Example:
 from __future__ import annotations
 
 from .__init__conf__ import print_info
+from .adapters.logging.setup import InvalidLoggingConfigError
 from .adapters.preview import pillow_available, preview_findings, render_preview_png
 from .adapters.transport import open_printer
+from .application.upload_check import UploadRefusedError
 from .application.use_cases import BatchResult, render_batch
 from .composition import get_config
 from .domain.calibration import (
@@ -55,11 +57,16 @@ from .domain.enums import (
     Unit,
 )
 from .domain.errors import (
+    AnswerNotEndedError,
+    CameraError,
     ConfigurationError,
+    DatamaxDplError,
     LabelRejectedError,
     PreviewTooLongError,
+    PrinterProtocolError,
     PrinterTimeoutError,
     TransportError,
+    UnsupportedOperationError,
 )
 from .domain.findings import Finding
 from .domain.label import (
@@ -83,6 +90,7 @@ from .domain.label import (
 from .domain.placeholders import MissingFieldError, fill_label
 from .domain.preview import SentAs
 from .domain.profiles import PrinterProfile, UnknownModelError, get_profile, list_profiles
+from .domain.qr import QrDataTooLongError
 from .domain.render import RenderResult, build_job, render
 from .domain.render_context import RenderOptions
 from .domain.symbology import Symbology
@@ -90,18 +98,21 @@ from .domain.symbology import Symbology
 __all__ = [
     "ACROSS_INSET_MM",
     "ALONG_LENGTH_MM",
+    "AnswerNotEndedError",
     "Attribute",
     "Barcode",
     "BarcodeProblemCode",
     "BatchResult",
     "Box",
     "CalibrationLabels",
+    "CameraError",
     "Circle",
     "CommandKind",
     "ConfigurationError",
     "Counter",
     "Cut",
     "DataMatrixOptions",
+    "DatamaxDplError",
     "DotSize",
     "FallbackPolicy",
     "FillPattern",
@@ -110,6 +121,7 @@ __all__ = [
     "HardwareOption",
     "Image",
     "ImageModule",
+    "InvalidLoggingConfigError",
     "Label",
     "LabelRejectedError",
     "Line",
@@ -121,10 +133,12 @@ __all__ = [
     "Polygon",
     "PreviewTooLongError",
     "PrinterProfile",
+    "PrinterProtocolError",
     "PrinterSetting",
     "PrinterStop",
     "PrinterTimeoutError",
     "Qr",
+    "QrDataTooLongError",
     "QrError",
     "RenderOptions",
     "RenderResult",
@@ -139,6 +153,8 @@ __all__ = [
     "TransportError",
     "Unit",
     "UnknownModelError",
+    "UnsupportedOperationError",
+    "UploadRefusedError",
     "across_frame_width",
     "across_label",
     "along_label",

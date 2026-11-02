@@ -16,6 +16,7 @@ from typing import cast
 import orjson
 from pydantic import ValidationError
 
+from ...domain.errors import DatamaxDplError
 from ...domain.label import Label
 
 #: Largest label or data file accepted, so a wrong path (a disk image) fails fast.
@@ -23,7 +24,7 @@ MAX_INPUT_BYTES = 16 * 1024 * 1024
 STDIN = "-"
 
 
-class LabelInputError(ValueError):
+class LabelInputError(DatamaxDplError, ValueError):
     """A label or data file could not be read or does not describe a valid label."""
 
 

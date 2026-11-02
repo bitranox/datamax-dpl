@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `DatamaxDplError`, exported from the package root, is the base of every
+  exception the package raises; `UnknownModelError`, `MissingFieldError`,
+  `QrDataTooLongError` and `PreviewTooLongError` keep `LookupError` or
+  `ValueError` as a second base. `AnswerNotEndedError`, `CameraError`,
+  `InvalidLoggingConfigError`, `PrinterProtocolError`, `QrDataTooLongError`,
+  `UnsupportedOperationError` and `UploadRefusedError` can now be imported
+  from the root as well. The README states the contract.
 - `[printer] status_wait` (default 30 s, at most 2147483 s) and
   `status_retry_interval` (0.25 s), also per named printer: `status` and
   `memory` keep trying for the printer's first answer while a print server is

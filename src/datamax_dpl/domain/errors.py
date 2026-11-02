@@ -1,7 +1,8 @@
 """Domain-level exception types.
 
 Each error names one way a request can fail, so the CLI maps it to its own exit code and the
-JSON envelope carries the class name as the error type.
+JSON envelope carries the class name as the error type. All of them derive from
+:class:`DatamaxDplError`, so a library caller can catch everything this package raises at once.
 """
 
 from __future__ import annotations
@@ -12,7 +13,19 @@ if TYPE_CHECKING:
     from .findings import Finding
 
 
-class ConfigurationError(Exception):
+class DatamaxDplError(Exception):
+    """Base of every exception this package raises on purpose.
+
+    A type that used to be a plain ``ValueError`` or ``LookupError`` keeps that as a second base, so
+    a caller already catching it still does.
+
+    Example:
+        >>> issubclass(ConfigurationError, DatamaxDplError), issubclass(PreviewTooLongError, ValueError)
+        (True, True)
+    """
+
+
+class ConfigurationError(DatamaxDplError):
     """Configuration is missing or invalid.
 
     Example:
@@ -23,7 +36,7 @@ class ConfigurationError(Exception):
     """
 
 
-class LabelRejectedError(Exception):
+class LabelRejectedError(DatamaxDplError):
     """The label cannot be rendered for the chosen model (an error-level finding).
 
     The findings travel with the exception so a caller can report every reason at once.
@@ -35,7 +48,7 @@ class LabelRejectedError(Exception):
         self.findings = findings
 
 
-class TransportError(Exception):
+class TransportError(DatamaxDplError):
     """A printer channel could not be opened, written or read.
 
     ``unanswered`` marks a channel that took no request: the connection was refused or timed
@@ -83,11 +96,11 @@ class PrinterProtocolError(TransportError):
     """The printer answered something the DPL manual does not describe for that request."""
 
 
-class CameraError(Exception):
+class CameraError(DatamaxDplError):
     """The camera could not take or deliver a photo."""
 
 
-class PreviewTooLongError(ValueError):
+class PreviewTooLongError(DatamaxDplError, ValueError):
     """A preview would be longer than the limit it was asked to keep to; nothing was drawn."""
 
 
@@ -95,6 +108,7 @@ __all__ = [
     "AnswerNotEndedError",
     "CameraError",
     "ConfigurationError",
+    "DatamaxDplError",
     "LabelRejectedError",
     "PreviewTooLongError",
     "PrinterProtocolError",
