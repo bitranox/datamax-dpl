@@ -125,6 +125,7 @@ turn the outcome into output and an exit code.
 - `cli/commands/config.py` - config, config-deploy, config-generate-examples.
 - `cli/commands/info.py` - info.
 - `cli/label_io.py` - reading labels and data records from files or stdin.
+- `cli/job_file.py` - writing a batch's job to a file as it is rendered, replacing the target only when every record passed.
 - `cli/settings.py` - `[printer]` and `[camera]` settings with command-line overrides.
 - `cli/runner.py` - runs a command body, maps outcomes to output and exit codes.
 - `cli/envelope.py` - the JSON envelope and the command names it carries (`CommandName`).
@@ -176,5 +177,5 @@ sockets on 127.0.0.1 and pseudo-terminals. Doctests in the modules run with the 
   sent as images.
 - Only an Allegro 2 has been checked on a real printer; no camera has been attached yet.
 - The package root exports the label model and its enums, `render`, `build_job`, `render_batch`,
-  `fill_label`, `open_printer`, `explain`, the profiles and the preview (`datamax_dpl.__all__`);
+  `iter_batch`, `check_batch`, `fill_label`, `open_printer`, `explain`, the profiles and the preview (`datamax_dpl.__all__`);
   anything else is reached through module paths (`datamax_dpl.domain.render` and so on).

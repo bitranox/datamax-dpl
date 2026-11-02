@@ -474,8 +474,10 @@ delivers `1.50` as text. The same holds for `[printers.<name>]`, `[camera]` and 
 | `calibrate_after_reset`  | boolean                                          | `true`                               | `DATAMAX_DPL___PRINTER__CALIBRATE_AFTER_RESET`  | On a reported reset, print one calibration label before the job; `false` only reports the reset.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `calibration_label_text` | string, 1 to 255 characters                      | `"Printer Reset - Calibration Feed"` | `DATAMAX_DPL___PRINTER__CALIBRATION_LABEL_TEXT` | What the calibration label says, mapped as a text field in font 2.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `upload_check_rounds`    | integer, 1 to 3                                  | `3`                                  | `DATAMAX_DPL___PRINTER__UPLOAD_CHECK_ROUNDS`    | How many rounds the upload check of `print` and `verify` (two-way link) runs before it refuses a label whose images the printer does not list (`image_upload_refused`): 1 uploads and reads once; 2 then clears the module where a clear may go and uploads again (where none may go, only the images the last read did not list; after a read with no answer it first reads the names again and uploads what that read does not list, and with no answer to that read either the round is left out); 3 then uploads the images halved 2x2. Each round after the first reports `image_upload_retried`. A one-way link and `render`/`validate` never check. |
-| `max_batch_records`      | integer, > 0, at most 10000000                   | `100000`                             | `DATAMAX_DPL___PRINTER__MAX_BATCH_RECORDS`      | Most records one `--data` batch of `render`, `validate` or `print` may hold; more is refused with exit 2 before anything is rendered. A batch is rendered whole before anything is sent, so what it costs is records times label: `max_batch_job_bytes` bounds that. |
-| `max_batch_job_bytes`    | integer, > 0, at most 1099511627776              | `1073741824`                         | `DATAMAX_DPL___PRINTER__MAX_BATCH_JOB_BYTES`    | Most bytes the records' jobs of one `--data` batch of `render`, `validate` or `print` may come to; past it the command stops with exit 2 (`BatchTooLargeError`) naming this key, without rendering the rest. The default leaves room for 100000 records of a one-field label (about 430 MB). Besides the job itself, `print` holds about 13 KB per record of a 399-field label (2000 records 94 MB, 8000 records 210 MB, measured), and each record's findings. |
+| `max_batch_records` | integer, > 0, at most 10000000 | `100000` | `DATAMAX_DPL___PRINTER__MAX_BATCH_RECORDS` | Most records one `--data` batch of `render`, `validate` or `print` may hold; more is refused with exit 2 before anything is rendered. A bound on time, not on memory: see [Batches and memory](#batches-and-memory). |
+| `max_batch_job_bytes` | integer, > 0, at most 1099511627776 | `1073741824` | `DATAMAX_DPL___PRINTER__MAX_BATCH_JOB_BYTES` | Most bytes the jobs of one `--data` batch of `render` with no `-o` may come to, the one command that holds the whole job because its answer is the job; past it the command stops with exit 2 (`BatchTooLargeError`) naming this key, without rendering the rest. The default leaves room for 100000 records of a one-field label (about 430 MB). `render -o`, `validate` and `print` hold no job and do not read it. |
+| `max_reported_findings` | integer, > 0, at most 100000000 | `1000` | `DATAMAX_DPL___PRINTER__MAX_REPORTED_FINDINGS` | How many findings a `--data` batch's answer shows in full. The answer counts all of them, per code and in total, and says so when it cuts. The first error is always shown, and any error refuses the job whether or not its text was kept. |
+| `max_reported_downloads` | integer, > 0, at most 100000000 | `1000` | `DATAMAX_DPL___PRINTER__MAX_REPORTED_DOWNLOADS` | How many downloaded image names a `--data` batch's answer lists. The answer counts all of them and says so when it cuts. |
 | `send_chunk_bytes`       | integer, > 0, at most 65536                      | `1024`                               | `DATAMAX_DPL___PRINTER__SEND_CHUNK_BYTES`       | Largest piece of a job handed to one write over tcp or serial. `timeout` bounds each piece, not the whole job, so it means the printer took no data for that long: at the about 1390 bytes/s of a print server feeding a 9600 baud printer, 1024 bytes take under a second. A larger piece needs a `timeout` long enough to send it. At most 65536: Windows takes one send of any size whole while its socket buffer is not full, so a larger piece comes back sent from a printer that reads nothing and the timeout never fires.                                                                                                                         |
 | `verify_poll_interval`   | float, > 0, at most 2147483                      | `0.5`                                | `DATAMAX_DPL___PRINTER__VERIFY_POLL_INTERVAL`   | Seconds between a busy answer and the next status poll while `verify` waits for the printer to finish its job. That whole wait is `status_wait` (or `--timeout`), waited as `status` waits: a silent printer is read until it ends and never asked twice.                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `one_way_settle`         | float, >= 0, at most 2147483                     | `5.0`                                | `DATAMAX_DPL___PRINTER__ONE_WAY_SETTLE`         | Seconds `verify` waits after sending, instead of polling, on a channel that cannot read status (file, device file).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -621,6 +623,36 @@ the report).
 These figures count a read that answers as keeping its channel; a print server that closes it
 after the answer adds the new connection, up to W more. A batch can wait that long for each label
 it gets through, and the time the job's bytes take to go out comes on top.
+
+### Batches and memory
+
+A `--data` batch goes one record at a time, so the peak memory of `print`, `validate` and
+`render -o` does not grow with the records. A 399-field label on one machine, resident memory of the
+whole process at 1000 and at 8000 records:
+
+| Command            | 1000 records | 8000 records |
+|--------------------|--------------|--------------|
+| `validate`         | 58 MB        | 58 MB        |
+| `render -o FILE`   | 58 MB        | 58 MB        |
+| `print` over TCP   | 59 MB        | 59 MB        |
+
+A record that is wrong must refuse the job before any of it goes out, so every command goes over all
+the records first and keeps what it found, not the jobs. `print` and `render -o -` then render each
+record a second time to send it, and a third time where a name read or a retry asks for one: time
+grows with the records, which is what `max_batch_records` bounds. `render -o FILE` needs one pass,
+into a new file beside the target that replaces it when every record passed; a target that cannot be
+replaced that way (a device, a pipe, a directory that takes no new file) gets the two passes. `render`
+with no `-o` answers with the job itself and holds it, which `max_batch_job_bytes` bounds.
+
+The data file is read whole, up to 16 MiB. CSV rows and JSON lines are then parsed when each one's turn
+comes, while a JSON array is parsed whole and held, which takes several times its size: a large batch
+belongs in a CSV or JSON lines file.
+
+One thing still grows with the records: the image names the printer holds, where no clear runs after
+each label: about 0.4 KB a name (one QR Code per record with both clears off: 1.2 MB at 1000 records,
+4 MB at 8000, measured). The counts per finding code grow only with the codes that exist, not with the
+records. What the answer keeps of the findings and image names is bounded by `max_reported_findings` and
+`max_reported_downloads`.
 
 ### A printer reset before a job
 

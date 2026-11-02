@@ -127,7 +127,11 @@ for finding in result.findings:
 ```
 
 `render` raises `LabelRejectedError` when a finding is an error; `build_job` returns the same
-result without raising. For data records use `render_batch(label, records, options)`, and to send
+result without raising. For data records use `render_batch(label, records, options)`, which holds
+every label. For a large batch `iter_batch(label, records, options)` yields one `RenderResult` at a
+time and reads one record ahead, and `check_batch(label, records, options)` goes over all of them and
+returns a `BatchReport` holding no job, whose `renders()` goes to `print_checked` and whose
+`record_jobs()` yields the job's pieces: memory does not grow with the records. To send
 bytes open a transport with `open_printer(uri, timeout=10)` and call `send(data)` on it. `explain(data)`
 reads DPL bytes back, as the command `datamax-dpl explain job.dpl` does. All of these are imported
 from `datamax_dpl`.
@@ -354,6 +358,7 @@ datamax-dpl --json validate examples/product-label.json --model allegro --policy
     "fields": 5,
     "bytes": 2382,
     "downloads": ["DtLbYG5m"],
+    "downloads_total": 1,
     "findings": [
       {"code": "inch_units", "severity": "info", "message": "Allegro formats take inches; millimetres are rounded to 1/100 in", "element": null, "fallback": null, "record": null},
       {"code": "software_switches_not_sent", "severity": "info", "message": "software switches (<STX>V) not sent: whether the cutter is installed is unknown", "element": null, "fallback": null, "record": null},
@@ -361,6 +366,9 @@ datamax-dpl --json validate examples/product-label.json --model allegro --policy
       {"code": "circle_rasterized", "severity": "error", "message": "circle cannot be drawn natively: circles: Allegro does not have it", "element": 4, "fallback": "drawn as downloaded image DtLbYG5m (81x81 dots)", "record": null},
       {"code": "cutter_assumed", "severity": "info", "message": "cut commands assume the printer's cutter is installed and enabled", "element": null, "fallback": null, "record": null}
     ],
+    "findings_total": 5,
+    "findings_by_code": {"inch_units": 1, "software_switches_not_sent": 1, "check_digit_added": 1, "circle_rasterized": 1, "cutter_assumed": 1},
+    "report_note": null,
     "dpl": null,
     "dpl_base64": null,
     "output": null,
@@ -371,7 +379,10 @@ datamax-dpl --json validate examples/product-label.json --model allegro --policy
 }
 ```
 
-The real answer is indented one value per line; each finding is shown on one line here. When the
+The real answer is indented one value per line; each finding is shown on one line here. A `--data`
+batch keeps the first findings and image names (`[printer] max_reported_findings`,
+`max_reported_downloads`, 1000 each); `findings_total`, `findings_by_code` and `downloads_total`
+count all of them, and `report_note` says what was cut and which key shows more. When the
 command cannot run at all, the envelope carries `error` (the exception type) and `message`
 instead of `data`.
 

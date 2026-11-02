@@ -37,14 +37,24 @@ All notable changes to this project are documented here. The format follows
 - `preview` refuses more fields than the model takes before it letters any, and letters only what lands on the
   canvas: 399 text fields of 255 characters at 24 times the size took more than 6.7 GB and 281 s, and now take about
   a second. `render_preview_png` names the field limit under `Raises`.
-- `print` with `--data` no longer keeps every filled label for the whole send: a 399-field label with 8000 records
-  took 2.9 GB and now takes 210 MB, and 16000 records no longer die in the allocator under a 4 GB limit.
-- `[printer] max_batch_job_bytes` (default 1 GiB): a `--data` batch whose jobs pass it stops with exit 2 and
-  `BatchTooLargeError` naming the key, before the memory goes. `render_batch` takes `max_job_bytes`, no limit when
-  it is left out: a library caller rendering records it did not write sets one.
-- `BatchResult.data` is joined when it is first read, so `print` holds one copy of the job. It is no longer a model
-  field: build a `BatchResult` from `results`, and its JSON holds the jobs in `results` only. `BatchResult.job_bytes`
-  gives the size without joining.
+- A `--data` batch goes one record at a time: the memory of `print`, `validate` and `render -o` no longer grows with
+  the records. A 399-field label with 8000 records took 2.9 GB in `print`, and now takes 59 MB. Every record is still
+  checked before any byte goes out, so a batch with a bad record is refused as before; `print` renders each record
+  twice for that. `render -o FILE` writes a file beside the target and replaces the target only when every record
+  passed, and `render -o -` checks all of them, then streams.
+- Library: `iter_batch` yields one `RenderResult` at a time, `check_batch` returns a `BatchReport` holding no job, and
+  `print_checked` takes the report with `report.renders()`, building each label when its turn comes. `render_batch`
+  stays as the way to hold a batch whole. `CheckedPrint` is now a generic dataclass, so a `BatchResult` comes back as one.
+- `[printer] max_reported_findings` and `max_reported_downloads` (default 1000 each): a batch's answer keeps that many
+  findings and image names in full and always its first error. The JSON envelope gains `findings_total`,
+  `findings_by_code`, `downloads_total` and `report_note`, which names the key when something was cut. An error still
+  refuses the job whether or not its text was kept.
+- `[printer] max_batch_job_bytes` (default 1 GiB): `render --data` with no `-o`, the one command that holds the whole
+  job, stops with exit 2 and `BatchTooLargeError` naming the key, before the memory goes. `render_batch` takes
+  `max_job_bytes`, no limit when it is left out: a library caller rendering records it did not write sets one.
+- `BatchResult.data` is joined when it is first read, so `print_result` holds one copy of the job. It is no longer a
+  model field: build a `BatchResult` from `results`, and its JSON holds the jobs in `results` only.
+  `BatchResult.job_bytes` gives the size without joining.
 - A QR Code with text outside ASCII now holds UTF-8. Before, segno chose Latin-1 or Shift JIS X 0213
   with no marker and the reader guessed: the zxing-cpp decoder read a degree sign as a half-width
   katakana and a run of `ä` as CJK characters. Such text now takes more room, 2 bytes for `ä` and 3
