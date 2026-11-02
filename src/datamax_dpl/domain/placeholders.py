@@ -8,7 +8,7 @@ A record is a flat mapping of field names to strings (one CSV row, one JSON obje
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from .label import Barcode, Element, Label, Qr, ScalableText, Text
 
@@ -16,6 +16,33 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 _TOKEN = re.compile(r"\{\{|\}\}|\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+class _TextUpdate(TypedDict):
+    """The field filling sets on a text or scalable text element."""
+
+    text: str
+
+
+class _DataUpdate(TypedDict):
+    """The field filling sets on a barcode or QR element."""
+
+    data: str
+
+
+class _ElementsUpdate(TypedDict):
+    """The field filling sets on the label: its filled elements."""
+
+    elements: list[Element]
+
+
+# model_copy(update=...) takes any key and sets it unchecked, so the keys are checked here at import.
+if not _TextUpdate.__required_keys__ <= Text.model_fields.keys() & ScalableText.model_fields.keys():  # pragma: no cover
+    raise RuntimeError("_TextUpdate names a field Text or ScalableText does not have")
+if not _DataUpdate.__required_keys__ <= Barcode.model_fields.keys() & Qr.model_fields.keys():  # pragma: no cover
+    raise RuntimeError("_DataUpdate names a field Barcode or Qr does not have")
+if not _ElementsUpdate.__required_keys__ <= Label.model_fields.keys():  # pragma: no cover
+    raise RuntimeError("_ElementsUpdate names a field Label does not have")
 
 
 class MissingFieldError(LookupError):
@@ -57,9 +84,9 @@ def fill_text(text: str, record: Mapping[str, str]) -> str:
 
 def _fill_element(element: Element, record: Mapping[str, str]) -> Element:
     if isinstance(element, (Text, ScalableText)):
-        return element.model_copy(update={"text": fill_text(element.text, record)})
+        return element.model_copy(update=_TextUpdate(text=fill_text(element.text, record)))
     if isinstance(element, (Barcode, Qr)):
-        return element.model_copy(update={"data": fill_text(element.data, record)})
+        return element.model_copy(update=_DataUpdate(data=fill_text(element.data, record)))
     return element
 
 
@@ -76,7 +103,7 @@ def fill_label(label: Label, record: Mapping[str, str]) -> Label:
     # ahead of a field that filling made too long, whichever element comes first. The label
     # models set revalidate_instances, which is what makes this model_validate re-check the copy.
     elements = [_fill_element(element, record) for element in label.elements]
-    return Label.model_validate(label.model_copy(update={"elements": elements}))
+    return Label.model_validate(label.model_copy(update=_ElementsUpdate(elements=elements)))
 
 
 def label_placeholders(label: Label) -> list[str]:

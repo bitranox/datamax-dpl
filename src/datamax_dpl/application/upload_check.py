@@ -49,7 +49,7 @@ batch there: none of it and nothing after it is sent.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Generic, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Generic, NamedTuple, TypedDict, TypeVar
 
 from ..domain.batch import with_cut
 from ..domain.enums import FindingCode, ImageModule, Severity
@@ -57,17 +57,28 @@ from ..domain.errors import LabelRejectedError
 from ..domain.findings import Finding
 from ..domain.held_images import EMPTY_MODULE, HeldImages
 from ..domain.profiles import get_profile
-from ..domain.render import held_after_read
+from ..domain.render import RenderResult, held_after_read
 from .use_cases import AnswerWait, BatchResult, open_within, read_stored_names
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from ..domain.render import RenderedRecord, RenderResult
+    from ..domain.render import RenderedRecord
     from .ports import OpenPrinter, PrinterTransport
     from .use_cases import RecordRender
 
 _Sent_co = TypeVar("_Sent_co", bound="RenderResult | BatchResult", covariant=True)
+
+
+class _FindingsUpdate(TypedDict):
+    """The field a checked label's result gets as it went out: its findings, the check's added."""
+
+    findings: tuple[Finding, ...]
+
+
+# model_copy(update=...) takes any key and sets it unchecked, so the key is checked here at import.
+if not _FindingsUpdate.__required_keys__ <= RenderResult.model_fields.keys():  # pragma: no cover
+    raise RuntimeError("_FindingsUpdate names a field RenderResult does not have")
 
 #: Default of ``[printer] upload_check_rounds``: upload, then a clear and a second upload, then the
 #: images halved and a third upload, before a label is refused (user decision, 2026-11-01).
@@ -524,7 +535,7 @@ class _Record:
 
     def as_sent(self) -> RenderResult:
         """The label's result as it went out, with the rounds' findings."""
-        return self.result.model_copy(update={"findings": self.result.findings + tuple(self.findings)})
+        return self.result.model_copy(update=_FindingsUpdate(findings=self.result.findings + tuple(self.findings)))
 
 
 # Dataclasses, not NamedTuples: a round's outcome is told apart from the tuple of missing names
@@ -600,7 +611,7 @@ def _unlisted_module(result: RenderResult) -> RenderResult | None:
             f"module letter the printer lists{letter}, or print over a one-way link"
         ),
     )
-    return result.model_copy(update={"findings": (*result.findings, refusal)})
+    return result.model_copy(update=_FindingsUpdate(findings=(*result.findings, refusal)))
 
 
 @dataclass(frozen=True)
@@ -664,13 +675,11 @@ def send_checked(
             break
     else:
         labels = _send_labels(link, job, cuts=result.cut_after or (False,) * len(result.results))
-    batch = BatchResult(
-        data=b"",
-        results=(*labels.sent, *result.results[len(labels.sent) :]),
+    whole = BatchResult.joined(
+        (*labels.sent, *result.results[len(labels.sent) :]),
         batch_findings=result.batch_findings,
         cut_after=result.cut_after,
     )
-    whole = batch.model_copy(update={"data": b"".join(batch.record_jobs())})
     return CheckedSend(result=whole, all_sent=labels.all_sent)
 
 
