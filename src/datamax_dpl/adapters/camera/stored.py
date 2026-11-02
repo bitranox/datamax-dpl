@@ -16,7 +16,8 @@ if TYPE_CHECKING:
     from ...domain.enums import MediaType
 
 
-#: Largest image a capture accepts, in bytes (50 MiB): far above any label photo.
+#: Largest image a stored file or HTTP capture accepts, in bytes (50 MiB): far above any label photo.
+#: A command camera's output is not capped: the operator configures and trusts that program.
 MAX_IMAGE_BYTES = 50 * 1024 * 1024
 
 

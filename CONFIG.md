@@ -691,8 +691,8 @@ The `[camera]` section (shipped in `config.d/60-camera.toml`) names the camera `
 | Key              | Type                         | Default  | Environment variable                   | Meaning                                                                                                                                                                             |
 |------------------|------------------------------|----------|----------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `kind`           | string                       | `"none"` | `DATAMAX_DPL___CAMERA__KIND`           | `none`, `command` (run a program), `http` (fetch a snapshot URL) or `file` (newest image in a folder).                                                                              |
-| `command`        | list of strings              | `[]`     | `DATAMAX_DPL___CAMERA__COMMAND`        | argv of the capture program for `command`; `{output}` is replaced by the image path. No shell is involved.                                                                          |
-| `url`            | string                       | `""`     | `DATAMAX_DPL___CAMERA__URL`            | Snapshot URL for `http`; the response body is the image. A password in it (`http://USER:PASSWORD@HOST/...`) is used when `user` is unset and shown as `***REDACTED***` by `config`. |
+| `command`        | list of strings              | `[]`     | `DATAMAX_DPL___CAMERA__COMMAND`        | argv of the capture program for `command`; `{output}` is replaced by the image path. No shell is involved. `config` shows it as written.                                                                          |
+| `url`            | string                       | `""`     | `DATAMAX_DPL___CAMERA__URL`            | Snapshot URL for `http`; the response body is the image. A password in it (`http://USER:PASSWORD@HOST/...`) is used when `user` is unset. `config` shows it, and the value of a query parameter whose name holds `pass`, `pwd`, `secret`, `token` or `key`, as `***REDACTED***`. |
 | `user`           | string                       | `""`     | `DATAMAX_DPL___CAMERA__USER`           | HTTP basic auth user for `http`.                                                                                                                                                    |
 | `password`       | string                       | `""`     | `DATAMAX_DPL___CAMERA__PASSWORD`       | HTTP basic auth password for `http`; shown as `***REDACTED***` by `config`.                                                                                                         |
 | `directory`      | string                       | `""`     | `DATAMAX_DPL___CAMERA__DIRECTORY`      | Folder watched for `file`; the newest image written after the print started is taken. Symlinks in it are followed; an image over 50 MiB is refused.                                 |
@@ -735,7 +735,7 @@ because its expected picture needs the same canvas.
 
 | Key             | Type       | Default  | Environment variable                   | Meaning                                                                                      |
 |-----------------|------------|----------|----------------------------------------|----------------------------------------------------------------------------------------------|
-| `max_length_mm` | float, > 0 | `2000.0` | `DATAMAX_DPL___PREVIEW__MAX_LENGTH_MM` | Longest side of the picture in mm, along or across the feed. `render` and `print` ignore it. |
+| `max_length_mm` | float, > 0, at most 100000 | `2000.0` | `DATAMAX_DPL___PREVIEW__MAX_LENGTH_MM` | Longest side of the picture in mm, along or across the feed. `render` and `print` ignore it. |
 
 ---
 

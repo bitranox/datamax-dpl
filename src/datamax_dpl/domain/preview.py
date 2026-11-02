@@ -627,6 +627,7 @@ def check_preview_length(canvas: Canvas, *, max_length_mm: float) -> None:
 
     Raises:
         PreviewTooLongError: A side is longer than the limit.
+        ValueError: ``max_length_mm`` is not a finite length in dots.
 
     Example:
         >>> from datamax_dpl.domain.label import Label, Text
@@ -636,7 +637,13 @@ def check_preview_length(canvas: Canvas, *, max_length_mm: float) -> None:
     """
     dpi = canvas.geometry.dpi
     # In dots, rounded as _canvas rounds a label's size: a label of exactly the limit passes.
-    limit = round(max_length_mm / _MM_PER_INCH * dpi)
+    try:
+        limit_dots = max_length_mm / _MM_PER_INCH * dpi
+        limit = round(limit_dots)
+    except (OverflowError, ValueError) as exc:
+        # round() refuses both infinity and NaN, and a huge int fails on the way to a float.
+        msg = f"max_length_mm must be a finite length, got {max_length_mm!r}"
+        raise ValueError(msg) from exc
     # Each side holds one dot more than its length: the frame's far edge.
     longest = max(canvas.width, canvas.height) - 1
     if longest > limit:

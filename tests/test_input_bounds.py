@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import tracemalloc
 from typing import TYPE_CHECKING, Any, cast
 
@@ -22,6 +23,7 @@ from datamax_dpl.domain.decoder import MAX_EXPLAINED_COMMANDS, explain
 from datamax_dpl.domain.errors import ConfigurationError, PreviewTooLongError
 from datamax_dpl.domain.label import (
     MAX_FIELD_DATA,
+    MAX_LENGTH,
     MAX_PDF417_DATA,
     MAX_QR_DATA,
     Barcode,
@@ -449,3 +451,32 @@ def test_the_preview_command_refuses_too_many_fields_with_an_envelope(cli_runner
     assert result.exit_code == 2, result.output
     assert json.loads(result.stdout)["error"] == "PreviewTooLongError"
     assert not out.exists()
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "limit", [math.inf, -math.inf, math.nan, 1e308, 10**400], ids=["inf", "-inf", "nan", "1e308", "10e400"]
+)
+def test_check_preview_length_refuses_a_limit_that_is_no_length(limit: float) -> None:
+    """Infinity and a huge figure raised OverflowError, NaN read as no limit at all: a library caller's value."""
+    label = Label(height=30, width=30, elements=[Text(x=1, y=1, text="A")])
+    with pytest.raises(ValueError, match="finite length"):
+        check_preview_length(canvas_for(label, get_profile("dmx-600")), max_length_mm=limit)
+
+
+@pytest.mark.os_agnostic
+def test_check_preview_length_passes_the_limit_and_refuses_one_dot_past_it() -> None:
+    label = Label(height=30, width=30, elements=[Text(x=1, y=1, text="A")])
+    canvas = canvas_for(label, get_profile("dmx-600"))
+    longest_dots = max(canvas.width, canvas.height) - 1
+    one_dot_mm = 25.4 / canvas.geometry.dpi
+    check_preview_length(canvas, max_length_mm=longest_dots * one_dot_mm)
+    with pytest.raises(PreviewTooLongError):
+        check_preview_length(canvas, max_length_mm=(longest_dots - 1) * one_dot_mm)
+
+
+@pytest.mark.os_agnostic
+def test_the_preview_limit_setting_stops_at_the_longest_label() -> None:
+    assert preview_settings(Config({"preview": {"max_length_mm": MAX_LENGTH}}, {})).max_length_mm == MAX_LENGTH
+    with pytest.raises(ConfigurationError, match=r"preview\.max_length_mm"):
+        preview_settings(Config({"preview": {"max_length_mm": MAX_LENGTH + 1}}, {}))

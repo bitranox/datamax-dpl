@@ -21,12 +21,14 @@ from typing import TYPE_CHECKING, Protocol, cast
 import tomlkit
 from lib_layered_config import deploy_config_paths
 from tomlkit.container import Container
+from tomlkit.exceptions import TOMLKitError
 from tomlkit.items import Table
 
 from datamax_dpl import __init__conf__
 from datamax_dpl.adapters.config.loader import get_config, get_default_config_path
 from datamax_dpl.adapters.config.sections import printer_section
 from datamax_dpl.domain.enums import DeployTarget
+from datamax_dpl.domain.errors import ConfigurationError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -82,6 +84,9 @@ def write_printer_values(files: Sequence[Path], *, printer: str, values: Mapping
 
     Returns:
         The file written.
+
+    Raises:
+        ConfigurationError: A file cannot be read or written; its name is in the message.
     """
     section = printer_section(printer).keys
     holders = [path for path in files if path.is_file() and _find(_load(path), section) is not None]
@@ -90,7 +95,12 @@ def write_printer_values(files: Sequence[Path], *, printer: str, values: Mapping
     table = _ensure(document, section)
     for key, value in values.items():
         table[key.value] = value
-    _replace_file(target, tomlkit.dumps(document))
+    try:
+        _replace_file(target, tomlkit.dumps(document))
+    except OSError as exc:
+        # strerror: the exception's own text names the temporary file, which the user never saw.
+        msg = f"cannot write {target}: {exc.strerror or exc}"
+        raise ConfigurationError(msg) from exc
     return target
 
 
@@ -136,7 +146,18 @@ def set_user_printer_values(
 
 
 def _load(path: Path) -> TOMLDocument:
-    return tomlkit.parse(path.read_text(encoding="utf-8")) if path.is_file() else tomlkit.document()
+    """Read a file of the layer as the loader reads it, a byte order mark included; missing is empty.
+
+    Raises:
+        ConfigurationError: The file cannot be read or is not TOML; its name is in the message.
+    """
+    if not path.is_file():
+        return tomlkit.document()
+    try:
+        return tomlkit.parse(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, TOMLKitError) as exc:
+        msg = f"cannot read {path}: {exc}"
+        raise ConfigurationError(msg) from exc
 
 
 def _find(document: TOMLDocument, keys: Sequence[str]) -> _Section | None:

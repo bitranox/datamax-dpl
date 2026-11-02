@@ -23,8 +23,9 @@ You can expect a first answer within 72 hours.
   stdout. Whoever controls the configuration or the `--printer` flag controls that target.
 - The `command` camera runs the configured program as an argument list, without a shell. The
   configuration that names the program is trusted like any other program you run.
-- The camera password is redacted in `config` output, and log events pass through the
-  lib_log_rich scrubber.
+- The camera password, a password in its URL and a URL query value named like a secret are
+  redacted in `config` output, and log events pass through the lib_log_rich scrubber. The `command`
+  camera's command line is shown as written, so a secret does not belong on it.
 
 ## Security Tooling
 

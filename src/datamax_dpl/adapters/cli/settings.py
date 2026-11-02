@@ -328,8 +328,9 @@ class PreviewSettings(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    # Finite: infinity would read as "no limit", which is what the key exists to prevent.
-    max_length_mm: float = Field(default=DEFAULT_PREVIEW_MAX_LENGTH_MM, gt=0, allow_inf_nan=False)
+    # Finite and no longer than a label can be: a larger figure would read as "no limit", which is
+    # what the key exists to prevent, and 1e308 overflows on its way to dots.
+    max_length_mm: float = Field(default=DEFAULT_PREVIEW_MAX_LENGTH_MM, gt=0, le=MAX_LENGTH, allow_inf_nan=False)
 
     _numbers_are_no_booleans = field_validator("max_length_mm", mode="before")(refuse_boolean)
 

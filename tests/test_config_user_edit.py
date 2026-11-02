@@ -12,6 +12,7 @@ import tomlkit
 from datamax_dpl.adapters.config.loader import get_config
 from datamax_dpl.adapters.config.sections import ConfigSection
 from datamax_dpl.adapters.config.user_edit import set_user_printer_values, user_layer_files, write_printer_values
+from datamax_dpl.domain.errors import ConfigurationError
 from datamax_dpl.domain.profiles import CalibrationKey
 
 if TYPE_CHECKING:
@@ -176,3 +177,38 @@ def test_a_symlinked_config_stays_a_link_and_its_target_gets_the_value(tmp_path:
     write_printer_values([link], printer="", values={CalibrationKey.SCALE_ACROSS: 1.01})
     assert link.is_symlink()
     assert _table(real, "printer")["scale_across"] == 1.01
+
+
+_ALONG = {CalibrationKey.SCALE_ALONG: 0.98}
+
+
+@pytest.mark.os_agnostic
+def test_a_file_with_a_byte_order_mark_is_read_as_every_loader_reads_it(tmp_path: Path) -> None:
+    """Editors on Windows write one, and the file loads everywhere except where it is edited."""
+    path = tmp_path / "config.toml"
+    path.write_bytes(b"\xef\xbb\xbf" + _COMMENTED.encode("utf-8"))
+    write_printer_values([path], printer="", values=_ALONG)
+    written = path.read_text(encoding="utf-8")
+    assert "scale_along = 0.98" in written
+    assert "# the one in the stock room" in written
+
+
+@pytest.mark.os_agnostic
+def test_a_file_that_is_no_toml_is_refused_naming_it(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text("[printer\n", encoding="utf-8")
+    with pytest.raises(ConfigurationError, match=r"cannot read .*config\.toml"):
+        write_printer_values([path], printer="", values=_ALONG)
+    assert path.read_text(encoding="utf-8") == "[printer\n"
+
+
+@pytest.mark.os_agnostic
+def test_a_file_that_cannot_be_written_is_refused_naming_it_not_a_temporary_file(tmp_path: Path) -> None:
+    """A file where the directory should be fails on every platform, as root too."""
+    blocker = tmp_path / "blocker"
+    blocker.write_text("", encoding="utf-8")
+    target = blocker / "config.toml"
+    with pytest.raises(ConfigurationError) as caught:
+        write_printer_values([target], printer="", values=_ALONG)
+    assert str(target) in str(caught.value)
+    assert ".tmp" not in str(caught.value)

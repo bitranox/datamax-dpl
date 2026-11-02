@@ -12,7 +12,7 @@ import pytest
 
 from datamax_dpl.adapters import cli as cli_mod
 from datamax_dpl.adapters.config import loader as config_mod
-from datamax_dpl.adapters.config.display import redact_url_password
+from datamax_dpl.adapters.config.display import redact_url_secrets
 from datamax_dpl.composition import build_production
 
 if TYPE_CHECKING:
@@ -916,8 +916,15 @@ def test_debug_logging_does_not_carry_the_password_in_the_camera_url(
         ("http://u:p@[not-closed/x", "http://u:***REDACTED***@[not-closed/x"),
         ("not a url at all", "not a url at all"),
         ("//u:p@192.0.2.9/", "//u:***REDACTED***@192.0.2.9/"),
+        ("http://192.0.2.9/s?token=abc", "http://192.0.2.9/s?token=***REDACTED***"),
+        ("http://192.0.2.9/s?size=1&API_Key=abc&x=2#top", "http://192.0.2.9/s?size=1&API_Key=***REDACTED***&x=2#top"),
+        ("http://u:p@192.0.2.9/s?pwd=abc", "http://u:***REDACTED***@192.0.2.9/s?pwd=***REDACTED***"),
+        ("http://192.0.2.9/s?password=a=b", "http://192.0.2.9/s?password=***REDACTED***"),
+        ("http://192.0.2.9/s?secret=", "http://192.0.2.9/s?secret="),
+        ("http://192.0.2.9/s?token", "http://192.0.2.9/s?token"),
+        ("http://192.0.2.9/s?size=1#token=abc", "http://192.0.2.9/s?size=1#token=abc"),
     ],
 )
-def test_the_url_mask_changes_only_the_password(url: str, shown: str) -> None:
+def test_the_url_mask_changes_only_the_secrets(url: str, shown: str) -> None:
     """The mask finds the password where the HTTP camera finds it and leaves every other part alone."""
-    assert redact_url_password(url) == shown
+    assert redact_url_secrets(url) == shown
