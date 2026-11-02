@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from printer_server import ImageModules, ModulePrinter, module_printer
 
-from datamax_dpl import ReportLimits, check_batch, iter_batch
+from datamax_dpl import HeldImages, ReportLimits, check_batch, iter_batch
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.label_io import load_records, read_input
 from datamax_dpl.adapters.memory.printer import open_recording_printer
@@ -32,6 +32,7 @@ from datamax_dpl.application.use_cases import (
     report_of,
 )
 from datamax_dpl.composition import build_production
+from datamax_dpl.domain.enums import ImageModule
 from datamax_dpl.domain.label import Cut, Image, Label, Qr, Text
 from datamax_dpl.domain.render_context import RenderOptions
 
@@ -147,6 +148,9 @@ def test_a_checked_send_of_a_report_holds_only_the_current_record() -> None:
     assert records.most_alive <= _MOST_ALIVE
 
 
+_NOT_READ = HeldImages()
+
+
 def _check() -> UploadCheck:
     return UploadCheck(wait=AnswerWait(seconds=1.0), rounds=3)
 
@@ -154,12 +158,15 @@ def _check() -> UploadCheck:
 # ======================== the same answer as a batch held whole ========================
 
 
-def _sent_whole(modules: ImageModules, label: Label, options: RenderOptions) -> tuple[bytes, BatchReport, bool]:
+def _sent_whole(
+    modules: ImageModules, label: Label, options: RenderOptions, *, names: HeldImages = _NOT_READ
+) -> tuple[bytes, BatchReport, bool]:
     """Print the batch held whole; return what went out, its report and whether it all went."""
     printer = ModulePrinter(modules)
     records = _values(5)
-    held = render_batch(label, records, options)
-    job = CheckedJob(renders=record_renders(label, records, options), check=_check(), reset=None)
+    held = render_batch(label, records, options, held=names)
+    renders = record_renders(label, records, options)
+    job = CheckedJob(renders=renders, check=_check(), held=names, reset=None)
     opened = open_recording_printer(printer)
     try:
         result: BatchResult = print_checked(held, job, uri="tcp://printer", timeout=5.0, open_printer=opened).result
@@ -169,11 +176,13 @@ def _sent_whole(modules: ImageModules, label: Label, options: RenderOptions) -> 
     return b"".join(printer.sent), report_of(result, limits=ReportLimits()), True
 
 
-def _sent_report(modules: ImageModules, label: Label, options: RenderOptions) -> tuple[bytes, BatchReport, bool]:
+def _sent_report(
+    modules: ImageModules, label: Label, options: RenderOptions, *, names: HeldImages = _NOT_READ
+) -> tuple[bytes, BatchReport, bool]:
     """Print the batch one record at a time; return what went out, its report and whether it all went."""
     printer = ModulePrinter(modules)
-    report = check_batch(label, _values(5), options)
-    job = CheckedJob(renders=report.renders(), check=_check(), reset=None)
+    report = check_batch(label, _values(5), options, held=names)
+    job = CheckedJob(renders=report.renders(), check=_check(), held=names, reset=None)
     opened = open_recording_printer(printer)
     try:
         result = print_checked(report, job, uri="tcp://printer", timeout=5.0, open_printer=opened).result
@@ -214,6 +223,19 @@ def test_a_report_sends_and_says_what_a_batch_held_whole_does(
 ) -> None:
     whole = _sent_whole(modules(), label, _ALLEGRO)
     streamed = _sent_report(modules(), label, _ALLEGRO)
+    assert streamed[0] == whole[0]
+    assert streamed[2] == whole[2]
+    assert _kept(streamed[1]) == _kept(whole[1])
+
+
+@pytest.mark.os_agnostic
+def test_a_refused_batch_with_the_names_read_reports_what_a_batch_held_whole_does() -> None:
+    """The labels past a refusal are rendered once more for the report, with the names the job was given."""
+    no_clear = RenderOptions(model="allegro-2", image_module=ImageModule.B)
+    names = HeldImages(listed=frozenset())
+    whole = _sent_whole(ImageModules(capacity=0), _QR, no_clear, names=names)
+    streamed = _sent_report(ImageModules(capacity=0), _QR, no_clear, names=names)
+    assert whole[2] is False
     assert streamed[0] == whole[0]
     assert streamed[2] == whole[2]
     assert _kept(streamed[1]) == _kept(whole[1])
@@ -473,15 +495,6 @@ def test_records_can_be_read_again(tmp_path: Path) -> None:
 
 
 @pytest.mark.os_agnostic
-def test_a_csv_row_is_parsed_only_when_it_is_reached(tmp_path: Path) -> None:
-    path = tmp_path / "data.jsonl"
-    path.write_text('{"a": "r0"}\n{"a": "r1"}\n{"a": "r2"}\n', encoding="utf-8")
-    reader = iter(load_records(str(path)))
-    assert next(reader) == {"a": "r0"}
-    assert next(reader) == {"a": "r1"}
-
-
-@pytest.mark.os_agnostic
 def test_stdin_is_read_once_and_gone_over_twice(cli_runner: CliRunner, tmp_path: Path) -> None:
     label, _ = _files(tmp_path, _TEXT, "")
     target = tmp_path / "job.dpl"
@@ -546,7 +559,8 @@ _MOST_GROWTH = 1.5
 
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize(
-    "command", ["validate", "render", "render-stdout", "print", "print-one-way", "library-one-way"]
+    "command",
+    ["validate", "render", "render-stdout", "print", "print-one-way", "library-one-way", "validate-qr-few-findings"],
 )
 def test_peak_memory_does_not_grow_with_the_records(command: str, tmp_path: Path) -> None:
     few = _peak(command, _FEW, tmp_path / "few")

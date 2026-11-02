@@ -31,7 +31,7 @@ from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.application.upload_check import CheckedJob, UploadCheck, print_checked
 from datamax_dpl.application.use_cases import AnswerWait, check_batch
 from datamax_dpl.composition import build_production
-from datamax_dpl.domain.label import Label, Text
+from datamax_dpl.domain.label import Label, Qr, Text
 from datamax_dpl.domain.render_context import RenderOptions
 
 if TYPE_CHECKING:
@@ -64,6 +64,17 @@ def _arguments(command: str, directory: Path, *, port: int) -> list[str]:
         "render-held": ["--json-bare", "render", *common],
         "render-held-human": ["render", *common],
         "validate": ["--json-bare", "validate", *common],
+        "validate-qr-few-findings": [
+            "--json-bare",
+            "--set",
+            "printer.max_reported_findings=3",
+            "validate",
+            str(directory / "qr.json"),
+            "--data",
+            data,
+            "--model",
+            "allegro-2",
+        ],
     }[command]
 
 
@@ -106,6 +117,8 @@ def main() -> int:
     directory = Path(os.environ["PEAK_DIRECTORY"])
     label = Label(elements=[Text(x=0, y=row, text="{a}") for row in range(FIELDS)])
     (directory / "label.json").write_text(label.model_dump_json(), encoding="utf-8")
+    qr = Label(elements=[Qr(x=1, y=1, data="{a}")])
+    (directory / "qr.json").write_text(qr.model_dump_json(), encoding="utf-8")
     listener = socket.create_server(("127.0.0.1", 0))
     server = threading.Thread(target=_serve, args=(listener,), daemon=True)
     server.start()

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from printer_server import ImageModules, ModulePrinter
 from pydantic import ValidationError
 
 from datamax_dpl import (
@@ -17,6 +18,7 @@ from datamax_dpl import (
     open_printer,
     print_checked,
 )
+from datamax_dpl.adapters.memory.printer import open_recording_printer
 from datamax_dpl.application.use_cases import AnswerWait
 from datamax_dpl.domain.label import Label, Qr, Text
 from datamax_dpl.domain.render_context import RenderOptions
@@ -104,6 +106,20 @@ def test_the_one_way_send_refuses_another_number_of_records(tmp_path: Path) -> N
     uri = f"file:{tmp_path / 'job.dpl'}"
     with pytest.raises(ConfigurationError):
         print_checked(report, _one_way_job(report), uri=uri, timeout=1.0, open_printer=open_printer)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "second",
+    [pytest.param(("r0",), id="fewer"), pytest.param(("r0", "r1", "r2"), id="more")],
+)
+def test_the_two_way_send_refuses_another_number_of_records(second: tuple[str, ...]) -> None:
+    report = check_batch(_QR, _Passes(_rows("r0", "r1"), _rows(*second)), _OPTIONS)
+    printer = ModulePrinter(ImageModules())
+    job = _one_way_job(report)._replace(reset=None)
+    opened = open_recording_printer(printer)
+    with pytest.raises(ConfigurationError, match="holds 2 labels"):
+        print_checked(report, job, uri="tcp://printer", timeout=5.0, open_printer=opened)
 
 
 @pytest.mark.os_agnostic
