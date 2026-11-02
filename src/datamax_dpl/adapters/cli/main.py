@@ -39,15 +39,40 @@ if TYPE_CHECKING:
 _JSON_FLAG = "--json"
 _JSON_BARE_FLAG = "--json-bare"
 _JSON_FLAGS = frozenset({_JSON_FLAG, _JSON_BARE_FLAG})
-_INTERRUPTED = "interrupted; part of a job may already have been sent"
+_INTERRUPTED = "interrupted"
+_JOB_MAY_BE_OUT = "; part of a job may already have been sent"
+#: The commands that send anything to a printer: only their interrupt can leave a job half out.
+_SENDING_COMMANDS = frozenset(
+    {
+        CommandName.PRINT,
+        CommandName.VERIFY,
+        CommandName.CALIBRATE_PRINT,
+        CommandName.RESET,
+        CommandName.CANCEL,
+        CommandName.PAUSE,
+        CommandName.FEED,
+        CommandName.CUT,
+    }
+)
 
 
-def _global_flags(args: Sequence[str], root: click.Command) -> frozenset[str]:
-    """The JSON flags among the global options of ``args``, read as the root's parser reads them.
+class _CommandLine(NamedTuple):
+    """A command line read as the root's parser reads it.
+
+    Attributes:
+        flags: The JSON flags among its global options.
+        rest: The words after the global options, the subcommand first.
+    """
+
+    flags: frozenset[str]
+    rest: tuple[str, ...]
+
+
+def _read_command_line(args: Sequence[str], root: click.Command) -> _CommandLine:
+    """Split ``args`` at the first word that is neither an option nor the value of one, the subcommand.
 
     The root's own parse may be what failed, or may not have run yet (an unknown command is found
-    before it), so the context cannot say. Stops at the first word that is neither an option nor
-    the value of one, which is the subcommand.
+    before it), so the context cannot say.
     """
     takes_value = {
         name for param in root.params if isinstance(param, click.Option) and not param.is_flag for name in param.opts
@@ -56,12 +81,25 @@ def _global_flags(args: Sequence[str], root: click.Command) -> frozenset[str]:
     words = iter(args)
     for word in words:
         if not word.startswith("-") or word == "--":
-            break
+            rest = () if word == "--" else (word, *words)
+            return _CommandLine(flags=frozenset(flags), rest=rest)
         if word in _JSON_FLAGS:
             flags.add(word)
         elif word in takes_value:
             next(words, None)
-    return frozenset(flags)
+    return _CommandLine(flags=frozenset(flags), rest=())
+
+
+def _global_flags(args: Sequence[str], root: click.Command) -> frozenset[str]:
+    """The JSON flags among the global options of ``args``."""
+    return _read_command_line(args, root).flags
+
+
+def _named_command(args: Sequence[str], root: click.Command) -> CommandName | None:
+    """The command the command line names, a subcommand with its group; None when it names none."""
+    rest = _read_command_line(args, root).rest
+    known = {command.value: command for command in CommandName}
+    return known.get(" ".join(rest[:2])) or known.get(" ".join(rest[:1]))
 
 
 def _misplaced_flag(exc: click.ClickException) -> str | None:
@@ -76,23 +114,11 @@ def _usage_error_mode(args: Sequence[str], exc: click.ClickException, root: clic
     return OutputMode.of(as_json=_JSON_FLAG in flags, as_json_bare=_JSON_BARE_FLAG in flags)
 
 
-def _failed_command(exc: click.ClickException) -> CommandName | None:
-    """The command a usage error belongs to; None for a bad global option or an unknown command."""
-    ctx = exc.ctx if isinstance(exc, click.UsageError) else None
-    if ctx is None:
-        return None
-    _program, _space, path = ctx.command_path.partition(" ")
-    try:
-        return CommandName(path)
-    except ValueError:
-        return None
-
-
-def _report_click_error(exc: click.ClickException, *, mode: OutputMode) -> None:
+def _report_click_error(exc: click.ClickException, *, mode: OutputMode, command: CommandName | None) -> None:
     """Show click's own text on stderr and, in machine mode, the error envelope on stdout."""
     exc.show()
     if mode.machine:
-        envelope = ErrorEnvelope(command=_failed_command(exc), error=type(exc).__name__, message=exc.format_message())
+        envelope = ErrorEnvelope(command=command, error=type(exc).__name__, message=exc.format_message())
         write_envelope(envelope, mode=mode)
 
 
@@ -228,7 +254,7 @@ def _invoke_cli(args: list[str], *, services_factory: Callable[[], AppServices])
     except click.ClickException as exc:
         # The usage error is the outcome, whether or not its envelope still has a reader.
         try:
-            _report_click_error(exc, mode=_usage_error_mode(args, exc, cli))
+            _report_click_error(exc, mode=_usage_error_mode(args, exc, cli), command=_named_command(args, cli))
         except OSError as write_error:
             if not _is_gone_reader_error(write_error):
                 raise
@@ -246,10 +272,12 @@ def _report_interrupt(args: Sequence[str], root: click.Command) -> None:
     """Say on stderr, and in the envelope a machine reader asked for, that the run was cut short."""
     flags = _global_flags(args, root)
     mode = OutputMode.of(as_json=_JSON_FLAG in flags, as_json_bare=_JSON_BARE_FLAG in flags)
+    command = _named_command(args, root)
+    message = _INTERRUPTED + (_JOB_MAY_BE_OUT if command in _SENDING_COMMANDS else "")
     try:
-        sys.stderr.write(f"Error: {_INTERRUPTED}\n")
+        sys.stderr.write(f"Error: {message}\n")
         if mode.machine:
-            write_envelope(ErrorEnvelope(command=None, error="KeyboardInterrupt", message=_INTERRUPTED), mode=mode)
+            write_envelope(ErrorEnvelope(command=command, error="KeyboardInterrupt", message=message), mode=mode)
     except OSError as write_error:
         if not _is_gone_reader_error(write_error):
             raise
@@ -288,6 +316,21 @@ def _run_cli(argv: Sequence[str] | None, *, services_factory: Callable[[], AppSe
         length_limit = TRACEBACK_VERBOSE_LIMIT if tracebacks_enabled else TRACEBACK_SUMMARY_LIMIT
         lib_cli_exit_tools.print_exception_message(trace_back=tracebacks_enabled, length_limit=length_limit)
         return lib_cli_exit_tools.get_system_exit_code(exc)
+
+
+def _shut_down_logging() -> None:
+    """Stop logging, from the main thread only so that logging for other threads goes on.
+
+    A Ctrl-C here finds the command already done and its answer out, so it costs neither: the
+    command's own exit code stands, and no traceback follows it.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return
+    try:
+        if lib_log_rich.runtime.is_initialised():
+            lib_log_rich.runtime.shutdown()
+    except KeyboardInterrupt:
+        return
 
 
 def main(
@@ -329,16 +372,15 @@ def main(
     finally:
         if restore_traceback:
             restore_traceback_state(previous_state)
-        # Only shutdown logging from main thread to avoid killing logging for other threads.
-        is_main_thread = threading.current_thread() is threading.main_thread()
-        if is_main_thread and lib_log_rich.runtime.is_initialised():
-            lib_log_rich.runtime.shutdown()
+        _shut_down_logging()
     # After the logging shutdown, which writes too. A failure outranks the broken pipe: a refusal
     # must not read as "the reader left" to a pipeline that reads the status.
     flushed = _flush_streams()
     if flushed.failure is not None:
-        _report_lost_output(flushed.failure)
-        # A success whose answer was lost must not read as one; a command's own failure says more.
+        # A success whose answer was lost must not read as one; a command's own failure has said so
+        # already, usually over the very same full disk, and one line says it.
+        if code == ExitCode.SUCCESS:
+            _report_lost_output(flushed.failure)
         return code or Outcome.ERROR
     return ExitCode.BROKEN_PIPE if flushed.gone and code == ExitCode.SUCCESS else code
 

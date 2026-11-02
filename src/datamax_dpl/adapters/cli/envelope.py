@@ -41,6 +41,7 @@ class CommandName(str, Enum):
     """
 
     CAPABILITIES = "capabilities"
+    CALIBRATE = "calibrate"
     CALIBRATE_PRINT = "calibrate print"
     CALIBRATE_SET = "calibrate set"
     CANCEL = "cancel"
@@ -106,7 +107,7 @@ class Envelope(BaseModel, Generic[PayloadT]):
 class ErrorEnvelope(BaseModel):
     """The answer when a command could not run or refused before producing a payload.
 
-    ``command`` is None when the command line named none: an unknown command, a bad global option.
+    ``command`` is None when the command line named none: no command, or an unknown one.
     """
 
     ok: bool = False

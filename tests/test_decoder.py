@@ -189,7 +189,7 @@ _NO_SPEED = next(letter for letter in reversed(string.ascii_uppercase) if letter
 @pytest.mark.parametrize("setting", [b"Qab12", b"Hxx", b":", b"P" + _NO_SPEED.encode(), b"S" + _NO_SPEED.encode()])
 def test_an_unreadable_setting_is_a_problem_and_the_rest_is_still_explained(setting: bytes) -> None:
     result = explain(b"\x02L\r" + setting + b"\r121100000500025Hi\rE\r")
-    assert result.problems == (f"{readable(setting)}: ValueError",)
+    assert result.problems == (f"{readable(setting)}: setting not understood",)
     bad = next(c for c in result.commands if c.raw == readable(setting))
     assert bad.kind is CommandKind.FORMAT
     assert bad.meaning.endswith("(not understood)")
@@ -278,3 +278,14 @@ def test_explain_reads_a_metric_two_dimensional_barcode_in_its_units() -> None:
     assert "datamatrix" in meanings
     assert explanation.label is not None
     assert explanation.label.unit is Unit.MM
+
+
+@pytest.mark.os_agnostic
+def test_a_problem_says_what_is_wrong_and_names_no_python_class() -> None:
+    """A truncated job is what ``explain`` is for, and its reader knows no IndexError."""
+    assert explain(b"\x02L\r1X1100000030004\rE\r").problems == ("1X1100000030004: record cut short",)
+
+
+@pytest.mark.os_agnostic
+def test_a_counter_it_cannot_read_is_a_problem_in_words() -> None:
+    assert explain(b"\x02L\r121100000500025Hi\r+xy\rE\r").problems == ("+xy: counter not understood",)

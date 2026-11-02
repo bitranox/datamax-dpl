@@ -1106,3 +1106,10 @@ def test_an_unusable_upload_check_is_refused_before_a_byte_goes_out(check: Uploa
             render_label(label, ALLEGRO), job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer)
         )
     assert printer.sent == []
+
+
+@pytest.mark.os_agnostic
+def test_a_lone_surrogate_is_refused_up_front_and_not_at_the_reset() -> None:
+    """A value that is not UTF-8 reaches argv or the environment this way, and no field can hold it."""
+    with pytest.raises(ValueError, match="not text"):
+        ResetCheck(text="a" + chr(0xDCFF) + "b")

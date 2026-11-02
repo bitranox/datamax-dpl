@@ -69,7 +69,8 @@ def check_label_text(text: str) -> str:
     """Return ``text`` when a text field can hold it.
 
     Raises:
-        ValueError: It is empty or longer than a field's data.
+        ValueError: It is empty, longer than a field's data, or not text at all (a lone surrogate,
+            which is how a value that is not UTF-8 reaches ``argv`` or the environment).
 
     Example:
         >>> check_label_text("Feed")
@@ -81,6 +82,10 @@ def check_label_text(text: str) -> str:
     """
     if not 1 <= len(text) <= MAX_FIELD_DATA:
         raise ValueError(f"needs 1 to {MAX_FIELD_DATA} characters, got {len(text)}")
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"holds a character that is not text, at position {exc.start}") from None
     return text
 
 

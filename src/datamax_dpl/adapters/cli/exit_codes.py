@@ -5,8 +5,8 @@ command carries a meaningful, grep-friendly integer instead of a bare ``1``.
 Commands exit through click's ``Exit`` (what ``ctx.exit()`` raises), never a bare
 ``SystemExit``; ``adapters/cli/main.py`` turns it into the process exit code.
 
-``adapters/cli/main.py`` exits 130 for Ctrl-C and 141 when the reader of the output went away;
-``lib_cli_exit_tools`` translates any other signal.
+``adapters/cli/main.py`` exits 130 for Ctrl-C and 141 when the reader of the output went away. No
+other signal has a handler: SIGTERM and SIGHUP end the process by that signal, with no envelope.
 
 Contents:
     * :class:`ExitCode` - IntEnum of all exit codes used by this application.
@@ -52,7 +52,6 @@ class ExitCode(IntEnum):
     TIMEOUT = 110
     SIGNAL_INT = 130
     BROKEN_PIPE = 141
-    SIGNAL_TERM = 143
 
 
 __all__ = ["ExitCode"]

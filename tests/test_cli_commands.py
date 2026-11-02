@@ -305,7 +305,7 @@ def test_explain_reports_an_unreadable_setting_as_a_problem_and_exits_1(cli_runn
     result = run(cli_runner, ["--json", "explain", str(job)])
     document = envelope(result)
     assert (result.exit_code, document["ok"]) == (1, False), result.output
-    assert document["data"]["problems"] == ["Qab12: ValueError"]
+    assert document["data"]["problems"] == ["Qab12: setting not understood"]
     assert document["data"]["label"]["elements"][0]["text"] == "Hi"
 
 

@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- An envelope names the command on the line whenever there is one: after Ctrl-C, after a bad global option, and for
+  `calibrate` alone. `command` is null only when the line names no command.
+- Ctrl-C says "part of a job may already have been sent" only for commands that send one (`print`, `verify`,
+  `calibrate print`, `reset`, `cancel`, `pause`, `feed`, `cut`), and during the logging shutdown it no longer prints a
+  traceback after the answer.
+- A failure over a full disk says so once.
+- `explain` lists what is wrong in words (`record cut short`, `setting not understood`), not as a Python class name.
+- A `[printer] calibration_label_text` or a `ResetCheck(text=...)` that is not text, a value that was not UTF-8, is
+  refused up front and not when a printer reports a reset.
 - A reset report that comes with a directory read of the first label, the status read having stayed silent, now gets
   the calibration label too, once. Before, the report was taken and dropped, so the label printed shifted and nothing
   said so. If the upload check refuses that label, it says `printer_reset_not_calibrated`.

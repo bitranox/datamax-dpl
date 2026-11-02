@@ -271,8 +271,8 @@ def _format_setting(first: str, text: bytes, state: _State) -> str:
     meaning = _FORMAT_NAMES.get(first, "unknown format command")
     try:
         _setting(first, text.decode("latin-1"), state)
-    except ValueError as exc:
-        state.problems.append(f"{readable(text)}: {exc.__class__.__name__}")
+    except ValueError:
+        state.problems.append(f"{readable(text)}: setting not understood")
         return f"{meaning} (not understood)"
     return meaning
 
@@ -308,9 +308,12 @@ def _record(text: bytes, state: _State) -> str:
     state.latest_field = None
     try:
         parsed = _parse_record(text.decode("latin-1"), state)
-    # IndexError: a record cut short, which is what a truncated job holds.
-    except (ValueError, KeyError, IndexError, ValidationError) as exc:
-        state.problems.append(f"{readable(text)}: {exc.__class__.__name__}")
+    # A truncated job holds a record cut short, which reads as running off the end of its text.
+    except IndexError:
+        state.problems.append(f"{readable(text)}: record cut short")
+        return "record (not understood)"
+    except (ValueError, KeyError, ValidationError):
+        state.problems.append(f"{readable(text)}: record not understood")
         return "record (not understood)"
     if parsed.element is not None:
         state.elements.append(parsed.element)
@@ -334,8 +337,8 @@ def _counter(text: bytes, state: _State) -> str:
             alphanumeric=sign.alphanumeric,
             fill=decoded[1:2],
         )
-    except (ValueError, ValidationError) as exc:
-        state.problems.append(f"{readable(text)}: {exc.__class__.__name__}")
+    except (ValueError, ValidationError):
+        state.problems.append(f"{readable(text)}: counter not understood")
         return "counter (not understood)"
     state.elements[index] = target.model_copy(update=_CounterUpdate(counter=counter))
     letters = " (letters too)" if sign.alphanumeric else ""

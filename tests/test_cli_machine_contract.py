@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import click
+import lib_log_rich.runtime
 import pytest
 from lib_layered_config import Config, ConfigError
 
@@ -64,9 +65,12 @@ USAGE_ERRORS = [
     (["status", "--timeout", "abc"], "status", "BadParameter"),
     (["calibrate", "print", "--axis", "bad"], "calibrate print", "BadParameter"),
     (["no-such-command"], None, "NoSuchCommand"),
-    (["--no-such-global", "validate"], None, "NoSuchOption"),
+    (["--no-such-global", "validate"], "validate", "NoSuchOption"),
+    (["--no-such-global"], None, "NoSuchOption"),
+    (["--set", "bad", "info"], "info", "UsageError"),
+    (["calibrate", "nosuch"], "calibrate", "NoSuchCommand"),
     (["config-generate-examples"], "config-generate-examples", "MissingParameter"),
-    (["calibrate"], None, "UsageError"),
+    (["calibrate"], "calibrate", "UsageError"),
 ]
 
 
@@ -349,9 +353,55 @@ def test_ctrl_c_is_not_an_unexpected_failure(capsys: pytest.CaptureFixture[str])
     assert code == 130
     document = json.loads(out)
     assert document["ok"] is False
-    assert document["command"] is None
+    assert document["command"] == "calibrate set"
     assert document["error"] == "KeyboardInterrupt"
     assert "interrupted" in err
+
+
+INTERRUPTED_COMMANDS = [
+    (["validate", "x.json"], "validate", False),
+    (["config"], "config", False),
+    (["--set", "printer.model=allegro-2", "status"], "status", False),
+    (["print", "x.json"], "print", True),
+    (["verify", "x.json"], "verify", True),
+    (["calibrate", "print"], "calibrate print", True),
+    (["reset"], "reset", True),
+]
+
+
+def _interrupted() -> AppServices:
+    raise KeyboardInterrupt
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("args", "command", "may_have_sent"), INTERRUPTED_COMMANDS)
+def test_ctrl_c_names_the_command_and_speaks_of_a_job_only_where_one_can_go(
+    capsys: pytest.CaptureFixture[str], args: list[str], command: str, may_have_sent: bool
+) -> None:
+    code = main(["--json-bare", *args], services_factory=_interrupted)
+    captured = capsys.readouterr()
+    document = json.loads(captured.out)
+    assert code == 130
+    assert document["command"] == command
+    assert ("may already have been sent" in document["message"]) is may_have_sent
+    assert ("may already have been sent" in captured.err) is may_have_sent
+
+
+@pytest.mark.os_agnostic
+def test_ctrl_c_during_logging_shutdown_keeps_the_answer_and_its_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The command is done by then: its code stands, and no traceback follows its answer."""
+    label = tmp_path / "ok.json"
+    label.write_text(json.dumps({"elements": [{"type": "text", "x": 5, "y": 5, "text": "A"}]}), encoding="utf-8")
+    monkeypatch.setattr(lib_log_rich.runtime, "is_initialised", lambda: True)
+    monkeypatch.setattr(lib_log_rich.runtime, "shutdown", _raising(KeyboardInterrupt()))
+    code, out, err = _run(["--json-bare", "validate", str(label)], capsys)
+    # The root conftest shuts logging down after each test: it must meet the real library.
+    monkeypatch.undo()
+    assert code == 0
+    assert json.loads(out)["ok"] is True
+    assert "Traceback" not in err
 
 
 @pytest.mark.os_agnostic
@@ -454,6 +504,22 @@ def test_an_answer_that_cannot_be_written_is_a_failure_with_one_line(
     assert code == 2
     assert err.count("could not write the output") == 1
     assert "OSError" not in err
+
+
+@pytest.mark.skipif(not _DEV_FULL.exists(), reason="only Linux has a device that refuses every write")
+def test_a_failure_over_the_same_full_disk_says_so_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``render -o -`` fails on its own write; the flush at the end must not report it a second time."""
+    label = tmp_path / "ok.json"
+    label.write_text(json.dumps({"elements": [{"type": "text", "x": 5, "y": 5, "text": "A"}]}), encoding="utf-8")
+    with _DEV_FULL.open("w", encoding="utf-8") as full:
+        monkeypatch.setattr(sys, "stdout", full)
+        code = main(["render", str(label), "-o", "-"], services_factory=_services())
+        monkeypatch.undo()
+    err = capsys.readouterr().err
+    assert code == 2
+    assert err.count("Error:") == 1
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="the library reads the mode settings only where POSIX modes apply")
