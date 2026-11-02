@@ -9,7 +9,6 @@ Contents:
 
 from __future__ import annotations
 
-import contextlib
 import errno
 import os
 import sys
@@ -96,6 +95,36 @@ def _report_click_error(exc: click.ClickException, *, mode: OutputMode) -> None:
         write_envelope(envelope, mode=mode)
 
 
+def _is_gone_reader_error(exc: OSError, *, windows: bool = os.name == "nt") -> bool:
+    """Whether a failed write or flush to a standard stream means its reader left.
+
+    The Windows C runtime reports a pipe with no reader as a bare EINVAL, on a write as much as on a
+    flush. A bare one only: EINVAL from a bad file name carries the name, and from a socket a Windows
+    error code, and those are real failures that must not read as "the reader left".
+
+    Args:
+        exc: The error the stream raised.
+        windows: Whether the C runtime's Windows reporting applies.
+
+    Returns:
+        True for EPIPE everywhere and for a bare EINVAL on Windows.
+
+    Example:
+        >>> _is_gone_reader_error(BrokenPipeError(errno.EPIPE, "Broken pipe"), windows=False)
+        True
+        >>> _is_gone_reader_error(OSError(errno.EINVAL, "Invalid argument"), windows=True)
+        True
+        >>> _is_gone_reader_error(OSError(errno.EINVAL, "Invalid argument"), windows=False)
+        False
+        >>> _is_gone_reader_error(OSError(errno.EINVAL, "Invalid argument", "bad?name"), windows=True)
+        False
+    """
+    if exc.errno == errno.EPIPE:
+        return True
+    bare = exc.filename is None and getattr(exc, "winerror", None) is None
+    return windows and exc.errno == errno.EINVAL and bare
+
+
 def _reader_left(exc: BaseException) -> bool:
     """Whether a command stopped because the reader of its output went away.
 
@@ -110,7 +139,7 @@ def _reader_left(exc: BaseException) -> bool:
         False
     """
     cause = exc.__context__ if isinstance(exc, SystemExit) else exc
-    return isinstance(cause, OSError) and cause.errno == errno.EPIPE
+    return isinstance(cause, OSError) and _is_gone_reader_error(cause)
 
 
 def _discard_stream(stream: TextIO) -> None:
@@ -132,11 +161,6 @@ def _discard_stream(stream: TextIO) -> None:
         os.close(null)
 
 
-def _flush_failed_for_a_gone_reader(exc: OSError) -> bool:
-    """Whether a failed flush means the reader left; Windows reports a closed pipe as EINVAL there."""
-    return exc.errno == errno.EPIPE or (os.name == "nt" and exc.errno == errno.EINVAL)
-
-
 def _flush_streams() -> bool:
     """Flush stdout and stderr; return whether a reader had gone.
 
@@ -154,7 +178,7 @@ def _flush_streams() -> bool:
         try:
             stream.flush()
         except OSError as exc:
-            if not _flush_failed_for_a_gone_reader(exc):
+            if not _is_gone_reader_error(exc):
                 raise
             _discard_stream(stream)
             gone = True
@@ -181,8 +205,11 @@ def _invoke_cli(args: list[str], *, services_factory: Callable[[], AppServices])
         return exit_code if isinstance(exit_code, int) else 0
     except click.ClickException as exc:
         # The usage error is the outcome, whether or not its envelope still has a reader.
-        with contextlib.suppress(BrokenPipeError):
+        try:
             _report_click_error(exc, mode=_usage_error_mode(args, exc, cli))
+        except OSError as write_error:
+            if not _is_gone_reader_error(write_error):
+                raise
         return exc.exit_code
 
 

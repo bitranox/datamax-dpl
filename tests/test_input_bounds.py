@@ -71,7 +71,8 @@ def test_a_stray_quote_is_refused_rather_than_merging_every_row_after_it(tmp_pat
 def test_a_quoted_field_may_still_span_lines(tmp_path: Path) -> None:
     """Strict parsing refuses broken quoting only: a closed quote holding a newline stays one value."""
     records = tmp_path / "ok.csv"
-    records.write_text('name,sku\n"two\nlines",A1\nplain,"say ""hi"""\n', encoding="utf-8")
+    # Bytes, because write_text turns \n into \r\n on Windows and a quoted field keeps its line ending.
+    records.write_bytes(b'name,sku\n"two\nlines",A1\nplain,"say ""hi"""\n')
     assert load_records(str(records)) == [{"name": "two\nlines", "sku": "A1"}, {"name": "plain", "sku": 'say "hi"'}]
 
 
