@@ -68,6 +68,9 @@ class SilentChannel:
         self._clock.now += waited
         raise PrinterTimeoutError(f"silent: no complete answer within {waited:g} s (0 bytes read)")
 
+    def peer_closed(self) -> bool:
+        return False
+
     def close(self) -> None:
         self.closed = True
 

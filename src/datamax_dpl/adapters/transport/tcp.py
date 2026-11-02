@@ -102,6 +102,26 @@ class TcpTransport(ClosingTransport):
         """A socket reads the printer's answers."""
         return True
 
+    def peer_closed(self) -> bool:
+        """True when the printer or print server has closed or reset the connection.
+
+        Peeks without waiting, so a byte of an answer that is waiting stays for the next read. A
+        close (an empty peek) or a reset that has arrived is seen; a close still on its way, or one
+        the server makes after the next write, is not.
+        """
+        if self._sock.fileno() == -1:
+            return True
+        self._sock.settimeout(0.0)
+        try:
+            return not self._sock.recv(1, socket.MSG_PEEK)
+        except BlockingIOError:
+            return False
+        except OSError:
+            # A reset, or any other error the socket holds: nothing more goes out on it.
+            return True
+        finally:
+            self._sock.settimeout(self._timeout)
+
     def send(self, data: bytes) -> None:
         """Write ``data`` completely, in pieces of ``send_chunk_bytes``.
 

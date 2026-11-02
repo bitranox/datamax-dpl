@@ -29,6 +29,8 @@ class RecordingPrinter:
         tunings: The :class:`~datamax_dpl.domain.timing.TransportTuning` of each of those opens;
             nothing is paced by it here, every send is recorded whole.
         closed: True once :meth:`close` ran.
+        hung_up: What :meth:`peer_closed` says; a test sets it for a far end that closed the
+            channel, and every open clears it.
 
     Example:
         >>> printer = RecordingPrinter(answers={b"\\x01A": b"NNNNNNNN\\r"})
@@ -48,11 +50,16 @@ class RecordingPrinter:
         self.opened: list[tuple[str, float]] = []
         self.tunings: list[TransportTuning] = []
         self.closed = False
+        self.hung_up = False
 
     @property
     def bidirectional(self) -> bool:
         """As configured."""
         return self._bidirectional
+
+    def peer_closed(self) -> bool:
+        """True once a test set :attr:`hung_up`, for a printer whose far end closed the channel."""
+        return self.hung_up
 
     @property
     def data(self) -> bytes:
@@ -166,6 +173,7 @@ def open_recording_printer(printer: RecordingPrinter) -> OpenTunablePrinter:
         printer.opened.append((uri, timeout))
         printer.tunings.append(tuning)
         printer.closed = False
+        printer.hung_up = False
         return printer
 
     return _open

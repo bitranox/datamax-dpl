@@ -159,9 +159,18 @@ class Link:
     _opened: list[PrinterTransport] = field(default_factory=list["PrinterTransport"])
 
     def send(self, data: bytes) -> None:
-        """Write ``data`` on the open channel, opening one first when a failed read left none."""
+        """Write ``data`` on the open channel, opening one first when a failed read left none.
+
+        A channel the far end has closed is given up first: a print server that drops a
+        connection idle for a moment does so during the directory read, the one pause in a checked
+        job, and the rest written there would be lost while every write succeeds. A close that
+        comes after this write is not seen.
+        """
         if not data:
             return
+        if self.printer is not None and self.printer.peer_closed():
+            self.printer.close()
+            self.printer = None
         if self.printer is None:
             self.printer = (
                 self.open_printer(self.uri, timeout=self.timeout)

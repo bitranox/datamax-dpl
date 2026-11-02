@@ -549,8 +549,11 @@ link (a file, stdout, a device file) cannot read the directory and sends the job
 `render` writes it. A job that downloads into module `C` is refused on a two-way link before
 anything is sent (`image_module_unlisted`): the directory never lists the default module by that
 letter, so the check could never pass; set `image_module` to the letter the printer lists (A on the
-Allegro 2), or print over a one-way link. A print server that closes an idle connection would cut the second part off:
-the directory read is the only pause, about a second when the printer answers at once.
+Allegro 2), or print over a one-way link. The directory read is the one pause in the job, about
+a second when the printer answers at once. A print server that closes the connection during it is
+seen before the rest goes out, and the rest goes on a new connection (tried again within
+`stored_names_wait` while it is refused). A close that comes only after the rest was written is
+not seen: that label is lost while `print` reports it sent.
 
 `max_format_rows` ships unset too. The Allegro 2 cuts a long format off; its model limit is 1648
 dot rows, about 201 mm at its default `scale_along`, the lowest row any test format was cut at on

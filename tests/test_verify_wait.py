@@ -93,6 +93,9 @@ class ScriptedPrinter:
     def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = MAX_ANSWER_SECONDS) -> bytes:
         raise AssertionError("a status wait reads no idle-terminated answer")
 
+    def peer_closed(self) -> bool:
+        return False
+
     def close(self) -> None:
         self.closed = True
 

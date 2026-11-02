@@ -501,6 +501,25 @@ def module_printer(modules: ImageModules) -> Play:
     return play
 
 
+def module_printer_closing(modules: ImageModules, *, after: float) -> Play:
+    """A print server that answers the first directory request, then closes the connection ``after`` seconds later.
+
+    Some print servers drop a connection that has been idle for a moment; the directory read is
+    the one pause in a checked job, so the rest of it then has to go on a new connection.
+    """
+
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        with contextlib.suppress(ConnectionResetError, TimeoutError):
+            while chunk := connection.recv(65536):
+                server.record(chunk)
+                if reply := modules.feed(chunk):
+                    connection.sendall(reply)
+                    time.sleep(after)
+                    return
+
+    return play
+
+
 class ModulePrinter(RecordingPrinter):
     """A :class:`RecordingPrinter` whose image modules (:class:`ImageModules`) answer directory requests.
 

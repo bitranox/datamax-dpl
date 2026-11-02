@@ -141,6 +141,15 @@ class PrinterTransport(Protocol):
         """
         ...
 
+    def peer_closed(self) -> bool:
+        """True when the far end is known to have closed or reset the channel.
+
+        Asked without waiting and without taking a byte of an answer that is waiting. False when
+        the channel is open, or when it cannot tell (a serial line, a file): a close that comes
+        after this question, or after the next write, is not seen.
+        """
+        ...
+
     def close(self) -> None:
         """Release the channel; safe to call twice."""
         ...

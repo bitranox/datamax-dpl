@@ -58,6 +58,10 @@ class StdoutTransport(ClosingTransport):
         """Standard output is written only."""
         return False
 
+    def peer_closed(self) -> bool:
+        """A closed reader of standard output shows only when a write fails: always False."""
+        return False
+
     def send(self, data: bytes) -> None:
         """Write ``data`` and flush, so a reader on a pipe gets it at once.
 

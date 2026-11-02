@@ -39,6 +39,10 @@ class DescriptorTransport(ClosingTransport):
         """A descriptor transport is written only."""
         return False
 
+    def peer_closed(self) -> bool:
+        """A file or device file has no far end that closes: always False."""
+        return False
+
     def send(self, data: bytes) -> None:
         """Write ``data`` completely, looping over short writes.
 

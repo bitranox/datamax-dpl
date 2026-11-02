@@ -184,6 +184,10 @@ class SerialTransport(ClosingTransport):
         """A serial port reads the printer's answers."""
         return True
 
+    def peer_closed(self) -> bool:
+        """A serial line has no close to see: always False."""
+        return False
+
     def send(self, data: bytes) -> None:
         """Write ``data`` in pieces of ``send_chunk_bytes`` and wait until it has left the port.
 

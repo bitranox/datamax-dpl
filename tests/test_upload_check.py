@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from printer_server import ImageModules, ModulePrinter, module_printer
+from printer_server import ImageModules, ModulePrinter, module_printer, module_printer_closing
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
@@ -310,6 +310,32 @@ class _HangingUpOnTheRead(ModulePrinter):
     def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = 120.0) -> bytes:
         self.closed = True
         raise TransportError("module printer: connection reset", unanswered=True)
+
+
+class _HangingUpAfterTheAnswer(ModulePrinter):
+    """A print server that answers the directory request and then closes the connection."""
+
+    def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = 120.0) -> bytes:
+        answer = super().read_answer(request, timeout=timeout, idle=idle, total=total)
+        self.hung_up = True
+        return answer
+
+
+@pytest.mark.os_agnostic
+def test_a_channel_the_print_server_closed_after_the_answer_gets_no_format_and_a_new_one_does() -> None:
+    modules = ImageModules()
+    first, second = _HangingUpAfterTheAnswer(modules), ModulePrinter(modules)
+    channels = iter([first, second])
+
+    def open_printer(uri: str, *, timeout: float) -> PrinterTransport:
+        return next(channels)
+
+    result, job = _job(Label(elements=[LOGO]), ALLEGRO, None, 3)
+    report = print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_printer)
+
+    assert FORMAT not in first.data
+    assert second.sent[0].startswith(FORMAT)
+    assert report.bytes_sent == len(result.data)
 
 
 @pytest.mark.os_agnostic
@@ -717,6 +743,25 @@ def test_print_over_tcp_refuses_a_label_the_printer_never_lists_and_sends_no_for
     errors = [finding for finding in data["findings"] if finding["severity"] == "error"]
     assert [finding["code"] for finding in errors] == ["image_upload_refused"]
     assert "after 2 rounds" in errors[0]["message"]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.usefixtures("no_ambient_configuration")
+def test_print_over_tcp_sends_the_format_on_a_new_connection_when_the_server_closed_after_the_answer(
+    cli_runner: CliRunner, tmp_path: Path, serve: Callable[..., PrinterServer]
+) -> None:
+    """The server closes 0.3 s after the directory answer, inside the 1 s of silence that ends it."""
+    modules = ImageModules()
+    server = serve(module_printer_closing(modules, after=0.3), module_printer(modules))
+    args = ["--json", "print", _label_file(tmp_path), "--model", "allegro-2", "--printer", server.address]
+
+    result = _run(cli_runner, args)
+    server.join()
+
+    assert result.exit_code == 0, result.output
+    first, second = (bytes(connection) for connection in server.connections)
+    assert FORMAT not in first
+    assert second.startswith(FORMAT)
 
 
 @pytest.mark.os_agnostic

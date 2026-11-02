@@ -895,3 +895,33 @@ def test_read_answer_with_only_flow_control_bytes_is_no_answer(serve: Callable[.
         pytest.raises(PrinterTimeoutError, match=r"no complete answer within 1 s \(2 bytes read\)"),
     ):
         printer.read_answer(b"\x02WG", timeout=1.0, idle=0.3)
+
+
+def _readable(sock: socket.socket) -> None:
+    """Wait until ``sock`` has something to read (bytes or the far end's close)."""
+    ready, _, _ = select.select([sock], [], [], JOIN_SECONDS)
+    assert ready, "nothing arrived"
+
+
+@pytest.mark.os_agnostic
+def test_peer_closed_is_false_while_open_and_leaves_a_waiting_answer_unread() -> None:
+    ours, theirs = socket.socketpair()
+    with theirs, TcpTransport(ours, uri=TcpUri(host="127.0.0.1"), timeout=2.0) as printer:
+        assert not printer.peer_closed()
+        theirs.sendall(b"X\r")
+        _readable(ours)
+
+        assert not printer.peer_closed()
+        assert ours.recv(16) == b"X\r"
+
+
+@pytest.mark.os_agnostic
+def test_peer_closed_sees_the_far_end_close_and_a_closed_transport() -> None:
+    ours, theirs = socket.socketpair()
+    printer = TcpTransport(ours, uri=TcpUri(host="127.0.0.1"), timeout=2.0)
+    theirs.close()
+    _readable(ours)
+
+    assert printer.peer_closed()
+    printer.close()
+    assert printer.peer_closed()
