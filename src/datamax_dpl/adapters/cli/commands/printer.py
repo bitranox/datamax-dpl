@@ -54,7 +54,7 @@ from .model_options import (
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from ....application.use_cases import BatchResult
+    from ....application.use_cases import BatchResult, RenderedJob
     from ....domain.label import Label
     from ....domain.render_context import RenderOptions
     from ..context import CLIContext
@@ -77,7 +77,8 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
         records = None if data is None else load_records(data)
         uri = require_uri(settings)
         options = _print_options(settings, uri=uri)
-        result, held = _render_to_print(label, records, options, settings, cli_ctx)
+        rendered = _render_to_print(label, records, options, settings, cli_ctx)
+        result = rendered.result
         if not result.ok:
             return CommandResult(
                 ok=False, payload=render_payload(result, include_dpl=False), human="REFUSED: nothing sent"
@@ -91,7 +92,7 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
             job = CheckedJob(
                 renders=record_renders(label, records, options),
                 check=_upload_check(settings, cli_ctx),
-                held=held or HeldImages(),
+                held=rendered.held or HeldImages(),
             )
             try:
                 checked = print_checked(result, job, uri=uri, timeout=settings.timeout, open_printer=open_printer)
@@ -177,7 +178,7 @@ def _render_to_print(
     options: RenderOptions,
     settings: PrinterSettings,
     cli_ctx: CLIContext,
-) -> tuple[RenderResult | BatchResult, HeldImages | None]:
+) -> RenderedJob[RenderResult | BatchResult]:
     """Render a job to be printed, reading the printer's stored image names where no clear precedes it.
 
     The records are loaded once by the caller and every render uses them: ``--data -`` is stdin,
@@ -472,7 +473,8 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
         label = load_label(label_source)
         uri = require_uri(settings)
         options = _print_options(settings, uri=uri)
-        result, held = _render_to_print(label, None, options, settings, cli_ctx)
+        rendered = _render_to_print(label, None, options, settings, cli_ctx)
+        result = rendered.result
         if not isinstance(result, RenderResult) or not result.ok:
             return CommandResult(ok=False, payload=render_payload(result, include_dpl=False), human="REFUSED")
         folder = Path(output_dir)
@@ -483,7 +485,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
             else CheckedJob(
                 renders=record_renders(label, None, options),
                 check=_upload_check(settings, cli_ctx),
-                held=held or HeldImages(),
+                held=rendered.held or HeldImages(),
             )
         )
         try:

@@ -136,7 +136,7 @@ def wait_idle(
     try:
         while answer_wait.clock() < deadline:
             try:
-                channel, status = poll_status(
+                poll = poll_status(
                     channel, uri=uri, timeout=timeout, open_printer=open_printer, wait=answer_wait, started=started
                 )
             except PrinterTimeoutError as exc:
@@ -145,6 +145,7 @@ def wait_idle(
                 if not heard_busy:
                     raise
                 raise _still_busy(answer_wait, started=started, unanswered=True) from exc
+            channel, status = poll.channel, poll.status
             if status.idle or status.problems:
                 return status
             heard_busy = True
@@ -207,13 +208,13 @@ def _send_checked_and_wait(link: Link, checked: CheckedJob, *, wait: IdleWait) -
         UploadRefusedError: The printer did not list the label's images after every round; its
             format was not sent.
     """
-    sent, done = send_checked_label(link, checked)
-    if not done:
-        raise UploadRefusedError(sent, bytes_sent=link.bytes_sent)
+    send = send_checked_label(link, checked)
+    if not send.all_sent:
+        raise UploadRefusedError(send.result, bytes_sent=link.bytes_sent)
     # The rest of the job went out on the channel that answered the last read, so one is open.
     channel = link.printer or link.open_printer(link.uri, timeout=link.timeout)
     status = wait_idle(channel, uri=link.uri, timeout=link.timeout, open_printer=link.open_printer, wait=wait)
-    return _Printed(result=sent, bytes_sent=link.bytes_sent, status=status)
+    return _Printed(result=send.result, bytes_sent=link.bytes_sent, status=status)
 
 
 def verify_print(

@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import time
 from contextlib import closing
+from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, NamedTuple, Protocol, TypeVar
+from typing import TYPE_CHECKING, Generic, NamedTuple, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -93,10 +94,6 @@ class BatchResult(BaseModel):
         batch_ok = all(f.severity is not Severity.ERROR for f in self.batch_findings)
         return batch_ok and all(result.ok for result in self.results)
 
-    def findings(self) -> list[tuple[int, Finding]]:
-        """Every finding with the index of the record it belongs to."""
-        return [(i, f) for i, result in enumerate(self.results) for f in result.findings]
-
 
 def render_label(label: Label, options: RenderOptions, *, held: HeldImages | None = None) -> RenderResult:
     """Render one label and report every finding (never raises for a finding).
@@ -118,25 +115,40 @@ def render_batch(
         MissingFieldError: A record lacks a field a placeholder names.
         pydantic.ValidationError: A filled value breaks a field limit.
     """
-    per_record, cut = _batch_label(label)
-    results = build_jobs((fill_label(per_record, record) for record in records), options, filled=True, held=held)
-    if cut is None:
+    batch_label = _batch_label(label)
+    results = build_jobs(
+        (fill_label(batch_label.per_record, record) for record in records), options, filled=True, held=held
+    )
+    if batch_label.cut is None:
         return BatchResult(data=b"".join(result.data for result in results), results=results)
-    cuts = batch_cuts(len(results), cut=cut, options=options)
+    cuts = batch_cuts(len(results), cut=batch_label.cut, options=options)
     batch = BatchResult(data=b"", results=results, batch_findings=cuts.findings, cut_after=cuts.cut_after)
     return batch.model_copy(update={"data": b"".join(batch.record_jobs())})
 
 
-def _batch_label(label: Label) -> tuple[Label, Cut | None]:
-    """Return the label each record fills, and the cut the batch makes across records (None: none).
+@dataclass(frozen=True)
+class _BatchLabel:
+    """The label each record of a batch fills, and the cut the batch makes across records.
+
+    Attributes:
+        per_record: The label each record fills.
+        cut: The cut the batch makes across records with ``<STX>o``; None when it makes none.
+    """
+
+    per_record: Label
+    cut: Cut | None
+
+
+def _batch_label(label: Label) -> _BatchLabel:
+    """Return the label each record fills, and the cut the batch makes across records.
 
     DPL's cut-by counts copies of one format, so a batch that cuts every N records cuts with
     ``<STX>o`` itself (:mod:`~datamax_dpl.domain.batch`), and each record's own label does not cut.
     """
     cut = label.cut
     if cut is None or cut.every == 1 or label.quantity > 1:
-        return label, None
-    return label.model_copy(update={"cut": Cut(every=1, at_end=False)}), cut
+        return _BatchLabel(per_record=label, cut=None)
+    return _BatchLabel(per_record=label.model_copy(update={"cut": Cut(every=1, at_end=False)}), cut=cut)
 
 
 class RecordRender(Protocol):
@@ -170,7 +182,7 @@ def record_renders(
     """
     if records is None:
         return (_render_of(label, options, filled=False),)
-    per_record, _ = _batch_label(label)
+    per_record = _batch_label(label).per_record
     return tuple(_render_of(fill_label(per_record, record), options, filled=True) for record in records)
 
 
@@ -226,12 +238,25 @@ def stored_image_names(
         return HeldImages(unread_because=DEFAULT_MODULE_UNREAD)
     if one_way:
         return HeldImages(unread_because=ONE_WAY_LINK)
-    printer, held = read_stored_names(
-        None, module=module, uri=uri, timeout=timeout, open_printer=open_printer, wait=wait
-    )
-    if printer is not None:
-        printer.close()
-    return held
+    read = read_stored_names(None, module=module, uri=uri, timeout=timeout, open_printer=open_printer, wait=wait)
+    if read.channel is not None:
+        read.channel.close()
+    return read.held
+
+
+@dataclass(frozen=True)
+class StoredNamesRead:
+    """What :func:`read_stored_names` read, and the channel it read it on.
+
+    Attributes:
+        channel: The channel that answered, still open for the caller to go on with and close;
+            None when the read failed, every channel it used closed then.
+        held: What the printer says the module holds; unknown names with the reason when the
+            read failed or its answer could not be read.
+    """
+
+    channel: PrinterTransport | None
+    held: HeldImages
 
 
 def read_stored_names(
@@ -242,7 +267,7 @@ def read_stored_names(
     timeout: float,
     open_printer: OpenPrinter,
     wait: AnswerWait | None = None,
-) -> tuple[PrinterTransport | None, HeldImages]:
+) -> StoredNamesRead:
     """Read the image names the printer holds in ``module`` (``<STX>W``), asking on ``printer`` first.
 
     The read :func:`stored_image_names` makes, on a channel the caller may already have open: a
@@ -260,9 +285,7 @@ def read_stored_names(
             :func:`stored_image_names`); None waits ``timeout``.
 
     Returns:
-        The channel that answered, still open for the caller to go on with and close (None when
-        the read failed: every channel it used is closed then), and what it says ``module``
-        holds; unknown names with the reason when the read failed or its answer could not be read.
+        The channel that answered and what it says ``module`` holds (see :class:`StoredNamesRead`).
     """
     first = [] if printer is None else [printer]
 
@@ -271,7 +294,7 @@ def read_stored_names(
         return first.pop() if first else open_printer(uri, timeout=timeout)
 
     try:
-        channel, (directory,) = _ask_directories(
+        asked = _ask_directories(
             kinds=(MemoryKind.GRAPHIC,),
             uri=uri,
             timeout=timeout,
@@ -281,12 +304,14 @@ def read_stored_names(
             answer_within_wait=True,
         )
     except UnsupportedOperationError:
-        return None, HeldImages(unread_because=ONE_WAY_LINK)
+        return StoredNamesRead(channel=None, held=HeldImages(unread_because=ONE_WAY_LINK))
     except AnswerNotEndedError:
-        return None, HeldImages(unread_because=_still_arriving(AnswerWait(seconds=timeout) if wait is None else wait))
+        unread = _still_arriving(AnswerWait(seconds=timeout) if wait is None else wait)
+        return StoredNamesRead(channel=None, held=HeldImages(unread_because=unread))
     except TransportError as exc:
-        return None, HeldImages(unread_because=f"reading them failed: {exc}")
-    return channel, held_images_from(directory, module=module)
+        return StoredNamesRead(channel=None, held=HeldImages(unread_because=f"reading them failed: {exc}"))
+    (directory,) = asked.answer
+    return StoredNamesRead(channel=asked.channel, held=held_images_from(directory, module=module))
 
 
 def _still_arriving(wait: AnswerWait) -> str:
@@ -319,24 +344,37 @@ def with_stored_names(
     Returns:
         The job to send.
     """
-    return render_with_stored_names(render, read=read)[0]
+    return render_with_stored_names(render, read=read).result
+
+
+@dataclass(frozen=True)
+class RenderedJob(Generic[_Rendered]):
+    """A job rendered to be printed, and the stored image names it was rendered with.
+
+    Attributes:
+        result: The job to send.
+        held: What the printer was read to hold, None when nothing was read: a sender that
+            renders a label again on the way starts from the same names.
+    """
+
+    result: _Rendered
+    held: HeldImages | None
 
 
 def render_with_stored_names(
     render: Callable[[HeldImages | None], _Rendered], *, read: Callable[[ImageModule], HeldImages]
-) -> tuple[_Rendered, HeldImages | None]:
+) -> RenderedJob[_Rendered]:
     """Render as :func:`with_stored_names` does, and also return the names the job was rendered with.
 
     Returns:
-        The job to send, and what the printer was read to hold (None when nothing was read): a
-        sender that renders a label again on the way starts from the same names.
+        The job to send and what the printer was read to hold (see :class:`RenderedJob`).
     """
     result = render(None)
     module = _unread_module(result)
     if module is None:
-        return result, None
+        return RenderedJob(result=result, held=None)
     held = read(module)
-    return render(held), held
+    return RenderedJob(result=render(held), held=held)
 
 
 class PrintReport(BaseModel):
@@ -459,15 +497,15 @@ def query_status(
         PrinterProtocolError: The answer was not a status string; it is not asked again.
         TransportError: The printer could not be reached for another reason.
     """
-    printer, answer = _first_answer(
+    answered = _first_answer(
         _ask_status,
         uri=uri,
         timeout=timeout,
         open_printer=open_printer,
         wait=AnswerWait(seconds=timeout) if wait is None else wait,
     )
-    printer.close()
-    return parse_ascii_status(answer)
+    answered.channel.close()
+    return parse_ascii_status(answered.answer)
 
 
 def open_within(*, uri: str, timeout: float, open_printer: OpenPrinter, wait: AnswerWait) -> PrinterTransport:
@@ -482,15 +520,27 @@ def open_within(*, uri: str, timeout: float, open_printer: OpenPrinter, wait: An
             wait ran out; the message counts the attempts and quotes the last failure.
         TransportError: Any failure that is not ``unanswered``, raised as is.
     """
-    printer, _ = _first_answer(
+    return _first_answer(
         lambda _channel, _left: None, uri=uri, timeout=timeout, open_printer=open_printer, wait=wait
-    )
-    return printer
+    ).channel
+
+
+@dataclass(frozen=True)
+class StatusPoll:
+    """The status :func:`poll_status` read, and the channel that answered.
+
+    Attributes:
+        channel: The channel that answered, the one polled or a new connection, still open.
+        status: The printer's status.
+    """
+
+    channel: PrinterTransport
+    status: PrinterStatus
 
 
 def poll_status(
     printer: PrinterTransport, *, uri: str, timeout: float, open_printer: OpenPrinter, wait: AnswerWait, started: float
-) -> tuple[PrinterTransport, PrinterStatus]:
+) -> StatusPoll:
     """Ask the already open ``printer`` for its status exactly as :func:`query_status` asks a new one.
 
     The same :class:`AnswerWait` applies, measured from ``started`` so that several polls share
@@ -511,15 +561,21 @@ def poll_status(
         # The first attempt is the open channel itself; only a failure that took no request opens another.
         return first.pop() if first else open_printer(uri, timeout=timeout)
 
-    channel, answer = _first_answer(
-        _ask_status, uri=uri, timeout=timeout, open_printer=open_again, wait=wait, started=started
-    )
-    return channel, parse_ascii_status(answer)
+    answered = _first_answer(_ask_status, uri=uri, timeout=timeout, open_printer=open_again, wait=wait, started=started)
+    return StatusPoll(channel=answered.channel, status=parse_ascii_status(answered.answer))
 
 
 def _ask_status(channel: PrinterTransport, left: float) -> bytes:
     """The status request of every status wait: its answer is waited for as long as the wait has left."""
     return channel.query(STATUS_REQUEST, timeout=left, accept=is_status_line)
+
+
+@dataclass(frozen=True)
+class _Answered(Generic[_T]):
+    """What an ask of an open channel returned, and that channel, still open for the caller to close."""
+
+    channel: PrinterTransport
+    answer: _T
 
 
 def _first_answer(
@@ -530,7 +586,7 @@ def _first_answer(
     open_printer: OpenPrinter,
     wait: AnswerWait,
     started: float | None = None,
-) -> tuple[PrinterTransport, _T]:
+) -> _Answered[_T]:
     """Open the printer and ``ask`` it, again on a new connection while nothing answered, within ``wait``.
 
     ``ask`` gets the open channel and the seconds left. Returns the channel, still open for the
@@ -559,7 +615,7 @@ def _first_answer(
         tries.attempts += 1
         try:
             printer = open_printer(uri, timeout=connect)
-            return printer, _ask_or_close(ask, printer, tries=tries)
+            return _Answered(channel=printer, answer=_ask_or_close(ask, printer, tries=tries))
         except _WaitEndedError:
             raise tries.ran_out() from tries.last
         except TransportError as exc:
@@ -694,7 +750,7 @@ def read_memory_directory(
     check_timeout(idle, name="idle")
     if not kinds:
         return ()
-    printer, directories = _ask_directories(
+    asked = _ask_directories(
         kinds=kinds,
         uri=uri,
         timeout=timeout,
@@ -703,8 +759,8 @@ def read_memory_directory(
         wait=wait,
         answer_within_wait=answer_within_wait,
     )
-    printer.close()
-    return directories
+    asked.channel.close()
+    return asked.answer
 
 
 def _ask_directories(
@@ -716,14 +772,14 @@ def _ask_directories(
     idle: float,
     wait: AnswerWait | None,
     answer_within_wait: bool,
-) -> tuple[PrinterTransport, tuple[MemoryDirectory, ...]]:
+) -> _Answered[tuple[MemoryDirectory, ...]]:
     """Ask for each directory of ``kinds`` (at least one) as :func:`read_memory_directory` does.
 
     Returns the channel that answered, still open, and the directories. A failure closes every
     channel it opened and raises as :func:`read_memory_directory` does.
     """
     first, *rest = kinds
-    printer, answer = _first_answer(
+    answered = _first_answer(
         lambda channel, left: channel.read_answer(
             MEMORY_DIRECTORY_REQUESTS[first],
             timeout=left,
@@ -737,14 +793,16 @@ def _ask_directories(
         open_printer=open_printer,
         wait=AnswerWait(seconds=timeout) if wait is None else wait,
     )
+    printer = answered.channel
     try:
-        answers = [answer] + [
+        answers = [answered.answer] + [
             printer.read_answer(MEMORY_DIRECTORY_REQUESTS[kind], timeout=timeout, idle=idle) for kind in rest
         ]
     except BaseException:
         printer.close()
         raise
-    return printer, tuple(parse_module_directory(raw, kind=kind) for raw, kind in zip(answers, kinds, strict=True))
+    directories = tuple(parse_module_directory(raw, kind=kind) for raw, kind in zip(answers, kinds, strict=True))
+    return _Answered(channel=printer, answer=directories)
 
 
 #: Lines in the ``<STX>KQ`` memory report (docs/dpl-reference.md section 8).
@@ -799,6 +857,9 @@ __all__ = [
     "PrintReport",
     "PrinterCommand",
     "RecordRender",
+    "RenderedJob",
+    "StatusPoll",
+    "StoredNamesRead",
     "detect_printer",
     "open_within",
     "poll_status",

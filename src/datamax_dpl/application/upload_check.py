@@ -44,7 +44,7 @@ none of it and nothing after it is sent.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Generic, NamedTuple, TypeVar
 
 from ..domain.batch import with_cut
 from ..domain.enums import FindingCode, ImageModule, Severity
@@ -61,6 +61,8 @@ if TYPE_CHECKING:
     from ..domain.render import RenderedRecord, RenderResult
     from .ports import OpenPrinter, PrinterTransport
     from .use_cases import RecordRender
+
+_Sent_co = TypeVar("_Sent_co", bound="RenderResult | BatchResult", covariant=True)
 
 #: Default of ``[printer] upload_check_rounds``: upload, then a clear and a second upload, then the
 #: images halved and a third upload, before a label is refused (user decision, 2026-11-01).
@@ -117,6 +119,20 @@ class CheckedJob(NamedTuple):
     renders: Sequence[RecordRender]
     check: UploadCheck
     held: HeldImages = HeldImages()
+
+
+@dataclass(frozen=True)
+class CheckedSend(Generic[_Sent_co]):
+    """A job sent label by label with its upload check, as it went out.
+
+    Attributes:
+        result: The job as it went out, each label reached with the rounds' findings.
+        all_sent: True when every label was sent; False when a label was refused, which nothing
+            after it follows.
+    """
+
+    result: _Sent_co
+    all_sent: bool
 
 
 class UploadRefusedError(LabelRejectedError):
@@ -203,12 +219,13 @@ class Link:
     def read(self, module: ImageModule, *, wait: AnswerWait) -> HeldImages:
         """Read what ``module`` holds on the open channel; keep the channel that answered."""
         before = self.printer
-        self.printer, held = read_stored_names(
+        read = read_stored_names(
             self.printer, module=module, uri=self.uri, timeout=self.timeout, open_printer=self.open_printer, wait=wait
         )
+        self.printer = read.channel
         if self.printer is not None and self.printer is not before:
             self._opened.append(self.printer)
-        return held
+        return read.held
 
     def close_opened(self) -> None:
         """Close every channel this link opened itself; the one it was given stays the caller's."""
@@ -377,19 +394,18 @@ class _Record:
             "got no answer, and a download of a held name prints nothing"
         )
 
-    def clear_and_upload(self) -> tuple[str, ...] | str | _Skipped:
+    def clear_and_upload(self) -> tuple[str, ...] | _Refused | _Skipped:
         """Round 2: clear where a clear may go, render again for what the module then holds, upload again.
 
-        The reason instead where the label, rendered again, has an error, and :class:`_Skipped`
-        where the upload again would download a name the module may hold: nothing of the round is
-        sent then.
+        Returns the names the read after it does not list; :class:`_Refused` instead where the
+        label, rendered again, has an error, and :class:`_Skipped` where the upload again would
+        download a name the module may hold: nothing of the round is sent then.
         """
         base = EMPTY_MODULE if self.result.retry_clear_empties else self._uncleared()
         again = None if base is None else self.render(base, halve=False)
         if again is not None and not again.result.ok:
-            return "rendered again for round 2 the label is refused: " + "; ".join(
-                f.message for f in again.result.errors
-            )
+            errors = "; ".join(f.message for f in again.result.errors)
+            return _Refused(f"rendered again for round 2 the label is refused: {errors}")
         if twice := self._downloaded_again(self.result if again is None else again.result):
             skipped = _Skipped(f"round 2 skipped, it would download again {self._unread(twice)}")
             self._retried(skipped.reason)
@@ -402,18 +418,23 @@ class _Record:
         self._retried(f"round 2: {cleared}, then uploaded the images again; {self._last_read}")
         return missing
 
-    def halve_and_upload(self) -> tuple[str, ...] | str:
-        """Round 3: clear, upload the images halved; the reason instead where they cannot be halved."""
+    def halve_and_upload(self) -> tuple[str, ...] | _Skipped:
+        """Round 3: clear, upload the images halved, and return the names the read after it does not list.
+
+        :class:`_Skipped` instead, with nothing of the round sent, where the images cannot be
+        halved, halved they are refused, or the halved upload would download a name the module
+        may hold.
+        """
         base = EMPTY_MODULE if self.result.retry_clear_empties else self._uncleared()
         rendered = self.render(self.held if base is None else base, halve=True)
         halved = rendered.result
         if not halved.halved_elements or self.result.halved_elements:
-            return "no image of the label can be halved (a QR Code never is, nor an image halved already)"
+            return _Skipped("no image of the label can be halved (a QR Code never is, nor an image halved already)")
         if not halved.ok:
-            return "halving is refused: " + "; ".join(f.message for f in halved.errors)
+            return _Skipped("halving is refused: " + "; ".join(f.message for f in halved.errors))
         if twice := self._downloaded_again(halved):
             stays = "a QR Code is never halved, so its name stays"
-            return f"halving is skipped, it would download again ({stays}) {self._unread(twice)}"
+            return _Skipped(f"halving is skipped, it would download again ({stays}) {self._unread(twice)}")
         self.link.send(self.result.retry_clear)
         cleared = _clear_text(self.result, self._module())
         self._rendered(rendered)
@@ -449,8 +470,18 @@ class _Record:
         return self.result.model_copy(update={"findings": self.result.findings + tuple(self.findings)})
 
 
-class _Skipped(NamedTuple):
+# Dataclasses, not NamedTuples: a round's outcome is told apart from the tuple of missing names
+# by type, and a NamedTuple of one str would itself be a tuple[str, ...].
+@dataclass(frozen=True)
+class _Skipped:
     """A round left out, with why; the next round may still run."""
+
+    reason: str
+
+
+@dataclass(frozen=True)
+class _Refused:
+    """A round whose label, rendered again for it, has an error: the label is refused, nothing of the round sent."""
 
     reason: str
 
@@ -467,16 +498,16 @@ def _check_label(record: _Record) -> bool:
         outcome = record.clear_and_upload()
         if isinstance(outcome, _Skipped):
             why_not.append(outcome.reason)
-        elif isinstance(outcome, str):
-            return _refused(record, missing, rounds=rounds, why_not=[outcome])
+        elif isinstance(outcome, _Refused):
+            return _refused(record, missing, rounds=rounds, why_not=[outcome.reason])
         else:
             missing, rounds = outcome, rounds + 1
     if missing and record.check.rounds >= HALVING_ROUND:
-        outcome = record.halve_and_upload()
-        if isinstance(outcome, str):
-            why_not.append(outcome)
+        halving = record.halve_and_upload()
+        if isinstance(halving, _Skipped):
+            why_not.append(halving.reason)
         else:
-            missing, rounds = outcome, rounds + 1
+            missing, rounds = halving, rounds + 1
     if missing:
         return _refused(record, missing, rounds=rounds, why_not=why_not)
     return True
@@ -509,42 +540,47 @@ def _unlisted_module(result: RenderResult) -> RenderResult | None:
     return result.model_copy(update={"findings": (*result.findings, refusal)})
 
 
-def _send_labels(link: Link, job: CheckedJob, *, cuts: Sequence[bool]) -> tuple[list[RenderResult], bool]:
-    """Send each label of ``job`` in turn, with a batch cut after each label ``cuts`` marks.
+@dataclass(frozen=True)
+class _LabelsSent:
+    """The labels of a checked job reached, each as it went out, and whether every one was sent.
 
-    Returns each label reached as it went out, and True when every one was sent; a label refused
-    (or, rendered again, found in error) is the last one reached, and none of its format went out.
+    A label refused (or, rendered again, found in error) is the last one reached, and none of its
+    format went out.
     """
+
+    sent: tuple[RenderResult, ...]
+    all_sent: bool
+
+
+def _send_labels(link: Link, job: CheckedJob, *, cuts: Sequence[bool]) -> _LabelsSent:
+    """Send each label of ``job`` in turn, with a batch cut after each label ``cuts`` marks."""
     sent: list[RenderResult] = []
     before = _PassedOn(held=job.held)
     for render, cut in zip(job.renders, cuts, strict=True):
         record = _Record(render=render, before=before, link=link, check=job.check)
         if not record.result.ok:
-            sent.append(record.result)
-            return sent, False
+            return _LabelsSent(sent=(*sent, record.result), all_sent=False)
         if (unlisted := _unlisted_module(record.result)) is not None:
-            sent.append(unlisted)
-            return sent, False
+            return _LabelsSent(sent=(*sent, unlisted), all_sent=False)
         if record.result.downloads and not _check_label(record):
-            sent.append(record.as_sent())
-            return sent, False
+            return _LabelsSent(sent=(*sent, record.as_sent()), all_sent=False)
         # Built after the check: a round may have rendered the label again.
         whole = with_cut(record.result.data, record.result.closing, cut=cut)
         link.send(whole[record.result.upload_end :] if record.result.downloads else whole)
         sent.append(record.as_sent())
         before = record.passed_on()
-    return sent, True
+    return _LabelsSent(sent=tuple(sent), all_sent=True)
 
 
-def send_checked_label(link: Link, job: CheckedJob) -> tuple[RenderResult, bool]:
+def send_checked_label(link: Link, job: CheckedJob) -> CheckedSend[RenderResult]:
     """Send the one label of ``job`` on ``link`` as :func:`send_checked` sends each label of a batch."""
-    sent, done = _send_labels(link, job, cuts=(False,))
-    return sent[0], done
+    labels = _send_labels(link, job, cuts=(False,))
+    return CheckedSend(result=labels.sent[0], all_sent=labels.all_sent)
 
 
 def send_checked(
     link: Link, result: RenderResult | BatchResult, job: CheckedJob
-) -> tuple[RenderResult | BatchResult, bool]:
+) -> CheckedSend[RenderResult | BatchResult]:
     """Send ``result`` label by label on ``link``, each label that downloads an image after its upload check.
 
     ``result`` is the job as first rendered, with its batch cuts and findings and the result of
@@ -552,8 +588,8 @@ def send_checked(
     holds before it, which gives the render ``result`` holds until a round changes what is held.
 
     Returns:
-        The job as it went out, each label reached with the rounds' findings, and True when every
-        label was sent; False when a label was refused, which nothing after it follows.
+        The job as it went out, each label reached with the rounds' findings, and whether every
+        label was sent (see :class:`CheckedSend`).
     """
     if not isinstance(result, BatchResult):
         return send_checked_label(link, job)
@@ -561,17 +597,18 @@ def send_checked(
     # the check of the first one that downloads could never pass.
     for index, record in enumerate(result.results):
         if (unlisted := _unlisted_module(record)) is not None:
-            sent, done = [*result.results[:index], unlisted], False
+            labels = _LabelsSent(sent=(*result.results[:index], unlisted), all_sent=False)
             break
     else:
-        sent, done = _send_labels(link, job, cuts=result.cut_after or (False,) * len(result.results))
+        labels = _send_labels(link, job, cuts=result.cut_after or (False,) * len(result.results))
     batch = BatchResult(
         data=b"",
-        results=(*sent, *result.results[len(sent) :]),
+        results=(*labels.sent, *result.results[len(labels.sent) :]),
         batch_findings=result.batch_findings,
         cut_after=result.cut_after,
     )
-    return batch.model_copy(update={"data": b"".join(batch.record_jobs())}), done
+    whole = batch.model_copy(update={"data": b"".join(batch.record_jobs())})
+    return CheckedSend(result=whole, all_sent=labels.all_sent)
 
 
 def print_checked(
@@ -597,13 +634,13 @@ def print_checked(
         if not printer.bidirectional:
             link.send(result.data)
             return CheckedPrint(uri=uri, bytes_sent=link.bytes_sent, result=result)
-        sent, done = send_checked(link, result, job)
+        checked = send_checked(link, result, job)
     finally:
         printer.close()
         link.close_opened()
-    if not done:
-        raise UploadRefusedError(sent, bytes_sent=link.bytes_sent)
-    return CheckedPrint(uri=uri, bytes_sent=link.bytes_sent, result=sent)
+    if not checked.all_sent:
+        raise UploadRefusedError(checked.result, bytes_sent=link.bytes_sent)
+    return CheckedPrint(uri=uri, bytes_sent=link.bytes_sent, result=checked.result)
 
 
 __all__ = [
@@ -612,6 +649,7 @@ __all__ = [
     "UPLOAD_CHECK_ROUNDS",
     "CheckedJob",
     "CheckedPrint",
+    "CheckedSend",
     "Link",
     "UploadCheck",
     "UploadRefusedError",
