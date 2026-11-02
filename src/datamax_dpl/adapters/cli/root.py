@@ -18,7 +18,7 @@ from datamax_dpl import __init__conf__
 from . import safe_console
 from .config_load import load_config, start_logging
 from .constants import CLICK_CONTEXT_SETTINGS
-from .context import apply_traceback_preferences, output_mode, store_cli_context
+from .context import CLIContext, apply_traceback_preferences, output_mode
 from .envelope import OutputMode
 from .typed_click import option, version_option
 
@@ -104,8 +104,7 @@ def cli(
     # A load failure is recorded, not reported here: see config_load for who reports it.
     loaded = load_config(services, profile=profile, env_file=env_file, set_overrides=set_overrides)
     loaded = start_logging(services, loaded, env_file=env_file)
-    store_cli_context(
-        ctx,
+    ctx.obj = CLIContext(
         traceback=traceback,
         config=loaded.config,
         services=services,

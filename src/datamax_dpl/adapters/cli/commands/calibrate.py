@@ -214,45 +214,63 @@ def cli_calibrate_print(
         options = render_options(settings)
         sizes = _Sizes(width=width, height=height, along_length=along_length)
         built = _labels(settings, axes, options=options, sizes=sizes)
-        labels, bar = built.labels, built.along_length
-        results = {part: build_job(label, options) for part, label in labels.items()}
+        results = {part: build_job(label, options) for part, label in built.labels.items()}
         printed = _Printed(
             calibration=effective_calibration(options),
             axes=axes,
             results=list(results.values()),
-            along_length_mm=bar if Axis.ALONG in labels else None,
+            along_length_mm=built.along_length if Axis.ALONG in built.labels else None,
         )
         if not all(result.ok for result in results.values()):
-            fits: float | None = None
-            hint: str | None = None
-            if _only_the_along_bar_too_long(results):
-                fits = _longest_fit(labels[Axis.ALONG], settings=settings, options=options, below=bar)
-                hint = _length_hint(fits)
-            payload = _print_payload(
-                settings, printed, printer=settings.uri, bytes_sent=0, along_length_that_fits=fits, hint=hint
-            )
-            human = "REFUSED: nothing sent" if hint is None else f"REFUSED: nothing sent\n{hint}"
-            return CommandResult(ok=False, payload=payload, human=human)
-        uri = require_uri(settings)
-        parsed_printer_uri(settings)
-        # One send for both formats: a print server can refuse a reconnect for a second or two.
-        report = send_bytes(
-            b"".join(r.data for r in results.values()),
-            uri=uri,
-            timeout=settings.timeout,
-            open_printer=printer_opener(cli_ctx, settings),
-        )
-        hint = None
-        if printed.along_length_mm is not None:
-            measured_against = _set_default_along_length(cli_ctx, overrides.printer, width=width)
-            hint = _set_hint(bar=printed.along_length_mm, measured_against=measured_against)
-        payload = _print_payload(settings, printed, printer=uri, bytes_sent=report.bytes_sent, hint=hint)
-        human = [f"sent {', '.join(axes)} to {uri}"]
-        if payload.along_length_mm is not None:
-            human.append(payload.hint or f"along bar {payload.along_length_mm:g} mm")
-        return CommandResult(ok=True, payload=payload, human="\n".join(human))
+            return _refused_print(settings, printed, built=built, results=results, options=options)
+        return _send_print(cli_ctx, settings, printed, printer=overrides.printer, width=width)
 
     run_command(ctx, command=CommandName.CALIBRATE_PRINT, body=body)
+
+
+def _refused_print(
+    settings: PrinterSettings,
+    printed: _Printed,
+    *,
+    built: _CalibrationLabels,
+    results: dict[Axis, RenderResult],
+    options: RenderOptions,
+) -> CommandResult:
+    """The answer for labels with errors: nothing went out, and a bar too long gets a shorter length named."""
+    fits: float | None = None
+    hint: str | None = None
+    if _only_the_along_bar_too_long(results):
+        fits = _longest_fit(built.labels[Axis.ALONG], settings=settings, options=options, below=built.along_length)
+        hint = _length_hint(fits)
+    payload = _print_payload(
+        settings, printed, printer=settings.uri, bytes_sent=0, along_length_that_fits=fits, hint=hint
+    )
+    human = "REFUSED: nothing sent" if hint is None else f"REFUSED: nothing sent\n{hint}"
+    return CommandResult(ok=False, payload=payload, human=human)
+
+
+def _send_print(
+    cli_ctx: CLIContext, settings: PrinterSettings, printed: _Printed, *, printer: str | None, width: float | None
+) -> CommandResult:
+    """Send the labels, and name the --along-length 'calibrate set' will need."""
+    uri = require_uri(settings)
+    parsed_printer_uri(settings)
+    # One send for both formats: a print server can refuse a reconnect for a second or two.
+    report = send_bytes(
+        b"".join(result.data for result in printed.results),
+        uri=uri,
+        timeout=settings.timeout,
+        open_printer=printer_opener(cli_ctx, settings),
+    )
+    hint: str | None = None
+    if printed.along_length_mm is not None:
+        measured_against = _set_default_along_length(cli_ctx, printer, width=width)
+        hint = _set_hint(bar=printed.along_length_mm, measured_against=measured_against)
+    payload = _print_payload(settings, printed, printer=uri, bytes_sent=report.bytes_sent, hint=hint)
+    human = [f"sent {', '.join(printed.axes)} to {uri}"]
+    if payload.along_length_mm is not None:
+        human.append(payload.hint or f"along bar {payload.along_length_mm:g} mm")
+    return CommandResult(ok=True, payload=payload, human="\n".join(human))
 
 
 def _set_default_along_length(cli_ctx: CLIContext, printer: str | None, *, width: float | None) -> float | None:
@@ -476,23 +494,28 @@ def cli_calibrate_set(
                 "nothing measured: pass --across MM, --along MM, or a pair of borders (--top/--bottom, --left/--right)"
             )
             raise ConfigurationError(msg)
-        values = {c.key: c.new for c in [*changes, *offsets]}
-        check_printer_values(loaded_config(cli_ctx), printer=name, values=values)
-        written = cli_ctx.services.set_printer_values(printer=name, values=values, profile=cli_ctx.profile)
-        effective = _effective_calibration(cli_ctx, name)
-        changes = [c.read_back(effective) for c in changes]
-        offsets = [o.read_back(effective) for o in offsets]
-        warnings = [_warning(c, written=str(written)) for c in [*changes, *offsets] if c.effective != c.new]
-        for warning in warnings:
-            safe_console.echo(warning, err=True)
-        payload = CalibrateSetPayload(
-            printer=name, file=str(written), changes=changes, offsets=offsets, warnings=warnings
-        )
-        human = [f"{c.key.value} {c.old:g} -> {c.new:g} (measured {c.measured:g} of {c.nominal:g} mm)" for c in changes]
-        human += [f"{o.key.value} {o.old:g} -> {o.new:g} mm (borders {o.low:g} and {o.high:g} mm)" for o in offsets]
-        return CommandResult(ok=True, payload=payload, human="\n".join([*human, f"written to {written}"]))
+        return _store_measured(cli_ctx, name, changes=changes, offsets=offsets)
 
     run_command(ctx, command=CommandName.CALIBRATE_SET, body=body)
+
+
+def _store_measured(
+    cli_ctx: CLIContext, name: str, *, changes: list[ScaleChange], offsets: list[OffsetChange]
+) -> CommandResult:
+    """Write the new values, read them back through every layer, and warn where another layer wins."""
+    values = {c.key: c.new for c in [*changes, *offsets]}
+    check_printer_values(loaded_config(cli_ctx), printer=name, values=values)
+    written = cli_ctx.services.set_printer_values(printer=name, values=values, profile=cli_ctx.profile)
+    effective = _effective_calibration(cli_ctx, name)
+    changes = [c.read_back(effective) for c in changes]
+    offsets = [o.read_back(effective) for o in offsets]
+    warnings = [_warning(c, written=str(written)) for c in [*changes, *offsets] if c.effective != c.new]
+    for warning in warnings:
+        safe_console.echo(warning, err=True)
+    payload = CalibrateSetPayload(printer=name, file=str(written), changes=changes, offsets=offsets, warnings=warnings)
+    human = [f"{c.key.value} {c.old:g} -> {c.new:g} (measured {c.measured:g} of {c.nominal:g} mm)" for c in changes]
+    human += [f"{o.key.value} {o.old:g} -> {o.new:g} mm (borders {o.low:g} and {o.high:g} mm)" for o in offsets]
+    return CommandResult(ok=True, payload=payload, human="\n".join([*human, f"written to {written}"]))
 
 
 def _along_bar_length(

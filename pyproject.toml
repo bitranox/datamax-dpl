@@ -186,11 +186,17 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 # body to exercise import-time and cache behaviour, so moving them to module top would defeat intent.
 "tests/*.py" = ["T20", "S101", "S105", "S106", "S108", "FBT001", "FBT003", "PLR0913", "PLR2004", "PLC0415"]
 # CLI: Click framework injects boolean params; commands have many options
-"src/datamax_dpl/adapters/cli/**/*.py" = ["FBT001", "FBT002", "PLR0913"]
+"src/datamax_dpl/adapters/cli/**/*.py" = ["FBT001", "FBT002"]
 # Protocols/adapters: many-param signatures by design
-"src/datamax_dpl/application/*.py" = ["PLR0913"]
-"src/datamax_dpl/adapters/config/*.py" = ["PLR0913"]
-"src/datamax_dpl/adapters/memory/*.py" = ["PLR0913"]
+"src/datamax_dpl/adapters/cli/commands/calibrate.py" = ["PLR0913"]
+"src/datamax_dpl/adapters/cli/commands/config.py" = ["PLR0913"]
+"src/datamax_dpl/adapters/cli/commands/printer.py" = ["PLR0913"]
+"src/datamax_dpl/adapters/cli/root.py" = ["PLR0913"]
+"src/datamax_dpl/adapters/config/deploy.py" = ["PLR0913"]
+"src/datamax_dpl/adapters/memory/config.py" = ["PLR0913"]
+"src/datamax_dpl/application/ports.py" = ["PLR0913"]
+"src/datamax_dpl/application/use_cases.py" = ["PLR0913"]
+"src/datamax_dpl/application/verify.py" = ["PLR0913"]
 
 [tool.pyright]
 typeCheckingMode = "strict"
@@ -281,6 +287,7 @@ src-path = "src"
 [tool.importlinter]
 root_package = "datamax_dpl"
 exclude_type_checking_imports = true
+include_external_packages = true
 
 [[tool.importlinter.contracts]]
 name = "Domain is pure (no adapter dependencies)"
@@ -306,6 +313,13 @@ layers = [
   # Domain is pure - bottom layer
   "datamax_dpl.domain",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Domain and application use no I/O or CLI package"
+type = "forbidden"
+source_modules = ["datamax_dpl.domain", "datamax_dpl.application"]
+forbidden_modules = ["serial", "socket", "subprocess", "ssl", "http", "urllib", "click", "rich_click", "rich", "lib_layered_config", "lib_log_rich", "tomlkit", "orjson", "dotenv", "PIL"]
+allow_indirect_imports = true
 
 [tool.bashate]
 # bashate style settings for .sh files (E003 excluded: indent handled by shfmt)

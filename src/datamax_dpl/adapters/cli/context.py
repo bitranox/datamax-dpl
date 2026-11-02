@@ -60,56 +60,6 @@ class CLIContext:
     job_on_stdout: bool = False
 
 
-def store_cli_context(
-    ctx: click.Context,
-    *,
-    traceback: bool,
-    config: Config,
-    services: AppServices,
-    profile: str | None = None,
-    set_overrides: tuple[str, ...] = (),
-    env_file: str | None = None,
-    config_error: Exception | None = None,
-    mode: OutputMode = HUMAN,
-) -> None:
-    """Store CLI state in the Click context for subcommand access.
-
-    Args:
-        ctx: Click context associated with the current invocation.
-        traceback: Whether verbose tracebacks were requested.
-        config: Loaded layered configuration object for all subcommands.
-        services: All application services from composition layer.
-        profile: Optional configuration profile name.
-        set_overrides: Raw ``--set`` override strings for reapplication when
-            subcommands reload config with a different profile.
-        env_file: The root's ``--env-file``, for the same reload.
-        config_error: Why the configuration could not be loaded, None when it loaded.
-        mode: Output shape requested by ``--json`` / ``--json-bare``.
-
-    Example:
-        >>> from click.testing import CliRunner
-        >>> from unittest.mock import MagicMock
-        >>> from datamax_dpl.composition import build_production
-        >>> ctx = MagicMock()
-        >>> ctx.obj = None
-        >>> mock_config = MagicMock()
-        >>> services = build_production()
-        >>> store_cli_context(ctx, traceback=True, config=mock_config, services=services, profile="test")
-        >>> ctx.obj.traceback
-        True
-    """
-    ctx.obj = CLIContext(
-        traceback=traceback,
-        config=config,
-        services=services,
-        profile=profile,
-        set_overrides=set_overrides,
-        env_file=env_file,
-        config_error=config_error,
-        mode=mode,
-    )
-
-
 def get_cli_context(ctx: click.Context) -> CLIContext:
     """Retrieve typed CLI state from Click context.
 
@@ -133,7 +83,7 @@ def get_cli_context(ctx: click.Context) -> CLIContext:
         False
     """
     if not isinstance(ctx.obj, CLIContext):
-        raise RuntimeError("CLI context not initialized. Call store_cli_context first.")
+        raise RuntimeError("CLI context not initialized: the root command stores it.")
     return ctx.obj
 
 
@@ -207,5 +157,4 @@ __all__ = [
     "output_mode",
     "restore_traceback_state",
     "snapshot_traceback_state",
-    "store_cli_context",
 ]

@@ -27,7 +27,6 @@ from .context import (
     apply_traceback_preferences,
     restore_traceback_state,
     snapshot_traceback_state,
-    store_cli_context,
 )
 from .main import main
 from .root import cli
@@ -52,5 +51,4 @@ __all__ = [
     "restore_traceback_state",
     "snapshot_traceback_state",
     # Context helpers
-    "store_cli_context",
 ]
