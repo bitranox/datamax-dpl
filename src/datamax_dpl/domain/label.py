@@ -59,9 +59,9 @@ FONT_9 = 9
 #: worked out from it. A length that passes can still be past what a model prints; findings say so.
 MAX_LENGTH = 100_000.0
 
-NonNegative = Annotated[float, Field(ge=0, le=MAX_LENGTH, allow_inf_nan=False)]
-Positive = Annotated[float, Field(gt=0, le=MAX_LENGTH, allow_inf_nan=False)]
-Multiplier = Annotated[int, Field(ge=1, le=MAX_MULTIPLIER)]
+NonNegative = Annotated[float, Field(ge=0, le=MAX_LENGTH, strict=True, allow_inf_nan=False)]
+Positive = Annotated[float, Field(gt=0, le=MAX_LENGTH, strict=True, allow_inf_nan=False)]
+Multiplier = Annotated[int, Field(ge=1, le=MAX_MULTIPLIER, strict=True)]
 
 # The field takes the one member as a Literal rather than the enum class, so the JSON schema
 # reads {"const": "printer"}; a word still validates into PrinterStop.PRINTER. A refused word is
@@ -69,6 +69,8 @@ Multiplier = Annotated[int, Field(ge=1, le=MAX_MULTIPLIER)]
 # where the Literal's would quote the member's repr.
 _PrinterWord = Literal[PrinterStop.PRINTER]
 _PRINTER_WORD: TypeAdapter[PrinterStop] = TypeAdapter(PrinterStop)
+#: What a number refuses text with: a lax one that cannot parse it, a strict one whatever it holds.
+_NOT_A_NUMBER = frozenset({ValidationErrorType.FLOAT_PARSING, ValidationErrorType.FLOAT_TYPE})
 
 
 def stop_position_or_printer(number: TypeAdapter[float]) -> BeforeValidator:
@@ -78,12 +80,13 @@ def stop_position_or_printer(number: TypeAdapter[float]) -> BeforeValidator:
     greater than 0; literal['printer']: Input should be 'printer'". This validates a number with
     ``number`` alone, so a refusal names only the bound it missed, and a word with the literal
     alone, so it names the one word the field takes. ``number`` carries the same bounds as the
-    field's number arm, which the JSON schema shows.
+    field's number arm, which the JSON schema shows. Whether numeric text counts as a number is
+    ``number``'s to say: a label's refuses it, a setting's takes it, since ``.env`` delivers text.
 
     Example:
         >>> from pydantic import TypeAdapter
         >>> validate = TypeAdapter(StopPosition).validate_python
-        >>> validate("printer"), validate("2.5")
+        >>> validate("printer"), validate(2.5)
         (<PrinterStop.PRINTER: 'printer'>, 2.5)
     """
 
@@ -93,7 +96,8 @@ def stop_position_or_printer(number: TypeAdapter[float]) -> BeforeValidator:
         try:
             return number.validate_python(value)
         except ValidationError as exc:
-            if exc.errors()[0]["type"] != ValidationErrorType.FLOAT_PARSING:
+            # Only text can be the word; a refused number or boolean keeps its own message.
+            if not isinstance(value, str) or exc.errors()[0]["type"] not in _NOT_A_NUMBER:
                 # pydantic-core merges a nested ValidationError's line errors into the field's
                 # own, so this refusal still names the field and keeps the bound's message.
                 raise
@@ -128,9 +132,9 @@ class Counter(_Frozen):
         False
     """
 
-    step: int = Field(default=1, ge=1, le=99)
-    decrement: bool = False
-    alphanumeric: bool = False
+    step: int = Field(default=1, ge=1, le=99, strict=True)
+    decrement: bool = Field(default=False, strict=True)
+    alphanumeric: bool = Field(default=False, strict=True)
     # Printable ASCII: the fill goes into the counter record raw, where a CR would split the record
     # and SOH or STX would reach the printer's interpreter as a command.
     fill: str = Field(default="0", min_length=1, max_length=1, pattern=r"^[ -~]$")
@@ -157,8 +161,8 @@ class Text(_Placed):
 
     type: Literal["text"] = "text"
     text: str = Field(min_length=1, max_length=MAX_FIELD_DATA)
-    font: int = Field(default=2, ge=0, le=9)
-    points: int | None = Field(default=None, ge=4, le=72)
+    font: int = Field(default=2, ge=0, le=9, strict=True)
+    points: int | None = Field(default=None, ge=4, le=72, strict=True)
     font_id: str | None = Field(default=None, pattern=r"^[0-9A-Za-z]{3}$")
     width_multiplier: Multiplier = 1
     height_multiplier: Multiplier = 1
@@ -190,8 +194,8 @@ class ScalableText(_Placed):
     type: Literal["scalable_text"] = "scalable_text"
     text: str = Field(min_length=1, max_length=MAX_FIELD_DATA)
     font_id: str = Field(default="S00", pattern=r"^S[0-9A-Za-z]{2}$")
-    height_points: float = Field(ge=4, le=999, allow_inf_nan=False)
-    width_points: float | None = Field(default=None, ge=4, le=999, allow_inf_nan=False)
+    height_points: float = Field(ge=4, le=999, strict=True, allow_inf_nan=False)
+    width_points: float | None = Field(default=None, ge=4, le=999, strict=True, allow_inf_nan=False)
     attribute: Attribute | None = None
 
 
@@ -282,20 +286,20 @@ class Pdf417Options(_Frozen):
     Zero rows or columns lets the printer choose.
     """
 
-    truncated: bool = False
-    security_level: int = Field(default=2, ge=0, le=8)
-    aspect_ratio: int = Field(default=0, ge=0, le=99)
-    rows: int = Field(default=0, ge=0, le=90)
-    columns: int = Field(default=0, ge=0, le=30)
+    truncated: bool = Field(default=False, strict=True)
+    security_level: int = Field(default=2, ge=0, le=8, strict=True)
+    aspect_ratio: int = Field(default=0, ge=0, le=99, strict=True)
+    rows: int = Field(default=0, ge=0, le=90, strict=True)
+    columns: int = Field(default=0, ge=0, le=30, strict=True)
 
 
 class DataMatrixOptions(_Frozen):
     """DataMatrix parameters: ECC level, format id, rows and columns (0 = automatic)."""
 
     ecc: Literal[0, 50, 80, 100, 140, 200] = 200
-    format_id: int = Field(default=0, ge=0, le=6)
-    rows: int = Field(default=0, ge=0, le=144)
-    columns: int = Field(default=0, ge=0, le=144)
+    format_id: int = Field(default=0, ge=0, le=6, strict=True)
+    rows: int = Field(default=0, ge=0, le=144, strict=True)
+    columns: int = Field(default=0, ge=0, le=144, strict=True)
 
 
 class Barcode(_Placed):
@@ -315,9 +319,9 @@ class Barcode(_Placed):
     symbology: Symbology
     data: str = Field(min_length=1, max_length=MAX_PDF417_DATA)
     height: Positive | None = None
-    narrow_dots: int = Field(default=0, ge=0, le=MAX_MULTIPLIER)
-    wide_dots: int = Field(default=0, ge=0, le=MAX_MULTIPLIER)
-    human_readable: bool = True
+    narrow_dots: int = Field(default=0, ge=0, le=MAX_MULTIPLIER, strict=True)
+    wide_dots: int = Field(default=0, ge=0, le=MAX_MULTIPLIER, strict=True)
+    human_readable: bool = Field(default=True, strict=True)
     pdf417: Pdf417Options | None = None
     datamatrix: DataMatrixOptions | None = None
     counter: Counter | None = None
@@ -342,7 +346,7 @@ class Image(_Frozen):
     y: NonNegative
     name: str = Field(pattern=r"^[A-Za-z0-9_]{1,8}$")
     bitmap: list[str] | None = Field(default=None, min_length=1)
-    magnification: int = Field(default=1, ge=1, le=MAX_IMAGE_MAGNIFICATION)
+    magnification: int = Field(default=1, ge=1, le=MAX_IMAGE_MAGNIFICATION, strict=True)
 
     @model_validator(mode="after")
     def _rows_are_bits(self) -> Image:
@@ -378,8 +382,8 @@ class Qr(_Frozen):
     y: NonNegative
     data: str = Field(min_length=1, max_length=MAX_QR_DATA)
     error: QrError = QrError.M
-    module_dots: int = Field(default=3, ge=1, le=MAX_IMAGE_MAGNIFICATION)
-    quiet_zone: int = Field(default=4, ge=0, le=MAX_QUIET_ZONE)
+    module_dots: int = Field(default=3, ge=1, le=MAX_IMAGE_MAGNIFICATION, strict=True)
+    quiet_zone: int = Field(default=4, ge=0, le=MAX_QUIET_ZONE, strict=True)
 
 
 Element = Annotated[
@@ -401,15 +405,15 @@ class Cut(_Frozen):
         True
     """
 
-    every: int = Field(default=1, ge=1, le=MAX_QUANTITY)
-    at_end: bool = True
+    every: int = Field(default=1, ge=1, le=MAX_QUANTITY, strict=True)
+    at_end: bool = Field(default=True, strict=True)
 
 
 class DotSize(_Frozen):
     """Dot size command ``Dwh``: width 1-2, height 1-3 (``D22`` is the printer default)."""
 
-    width: int = Field(ge=1, le=2)
-    height: int = Field(ge=1, le=3)
+    width: int = Field(ge=1, le=2, strict=True)
+    height: int = Field(ge=1, le=3, strict=True)
 
 
 class Label(_Frozen):
@@ -424,10 +428,10 @@ class Label(_Frozen):
     unit: Unit = Unit.MM
     width: Positive | None = Field(default=None, description="Label width; defaults to the model's print width.")
     height: Positive | None = Field(default=None, description="Label length in feed direction.")
-    quantity: int = Field(default=1, ge=1, le=MAX_QUANTITY)
+    quantity: int = Field(default=1, ge=1, le=MAX_QUANTITY, strict=True)
     elements: list[Element] = Field(min_length=1)
     cut: Cut | None = None
-    heat: int | None = Field(default=None, ge=0, le=30)
+    heat: int | None = Field(default=None, ge=0, le=30, strict=True)
     print_speed: SpeedCode | None = None
     slew_speed: SpeedCode | None = None
     backup_speed: SpeedCode | None = None
@@ -435,7 +439,7 @@ class Label(_Frozen):
     column_offset: NonNegative | None = None
     row_offset: NonNegative | None = None
     attribute: Attribute | None = None
-    mirror: bool = False
+    mirror: bool = Field(default=False, strict=True)
     symbol_set: str | None = Field(default=None, pattern=r"^[A-Z0-9]{2}$")
     media: MediaSensor | None = None
     continuous_length: Positive | None = Field(default=None, description="Label length on continuous media.")
@@ -444,9 +448,11 @@ class Label(_Frozen):
         description='Feed past the start of print, back on next job; "printer" sends none and keeps its own.',
     )
     present_distance: Positive | None = Field(default=None, description="Distance to present a label for removal.")
-    pause_each_label: bool = False
-    count_by: int | None = Field(default=None, ge=1, le=99)
-    plain_zero: bool = Field(default=False, description="Print 0 without the slash in fonts 0-8 and barcodes.")
+    pause_each_label: bool = Field(default=False, strict=True)
+    count_by: int | None = Field(default=None, ge=1, le=99, strict=True)
+    plain_zero: bool = Field(
+        default=False, strict=True, description="Print 0 without the slash in fonts 0-8 and barcodes."
+    )
     # Not a field: no label document can claim it, only filling sets it.
     _filled: bool = PrivateAttr(default=False)
 

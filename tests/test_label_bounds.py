@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.calibration import across_label, along_label, calibration_labels
+from datamax_dpl.domain.enums import PrinterStop
 from datamax_dpl.domain.label import MAX_LENGTH, Label
 from datamax_dpl.domain.render_context import RenderOptions
 
@@ -155,3 +156,165 @@ def test_calibrate_print_keeps_the_bound_for_each_size(cli_runner: CliRunner) ->
         document = json.loads(result.stdout)
         assert document["error"] == "ValueError"
         assert option.lstrip("-") in document["message"]
+
+
+# ======================== Numbers in a label are numbers ========================
+
+NUMBERS_AND_BOOLS: list[tuple[dict[str, Any], str]] = [
+    *LENGTHS,
+    ({"elements": [{**TEXT, "font": "@"}]}, "elements.0.text.font"),
+    ({"elements": [{**TEXT, "font": 9, "points": "@"}]}, "elements.0.text.points"),
+    ({"elements": [{**TEXT, "width_multiplier": "@"}]}, "elements.0.text.width_multiplier"),
+    ({"elements": [{**TEXT, "height_multiplier": "@"}]}, "elements.0.text.height_multiplier"),
+    ({"elements": [{**TEXT, "counter": {"step": "@"}}]}, "elements.0.text.counter.step"),
+    (
+        {"elements": [{"type": "scalable_text", "x": 1, "y": 1, "text": "A", "height_points": "@"}]},
+        "elements.0.scalable_text.height_points",
+    ),
+    (
+        {"elements": [{"type": "barcode", "x": 1, "y": 1, "symbology": "code128", "data": "A", "narrow_dots": "@"}]},
+        "elements.0.barcode.narrow_dots",
+    ),
+    (
+        {
+            "elements": [
+                {"type": "barcode", "x": 1, "y": 1, "symbology": "pdf417", "data": "A", "pdf417": {"rows": "@"}}
+            ]
+        },
+        "elements.0.barcode.pdf417.rows",
+    ),
+    (
+        {
+            "elements": [
+                {"type": "barcode", "x": 1, "y": 1, "symbology": "datamatrix", "data": "A", "datamatrix": {"rows": "@"}}
+            ]
+        },
+        "elements.0.barcode.datamatrix.rows",
+    ),
+    (
+        {"elements": [{"type": "image", "x": 1, "y": 1, "name": "A", "magnification": "@"}]},
+        "elements.0.image.magnification",
+    ),
+    ({"elements": [{"type": "qr", "x": 1, "y": 1, "data": "A", "module_dots": "@"}]}, "elements.0.qr.module_dots"),
+    ({"elements": [TEXT], "quantity": "@"}, "quantity"),
+    ({"elements": [TEXT], "heat": "@"}, "heat"),
+    ({"elements": [TEXT], "count_by": "@"}, "count_by"),
+    ({"elements": [TEXT], "cut": {"every": "@"}}, "cut.every"),
+    ({"elements": [TEXT], "dot_size": {"width": "@", "height": 1}}, "dot_size.width"),
+]
+
+BOOLEANS: list[tuple[dict[str, Any], str]] = [
+    ({"elements": [TEXT], "mirror": "@"}, "mirror"),
+    ({"elements": [TEXT], "pause_each_label": "@"}, "pause_each_label"),
+    ({"elements": [TEXT], "plain_zero": "@"}, "plain_zero"),
+    ({"elements": [TEXT], "cut": {"at_end": "@"}}, "cut.at_end"),
+    ({"elements": [{**TEXT, "counter": {"decrement": "@"}}]}, "elements.0.text.counter.decrement"),
+    ({"elements": [{**TEXT, "counter": {"alphanumeric": "@"}}]}, "elements.0.text.counter.alphanumeric"),
+    (
+        {"elements": [{"type": "barcode", "x": 1, "y": 1, "symbology": "code128", "data": "A", "human_readable": "@"}]},
+        "elements.0.barcode.human_readable",
+    ),
+    (
+        {
+            "elements": [
+                {"type": "barcode", "x": 1, "y": 1, "symbology": "pdf417", "data": "A", "pdf417": {"truncated": "@"}}
+            ]
+        },
+        "elements.0.barcode.pdf417.truncated",
+    ),
+]
+
+
+def _refused_at(document: dict[str, Any], value: object) -> set[str]:
+    with pytest.raises(ValidationError) as caught:
+        Label.model_validate(_with(document, value))
+    return {".".join(str(part) for part in error["loc"]) for error in caught.value.errors()}
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("document", "path"), NUMBERS_AND_BOOLS, ids=[path for _, path in NUMBERS_AND_BOOLS])
+@pytest.mark.parametrize("value", [True, False, "10", "1.5", "inf", "1e3", "1_000", ""], ids=repr)
+def test_a_number_in_a_label_refuses_text_and_booleans(document: dict[str, Any], path: str, value: object) -> None:
+    """JSON is typed and the schema says number: `"x": "10"` and `"x": true` were read as 10 and 1."""
+    assert path in _refused_at(document, value)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("document", "path"), BOOLEANS, ids=[path for _, path in BOOLEANS])
+@pytest.mark.parametrize("value", [0, 1, "true", "yes", "1", 1.0], ids=repr)
+def test_a_boolean_in_a_label_refuses_numbers_and_text(document: dict[str, Any], path: str, value: object) -> None:
+    assert path in _refused_at(document, value)
+
+
+@pytest.mark.os_agnostic
+def test_a_whole_float_is_no_integer_field_value_and_an_integer_is_still_a_length() -> None:
+    assert "quantity" in _refused_at({"elements": [TEXT], "quantity": "@"}, 2.0)
+    assert Label.model_validate({"elements": [{**TEXT, "x": 5}]}).elements[0].model_dump()["x"] == 5.0
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("value", [True, "2.5", "inf", "1e3", "abc"], ids=repr)
+def test_the_label_stop_position_takes_a_number_or_its_one_word(value: object) -> None:
+    assert "stop_position" in _refused_at({"elements": [TEXT], "stop_position": "@"}, value)
+
+
+@pytest.mark.os_agnostic
+def test_the_label_stop_position_refusal_of_text_names_the_word() -> None:
+    with pytest.raises(ValidationError, match="Input should be 'printer'"):
+        Label.model_validate({"elements": [TEXT], "stop_position": "2.5"})
+
+
+@pytest.mark.os_agnostic
+def test_the_label_stop_position_keeps_its_number_and_word() -> None:
+    assert Label.model_validate({"elements": [TEXT], "stop_position": 2.5}).stop_position == 2.5
+    assert Label.model_validate({"elements": [TEXT], "stop_position": 2}).stop_position == 2.0
+    assert Label.model_validate({"elements": [TEXT], "stop_position": "printer"}).stop_position == PrinterStop.PRINTER
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "field",
+    [
+        "scale_across",
+        "scale_along",
+        "offset_across",
+        "offset_along",
+        "stop_position_mm",
+        "cutter_stop_position_mm",
+        "image_memory_bytes",
+        "max_format_rows",
+        "start_of_print_mm",
+        "max_label_length_mm",
+    ],
+)
+@pytest.mark.parametrize("value", [True, "1"], ids=repr)
+def test_render_options_refuse_text_and_booleans_as_numbers(field: str, value: object) -> None:
+    with pytest.raises(ValidationError) as caught:
+        RenderOptions.model_validate({field: value})
+    assert caught.value.errors()[0]["loc"][0] == field
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "field", ["cutter_installed", "model_image_budget", "label_present", "clear_graphics_before_label"]
+)
+@pytest.mark.parametrize("value", [1, "true", "yes"], ids=repr)
+def test_render_options_refuse_numbers_and_text_as_booleans(field: str, value: object) -> None:
+    with pytest.raises(ValidationError) as caught:
+        RenderOptions.model_validate({field: value})
+    assert caught.value.errors()[0]["loc"][0] == field
+
+
+@pytest.mark.os_agnostic
+def test_placeholder_filling_never_produces_a_numeric_string_in_a_number_field(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    """Filling replaces text alone: a record's "12" stays the text of a text field, with --data too."""
+    label = tmp_path / "label.json"
+    label.write_text('{"quantity": 2, "elements": [{"type": "text", "x": 1, "y": 1, "text": "{n}"}]}', encoding="utf-8")
+    data = tmp_path / "data.csv"
+    data.write_text("n\n12\n34\n", encoding="utf-8")
+    result = cli_runner.invoke(
+        cli_mod.cli, ["--json-bare", "validate", "--data", str(data), str(label)], obj=build_testing
+    )
+    assert result.exit_code == 0, result.output

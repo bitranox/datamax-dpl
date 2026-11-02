@@ -143,6 +143,19 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- A number in the `[printer]`, `[printers.<name>]`, `[camera]` or `[preview]`
+  section refuses a boolean (`printer.timeout: needs a number, got true`),
+  which used to read as 1 or 0: `timeout = true` was a 1 second timeout, and
+  `offset_along = false` beat the model's own default. Numeric text stays
+  accepted, because `.env` delivers `1.50` as text. `label_width` and
+  `label_height` now stop at 100000 too.
+- A number or boolean in a label document, or in `RenderOptions`, must now
+  have that JSON type: numeric strings (`"x": "10"`), a boolean as a number
+  (`"x": true`) and a number as a boolean are refused naming the field, and so
+  is a whole float for an integer field (`"quantity": 2.0`). They were read as
+  10, 1 and 2, while `datamax-dpl schema` says number. An integer for a length
+  stays fine. `{name}` placeholders fill text and `data` only, so `--data` is
+  not affected.
 - A key the `[printer]`, `[printers.<name>]`, `[camera]` or `[preview]`
   section does not declare is now refused naming it (`printer.timout: Extra
   inputs are not permitted`, exit 2), and so is a section that is no table

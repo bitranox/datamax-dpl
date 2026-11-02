@@ -603,6 +603,7 @@ class ValidationErrorType(str, Enum):
     """
 
     FLOAT_PARSING = "float_parsing"
+    FLOAT_TYPE = "float_type"
     VALUE_ERROR = "value_error"
 
 

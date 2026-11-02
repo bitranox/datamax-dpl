@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 from ...application.upload_check import MAX_UPLOAD_CHECK_ROUNDS, MIN_UPLOAD_CHECK_ROUNDS, UPLOAD_CHECK_ROUNDS
 from ...application.use_cases import RETRY_INTERVAL_SECONDS, STATUS_WAIT_SECONDS, STORED_NAMES_WAIT_SECONDS
 from ...application.verify import ONE_WAY_SETTLE_SECONDS, POLL_SECONDS
-from ...domain.camera import CameraSettings
+from ...domain.camera import CameraSettings, refuse_boolean
 from ...domain.enums import (
     CutterPresence,
     FallbackPolicy,
@@ -27,7 +27,7 @@ from ...domain.enums import (
 )
 from ...domain.errors import ConfigurationError
 from ...domain.job import MAX_STOP_POSITION_MM
-from ...domain.label import stop_position_or_printer
+from ...domain.label import MAX_LENGTH, stop_position_or_printer
 from ...domain.preview import DEFAULT_PREVIEW_MAX_LENGTH_MM
 from ...domain.profiles import Firmware, ParsedFirmware
 from ...domain.render_context import RenderOptions
@@ -122,8 +122,30 @@ class PrinterSettings(BaseModel):
     # A label no clear precedes: a download left out for a held name, or names that could not be read.
     held_image_severity: Severity = Severity.WARNING
     name: str = ""
-    label_width: float | None = Field(default=None, gt=0)
-    label_height: float | None = Field(default=None, gt=0)
+    label_width: float | None = Field(default=None, gt=0, le=MAX_LENGTH)
+    label_height: float | None = Field(default=None, gt=0, le=MAX_LENGTH)
+
+    _numbers_are_no_booleans = field_validator(
+        "timeout",
+        "status_wait",
+        "status_retry_interval",
+        "stored_names_wait",
+        "upload_check_rounds",
+        "verify_poll_interval",
+        "one_way_settle",
+        "send_chunk_bytes",
+        "scale_across",
+        "scale_along",
+        "offset_across",
+        "offset_along",
+        "stop_position",
+        "cutter_stop_position",
+        "image_memory_bytes",
+        "max_format_rows",
+        "label_width",
+        "label_height",
+        mode="before",
+    )(refuse_boolean)
 
     @field_validator("firmware", mode="before")
     @classmethod
@@ -300,6 +322,8 @@ class PreviewSettings(BaseModel):
 
     # Finite: infinity would read as "no limit", which is what the key exists to prevent.
     max_length_mm: float = Field(default=DEFAULT_PREVIEW_MAX_LENGTH_MM, gt=0, allow_inf_nan=False)
+
+    _numbers_are_no_booleans = field_validator("max_length_mm", mode="before")(refuse_boolean)
 
 
 def preview_settings(config: Config) -> PreviewSettings:

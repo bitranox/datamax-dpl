@@ -196,32 +196,36 @@ class RenderOptions(BaseModel):
     model: str = "generic"
     firmware: ParsedFirmware = None
     policy: FallbackPolicy = FallbackPolicy.DEGRADE
-    cutter_installed: bool | None = None
+    cutter_installed: bool | None = Field(default=None, strict=True)
     options: frozenset[HardwareOption] = Field(default_factory=frozenset[HardwareOption])
     # A real printer is a few percent off; a factor outside this range is a typo or an
     # inverted measurement (nominal / printed), which would double the error instead.
-    scale_across: float | None = Field(default=None, ge=MIN_SCALE, le=MAX_SCALE, allow_inf_nan=False)
-    scale_along: float | None = Field(default=None, ge=MIN_SCALE, le=MAX_SCALE, allow_inf_nan=False)
-    offset_across: float | None = Field(default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM, allow_inf_nan=False)
-    offset_along: float | None = Field(default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM, allow_inf_nan=False)
+    scale_across: float | None = Field(default=None, ge=MIN_SCALE, le=MAX_SCALE, strict=True, allow_inf_nan=False)
+    scale_along: float | None = Field(default=None, ge=MIN_SCALE, le=MAX_SCALE, strict=True, allow_inf_nan=False)
+    offset_across: float | None = Field(
+        default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM, strict=True, allow_inf_nan=False
+    )
+    offset_along: float | None = Field(
+        default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM, strict=True, allow_inf_nan=False
+    )
     stop_position_mm: StopPosition | None = None
     cutter_stop_position_mm: Positive | None = None
-    image_memory_bytes: int | None = Field(default=None, gt=0)
-    model_image_budget: bool = True
+    image_memory_bytes: int | None = Field(default=None, gt=0, strict=True)
+    model_image_budget: bool = Field(default=True, strict=True)
     image_module: ImageModule | None = None
-    max_format_rows: int | None = Field(default=None, gt=0)
+    max_format_rows: int | None = Field(default=None, gt=0, strict=True)
     send_settings: frozenset[PrinterSetting] | None = None
     media: MediaSensor | None = None
     start_of_print_mm: float | None = Field(
-        default=None, ge=MIN_START_OF_PRINT_MM, le=MAX_SYSTEM_DISTANCE_MM, allow_inf_nan=False
+        default=None, ge=MIN_START_OF_PRINT_MM, le=MAX_SYSTEM_DISTANCE_MM, strict=True, allow_inf_nan=False
     )
     max_label_length_mm: float | None = Field(
-        default=None, ge=MIN_MAX_LABEL_LENGTH_MM, le=MAX_SYSTEM_DISTANCE_MM, allow_inf_nan=False
+        default=None, ge=MIN_MAX_LABEL_LENGTH_MM, le=MAX_SYSTEM_DISTANCE_MM, strict=True, allow_inf_nan=False
     )
     feed_rate: SpeedCode | None = None
-    label_present: bool | None = None
-    clear_graphics_before_label: bool = True
-    clear_graphics_after_label: bool = True
+    label_present: bool | None = Field(default=None, strict=True)
+    clear_graphics_before_label: bool = Field(default=True, strict=True)
+    clear_graphics_after_label: bool = Field(default=True, strict=True)
     held_image_severity: Severity = Severity.WARNING
 
 

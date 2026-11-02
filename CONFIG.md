@@ -455,7 +455,10 @@ The `[printer]` section (shipped in `config.d/50-printer.toml`) holds the defaul
 and printer command. A command-line flag (`--model`, `--firmware`, `--printer`, `--policy`,
 `--timeout`, `--cutter`, `--option`) wins over the configured value; on `status`, `memory` and
 `verify` `--timeout` is the whole wait for the printer, in place of `status_wait`. The URI ships
-empty, so nothing is contacted until one is set or passed with `--printer`.
+empty, so nothing is contacted until one is set or passed with `--printer`. A key this section does not
+declare is refused naming it, as is a section that is no table (`printer = 5`), and a number refuses
+a boolean (`printer.timeout: needs a number, got true`). Numeric text stays a number, because `.env`
+delivers `1.50` as text. The same holds for `[printers.<name>]`, `[camera]` and `[preview]`.
 
 | Key                     | Type                                             | Default     | Environment variable                           | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 |-------------------------|--------------------------------------------------|-------------|------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|

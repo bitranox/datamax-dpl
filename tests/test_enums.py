@@ -171,4 +171,4 @@ def test_each_pydantic_error_type_is_the_name_pydantic_reports(
 @pytest.mark.os_agnostic
 def test_validation_error_type_values() -> None:
     """The error type names, as the checks that tell refusals apart compare them."""
-    assert {member.value for member in ValidationErrorType} == {"float_parsing", "value_error"}
+    assert {member.value for member in ValidationErrorType} == {"float_parsing", "float_type", "value_error"}

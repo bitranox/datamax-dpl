@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from .enums import MediaType
 from .timing import MAX_TIMEOUT_SECONDS
@@ -35,6 +35,28 @@ class CameraKind(str, Enum):
 OUTPUT_PLACEHOLDER = "{output}"
 
 
+def refuse_boolean(value: object) -> object:
+    """Pass ``value`` on unless it is a boolean, for a number in a settings section.
+
+    A setting stays lax otherwise, since ``.env`` delivers ``1.50`` as text and strict mode would
+    refuse it. A boolean is never deliberate, and read as 1 or 0 it silently changes behaviour.
+
+    Raises:
+        ValueError: ``value`` is a boolean.
+
+    Example:
+        >>> refuse_boolean("1.50")
+        '1.50'
+        >>> refuse_boolean(True)
+        Traceback (most recent call last):
+        ...
+        ValueError: needs a number, got true
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"needs a number, got {str(value).lower()}")
+    return value
+
+
 class CameraSettings(BaseModel):
     """The ``[camera]`` configuration section.
 
@@ -54,6 +76,8 @@ class CameraSettings(BaseModel):
     settle_seconds: float = Field(default=1.0, ge=0, le=MAX_TIMEOUT_SECONDS)
     timeout: float = Field(default=20.0, gt=0, le=MAX_TIMEOUT_SECONDS)
 
+    _numbers_are_no_booleans = field_validator("settle_seconds", "timeout", mode="before")(refuse_boolean)
+
 
 class CapturedImage(BaseModel):
     """One photo on disk.
@@ -71,4 +95,4 @@ class CapturedImage(BaseModel):
     captured_at: datetime
 
 
-__all__ = ["OUTPUT_PLACEHOLDER", "CameraKind", "CameraSettings", "CapturedImage"]
+__all__ = ["OUTPUT_PLACEHOLDER", "CameraKind", "CameraSettings", "CapturedImage", "refuse_boolean"]
