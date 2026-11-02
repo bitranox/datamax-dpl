@@ -205,8 +205,9 @@ def _send_checked_and_wait(link: Link, checked: CheckedJob, *, wait: IdleWait) -
     """Send the label with its upload check on ``link``, then wait on the channel the job ended on.
 
     Raises:
-        UploadRefusedError: The printer did not list the label's images after every round; its
-            format was not sent.
+        UploadRefusedError: The printer did not list the label's images after every round, or the
+            label, rendered again for what the printer then held, has an error finding; its format
+            was not sent.
     """
     send = send_checked_label(link, checked)
     if not send.all_sent:
@@ -245,8 +246,9 @@ def verify_print(
 
     Raises:
         LabelRejectedError: The job has error findings; nothing was printed.
-        UploadRefusedError: The printer did not list the label's images after every round; its
-            format was not sent, and no photo was taken.
+        UploadRefusedError: The printer did not list the label's images after every round, or the
+            label, rendered again for what the printer then held, has an error finding; its format
+            was not sent, and no photo was taken.
         TransportError: The printer could not be reached, or did not finish in time.
         CameraError: No photo could be taken.
         ValueError: A value of ``wait`` is not a usable number of seconds (see
