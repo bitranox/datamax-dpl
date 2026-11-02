@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, TypeVar
 
@@ -157,7 +158,8 @@ def cli_calibrate_print(
         axes = AxisChoice(axis).axes
         options = render_options(settings)
         sizes = _Sizes(width=width, height=height, along_length=along_length)
-        labels, bar = _labels(settings, axes, options=options, sizes=sizes)
+        built = _labels(settings, axes, options=options, sizes=sizes)
+        labels, bar = built.labels, built.along_length
         results = {part: build_job(label, options) for part, label in labels.items()}
         payload = _print_payload(settings, effective_calibration(options), axes=axes, results=list(results.values()))
         if Axis.ALONG in labels:
@@ -278,9 +280,22 @@ class _Sizes(BaseModel):
     along_length: float | None
 
 
+@dataclass(frozen=True, slots=True)
+class _CalibrationLabels:
+    """The calibration labels built, by axis in print order, and the along bar's length in mm.
+
+    Attributes:
+        labels: Each label built, in the order of the axes asked for.
+        along_length: The along bar's length; :data:`ALONG_LENGTH_MM` when no along label is built.
+    """
+
+    labels: dict[Axis, Label]
+    along_length: float
+
+
 def _labels(
     settings: PrinterSettings, axes: tuple[Axis, ...], *, options: RenderOptions, sizes: _Sizes
-) -> tuple[dict[Axis, Label], float]:
+) -> _CalibrationLabels:
     """Build the labels in ``axes`` order, and return them with the along bar's length in mm.
 
     The across label is built first, so a label too small for it is refused for that before the
@@ -297,7 +312,7 @@ def _labels(
             continue
         label_height = _size("height", sizes.height, settings.label_height, settings)
         labels[axis] = across_label(width=label_width, height=label_height, title=_across_title(settings, calibration))
-    return labels, bar
+    return _CalibrationLabels(labels=labels, along_length=bar)
 
 
 def _size(side: str, given: float | None, configured: float | None, settings: PrinterSettings) -> float:
@@ -459,12 +474,12 @@ def _with_effective(cli_ctx: CLIContext, name: str, changes: list[_ChangeT]) -> 
     The value read back is the effective one, so a key no layer sets reads as the model's default,
     never as unreadable; ``effective`` stays None only when the configuration does not load.
     """
-    config, error = load_config(
+    loaded = load_config(
         cli_ctx.services, profile=cli_ctx.profile, env_file=cli_ctx.env_file, set_overrides=cli_ctx.set_overrides
     )
-    if error is not None:
+    if loaded.error is not None:
         return changes
-    settings = printer_settings(config, PrinterOverrides(printer=name or None))
+    settings = printer_settings(loaded.config, PrinterOverrides(printer=name or None))
     effective = effective_calibration(render_options(settings))
     return [c.model_copy(update={"effective": getattr(effective, c.key)}) for c in changes]
 

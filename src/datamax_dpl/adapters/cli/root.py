@@ -102,17 +102,17 @@ def cli(
         raise RuntimeError("Services factory not provided. This is a bug.")
     services = factory()
     # A load failure is recorded, not reported here: see config_load for who reports it.
-    config, config_error = load_config(services, profile=profile, env_file=env_file, set_overrides=set_overrides)
-    config, config_error = start_logging(services, config, config_error, env_file=env_file)
+    loaded = load_config(services, profile=profile, env_file=env_file, set_overrides=set_overrides)
+    loaded = start_logging(services, loaded, env_file=env_file)
     store_cli_context(
         ctx,
         traceback=traceback,
-        config=config,
+        config=loaded.config,
         services=services,
         profile=profile,
         set_overrides=set_overrides,
         env_file=env_file,
-        config_error=config_error,
+        config_error=loaded.error,
         mode=OutputMode.of(as_json=as_json, as_json_bare=as_json_bare),
     )
     apply_traceback_preferences(traceback)

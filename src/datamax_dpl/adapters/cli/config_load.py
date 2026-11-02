@@ -24,6 +24,7 @@ Contents:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from traceback import format_exception
 from typing import TYPE_CHECKING
 
@@ -59,9 +60,22 @@ def _check_command_line(profile: str | None, set_overrides: tuple[str, ...]) -> 
         raise click.UsageError(str(exc)) from exc
 
 
+@dataclass(frozen=True, slots=True)
+class ConfigLoad:
+    """A configuration as loaded, or why it could not be.
+
+    Attributes:
+        config: The loaded configuration; empty when ``error`` is set.
+        error: Why loading (or starting logging with it) failed, None when it did not.
+    """
+
+    config: Config
+    error: Exception | None
+
+
 def load_config(
     services: AppServices, *, profile: str | None, env_file: str | None, set_overrides: tuple[str, ...]
-) -> tuple[Config, Exception | None]:
+) -> ConfigLoad:
     """Load the layered configuration, or say why it could not be loaded.
 
     Args:
@@ -71,7 +85,7 @@ def load_config(
         set_overrides: The ``--set`` values, applied only to a configuration that loaded.
 
     Returns:
-        The configuration and None, or an empty configuration and the exception that says
+        The configuration and no error, or an empty configuration and the exception that says
         why loading failed.
 
     Raises:
@@ -82,21 +96,19 @@ def load_config(
 
     Example:
         >>> from datamax_dpl.composition import build_testing
-        >>> config, error = load_config(build_testing(), profile=None, env_file=None, set_overrides=("a.b=1",))
-        >>> config.get("a"), error
+        >>> loaded = load_config(build_testing(), profile=None, env_file=None, set_overrides=("a.b=1",))
+        >>> loaded.config.get("a"), loaded.error
         ({'b': 1}, None)
     """
     _check_command_line(profile, set_overrides)
     try:
         config = services.get_config(profile=profile, dotenv_path=env_file)
     except _LOAD_ERRORS as exc:
-        return Config({}, {}), exc
-    return apply_overrides(config, set_overrides), None
+        return ConfigLoad(config=Config({}, {}), error=exc)
+    return ConfigLoad(config=apply_overrides(config, set_overrides), error=None)
 
 
-def start_logging(
-    services: AppServices, config: Config, config_error: Exception | None, *, env_file: str | None
-) -> tuple[Config, Exception | None]:
+def start_logging(services: AppServices, loaded: ConfigLoad, *, env_file: str | None) -> ConfigLoad:
     """Start logging with ``config``; a logging section it refuses is recorded like a load failure.
 
     An invalid ``[lib_log_rich]`` value or ``LOG_*`` variable would otherwise stop every
@@ -111,19 +123,18 @@ def start_logging(
 
     Args:
         services: The composition's services; only ``init_logging`` is used.
-        config: The configuration :func:`load_config` returned.
-        config_error: The failure :func:`load_config` returned, or None.
+        loaded: What :func:`load_config` returned.
         env_file: The ``--env-file`` path, or None; logging reads its ``LOG_*`` lines from it.
 
     Returns:
-        ``config`` and ``config_error`` unchanged, or an empty configuration and the logging
-        failure when no earlier failure was recorded.
+        ``loaded`` unchanged, or an empty configuration and the earlier failure, or the
+        logging failure when no earlier one was recorded.
     """
     try:
-        services.init_logging(config, dotenv_path=env_file)
+        services.init_logging(loaded.config, dotenv_path=env_file)
     except InvalidLoggingConfigError as exc:
-        return Config({}, {}), config_error or exc
-    return config, config_error
+        return ConfigLoad(config=Config({}, {}), error=loaded.error or exc)
+    return loaded
 
 
 def check_logging(services: AppServices, config: Config) -> Exception | None:
@@ -197,6 +208,7 @@ def require_config(ctx: click.Context, cli_ctx: CLIContext) -> Config:
 
 
 __all__ = [
+    "ConfigLoad",
     "check_logging",
     "echo_load_traceback",
     "load_config",

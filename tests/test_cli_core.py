@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 @pytest.mark.os_agnostic
 def test_snapshot_traceback_state_returns_disabled_by_default(managed_traceback_state: None) -> None:
     """snapshot_traceback_state returns both flags disabled initially."""
-    assert cli_mod.snapshot_traceback_state() == (False, False)
+    assert cli_mod.snapshot_traceback_state() == cli_mod.TracebackState(enabled=False, force_color=False)
 
 
 @pytest.mark.os_agnostic

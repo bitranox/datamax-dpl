@@ -176,23 +176,36 @@ def _refuse_conflicts(dotted_keys: list[str]) -> None:
             raise ValueError(f"conflicting --set overrides: {key} is given a value and {nested} puts a key under it")
 
 
-def nest_overrides(raw_overrides: tuple[str, ...]) -> tuple[dict[str, dict[str, object]], frozenset[str]]:
+@dataclass(frozen=True, slots=True)
+class NestedOverrides:
+    """The ``--set`` values as the nested mapping they lay over a configuration.
+
+    Attributes:
+        tree: The override values nested by section and key, as a configuration holds them;
+            for one key given twice, the last value wins.
+        keys: The dotted key of every value set, for the provenance that names the CLI.
+    """
+
+    tree: dict[str, dict[str, object]]
+    keys: frozenset[str]
+
+
+def nest_overrides(raw_overrides: tuple[str, ...]) -> NestedOverrides:
     """Parse ``--set`` values into the nested mapping they override, checking them together.
 
     Args:
         raw_overrides: Tuple of ``SECTION.KEY=VALUE`` strings from ``--set``.
 
     Returns:
-        The nested override mapping and the dotted keys it sets. For one key given twice,
-        the last value wins.
+        The nested override mapping and the dotted keys it sets.
 
     Raises:
         ValueError: An override is malformed, or two of them conflict (one gives a key a
             value, another puts a key under it).
 
     Example:
-        >>> tree, keys = nest_overrides(("a.b=1", "a.c.d=x"))
-        >>> tree, sorted(keys)
+        >>> nested = nest_overrides(("a.b=1", "a.c.d=x"))
+        >>> nested.tree, sorted(nested.keys)
         ({'a': {'b': 1, 'c': {'d': 'x'}}}, ['a.b', 'a.c.d'])
     """
     parsed = [parse_override(raw) for raw in raw_overrides]
@@ -201,7 +214,7 @@ def nest_overrides(raw_overrides: tuple[str, ...]) -> tuple[dict[str, dict[str, 
     overrides: dict[str, dict[str, object]] = {}
     for override in parsed:
         _nest_override(overrides, override)
-    return overrides, frozenset(dotted_keys)
+    return NestedOverrides(tree=overrides, keys=frozenset(dotted_keys))
 
 
 def _dotted_keys(data: Mapping[str, object], prefix: str = "") -> Iterator[str]:
@@ -282,15 +295,15 @@ def apply_overrides(config: Config, raw_overrides: tuple[str, ...]) -> Config:
     if not raw_overrides:
         return config
 
-    overrides, overridden = nest_overrides(raw_overrides)
+    nested = nest_overrides(raw_overrides)
 
     # Rebuilt rather than returned straight from with_overrides, which records
     # each overridden key as the library's generic "override" layer: `config`
     # names the command line ("cli") as the source of a --set value, so a
     # reader knows to look at the invocation rather than at any file.
-    merged = config.with_overrides(overrides)
+    merged = config.with_overrides(nested.tree)
     merged_as_dict = merged.as_dict()
-    provenance = _provenance_naming_the_cli(config, merged_as_dict, overridden)
+    provenance = _provenance_naming_the_cli(config, merged_as_dict, nested.keys)
     return Config(merged_as_dict, provenance, NotSensitiveKeys.of(NOT_SENSITIVE))
 
 
@@ -298,6 +311,7 @@ __all__ = [
     "CLI_LAYER",
     "CoercedValue",
     "ConfigOverride",
+    "NestedOverrides",
     "apply_overrides",
     "coerce_value",
     "nest_overrides",

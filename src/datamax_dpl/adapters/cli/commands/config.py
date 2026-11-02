@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, cast
 
 import click.exceptions as click_exceptions
@@ -81,7 +82,8 @@ def cli_config(ctx: click.Context, output_format: str, section: str | None, prof
         >>> # Real invocation tested in test_cli_config.py
     """
     cli_ctx = get_cli_context(ctx)
-    effective_config, effective_profile = _resolve_config(ctx, cli_ctx, profile)
+    resolved = _resolve_config(ctx, cli_ctx, profile)
+    effective_profile = resolved.profile
     fmt = OutputFormat(output_format.lower())
 
     extra = {"command": "config", "format": fmt.value, "profile": effective_profile}
@@ -93,7 +95,7 @@ def cli_config(ctx: click.Context, output_format: str, section: str | None, prof
         safe_console.echo()
         try:
             cli_ctx.services.display_config(
-                effective_config, output_format=fmt, section=section, profile=effective_profile
+                resolved.config, output_format=fmt, section=section, profile=effective_profile
             )
         except ValueError as exc:
             safe_console.echo(f"\nError: {exc}", err=True)
@@ -105,7 +107,15 @@ def _get_effective_profile(cli_ctx: CLIContext, profile_override: str | None) ->
     return profile_override if profile_override else cli_ctx.profile
 
 
-def _resolve_config(ctx: click.Context, cli_ctx: CLIContext, profile: str | None) -> tuple[Config, str | None]:
+@dataclass(frozen=True, slots=True)
+class _ResolvedConfig:
+    """The configuration ``config`` shows, and the profile it was loaded with (None: none)."""
+
+    config: Config
+    profile: str | None
+
+
+def _resolve_config(ctx: click.Context, cli_ctx: CLIContext, profile: str | None) -> _ResolvedConfig:
     """Resolve configuration from context or reload with profile override.
 
     When a subcommand-level profile override is specified, reloads config
@@ -119,20 +129,19 @@ def _resolve_config(ctx: click.Context, cli_ctx: CLIContext, profile: str | None
         profile: Optional profile override.
 
     Returns:
-        Tuple of (config, effective_profile).
+        The configuration and the effective profile.
     """
     effective_profile = _get_effective_profile(cli_ctx, profile)
     if not profile:
-        return require_config(ctx, cli_ctx), effective_profile
-    config, error = load_config(
+        return _ResolvedConfig(config=require_config(ctx, cli_ctx), profile=effective_profile)
+    loaded = load_config(
         cli_ctx.services, profile=profile, env_file=cli_ctx.env_file, set_overrides=cli_ctx.set_overrides
     )
-    if error is None:
-        error = check_logging(cli_ctx.services, config)
+    error = loaded.error if loaded.error is not None else check_logging(cli_ctx.services, loaded.config)
     if error is not None:
         report_load_failure(error, show_traceback=cli_ctx.traceback)
         ctx.exit(ExitCode.CONFIG_ERROR)
-    return config, effective_profile
+    return _ResolvedConfig(config=loaded.config, profile=effective_profile)
 
 
 def _parse_deploy_mode(value: str | None, *, kind: ModeKind) -> int | None:
@@ -397,8 +406,7 @@ def _permission_overrides(cli_ctx: CLIContext) -> Mapping[str, object] | None:
             (``--set lib_layered_config.default_permissions=5`` or ``=null``); one stderr
             line names it, exit 78, nothing is deployed.
     """
-    tree, _ = nest_overrides(cli_ctx.set_overrides)
-    section = tree.get(_LAYERED_CONFIG_SECTION, {})
+    section = nest_overrides(cli_ctx.set_overrides).tree.get(_LAYERED_CONFIG_SECTION, {})
     if _PERMISSIONS_KEY not in section:
         return None
     value = section[_PERMISSIONS_KEY]
