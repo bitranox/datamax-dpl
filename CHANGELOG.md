@@ -338,6 +338,9 @@ All notable changes to this project are documented here. The format follows
   different numbers of labels with `ConfigurationError` before the printer is
   opened; `send_checked` raised a bare `ValueError` only after the labels went
   out.
+- `status`, `memory` and `detect` on a one-way channel refuse without opening
+  it: `--printer file:PATH` creates no empty file, and a missing folder gets
+  the same refusal rather than "cannot open file".
 
 ## [0.4.0] - 2026-10-30
 

@@ -39,7 +39,7 @@ from ....domain.status import PrinterStatus
 from ...camera import require_camera
 from ...config.sections import CAMERA_SECTION, PREVIEW_SECTION, printer_section
 from ...preview import pillow_available, preview_findings, render_preview_png
-from ...transport.uri import is_one_way, parse_printer_uri
+from ...transport.uri import is_one_way, parse_printer_uri, unsupported_query
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
 from ..label_io import LabelInputError, load_label, load_records
@@ -151,7 +151,7 @@ def cli_status(ctx: click.Context, **given: Any) -> None:
 
     def body(cli_ctx: CLIContext) -> CommandResult:
         settings = resolve_settings(cli_ctx, command_overrides(given))
-        uri = require_uri(settings)
+        uri = _queryable_uri(settings)
         status = query_status(
             uri=uri,
             timeout=settings.timeout,
@@ -182,6 +182,21 @@ def _link(settings: PrinterSettings) -> _Link:
     """
     uri = require_uri(settings)
     return _Link(uri=uri, one_way=is_one_way(parse_printer_uri(uri)))
+
+
+def _queryable_uri(settings: PrinterSettings) -> str:
+    """The URI of a printer that can answer; a query of a file must not leave one behind.
+
+    Raises:
+        ConfigurationError: No printer is given (:func:`require_uri`).
+        UnsupportedOperationError: The channel cannot read an answer; it was not opened.
+        ValueError: The URI is malformed (:func:`parse_printer_uri`).
+    """
+    uri = require_uri(settings)
+    parsed = parse_printer_uri(uri)
+    if is_one_way(parsed):
+        raise unsupported_query(parsed)
+    return uri
 
 
 def _print_options(settings: PrinterSettings, *, link: _Link) -> RenderOptions:
@@ -289,7 +304,7 @@ def cli_detect(ctx: click.Context, **given: Any) -> None:
     def body(cli_ctx: CLIContext) -> CommandResult:
         settings = resolve_settings(cli_ctx, command_overrides(given))
         report = detect_printer(
-            uri=require_uri(settings), timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)
+            uri=_queryable_uri(settings), timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)
         )
         human = "\n".join([*report.detection.reasons, "fits: " + (", ".join(report.detection.candidates) or "none")])
         return CommandResult(ok=bool(report.detection.candidates), payload=report, human=human)
@@ -352,7 +367,7 @@ def cli_memory(ctx: click.Context, kind: str, idle: float, **given: Any) -> None
 
     def body(cli_ctx: CLIContext) -> CommandResult:
         settings = resolve_settings(cli_ctx, command_overrides(given))
-        uri = require_uri(settings)
+        uri = _queryable_uri(settings)
         directories = read_memory_directory(
             kinds=KindChoice(kind).kinds,
             uri=uri,
