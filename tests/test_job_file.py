@@ -38,7 +38,7 @@ _DMX = RenderOptions(model="dmx-600")
 _TOO_LONG_FOR_A_QR_CODE = "A" * 4000
 _TOO_LONG_FOR_A_TEXT_FIELD = "B" * 300
 _NOT_POSIX = sys.platform == "win32"
-_IS_ROOT = hasattr(os, "geteuid") and os.geteuid() == 0
+_IS_ROOT = sys.platform != "win32" and os.geteuid() == 0
 _BEFORE = b"before"
 
 
@@ -161,6 +161,8 @@ def test_a_target_another_user_owns_stays_theirs(cli_runner: CliRunner, tmp_path
     label, data = _files(tmp_path, _TEXT, "r0\n")
     target = tmp_path / "job.dpl"
     target.write_bytes(_BEFORE)
+    if sys.platform == "win32":
+        pytest.skip("Windows gives no file to another user by id")
     os.chown(target, 1, 1)
     assert _render(cli_runner, label, data, target).exit_code == 0
     assert target.stat().st_uid == 1

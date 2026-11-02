@@ -13,6 +13,7 @@ from __future__ import annotations
 import itertools
 import os
 import stat
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, NamedTuple
 
@@ -56,7 +57,9 @@ def _replaceable(path: Path, found: os.stat_result) -> bool:
     if not os.access(path, os.W_OK) or found.st_nlink > 1:
         return False
     # No effective user id to compare on Windows, where st_uid reads 0 for every file.
-    return not hasattr(os, "geteuid") or found.st_uid == os.geteuid()
+    if sys.platform == "win32":
+        return True
+    return found.st_uid == os.geteuid()
 
 
 def _create_temp(target: Path, mode: int) -> tuple[Path, int] | None:
