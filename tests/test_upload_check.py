@@ -809,6 +809,35 @@ def test_print_over_tcp_refuses_a_label_the_printer_never_lists_and_sends_no_for
 
 @pytest.mark.os_agnostic
 @pytest.mark.usefixtures("no_ambient_configuration")
+def test_verify_over_tcp_refuses_a_label_the_printer_never_lists_and_sends_no_format(
+    cli_runner: CliRunner, tmp_path: Path, serve: Callable[[Play], PrinterServer]
+) -> None:
+    server = serve(module_printer(ImageModules(capacity=1)))
+    output_dir = tmp_path / "out"
+    args = ["--json", "verify", _label_file(tmp_path), "--output-dir", str(output_dir)]
+
+    result = _run(
+        cli_runner,
+        [*args, "--model", "allegro-2", "--printer", server.address],
+        DATAMAX_DPL___PRINTER__UPLOAD_CHECK_ROUNDS="2",
+        DATAMAX_DPL___CAMERA__KIND="file",
+        DATAMAX_DPL___CAMERA__DIRECTORY=str(tmp_path),
+    )
+    server.join()
+
+    assert result.exit_code == 1, result.output
+    assert FORMAT not in bytes(server.received)
+    assert bytes(server.received).count(WG) == 2
+    envelope = json.loads(result.stdout)
+    assert envelope["ok"] is False
+    errors = [finding for finding in envelope["data"]["findings"] if finding["severity"] == "error"]
+    assert [finding["code"] for finding in errors] == ["image_upload_refused"]
+    assert "after 2 rounds" in errors[0]["message"]
+    assert list(output_dir.glob("expected-*.png")) == []
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.usefixtures("no_ambient_configuration")
 def test_print_over_tcp_sends_the_format_on_a_new_connection_when_the_server_closed_after_the_answer(
     cli_runner: CliRunner, tmp_path: Path, serve: Callable[..., PrinterServer]
 ) -> None:
