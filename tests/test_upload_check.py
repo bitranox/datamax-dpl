@@ -393,13 +393,14 @@ def test_a_batch_record_whose_round_2_read_got_no_answer_passes_on_the_names_rou
 def test_a_name_a_record_sent_before_a_read_with_no_answer_is_not_downloaded_by_the_next_record() -> None:
     """Record 2 sends LOGO full size, its read gets no answer, and it passes placing the halved LOGO.
 
-    Record 3 would download that full-size LOGO again, which the module may hold: its round 1 is
-    left out like round 2, and it places the halved LOGO too.
+    Record 3 would download that full-size LOGO again, which the module may hold, and the names
+    read once more before its round 1 get no answer either: its round 1 is left out like round 2,
+    and it places the halved LOGO too.
     """
     label = Label(elements=[LOGO])
     records = [{"n": "1"}, {"n": "2"}, {"n": "3"}]
     [logo] = render_label(label, PLUG_IN_TWO_WAY).downloads
-    modules = ImageModules(lose={0}, silent={0, 2, 3})
+    modules = ImageModules(lose={0}, silent={0, 2, 3, 4})
     renders = render_batch(label, records, PLUG_IN_TWO_WAY, held=READ_EMPTY).results
     job = CheckedJob(renders=record_renders(label, records, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
 
@@ -410,24 +411,49 @@ def test_a_name_a_record_sent_before_a_read_with_no_answer_is_not_downloaded_by_
     assert [record.downloads for record in sent.results[1:]] == [(), ()]
     first, *_ = (f.message for f in sent.results[2].findings if f.code is FindingCode.IMAGE_UPLOAD_RETRIED)
     assert first.startswith(f"round 1 skipped, it would download again {logo}:")
+    assert "the names read before round 1 got no answer either" in first
     _assert_each_format_places_a_stored_image(sent, modules, "B")
+    assert modules.placed_missing == []
 
 
 @pytest.mark.os_agnostic
-def test_a_record_whose_every_round_is_left_out_is_refused_saying_no_round_ran() -> None:
-    """As above, but record 3 is strict, so its images cannot be halved either: nothing of it is sent."""
+def test_a_record_meeting_names_that_may_be_held_reads_the_names_first_and_prints_at_full_size() -> None:
+    """Record 2 sends LOGO full size, its read gets no answer, and it passes placing the halved LOGO.
+
+    Record 3 would download that full-size LOGO again: it reads the names first, finds LOGO
+    listed, and places it at full size with nothing downloaded.
+    """
     label = Label(elements=[LOGO])
+    records = [{"n": "1"}, {"n": "2"}, {"n": "3"}]
     [logo] = render_label(label, PLUG_IN_TWO_WAY).downloads
-    strict = PLUG_IN_TWO_WAY.model_copy(update={"policy": FallbackPolicy.STRICT})
-    modules = ImageModules(lose={0}, silent={0, 2, 3})
+    modules = ImageModules(lose={0, 1}, silent={3, 4})
+    renders = render_batch(label, records, PLUG_IN_TWO_WAY, held=READ_EMPTY).results
+    job = CheckedJob(renders=record_renders(label, records, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
+
+    sent = _print_batch(modules, renders, job)
+
+    assert modules.downloaded_held == []
+    assert modules.placed_missing == []
+    third = sent.results[2]
+    assert third.halved_elements == ()
+    assert third.downloads == ()
+    assert logo.encode("ascii") in third.data
+    assert _upload_codes(third) == []
+    # Three reads for record 1, two for record 2, and record 3's one read before its round 1.
+    assert modules.requests == 6
+
+
+def _refuse_third(third: RenderOptions, modules: ImageModules) -> tuple[ModulePrinter, BatchResult]:
+    """Print LOGO for two records on the plug-in module, then once rendered with ``third``; expect a refusal."""
+    label = Label(elements=[LOGO])
     printer = ModulePrinter(modules)
     renders = (*render_batch(label, [{"n": "1"}, {"n": "2"}], PLUG_IN_TWO_WAY, held=READ_EMPTY).results,)
-    renders = (*renders, render_label(label, strict, held=READ_EMPTY))
+    renders = (*renders, render_label(label, third, held=READ_EMPTY))
     batch = BatchResult(data=b"".join(r.data for r in renders), results=renders)
     job = CheckedJob(
         renders=(
             *record_renders(label, [{"n": "1"}, {"n": "2"}], PLUG_IN_TWO_WAY),
-            *record_renders(label, None, strict),
+            *record_renders(label, None, third),
         ),
         check=_check(),
         held=READ_EMPTY,
@@ -436,15 +462,48 @@ def test_a_record_whose_every_round_is_left_out_is_refused_saying_no_round_ran()
     with pytest.raises(UploadRefusedError) as caught:
         print_checked(batch, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
 
+    sent = caught.value.result
+    assert isinstance(sent, BatchResult)
+    return printer, sent
+
+
+@pytest.mark.os_agnostic
+def test_a_record_whose_every_round_is_left_out_is_refused_saying_no_round_ran() -> None:
+    """As above (the names read before record 3's round 1 get no answer), but record 3 is strict.
+
+    Its images cannot be halved either: nothing of it is sent.
+    """
+    [logo] = render_label(Label(elements=[LOGO]), PLUG_IN_TWO_WAY).downloads
+    strict = PLUG_IN_TWO_WAY.model_copy(update={"policy": FallbackPolicy.STRICT})
+    modules = ImageModules(lose={0}, silent={0, 2, 3, 4})
+
+    printer, sent = _refuse_third(strict, modules)
+
     assert modules.downloaded_held == []
     assert modules.downloads.count(logo) == 2
     assert printer.data.count(FORMAT) == 2
-    sent = caught.value.result
-    assert isinstance(sent, BatchResult)
     message = _message(sent.results[2], FindingCode.IMAGE_UPLOAD_REFUSED)
     assert message.startswith(f"images {logo} not sent: no round ran: round 1 skipped, it would download again {logo}:")
     assert "round 2 skipped," in message
     assert "halving is refused" in message
+
+
+@pytest.mark.os_agnostic
+def test_a_record_in_error_once_rendered_from_the_names_read_first_is_refused_with_nothing_of_it_sent() -> None:
+    """Record 3 holds a held name in error: the names read before its round 1 list LOGO, so it is refused."""
+    [logo] = render_label(Label(elements=[LOGO]), PLUG_IN_TWO_WAY).downloads
+    held_in_error = PLUG_IN_TWO_WAY.model_copy(update={"held_image_severity": Severity.ERROR})
+    modules = ImageModules(lose={0}, silent={0, 2, 3})
+
+    printer, sent = _refuse_third(held_in_error, modules)
+
+    assert modules.downloaded_held == []
+    assert modules.downloads.count(logo) == 2
+    assert printer.data.count(FORMAT) == 2
+    message = _message(sent.results[2], FindingCode.IMAGE_UPLOAD_REFUSED)
+    assert message.startswith(
+        f"images {logo} not sent: no round ran: rendered again from the names read before round 1 the label is refused:"
+    )
 
 
 @pytest.mark.os_agnostic

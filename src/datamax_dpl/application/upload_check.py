@@ -37,9 +37,12 @@ that answered listed, with every clear sent after that read applied (a retry cle
 round, the clear after the label): a ``<STX>q`` leaves the module empty, the plain Prodigy's
 removes take out the label's own names. Where no read answered it passes on what its render
 says. A name it sent after that read, where no clear may go, may be held: no later label
-downloads it again either, so a later label whose first upload would is not sent that way (round
-1 is left out like round 2). A label that, rendered with what the printer holds after the labels
-before it, has an error finding stops the batch there: none of it and nothing after it is sent.
+downloads it again either. A later label whose first upload would reads the names once before
+its round 1: with an answer it is rendered again from that listing (a listed name is placed at
+full size, and a label left with nothing to download goes out with no further check) and its
+rounds go on as usual; with no answer its round 1 is left out like round 2. A label that,
+rendered with what the printer holds after the labels before it, has an error finding stops the
+batch there: none of it and nothing after it is sent.
 """
 
 from __future__ import annotations
@@ -331,12 +334,35 @@ class _Record:
         held = self._rendered_after if self._known is None else self._as_read(self._known)
         return _PassedOn(held=held, maybe_held=frozenset() if self.result.retry_clear else self._unsure)
 
-    def downloads_again(self) -> _Skipped | None:
-        """Round 1 left out, where it would download a name an earlier label sent before a read that got no answer."""
-        if twice := self._downloaded_again(self.result):
-            skipped = _Skipped(f"round 1 skipped, it would download again {self._unread(twice)}")
+    def read_first(self) -> _Skipped | _Refused | None:
+        """Read the names before round 1, where it would download a name an earlier label may have left.
+
+        Such a name was sent before a read that got no answer, where no clear may go. An answer
+        settles it: the label is rendered again from what the module then lists, so a listed name
+        is placed at full size rather than downloaded again, and its rounds go on as usual.
+
+        Returns:
+            None where round 1 may run (or, rendered again, the label downloads nothing);
+            :class:`_Skipped` where the read got no answer too, so round 1 is left out;
+            :class:`_Refused` where the label, rendered again, has an error.
+        """
+        if not self._downloaded_again(self.result):
+            return None
+        listed = self.link.read(self._module(), wait=self.check.wait)
+        if listed.listed is None:
+            twice = self._downloaded_again(self.result)
+            skipped = _Skipped(
+                f"round 1 skipped, it would download again {self._unread(twice)}; the names read before round 1 "
+                f"got no answer either ({listed.unread_because})"
+            )
             self._retried(skipped.reason)
             return skipped
+        self._known, self._unsure = listed.listed, frozenset()
+        again = self.render(self.held.as_listed(listed.listed), halve=False)
+        if not again.result.ok:
+            errors = "; ".join(f.message for f in again.result.errors)
+            return _Refused(f"rendered again from the names read before round 1 the label is refused: {errors}")
+        self._rendered(again)
         return None
 
     def _module(self) -> ImageModule:
@@ -504,9 +530,15 @@ class _Refused:
 def _check_label(record: _Record) -> bool:
     """Run a label's rounds; return True when its images are listed and the rest may follow."""
     why_not: list[str] = []
-    if (skipped := record.downloads_again()) is not None:
+    first = record.read_first()
+    if isinstance(first, _Refused):
+        return _refused(record, tuple(dict.fromkeys(record.result.downloads)), rounds=0, why_not=[first.reason])
+    if isinstance(first, _Skipped):
         missing, rounds = tuple(dict.fromkeys(record.result.downloads)), 0
-        why_not.append(skipped.reason)
+        why_not.append(first.reason)
+    elif not record.result.downloads:
+        # Rendered again from the names read first, the label places every image the module holds.
+        return True
     else:
         missing, rounds = record.upload(), 1
     if missing and record.check.rounds >= CLEAR_ROUND:
