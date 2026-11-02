@@ -1,7 +1,8 @@
 """One-way transports that keep the job instead of printing it: a file, or standard output.
 
 A file is opened in append mode, so opening it never destroys what an earlier job left there and
-every send of one session lands after the previous one, as it would on a printer.
+every send of one session lands after the previous one, as it would on a printer. Standard output
+has no timeout at all: it blocks for as long as its reader does.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import sys
 from typing import TYPE_CHECKING, BinaryIO
 
 from datamax_dpl.domain.errors import TransportError
-from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS
+from datamax_dpl.domain.timing import DEFAULT_TRANSPORT_TUNING, MAX_ANSWER_SECONDS, TransportTuning
 
 from .device import WRITE_FLAGS, DescriptorTransport
 from .uri import ChannelAction, ClosingTransport, FileUri, StdoutUri, channel_name, transport_error, unsupported_query
@@ -27,17 +28,24 @@ class FileTransport(DescriptorTransport):
     """A file the job bytes are appended to."""
 
     @classmethod
-    def open(cls, uri: FileUri) -> FileTransport:
+    def open(cls, uri: FileUri, *, timeout: float, tuning: TransportTuning = DEFAULT_TRANSPORT_TUNING) -> FileTransport:
         """Open (and create when missing) the file ``uri`` names for appending.
 
+        Args:
+            uri: The file.
+            timeout: Seconds a piece of a job may wait, for a FIFO's reader (POSIX); a file always
+                takes data as fast as the disk does.
+            tuning: The size of those pieces.
+
         Raises:
-            TransportError: The directory does not exist or the file cannot be written.
+            TransportError: The directory does not exist, the file cannot be written, or it is a
+                FIFO no one reads.
         """
         try:
             fd = os.open(uri.path, WRITE_FLAGS | os.O_CREAT, _NEW_FILE_MODE)
         except OSError as exc:
             raise transport_error(uri, action=ChannelAction.OPEN, error=exc) from exc
-        return cls(fd, uri=uri)
+        return cls(fd, uri=uri, timeout=timeout, tuning=tuning)
 
 
 class StdoutTransport(ClosingTransport):

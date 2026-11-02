@@ -46,8 +46,10 @@ def open_printer(uri: str, *, timeout: float, tuning: TransportTuning = DEFAULT_
 
     Args:
         uri: A printer URI, see :data:`~.uri.ACCEPTED_FORMS`.
-        timeout: Seconds for connecting and for every write of one piece of a job.
-        tuning: How tcp and serial pace their writes (the piece size).
+        timeout: Seconds for connecting and for every write of one piece of a job. ``device:`` and
+            ``file:`` keep to it on POSIX only; on Windows, and on ``-`` everywhere, a write takes
+            as long as the far end takes.
+        tuning: How the writes are paced (the piece size); ``-`` writes the job in one.
 
     Returns:
         The open transport; close it (or use it as a context manager) when done.
@@ -73,15 +75,15 @@ def open_printer(uri: str, *, timeout: float, tuning: TransportTuning = DEFAULT_
 
 
 def _open(uri: PrinterUri, *, timeout: float, tuning: TransportTuning) -> PrinterTransport:
-    """Open the transport for the parsed ``uri``; the write-only ones send in one piece."""
+    """Open the transport for the parsed ``uri``."""
     if isinstance(uri, TcpUri):
         return TcpTransport.connect(uri, timeout=timeout, tuning=tuning)
     if isinstance(uri, SerialUri):
         return SerialTransport.open(uri, timeout=timeout, tuning=tuning)
     if isinstance(uri, DeviceUri):
-        return DeviceTransport.open(uri)
+        return DeviceTransport.open(uri, timeout=timeout, tuning=tuning)
     if isinstance(uri, FileUri):
-        return FileTransport.open(uri)
+        return FileTransport.open(uri, timeout=timeout, tuning=tuning)
     return StdoutTransport()
 
 
@@ -89,8 +91,8 @@ if TYPE_CHECKING:
     _assert_open_printer: OpenTunablePrinter = open_printer
     _assert_tcp: PrinterTransport = TcpTransport.connect(TcpUri(host="h"), timeout=1.0)
     _assert_serial: PrinterTransport = SerialTransport.open(SerialUri(path="p"), timeout=1.0)
-    _assert_device: PrinterTransport = DeviceTransport.open(DeviceUri(path="p"))
-    _assert_file: PrinterTransport = FileTransport.open(FileUri(path="p"))
+    _assert_device: PrinterTransport = DeviceTransport.open(DeviceUri(path="p"), timeout=1.0)
+    _assert_file: PrinterTransport = FileTransport.open(FileUri(path="p"), timeout=1.0)
     _assert_stdout: PrinterTransport = StdoutTransport()
 
 __all__ = [

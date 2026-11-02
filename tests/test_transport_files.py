@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import io
+import os
 import sys
+import threading
+import time
 from typing import TYPE_CHECKING
 
 import pytest
@@ -12,8 +15,14 @@ from datamax_dpl.adapters.transport import open_printer
 from datamax_dpl.adapters.transport.device import DeviceTransport
 from datamax_dpl.adapters.transport.file import FileTransport, StdoutTransport
 from datamax_dpl.adapters.transport.uri import DeviceUri, FileUri
-from datamax_dpl.domain.errors import ConfigurationError, TransportError, UnsupportedOperationError
+from datamax_dpl.domain.errors import (
+    ConfigurationError,
+    PrinterTimeoutError,
+    TransportError,
+    UnsupportedOperationError,
+)
 from datamax_dpl.domain.status import is_status_line
+from datamax_dpl.domain.timing import TransportTuning
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -28,7 +37,7 @@ PAYLOAD = bytes(range(256)) + b"\x02L\r\n" + b"\r\n" * 3
 def test_a_device_receives_the_bytes_unchanged(tmp_path: Path) -> None:
     device = tmp_path / "lp0"
     device.write_bytes(b"")
-    with DeviceTransport.open(DeviceUri(path=str(device))) as printer:
+    with DeviceTransport.open(DeviceUri(path=str(device)), timeout=5.0) as printer:
         assert not printer.bidirectional
         printer.send(PAYLOAD)
         printer.send(b"tail")
@@ -39,21 +48,21 @@ def test_a_device_receives_the_bytes_unchanged(tmp_path: Path) -> None:
 def test_a_missing_device_is_refused_and_not_created(tmp_path: Path) -> None:
     device = tmp_path / "lp9"
     with pytest.raises(TransportError, match=r"cannot open device .*lp9"):
-        DeviceTransport.open(DeviceUri(path=str(device)))
+        DeviceTransport.open(DeviceUri(path=str(device)), timeout=5.0)
     assert not device.exists()
 
 
-@pytest.mark.os_posix
-@pytest.mark.skipif(sys.platform == "win32", reason="a device URI path is a POSIX path here")
+@pytest.mark.os_agnostic
 def test_open_printer_opens_a_device_uri(tmp_path: Path) -> None:
+    """A line feed in the job stays one byte: Windows opens a descriptor in text mode unless told."""
     device = tmp_path / "lp0"
     device.write_bytes(b"")
     printer = open_printer(f"device://{device}", timeout=1.0)
     try:
-        printer.send(b"\x02L\r")
+        printer.send(b"\x02L\r\n")
     finally:
         printer.close()
-    assert device.read_bytes() == b"\x02L\r"
+    assert device.read_bytes() == b"\x02L\r\n"
 
 
 @pytest.mark.os_agnostic
@@ -61,7 +70,7 @@ def test_a_device_cannot_answer_a_query(tmp_path: Path) -> None:
     device = tmp_path / "lp0"
     device.write_bytes(b"")
     with (
-        DeviceTransport.open(DeviceUri(path=str(device))) as printer,
+        DeviceTransport.open(DeviceUri(path=str(device)), timeout=5.0) as printer,
         pytest.raises(UnsupportedOperationError, match="is one-way: it cannot read the printer's answer"),
     ):
         printer.query(b"\x01A", timeout=1.0, accept=is_status_line)
@@ -71,7 +80,7 @@ def test_a_device_cannot_answer_a_query(tmp_path: Path) -> None:
 def test_a_closed_device_refuses_and_closes_twice(tmp_path: Path) -> None:
     device = tmp_path / "lp0"
     device.write_bytes(b"")
-    printer = DeviceTransport.open(DeviceUri(path=str(device)))
+    printer = DeviceTransport.open(DeviceUri(path=str(device)), timeout=5.0)
     printer.close()
     printer.close()
     with pytest.raises(TransportError, match="the transport is closed"):
@@ -96,7 +105,7 @@ def test_a_file_is_created_and_receives_the_bytes_unchanged(tmp_path: Path) -> N
 def test_a_file_is_appended_to_and_never_truncated(tmp_path: Path) -> None:
     target = tmp_path / "job.dpl"
     target.write_bytes(b"earlier job\n")
-    with FileTransport.open(FileUri(path=str(target))) as printer:
+    with FileTransport.open(FileUri(path=str(target)), timeout=5.0) as printer:
         printer.send(b"next job\r\n")
     assert target.read_bytes() == b"earlier job\nnext job\r\n"
 
@@ -128,7 +137,7 @@ def test_a_directory_as_file_target_is_a_transport_error(tmp_path: Path) -> None
 @pytest.mark.os_agnostic
 def test_a_file_cannot_answer_a_query(tmp_path: Path) -> None:
     with (
-        FileTransport.open(FileUri(path=str(tmp_path / "job.dpl"))) as printer,
+        FileTransport.open(FileUri(path=str(tmp_path / "job.dpl")), timeout=5.0) as printer,
         pytest.raises(UnsupportedOperationError, match=r"^file .* is one-way"),
     ):
         printer.query(b"\x01A", timeout=1.0)
@@ -171,8 +180,8 @@ def test_no_one_way_channel_can_read_an_answer_ended_by_silence(tmp_path: Path) 
     device = tmp_path / "lp0"
     device.write_bytes(b"")
     channels = (
-        DeviceTransport.open(DeviceUri(path=str(device))),
-        FileTransport.open(FileUri(path=str(tmp_path / "job.dpl"))),
+        DeviceTransport.open(DeviceUri(path=str(device)), timeout=5.0),
+        FileTransport.open(FileUri(path=str(tmp_path / "job.dpl")), timeout=5.0),
         StdoutTransport(io.BytesIO()),
     )
     for printer in channels:
@@ -221,3 +230,90 @@ def test_a_bad_timeout_is_refused_before_anything_opens(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="timeout must be above 0"):
         open_printer(f"file:{target}", timeout=0.0)
     assert not target.exists()
+
+
+# --- a far end that stops taking data ----------------------------------------------------------
+
+#: Larger than any terminal or pipe buffer, so the far end must read for it to go through.
+_LARGE_JOB = bytes(4 * 1024 * 1024)
+#: Far above the 0.5 s timeout, far below what a write with no timeout would wait: for ever.
+_WELL_PAST_THE_TIMEOUT = 3.0
+
+_NO_NON_BLOCKING_DESCRIPTOR = pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows has no select or non-blocking open for a file descriptor"
+)
+
+
+@_NO_NON_BLOCKING_DESCRIPTOR
+def test_a_device_nobody_reads_times_out_instead_of_hanging() -> None:
+    """A terminal stands in for a stalled printer: both stop taking data with no error."""
+    master, slave = os.openpty()
+    try:
+        started = time.monotonic()
+        with (
+            pytest.raises(PrinterTimeoutError, match=r"took no data for 0\.5 s"),
+            DeviceTransport.open(DeviceUri(path=os.ttyname(slave)), timeout=0.5) as printer,
+        ):
+            printer.send(_LARGE_JOB)
+        assert time.monotonic() - started < _WELL_PAST_THE_TIMEOUT
+    finally:
+        os.close(slave)
+        os.close(master)
+
+
+@_NO_NON_BLOCKING_DESCRIPTOR
+def test_a_device_that_takes_the_job_slowly_gets_all_of_it(tmp_path: Path) -> None:
+    """A FIFO with a slow reader: the timeout bounds a stall, not the job, as on tcp and serial."""
+    fifo = tmp_path / "lp0"
+    os.mkfifo(fifo)
+    received = bytearray()
+
+    def read_slowly() -> None:
+        with fifo.open("rb") as stream:
+            while piece := stream.read(256 * 1024):
+                received.extend(piece)
+                time.sleep(0.02)
+
+    reader = threading.Thread(target=read_slowly)
+    reader.start()
+    try:
+        deadline = time.monotonic() + 10.0
+        while True:
+            try:
+                printer = DeviceTransport.open(DeviceUri(path=str(fifo)), timeout=5.0)
+                break
+            except TransportError:
+                # The reader's open is still on its way; until then a FIFO refuses a writer.
+                assert time.monotonic() < deadline
+                time.sleep(0.01)
+        with printer:
+            printer.send(_LARGE_JOB)
+    finally:
+        reader.join(30)
+    assert bytes(received) == _LARGE_JOB
+
+
+@_NO_NON_BLOCKING_DESCRIPTOR
+@pytest.mark.parametrize("scheme", ["device://", "file:"])
+def test_a_fifo_nobody_reads_is_refused_at_once(tmp_path: Path, scheme: str) -> None:
+    """A blocking open would wait for a reader for ever, past any timeout."""
+    fifo = tmp_path / "lp0"
+    os.mkfifo(fifo)
+    started = time.monotonic()
+    with pytest.raises(TransportError, match="cannot open"):
+        open_printer(f"{scheme}{fifo}", timeout=0.5)
+    assert time.monotonic() - started < _WELL_PAST_THE_TIMEOUT
+
+
+@_NO_NON_BLOCKING_DESCRIPTOR
+def test_open_printer_hands_a_device_its_timeout_and_piece_size() -> None:
+    master, slave = os.openpty()
+    try:
+        with (
+            pytest.raises(PrinterTimeoutError),
+            open_printer(f"device://{os.ttyname(slave)}", timeout=0.5, tuning=TransportTuning(send_chunk_bytes=64)) as printer,
+        ):
+            printer.send(_LARGE_JOB)
+    finally:
+        os.close(slave)
+        os.close(master)

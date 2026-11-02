@@ -203,6 +203,10 @@ The model matrix, the limits and the full fallback table are in
 | `file:PATH` or `file:///abs/path`                                                 | Appends the job to a file.                                                                   |
 | `-`                                                                               | Writes the job to standard output; what the command says goes to stderr. `--json` refuses it. |
 
+`--timeout` bounds connecting and each piece of a job. On POSIX that covers `device:` and `file:`
+too, and a FIFO nobody reads is refused at once. A write to `device:` or `file:` on Windows, and to
+`-` everywhere, takes as long as the far end takes: no timeout applies there.
+
 `status`, `detect` and `memory` need a channel that can read the printer's answer (tcp or serial).
 `status` and `memory` keep trying for `[printer] status_wait` seconds (default 30) while a print
 server is still busy with an earlier job: a connection that took no request (refused, timed out
