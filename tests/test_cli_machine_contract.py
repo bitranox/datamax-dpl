@@ -336,7 +336,27 @@ def test_clicks_own_control_flow_is_not_an_unexpected_failure(
 
 @pytest.mark.os_agnostic
 def test_ctrl_c_is_not_an_unexpected_failure(capsys: pytest.CaptureFixture[str]) -> None:
-    """click turns it into Abort, a RuntimeError, which must not read as a crash with an envelope."""
-    code, out, _err = _run(_calibrate_set("--json-bare"), capsys, set_printer_values=_raising(KeyboardInterrupt()))
-    assert code != 2
+    """click turns it into Abort, a RuntimeError; exit 1 would read as "refused, nothing was printed"."""
+    code, out, err = _run(_calibrate_set("--json-bare"), capsys, set_printer_values=_raising(KeyboardInterrupt()))
+    assert code == 130
+    document = json.loads(out)
+    assert document["ok"] is False
+    assert document["command"] is None
+    assert document["error"] == "KeyboardInterrupt"
+    assert "interrupted" in err
+
+
+@pytest.mark.os_agnostic
+def test_ctrl_c_in_human_mode_says_so_on_stderr_only(capsys: pytest.CaptureFixture[str]) -> None:
+    code, out, err = _run(_calibrate_set(), capsys, set_printer_values=_raising(KeyboardInterrupt()))
+    assert code == 130
     assert out == ""
+    assert "Error: interrupted" in err
+    assert "Abort" not in err
+
+
+@pytest.mark.os_agnostic
+def test_the_end_of_a_prompt_s_input_is_not_an_interrupt(capsys: pytest.CaptureFixture[str]) -> None:
+    """click spells it as Abort too, and nothing was interrupted, so it must not read as Ctrl-C."""
+    code, _out, _err = _run(_calibrate_set(), capsys, set_printer_values=_raising(EOFError()))
+    assert code != 130

@@ -5,9 +5,8 @@ command carries a meaningful, grep-friendly integer instead of a bare ``1``.
 Commands exit through click's ``Exit`` (what ``ctx.exit()`` raises), never a bare
 ``SystemExit``; ``adapters/cli/main.py`` turns it into the process exit code.
 
-Signal codes (130, 141, 143) are informational constants only - the application
-never exits with these values itself; ``lib_cli_exit_tools`` handles
-signal-to-exit-code translation automatically.
+``adapters/cli/main.py`` exits 130 for Ctrl-C and 141 when the reader of the output went away;
+``lib_cli_exit_tools`` translates any other signal.
 
 Contents:
     * :class:`ExitCode` - IntEnum of all exit codes used by this application.
@@ -32,7 +31,7 @@ class ExitCode(IntEnum):
       without its confirmation flags
     * 78: EX_CONFIG (sysexits.h)
     * 110: ETIMEDOUT
-    * 128+N: signal N (informational only)
+    * 128+N: signal N
 
     Example:
         >>> ExitCode.SUCCESS

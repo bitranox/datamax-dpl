@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 _JSON_FLAG = "--json"
 _JSON_BARE_FLAG = "--json-bare"
 _JSON_FLAGS = frozenset({_JSON_FLAG, _JSON_BARE_FLAG})
+_INTERRUPTED = "interrupted; part of a job may already have been sent"
 
 
 def _global_flags(args: Sequence[str], root: click.Command) -> frozenset[str]:
@@ -211,6 +212,26 @@ def _invoke_cli(args: list[str], *, services_factory: Callable[[], AppServices])
             if not _is_gone_reader_error(write_error):
                 raise
         return exc.exit_code
+    except click.exceptions.Abort as exc:
+        # click spells both Ctrl-C and the end of a prompt's input as Abort; only the first is an
+        # interrupt, and exit 1 would read as "refused, nothing was printed" with a job half out.
+        if not isinstance(exc.__context__, KeyboardInterrupt):
+            raise
+        _report_interrupt(args, cli)
+        return ExitCode.SIGNAL_INT
+
+
+def _report_interrupt(args: Sequence[str], root: click.Command) -> None:
+    """Say on stderr, and in the envelope a machine reader asked for, that the run was cut short."""
+    flags = _global_flags(args, root)
+    mode = OutputMode.of(as_json=_JSON_FLAG in flags, as_json_bare=_JSON_BARE_FLAG in flags)
+    try:
+        sys.stderr.write(f"Error: {_INTERRUPTED}\n")
+        if mode.machine:
+            write_envelope(ErrorEnvelope(command=None, error="KeyboardInterrupt", message=_INTERRUPTED), mode=mode)
+    except OSError as write_error:
+        if not _is_gone_reader_error(write_error):
+            raise
 
 
 def _run_cli(argv: Sequence[str] | None, *, services_factory: Callable[[], AppServices]) -> int:
