@@ -60,11 +60,11 @@ def _codes(check: BarcodeCheck) -> list[BarcodeProblemCode]:
         (Symbology.UCC_EAN128_KMART, "1" * 18),
         (Symbology.UCC_EAN128_RANDOM_WEIGHT, "2" * 34),
         (Symbology.UCC_EAN128_RANDOM_WEIGHT, "2" * 60),
-        (Symbology.TELEPEN, "abc" + chr(1) + chr(127)),
+        (Symbology.TELEPEN, "abc" + chr(3) + chr(127)),
         (Symbology.MAXICODE, "x" * 84),
         (Symbology.FIM, "C"),
         (Symbology.PDF417, "PDF417 data " + chr(0xE4)),
-        (Symbology.DATAMATRIX, "".join(chr(n) for n in range(1, 13)) + chr(0xFF)),
+        (Symbology.DATAMATRIX, "".join(chr(n) for n in range(3, 13)) + chr(0xFF)),
     ],
 )
 def test_accepts_valid_data(symbology: Symbology, data: str) -> None:

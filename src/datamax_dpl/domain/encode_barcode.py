@@ -62,7 +62,15 @@ def _gate(element: Barcode, *, index: int, ctx: RenderContext) -> bool:
     return True
 
 
-def _data_field(element: Barcode, *, index: int, ctx: RenderContext) -> str:
+@dataclass(frozen=True)
+class _DataField:
+    """A barcode's record data field, and whether the data check refused its value."""
+
+    text: str
+    refused: bool
+
+
+def _data_field(element: Barcode, *, index: int, ctx: RenderContext) -> _DataField:
     check = check_barcode(element.symbology, element.data, pdf417=element.pdf417, datamatrix=element.datamatrix)
     for problem in check.problems:
         ctx.findings.refuse(problem.code.finding_code, problem.message, element=index)
@@ -72,11 +80,15 @@ def _data_field(element: Barcode, *, index: int, ctx: RenderContext) -> str:
             f"the printer adds check digit {check.computed_check_digit}",
             element=index,
         )
+    return _DataField(text=_field_text(element, check.data), refused=not check.ok)
+
+
+def _field_text(element: Barcode, data: str) -> str:
     if element.symbology is Symbology.PDF417:
-        return pdf417_data_field(check.data, element.pdf417 or Pdf417Options())
+        return pdf417_data_field(data, element.pdf417 or Pdf417Options())
     if element.symbology is Symbology.DATAMATRIX:
-        return datamatrix_data_field(check.data, element.datamatrix or DataMatrixOptions())
-    return check.data
+        return datamatrix_data_field(data, element.datamatrix or DataMatrixOptions())
+    return data
 
 
 @dataclass(frozen=True)
@@ -153,7 +165,7 @@ def encode_barcode(element: Barcode, *, index: int, ctx: RenderContext) -> list[
         )
     data = _data_field(element, index=index, ctx=ctx)
     limit = MAX_PDF417_DATA if element.symbology is Symbology.PDF417 else MAX_FIELD_DATA
-    check_field_length(len(data), limit=limit, index=index, ctx=ctx)
+    check_field_length(len(data.text), limit=limit, index=index, ctx=ctx)
     widths = bar_widths(element, index=index, ctx=ctx)
     head = Header(
         rotation=element.rotation,
@@ -164,7 +176,11 @@ def encode_barcode(element: Barcode, *, index: int, ctx: RenderContext) -> list[
         row=row_of(element.y, index=index, ctx=ctx),
         column=column_of(element.x, index=index, ctx=ctx),
     ).encode()
-    return [line(head + data.encode("latin-1")), *counter_lines(element.counter)]
+    # A refused value stays out of the job: it may not encode at all, and a job with an error finding
+    # is never sent, so build_job reports the finding and the bytes it returns carry nothing unsafe.
+    if data.refused:
+        return []
+    return [line(head + data.text.encode("latin-1")), *counter_lines(element.counter)]
 
 
 __all__ = ["FALLBACK_NARROW", "FALLBACK_RATIO", "RATIO_SYMBOLOGIES", "BarWidths", "bar_widths", "encode_barcode"]

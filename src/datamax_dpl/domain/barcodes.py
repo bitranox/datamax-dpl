@@ -59,6 +59,11 @@ EAN13_PRICE_POSITIONS = (7, 8)
 RANDOM_WEIGHT_MIN_DIGITS = 34
 #: The printer reads a record up to this character, so data containing it is cut short.
 RECORD_TERMINATOR = "\r"
+#: Control bytes a record must not carry. The manual says immediate commands are acted on "whenever
+#: received", so a data value could reset or pause the printer. Carrying them would need <SOH>D,
+#: which turns immediate commands off until a power cycle and would end the tool's own status reads,
+#: so binary data holding these bytes is not supported rather than sent.
+_COMMAND_BYTES: Mapping[str, str] = MappingProxyType({"\x01": "<SOH>", "\x02": "<STX>", "\x1b": "<ESC>"})
 GS1_MODULUS = 10
 GS1_ODD_WEIGHT = 3
 #: UPC-E as a 6-digit body implies number system 0 when it is expanded to UPC-A.
@@ -303,6 +308,10 @@ def _record_problems(
                 code=BarcodeProblemCode.RECORD_TERMINATOR, message="data contains <CR>, which ends the DPL record early"
             )
         )
+    commands = [name for byte, name in _COMMAND_BYTES.items() if byte in data]
+    if commands:
+        message = f"data contains {', '.join(commands)}, which the printer reads as a command, not as data"
+        problems.append(BarcodeProblem(code=BarcodeProblemCode.CONTROL_CHARACTER, message=message))
     budget = _field_budget(symbology, data, pdf417=pdf417, datamatrix=datamatrix)
     if budget.length > budget.limit:
         message = f"record data is {budget.length} characters, the printer takes at most {budget.limit}"

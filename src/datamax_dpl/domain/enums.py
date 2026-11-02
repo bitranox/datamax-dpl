@@ -398,6 +398,7 @@ class FindingCode(str, Enum):
     BARCODE_MISSING_PREFIX = "barcode_missing_prefix"
     BARCODE_TOO_LONG = "barcode_too_long"
     BARCODE_RECORD_TERMINATOR = "barcode_record_terminator"
+    BARCODE_CONTROL_CHARACTER = "barcode_control_character"
 
 
 class BarcodeProblemCode(str, Enum):
@@ -422,6 +423,7 @@ class BarcodeProblemCode(str, Enum):
     MISSING_PREFIX = "missing_prefix"
     TOO_LONG = "too_long"
     RECORD_TERMINATOR = "record_terminator"
+    CONTROL_CHARACTER = "control_character"
 
     @property
     def finding_code(self) -> FindingCode:
@@ -443,6 +445,7 @@ _BARCODE_FINDING_CODES: Mapping[BarcodeProblemCode, FindingCode] = MappingProxyT
         BarcodeProblemCode.MISSING_PREFIX: FindingCode.BARCODE_MISSING_PREFIX,
         BarcodeProblemCode.TOO_LONG: FindingCode.BARCODE_TOO_LONG,
         BarcodeProblemCode.RECORD_TERMINATOR: FindingCode.BARCODE_RECORD_TERMINATOR,
+        BarcodeProblemCode.CONTROL_CHARACTER: FindingCode.BARCODE_CONTROL_CHARACTER,
     }
 )
 if set(_BARCODE_FINDING_CODES) != set(BarcodeProblemCode):  # pragma: no cover - import-time guard

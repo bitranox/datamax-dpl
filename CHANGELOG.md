@@ -279,6 +279,19 @@ All notable changes to this project are documented here. The format follows
   `PrinterTransport.query` takes an `accept` test for this.
 - A query that read not one byte now adds `the printer may still be printing
   an earlier job; try again or raise --timeout` to its timeout message.
+- A barcode value with a character above U+00FF (a euro sign, CJK) is reported
+  as `barcode_bad_character`, exit 1; `build_job` and `render` raised
+  `UnicodeEncodeError` from inside the encoder and the CLI exited 2 for the
+  whole batch. A value the check refused stays out of the job `build_job`
+  returns.
+- `<SOH>`, `<STX>` and `<ESC>` in barcode data are refused in every symbology
+  (`barcode_control_character`, error,
+  `BarcodeProblemCode.CONTROL_CHARACTER`). PDF417, DataMatrix, Telepen and
+  MaxiCode sent them raw, so a value from a data file could reach the printer
+  as a command. Binary data holding these bytes is not supported.
+- A `counter` `fill` takes printable ASCII only: a `<CR>` split the counter
+  record, `<SOH>` and `<STX>` went out raw, and a euro sign raised
+  `UnicodeEncodeError`.
 
 ## [0.4.0] - 2026-10-30
 

@@ -106,7 +106,8 @@ class Counter(_Frozen):
         step: Amount added (or subtracted) per label, 1-99.
         decrement: Count down instead of up.
         alphanumeric: Count letters too (``>``/``<``) instead of digits only (``+``/``-``).
-        fill: Character that pads the field on the left as it grows, usually ``0`` or a space.
+        fill: Printable ASCII character that pads the field on the left as it grows, usually ``0`` or a
+            space.
 
     Example:
         >>> Counter(step=1).decrement
@@ -116,7 +117,9 @@ class Counter(_Frozen):
     step: int = Field(default=1, ge=1, le=99)
     decrement: bool = False
     alphanumeric: bool = False
-    fill: str = Field(default="0", min_length=1, max_length=1)
+    # Printable ASCII: the fill goes into the counter record raw, where a CR would split the record
+    # and SOH or STX would reach the printer's interpreter as a command.
+    fill: str = Field(default="0", min_length=1, max_length=1, pattern=r"^[ -~]$")
 
 
 class _Placed(_Frozen):

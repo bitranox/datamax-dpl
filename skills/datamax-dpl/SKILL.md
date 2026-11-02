@@ -68,7 +68,8 @@ cut off part way says to power-cycle the printer, which may be waiting for the r
 - Lengths are in `unit` (mm by default); `narrow_dots`/`wide_dots` are printer dots
   (`capabilities MODEL` gives the dpi); one label dot is one printhead dot, because the
   format sends `D11` unless the label sets `dot_size`. Barcodes print their text line unless
-  `"human_readable": false`.
+  `"human_readable": false`. Barcode data never takes `<SOH>`, `<STX>`, `<ESC>` or `<CR>`
+  (`barcode_control_character`, `barcode_record_terminator`): binary data holding them is not supported.
 - **y counts from the BOTTOM edge**, x from the left; a field's reference point is its
   lower-left corner (a circle's is its centre). "At the top" means a HIGH `y`.
 - `{name}` placeholders take values from `--data` (CSV header names, a JSON array of objects or

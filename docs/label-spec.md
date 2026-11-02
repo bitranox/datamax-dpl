@@ -146,12 +146,12 @@ warning.
 
 `counter`:
 
-| Key            | Type          | Default | Meaning                                                |
-|----------------|---------------|---------|--------------------------------------------------------|
-| `step`         | integer 1-99  | 1       | Amount added (or subtracted) per label.                |
-| `decrement`    | boolean       | false   | Count down instead of up.                              |
-| `alphanumeric` | boolean       | false   | Count letters too, not only digits.                    |
-| `fill`         | one character | `0`     | Character that pads the field on the left as it grows. |
+| Key            | Type                          | Default | Meaning                                                |
+|----------------|-------------------------------|---------|--------------------------------------------------------|
+| `step`         | integer 1-99                  | 1       | Amount added (or subtracted) per label.                |
+| `decrement`    | boolean                       | false   | Count down instead of up.                              |
+| `alphanumeric` | boolean                       | false   | Count letters too, not only digits.                    |
+| `fill`         | one printable ASCII character | `0`     | Character that pads the field on the left as it grows. |
 
 ```json
 {
@@ -282,7 +282,9 @@ Fill patterns (for `box`, `circle` and `polygon`): 0 none, 1 solid, 2 6 %, 3 12 
 `narrow_dots` and `wide_dots` both 0 ask for the printer's default bar widths. Models without
 default widths get narrow 2 dots and ratio 3:1 instead. Data is checked before anything is sent:
 the character set, the length and any check digit. Where the printer computes the check digit,
-the info finding `check_digit_added` names it.
+the info finding `check_digit_added` names it. Every symbology refuses `<SOH>` (0x01), `<STX>`
+(0x02), `<ESC>` (0x1B) and `<CR>` in its data, whatever its character set says: the printer would
+read them as commands or as the end of the record, so binary data holding them is not supported.
 
 | `symbology`                | Data                                                  |
 |----------------------------|-------------------------------------------------------|
