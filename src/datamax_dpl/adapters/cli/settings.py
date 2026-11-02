@@ -7,7 +7,6 @@ the boundary, so a typo in a config file is reported as a configuration error wi
 from __future__ import annotations
 
 from collections.abc import Mapping
-from enum import Enum
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, TypedDict, TypeVar, cast
 
@@ -25,6 +24,7 @@ from ...domain.profiles import Firmware, ParsedFirmware
 from ...domain.render_context import RenderOptions
 from ...domain.timing import MAX_SEND_CHUNK_BYTES, MAX_TIMEOUT_SECONDS, SEND_CHUNK_BYTES, TransportTuning
 from ...domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
+from ..config.sections import ConfigSection
 from ..transport.uri import is_printer_name, is_printer_uri
 
 if TYPE_CHECKING:
@@ -151,15 +151,7 @@ if not _CommandLineValues.__required_keys__ <= PrinterSettings.model_fields.keys
     raise RuntimeError("_CommandLineValues names a field PrinterSettings does not have")
 
 
-class _Section(str, Enum):
-    """A configuration section these settings are read from, named as the file and refusals name it."""
-
-    PRINTER = "printer"
-    PRINTERS = "printers"
-    CAMERA = "camera"
-
-
-def _section(config: Config, name: _Section) -> Mapping[str, Any]:
+def _section(config: Config, name: ConfigSection) -> Mapping[str, Any]:
     section: object = config.get(name.value, {})
     return cast("Mapping[str, Any]", section) if isinstance(section, Mapping) else {}
 
@@ -175,10 +167,10 @@ def printer_settings(config: Config, overrides: PrinterOverrides) -> PrinterSett
         ConfigurationError: A configured value is invalid; the message names the key.
     """
     name = overrides.printer if overrides.printer and not is_printer_uri(overrides.printer) else ""
-    section = _Section.PRINTER.value if not name else f"{_Section.PRINTERS.value}.{name}"
+    section = ConfigSection.PRINTER.value if not name else f"{ConfigSection.PRINTERS.value}.{name}"
     try:
         base = PrinterSettings.model_validate(
-            {**_section(config, _Section.PRINTER), **_named(config, name), "name": name}
+            {**_section(config, ConfigSection.PRINTER), **_named(config, name), "name": name}
         )
     except ValidationError as exc:
         raise ConfigurationError(_describe(exc, section=section)) from None
@@ -207,17 +199,20 @@ def _named(config: Config, name: str) -> Mapping[str, Any]:
     Raises:
         ConfigurationError: A configured section has an invalid name, or none is called ``name``.
     """
-    printers = _section(config, _Section.PRINTERS)
+    printers = _section(config, ConfigSection.PRINTERS)
     invalid = sorted(key for key in printers if not is_printer_name(key))
     if invalid:
-        msg = f"printers.{invalid[0]}: a printer name takes letters, digits, '_' and '-' (not first), no ':'"
+        msg = (
+            f"{ConfigSection.PRINTERS.value}.{invalid[0]}: a printer name takes letters, digits, '_' and '-'"
+            " (not first), no ':'"
+        )
         raise ConfigurationError(msg)
     if not name:
         return {}
     section: object = printers.get(name)
     if not isinstance(section, Mapping):
         configured = ", ".join(sorted(printers)) or "none"
-        msg = f"no printer named '{name}' in [printers]; configured: {configured}"
+        msg = f"no printer named '{name}' in [{ConfigSection.PRINTERS.value}]; configured: {configured}"
         raise ConfigurationError(msg)
     return cast("Mapping[str, Any]", section)
 
@@ -234,9 +229,9 @@ def camera_settings(config: Config) -> CameraSettings:
         ConfigurationError: A configured value is invalid; the message names the key.
     """
     try:
-        return CameraSettings.model_validate(dict(_section(config, _Section.CAMERA)))
+        return CameraSettings.model_validate(dict(_section(config, ConfigSection.CAMERA)))
     except ValidationError as exc:
-        raise ConfigurationError(_describe(exc, section=_Section.CAMERA.value)) from None
+        raise ConfigurationError(_describe(exc, section=ConfigSection.CAMERA.value)) from None
 
 
 _CUTTER: Mapping[CutterPresence, bool | None] = MappingProxyType(

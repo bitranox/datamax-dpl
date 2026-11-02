@@ -8,6 +8,7 @@ import pytest
 import tomlkit
 
 from datamax_dpl.adapters.config.loader import get_config
+from datamax_dpl.adapters.config.sections import ConfigSection
 from datamax_dpl.adapters.config.user_edit import set_user_printer_values, user_layer_files, write_printer_values
 from datamax_dpl.domain.profiles import CalibrationKey
 
@@ -121,3 +122,8 @@ def test_the_written_value_is_what_the_next_configuration_load_reads(clear_confi
     assert written == user_layer_files()[0]
     printers = cast("dict[str, dict[str, object]]", get_config().get("printers"))
     assert printers["lager"] == {"scale_along": 0.9721}
+
+
+@pytest.mark.os_agnostic
+def test_the_config_sections_are_spelled_as_the_file_spells_them() -> None:
+    assert [section.value for section in ConfigSection] == ["printer", "printers", "camera"]

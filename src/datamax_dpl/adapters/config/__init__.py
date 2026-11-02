@@ -7,6 +7,7 @@ Contents:
     * :mod:`.deploy` - Configuration deployment to target locations
     * :mod:`.display` - Configuration display in human/JSON formats
     * :mod:`.overrides` - CLI ``--set`` override parsing and application
+    * :mod:`.sections` - the printer and camera sections settings are read from and written to
 """
 
 from __future__ import annotations
