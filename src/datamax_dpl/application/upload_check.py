@@ -271,7 +271,8 @@ class _PassedOn(NamedTuple):
     Attributes:
         held: What the printer holds in the image module after the label.
         maybe_held: Names sent, where no clear may go, since the last read that answered: each
-            may be held or may be lost, so no later label may download one again.
+            may be held or may be lost, so no later label may download one again; one that
+            would reads the names first (:meth:`_Record.read_first`).
     """
 
     held: HeldImages
