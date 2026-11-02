@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
-import tomllib
+import rtoml
 from lib_layered_config import Config
 
 from datamax_dpl.adapters.cli import root as cli_mod
@@ -99,7 +99,7 @@ def test_every_key_the_shipped_files_name_is_declared() -> None:
     assert shipped
     seen = 0
     for path in shipped:
-        document = tomllib.loads(path.read_text(encoding="utf-8"))
+        document = rtoml.load(path)
         for section, model in MODELS.items():
             for key in document.get(section, {}):
                 seen += 1
