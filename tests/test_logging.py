@@ -12,14 +12,13 @@ from datamax_dpl.adapters.logging.setup import LoggingConfigModel
 
 
 @pytest.mark.os_agnostic
-def test_logging_config_model_allows_extra_fields() -> None:
-    """Extra fields pass through for lib_log_rich RuntimeConfig."""
+def test_logging_config_model_reads_only_its_own_two_settings() -> None:
+    """The section's other keys are lib_log_rich's: the model neither keeps nor refuses them."""
     parsed = LoggingConfigModel.model_validate({"service": "test", "environment": "dev", "custom_field": "value"})
 
     assert parsed.service == "test"
     assert parsed.environment == "dev"
-    extra = parsed.model_dump(exclude={"service", "environment"}, exclude_none=True)
-    assert extra == {"custom_field": "value"}
+    assert parsed.model_dump() == {"service": "test", "environment": "dev"}
 
 
 @pytest.mark.os_agnostic

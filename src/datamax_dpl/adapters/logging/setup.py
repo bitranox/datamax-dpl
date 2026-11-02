@@ -42,10 +42,11 @@ if TYPE_CHECKING:
 
 
 class LoggingConfigModel(BaseModel):
-    """Pydantic model for [lib_log_rich] config section validation.
+    """The two ``[lib_log_rich]`` settings this package gives a default of its own.
 
-    Used at the boundary to parse configuration dictionaries into typed fields.
-    Extra fields are allowed to pass through to lib_log_rich.RuntimeConfig.
+    Every other key of the section is lib_log_rich's to read: :func:`_build_runtime_config` hands
+    the section to ``RuntimeConfig`` as written, so this model ignores those keys rather than
+    parsing them a second time.
 
     Example:
         >>> model = LoggingConfigModel(service="myapp", environment="staging")
@@ -65,7 +66,7 @@ class LoggingConfigModel(BaseModel):
     # lib_layered_config reads an unquoted all-digit .env value as an int; the conversion is
     # lossless, so turning it back into text keeps a digit-only service or environment name valid
     # instead of failing startup.
-    model_config = ConfigDict(extra="allow", coerce_numbers_to_str=True)
+    model_config = ConfigDict(extra="ignore", coerce_numbers_to_str=True)
 
 
 def _build_runtime_config(config: Config) -> lib_log_rich.runtime.RuntimeConfig:
@@ -86,20 +87,14 @@ def _build_runtime_config(config: Config) -> lib_log_rich.runtime.RuntimeConfig:
         use lib_log_rich's built-in defaults. The service and environment
         parameters default to package metadata when not configured.
     """
-    log_raw: object = config.get("lib_log_rich", default={})
-    parsed = LoggingConfigModel.model_validate(cast("dict[str, object]", log_raw) if log_raw else {})
-
-    # Apply defaults for required fields
-    service = parsed.service or __init__conf__.name
-    environment = parsed.environment
-
-    # Get extra fields passed through by Pydantic
-    extra_config = parsed.model_dump(exclude={"service", "environment"}, exclude_none=True)
-
-    return lib_log_rich.runtime.RuntimeConfig(
-        service=service,
-        environment=environment,
-        **extra_config,
+    section: object = config.get("lib_log_rich", default={}) or {}
+    # Refuses a section that is not a table, before anything reads it as one.
+    parsed = LoggingConfigModel.model_validate(section)
+    written = cast("Mapping[str, object]", section)
+    # A key set to null (a YAML ~, a JSON null) is a key not set: lib_log_rich's default applies.
+    settings = {key: value for key, value in written.items() if value is not None}
+    return lib_log_rich.runtime.RuntimeConfig.model_validate(
+        {**settings, "service": parsed.service or __init__conf__.name, "environment": parsed.environment}
     )
 
 
