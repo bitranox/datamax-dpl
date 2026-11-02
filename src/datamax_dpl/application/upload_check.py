@@ -558,6 +558,12 @@ class _Record:
         halved, halved they are refused, or the halved upload would download a name the module
         may hold.
         """
+        # An accepted limit: where round 2's read after its upload is the one that gets no answer,
+        # this round halves with no read of its own first, though the full-size names may have
+        # arrived and a read might print the label at full size. Round 2 reads again in that case
+        # and this round does not, because a further read adds one stored_names_wait to a worst
+        # case already past the "about 1.5 minutes" of the upload check decision, and it takes a
+        # lost upload and then a silence on one label, which still prints.
         base = self._before_halving()
         rendered = self.render(self.held if base is None else base, halve=True)
         halved = rendered.result

@@ -727,6 +727,37 @@ def test_a_record_in_error_once_rendered_from_the_names_read_again_in_round_2_is
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("lose", "silent", "reads"),
+    [({0}, {1}, 3), ({0}, {0, 2}, 4)],
+    ids=["round-2-upload-unread", "round-1-unread-and-round-2-upload-unread"],
+)
+def test_such_a_module_halves_with_no_further_read_when_round_2_s_read_after_its_upload_got_no_answer(
+    lose: set[int], silent: set[int], reads: int
+) -> None:
+    """An accepted limit (see _Record.halve_and_upload): the full-size name arrived, yet the label prints halved.
+
+    A read before round 3 might print it at full size, and would add one wait to the worst case;
+    this pins the choice, so a change to it is a deliberate one.
+    """
+    label = Label(elements=[LOGO])
+    [logo] = render_label(label, PLUG_IN_TWO_WAY).downloads
+    modules = ImageModules(lose=lose, silent=silent)
+    printer = ModulePrinter(modules)
+    job = CheckedJob(renders=record_renders(label, None, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
+    result = render_label(label, PLUG_IN_TWO_WAY, held=READ_EMPTY)
+
+    report = print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+
+    assert _single(report.result).halved_elements == (0,)
+    assert logo in modules.names("B")
+    assert modules.requests == reads
+    assert printer.data.count(FORMAT) == 1
+    assert modules.downloaded_held == []
+    assert modules.placed_missing == []
+
+
+@pytest.mark.os_agnostic
 def test_a_batch_whose_names_read_got_no_answer_renders_the_next_record_from_the_first_records_read() -> None:
     """The names read before the job got no answer; record 1's read lists ICON, which record 2 then places."""
     options = TWO_WAY.model_copy(update={"clear_graphics_before_label": False, "clear_graphics_after_label": False})
