@@ -30,7 +30,7 @@ _URL_KEY = "url"
 # What Config.get returns for a missing key, as a key may hold None.
 _ABSENT = object()
 #: A query parameter whose name holds one of these is taken for a secret.
-_SECRET_QUERY_WORDS = ("pass", "pwd", "secret", "token", "key", "auth", "sig", "cred")
+_SECRET_QUERY_WORDS = ("pass", "pwd", "secret", "token", "key", "auth", "sig", "cred", "session")
 #: Both separate parameters: ``&`` by the URL standard, ``;`` on older servers and cameras.
 _PARAMETER_SEPARATOR = re.compile(r"([&;])")
 

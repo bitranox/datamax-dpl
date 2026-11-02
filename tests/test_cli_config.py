@@ -928,6 +928,7 @@ def test_debug_logging_does_not_carry_the_password_in_the_camera_url(
         ("http://192.0.2.9/s?auth=abc", "http://192.0.2.9/s?auth=***REDACTED***"),
         ("http://192.0.2.9/s?sig=abc", "http://192.0.2.9/s?sig=***REDACTED***"),
         ("http://192.0.2.9/s?cred=abc", "http://192.0.2.9/s?cred=***REDACTED***"),
+        ("http://192.0.2.9/s?session=abc", "http://192.0.2.9/s?session=***REDACTED***"),
         ("http://192.0.2.9/s?a=1;pwd=abc", "http://192.0.2.9/s?a=1;pwd=***REDACTED***"),
         ("http://192.0.2.9/s?p%77d=abc", "http://192.0.2.9/s?p%77d=***REDACTED***"),
         ("http://192.0.2.9/TOKEN/snap.jpg", "http://192.0.2.9/TOKEN/snap.jpg"),

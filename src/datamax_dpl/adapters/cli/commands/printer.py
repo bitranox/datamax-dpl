@@ -152,6 +152,7 @@ def _reset_check(settings: PrinterSettings) -> ResetCheck:
         wait=settings.reset_check_wait,
         calibrate=settings.calibrate_after_reset,
         text=settings.calibration_label_text,
+        off_because="[printer] calibrate_after_reset is off",
     )
 
 

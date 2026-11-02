@@ -400,6 +400,8 @@ def test_with_the_key_off_the_job_reads_and_reports_and_prints_no_calibration_la
     assert isinstance(sent, RenderResult)
     finding = next(f for f in sent.findings if "reset" in f.code.value)
     assert "may be shifted" in finding.message
+    assert "[printer]" not in finding.message, "a library caller has no settings file to look in"
+    assert ResetCheck().off_because in finding.message
     assert finding.severity is Severity.INFO
 
 
@@ -564,7 +566,8 @@ def test_the_key_off_reaches_the_job_through_the_command(cli_runner: CliRunner, 
     result = _cli(cli_runner, printer, *args, "--model", "allegro-2", "--printer", URI)
     assert result.exit_code == 0, result.output
     assert CALIBRATION_TEXT not in printer.data
-    assert "printer_reset_not_calibrated" in {f["code"] for f in _data(result)["findings"]}
+    said = {f["code"]: f["message"] for f in _data(result)["findings"]}
+    assert "[printer] calibrate_after_reset is off" in said["printer_reset_not_calibrated"]
 
 
 @pytest.mark.os_agnostic
