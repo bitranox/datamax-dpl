@@ -400,7 +400,7 @@ def test_a_name_a_record_sent_before_a_read_with_no_answer_is_not_downloaded_by_
     label = Label(elements=[LOGO])
     records = [{"n": "1"}, {"n": "2"}, {"n": "3"}]
     [logo] = render_label(label, PLUG_IN_TWO_WAY).downloads
-    modules = ImageModules(lose={0}, silent={0, 2, 3, 4})
+    modules = ImageModules(lose={0}, silent={0, 2, 3})
     renders = render_batch(label, records, PLUG_IN_TWO_WAY, held=READ_EMPTY).results
     job = CheckedJob(renders=record_renders(label, records, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
 
@@ -426,7 +426,7 @@ def test_a_record_meeting_names_that_may_be_held_reads_the_names_first_and_print
     label = Label(elements=[LOGO])
     records = [{"n": "1"}, {"n": "2"}, {"n": "3"}]
     [logo] = render_label(label, PLUG_IN_TWO_WAY).downloads
-    modules = ImageModules(lose={0, 1}, silent={3, 4})
+    modules = ImageModules(lose={0, 1}, silent={3})
     renders = render_batch(label, records, PLUG_IN_TWO_WAY, held=READ_EMPTY).results
     job = CheckedJob(renders=record_renders(label, records, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
 
@@ -439,8 +439,42 @@ def test_a_record_meeting_names_that_may_be_held_reads_the_names_first_and_print
     assert third.downloads == ()
     assert logo.encode("ascii") in third.data
     assert _upload_codes(third) == []
-    # Three reads for record 1, two for record 2, and record 3's one read before its round 1.
-    assert modules.requests == 6
+    # Three reads for record 1, one for record 2 (its round 3 downloads nothing, so it reads
+    # nothing), and record 3's one read before its round 1.
+    assert modules.requests == 5
+
+
+@pytest.mark.os_agnostic
+def test_a_round_that_downloads_nothing_sends_no_upload_reads_nothing_and_says_so() -> None:
+    """Record 2's round 3 halves LOGO into the name record 1 left: nothing to upload, so nothing to read.
+
+    Record 3's read before its round 1 gets no answer, so it is halved the same way.
+    """
+    label = Label(elements=[LOGO])
+    records = [{"n": "1"}, {"n": "2"}, {"n": "3"}]
+    modules = ImageModules(lose={0, 1}, silent={3, 4})
+    printer = ModulePrinter(modules)
+    renders = render_batch(label, records, PLUG_IN_TWO_WAY, held=READ_EMPTY)
+    job = CheckedJob(renders=record_renders(label, records, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
+    first = renders.results[0]
+    settings = first.data[: first.data.index(STX + b"I")]
+
+    report = print_checked(renders, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+
+    assert isinstance(report.result, BatchResult)
+    second, third = report.result.results[1:]
+    assert (second.downloads, third.downloads) == ((), ())
+    *_, round_3 = (f.message for f in second.findings if f.code is FindingCode.IMAGE_UPLOAD_RETRIED)
+    assert round_3 == (
+        "round 3: sent no clear (module B may not be cleared), then sent nothing of the images halved 2x2: "
+        "the module holds each one already, so no read was made"
+    )
+    # Record 1's three uploads; record 2's round-1 upload and its whole job, record 3's whole job.
+    assert printer.data.count(settings) == 6
+    # Record 1's three reads, record 2's round 1, record 3's read before its round 1.
+    assert modules.requests == 5
+    assert modules.downloaded_held == []
+    assert modules.placed_missing == []
 
 
 def _refuse_third(third: RenderOptions, modules: ImageModules) -> tuple[ModulePrinter, BatchResult]:
@@ -475,7 +509,7 @@ def test_a_record_whose_every_round_is_left_out_is_refused_saying_no_round_ran()
     """
     [logo] = render_label(Label(elements=[LOGO]), PLUG_IN_TWO_WAY).downloads
     strict = PLUG_IN_TWO_WAY.model_copy(update={"policy": FallbackPolicy.STRICT})
-    modules = ImageModules(lose={0}, silent={0, 2, 3, 4})
+    modules = ImageModules(lose={0}, silent={0, 2, 3})
 
     printer, sent = _refuse_third(strict, modules)
 
@@ -493,7 +527,7 @@ def test_a_record_in_error_once_rendered_from_the_names_read_first_is_refused_wi
     """Record 3 holds a held name in error: the names read before its round 1 list LOGO, so it is refused."""
     [logo] = render_label(Label(elements=[LOGO]), PLUG_IN_TWO_WAY).downloads
     held_in_error = PLUG_IN_TWO_WAY.model_copy(update={"held_image_severity": Severity.ERROR})
-    modules = ImageModules(lose={0}, silent={0, 2, 3})
+    modules = ImageModules(lose={0}, silent={0, 2})
 
     printer, sent = _refuse_third(held_in_error, modules)
 

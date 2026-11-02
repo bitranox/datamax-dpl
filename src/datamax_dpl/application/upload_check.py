@@ -22,7 +22,8 @@ held: a round that would download one of them again is left out (round 2 sends t
 it is skipped; round 3 runs only where every download gets a new name by halving, which a QR Code
 never does). A label that, rendered again for a round, has an error finding (the module it now
 holds leaves too little memory, a held name in error) is refused there, before anything of that
-round is sent.
+round is sent. One that, rendered again, downloads nothing (each image it places is one the
+module holds) sends no upload and makes no read in that round: nothing of it can be missing.
 
 Still missing: the label is refused (``image_upload_refused``), its format is never sent, nothing
 after it is sent, and the module is cleared again where a clear may go. Each round after the
@@ -247,10 +248,11 @@ def _missing(result: RenderResult, held: HeldImages) -> tuple[str, ...]:
 
 def _what_was_read(module: ImageModule, missing: tuple[str, ...], held: HeldImages) -> str:
     """Say what the read after an upload found, for a finding's message."""
-    if not missing:
-        return f"module {module.value} then listed every image"
+    # Unread first: a read with no answer lists nothing, which must never read as nothing missing.
     if held.listed is None:
         return f"module {module.value} could not be read ({held.unread_because})"
+    if not missing:
+        return f"module {module.value} then listed every image"
     return f"module {module.value} did not list {', '.join(missing)}"
 
 
@@ -380,7 +382,14 @@ class _Record:
         return module
 
     def upload(self) -> tuple[str, ...]:
-        """Send the label's upload, read the directory and return the names it does not list."""
+        """Send the label's upload, read the directory and return the names it does not list.
+
+        A label that, rendered again for a round, downloads nothing (each image it places is one
+        the module holds) sends no upload and reads nothing: nothing is missing, and a read would
+        tell nothing about this label.
+        """
+        if not self.result.downloads:
+            return ()
         module = self._module()
         self.link.send(self.result.data[: self.result.upload_end])
         self._sent.update(self._rendered_after.sent)
@@ -443,7 +452,7 @@ class _Record:
         if again is not None:
             self._rendered(again)
         missing = self.upload()
-        self._retried(f"round 2: {cleared}, then uploaded the images again; {self._last_read}")
+        self._retried(f"round 2: {cleared}, then {self._uploaded('the images again')}")
         return missing
 
     def halve_and_upload(self) -> tuple[str, ...] | _Skipped:
@@ -466,7 +475,7 @@ class _Record:
         cleared = self._clear()
         self._rendered(rendered)
         missing = self.upload()
-        self._retried(f"round 3: {cleared}, then uploaded the images halved 2x2; {self._last_read}")
+        self._retried(f"round 3: {cleared}, then {self._uploaded('the images halved 2x2')}")
         return missing
 
     def _clear(self) -> str:
@@ -482,6 +491,12 @@ class _Record:
             emptied = self.result.retry_clear_empties
             self._known = frozenset() if emptied else self._known - frozenset(self.result.downloads)
         return _clear_text(self.result, self._module())
+
+    def _uploaded(self, images: str) -> str:
+        """Say what a round's upload of ``images`` did and what the read after it found, for its finding."""
+        if not self.result.downloads:
+            return f"sent nothing of {images}: the module holds each one already, so no read was made"
+        return f"uploaded {images}; {self._last_read}"
 
     def _retried(self, message: str) -> None:
         self.findings.append(Finding(code=FindingCode.IMAGE_UPLOAD_RETRIED, severity=Severity.INFO, message=message))
