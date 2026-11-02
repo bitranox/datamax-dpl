@@ -121,6 +121,27 @@ def test_a_file_still_growing_is_not_taken_until_its_size_settles(tmp_path: Path
 
 
 @pytest.mark.os_agnostic
+def test_a_file_whose_time_moves_while_its_size_stays_is_taken_after_two_polls(tmp_path: Path) -> None:
+    """Only the size decides that an upload settled; a modification time touched again does not."""
+    image = tmp_path / "upload.jpg"
+    image.write_bytes(b"whole")
+    seen = image.stat().st_mtime
+
+    def touch(sleep_count: int) -> None:
+        moved = seen + sleep_count
+        os.utime(image, (moved, moved))
+
+    fake = FakeTime(on_sleep=touch)
+    out = tmp_path / "out"
+    out.mkdir()
+
+    path = capture_from_directory(_settings(tmp_path), stem=out / "shot", sleep=fake.sleep, clock=fake.clock)
+
+    assert path.read_bytes() == b"whole"
+    assert len(fake.sleeps) == 1
+
+
+@pytest.mark.os_agnostic
 def test_an_empty_folder_times_out_without_real_waiting(tmp_path: Path) -> None:
     """The injected clock passes the timeout; the test takes no wall-clock time."""
     fake = FakeTime()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
+from datamax_dpl.adapters.memory import PrinterOpen, RecordingPrinter, open_recording_printer
 from datamax_dpl.domain.errors import PrinterTimeoutError, TransportError, UnsupportedOperationError
 from datamax_dpl.domain.status import STATUS_REQUEST, VERSION_REQUEST, is_status_line, parse_ascii_status
 
@@ -90,7 +90,7 @@ def test_the_opener_records_each_open_and_reopens_the_same_printer() -> None:
     second = opener("-", timeout=3.0)
     second.send(b"two")
     assert first is second is printer
-    assert printer.opened == [("tcp://printer:9100", 2.0), ("-", 3.0)]
+    assert printer.opened == [PrinterOpen(uri="tcp://printer:9100", timeout=2.0), PrinterOpen(uri="-", timeout=3.0)]
     assert printer.data == b"onetwo"
 
 

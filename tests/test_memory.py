@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
+from datamax_dpl.adapters.memory import PrinterOpen, RecordingPrinter, open_recording_printer
 from datamax_dpl.application.use_cases import read_memory_directory
 from datamax_dpl.domain.enums import MemoryKind
 from datamax_dpl.domain.errors import PrinterTimeoutError, UnsupportedOperationError
@@ -182,7 +182,7 @@ def test_reading_one_kind_sends_its_request_and_parses_the_answer() -> None:
     )
     assert [d.modules for d in directories] == [MANUAL_MODULES]
     assert printer.queries == [b"\x02WG"]
-    assert printer.opened == [(PRINTER, 2.0)]
+    assert printer.opened == [PrinterOpen(uri=PRINTER, timeout=2.0)]
     assert printer.closed
 
 

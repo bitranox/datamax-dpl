@@ -7,6 +7,7 @@ gone over the wire.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from datamax_dpl.domain.errors import PrinterTimeoutError, TransportError, UnsupportedOperationError
@@ -18,6 +19,19 @@ if TYPE_CHECKING:
     from datamax_dpl.application.ports import OpenTunablePrinter, PrinterTransport
 
 
+@dataclass(frozen=True, slots=True)
+class PrinterOpen:
+    """One open of a :class:`RecordingPrinter` through :func:`open_recording_printer`.
+
+    Attributes:
+        uri: The URI it was opened for.
+        timeout: The connect timeout it was opened with.
+    """
+
+    uri: str
+    timeout: float
+
+
 class RecordingPrinter:
     """A fake printer channel that records what is sent and answers from a table.
 
@@ -25,7 +39,7 @@ class RecordingPrinter:
         sent: Every chunk written, in order: each :meth:`send` payload and each query request,
             as the bytes would have appeared on the wire.
         queries: The request of each :meth:`query` and :meth:`read_answer`, in order.
-        opened: ``(uri, timeout)`` of every open through :func:`open_recording_printer`.
+        opened: Every open through :func:`open_recording_printer`, in order.
         tunings: The :class:`~datamax_dpl.domain.timing.TransportTuning` of each of those opens;
             nothing is paced by it here, every send is recorded whole.
         closed: True once :meth:`close` ran.
@@ -47,7 +61,7 @@ class RecordingPrinter:
         self._bidirectional = bidirectional
         self.sent: list[bytes] = []
         self.queries: list[bytes] = []
-        self.opened: list[tuple[str, float]] = []
+        self.opened: list[PrinterOpen] = []
         self.tunings: list[TransportTuning] = []
         self.closed = False
         self.hung_up = False
@@ -156,7 +170,7 @@ class RecordingPrinter:
 def open_recording_printer(printer: RecordingPrinter) -> OpenTunablePrinter:
     """Return an :class:`~datamax_dpl.application.ports.OpenTunablePrinter` that always opens ``printer``.
 
-    Each open records ``(uri, timeout)`` in ``printer.opened`` and its tuning in
+    Each open records its URI and timeout in ``printer.opened`` and its tuning in
     ``printer.tunings``, and reopens it, so a use case that opens, closes and opens again keeps
     writing into the same record.
 
@@ -166,11 +180,11 @@ def open_recording_printer(printer: RecordingPrinter) -> OpenTunablePrinter:
         >>> opener("tcp://label-printer:9100", timeout=2.0) is printer
         True
         >>> printer.opened
-        [('tcp://label-printer:9100', 2.0)]
+        [PrinterOpen(uri='tcp://label-printer:9100', timeout=2.0)]
     """
 
     def _open(uri: str, *, timeout: float, tuning: TransportTuning = DEFAULT_TRANSPORT_TUNING) -> PrinterTransport:
-        printer.opened.append((uri, timeout))
+        printer.opened.append(PrinterOpen(uri=uri, timeout=timeout))
         printer.tunings.append(tuning)
         printer.closed = False
         printer.hung_up = False
@@ -184,4 +198,4 @@ def _lines(answer: bytes, terminator: bytes) -> list[bytes]:
     return [part + terminator for part in answer.split(terminator)[:-1]]
 
 
-__all__ = ["RecordingPrinter", "open_recording_printer"]
+__all__ = ["PrinterOpen", "RecordingPrinter", "open_recording_printer"]

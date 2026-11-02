@@ -13,8 +13,9 @@ from __future__ import annotations
 import shutil
 import stat
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING
 
 from ...domain.enums import MediaType
 from ...domain.errors import CameraError
@@ -38,11 +39,15 @@ MTIME_GRACE_SECONDS = 1.0
 POLL_INTERVAL_SECONDS = 0.25
 
 
-class _Candidate(NamedTuple):
-    """One image file seen in the folder, with the size it had when seen."""
+@dataclass(frozen=True, slots=True)
+class _Candidate:
+    """One image file seen in the folder, with the size and modification time it had when seen."""
 
     path: Path
     size: int
+    # Picks the newest file only: two polls that saw the same path at the same size count as one
+    # finished upload, as they did before the time was kept here, whether or not it moved.
+    mtime: float = field(compare=False)
 
 
 def capture_from_directory(
@@ -99,16 +104,16 @@ def _newest_image(directory: Path, *, since: float) -> _Candidate | None:
         entries = list(directory.iterdir())
     except OSError as exc:
         raise CameraError(f"camera directory {directory} cannot be read: {exc.strerror or exc}") from exc
-    best: tuple[float, _Candidate] | None = None
+    best: _Candidate | None = None
     for entry in entries:
         seen = _image_stat(entry, since=since)
-        if seen is not None and (best is None or seen[0] > best[0]):
+        if seen is not None and (best is None or seen.mtime > best.mtime):
             best = seen
-    return None if best is None else best[1]
+    return best
 
 
-def _image_stat(entry: Path, *, since: float) -> tuple[float, _Candidate] | None:
-    """Return ``(mtime, candidate)`` for a new, non-empty image file, else None."""
+def _image_stat(entry: Path, *, since: float) -> _Candidate | None:
+    """Return the candidate for a new, non-empty image file, else None."""
     if entry.suffix.lower() not in MEDIA_TYPE_BY_SUFFIX:
         return None
     try:
@@ -118,7 +123,7 @@ def _image_stat(entry: Path, *, since: float) -> tuple[float, _Candidate] | None
         return None
     if not stat.S_ISREG(info.st_mode) or info.st_mtime < since or info.st_size == 0:
         return None
-    return info.st_mtime, _Candidate(path=entry, size=info.st_size)
+    return _Candidate(path=entry, size=info.st_size, mtime=info.st_mtime)
 
 
 def _copy(source: Path, *, stem: Path) -> Path:

@@ -24,7 +24,7 @@ from .config import (
     set_user_printer_values_in_memory,
 )
 from .logging import check_logging_config_in_memory, init_logging_in_memory
-from .printer import RecordingPrinter, open_recording_printer
+from .printer import PrinterOpen, RecordingPrinter, open_recording_printer
 
 # Static conformance assertions
 if TYPE_CHECKING:
@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "FakeCamera",
+    "PrinterOpen",
     "RecordingPrinter",
     "check_logging_config_in_memory",
     "deploy_configuration_in_memory",

@@ -18,7 +18,7 @@ from lib_layered_config import Config
 import datamax_dpl
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.commands.printer import KindChoice
-from datamax_dpl.adapters.memory import FakeCamera, RecordingPrinter
+from datamax_dpl.adapters.memory import FakeCamera, PrinterOpen, RecordingPrinter
 from datamax_dpl.adapters.preview import render_preview_png
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.enums import MemoryKind
@@ -646,7 +646,7 @@ def test_memory_reaches_a_printer_named_in_the_configuration(cli_runner: CliRunn
     services = dataclasses.replace(build_testing(printer=printer), get_config=get_config)
     result = run(cli_runner, ["memory", "--printer", "lager"], lambda: services)
     assert result.exit_code == 0, result.output
-    assert printer.opened == [(PRINTER, 4.0)]
+    assert printer.opened == [PrinterOpen(uri=PRINTER, timeout=4.0)]
 
 
 @pytest.mark.os_agnostic
