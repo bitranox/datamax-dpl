@@ -131,6 +131,8 @@ All notable changes to this project are documented here. The format follows
   `verify` before printing it; `render_preview_png` takes `max_length_mm` and
   raises `PreviewTooLongError`, exported from `datamax_dpl`. A height of
   100000 mm took 118 s and 1.47 GB, and 1e9 raised `MemoryError`.
+- `UnknownModelError`, `MissingFieldError`, `ConfigurationError` and
+  `PrinterTimeoutError` can be imported from `datamax_dpl`.
 
 ### Changed
 
@@ -334,7 +336,8 @@ All notable changes to this project are documented here. The format follows
   label carries that it was filled (`Label.filled`).
 - `print_checked` and `send_checked` refuse a result and `job.renders` holding
   different numbers of labels with `ConfigurationError` before the printer is
-  opened; `send_checked` raised a bare `ValueError` after sending the setup.
+  opened; `send_checked` raised a bare `ValueError` only after the labels went
+  out.
 
 ## [0.4.0] - 2026-10-30
 

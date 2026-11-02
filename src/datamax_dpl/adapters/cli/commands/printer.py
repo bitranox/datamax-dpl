@@ -28,7 +28,6 @@ from ....application.use_cases import (
     stored_image_names,
 )
 from ....application.verify import IdleWait, verify_print
-from ....domain.camera import CameraSettings
 from ....domain.enums import ImageModule, MemoryKind, Severity, StatusProblem
 from ....domain.errors import CameraError, PreviewTooLongError
 from ....domain.held_images import HeldImages
@@ -69,6 +68,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from ....application.use_cases import BatchResult, RenderedJob
+    from ....domain.camera import CameraSettings
     from ....domain.label import Label
     from ....domain.render_context import RenderOptions
     from ..context import CLIContext
@@ -484,7 +484,8 @@ def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | 
         canvas = canvas_for(label, profile, options=options)
         # Rendered for how the job sends its fields: halved images and merged groups preview as they print.
         sent_as = render_label(label, options).sent_as
-        Path(output).write_bytes(render_preview_png(label, profile, sent_as=sent_as, options=options, max_length_mm=limit))
+        picture = render_preview_png(label, profile, sent_as=sent_as, options=options, max_length_mm=limit)
+        Path(output).write_bytes(picture)
         payload = PreviewPayload(
             output=output,
             width_dots=canvas.width,

@@ -1115,7 +1115,13 @@ class UnknownModelError(LookupError):
 
 
 def get_profile(model: str) -> PrinterProfile:
-    """Return the profile for ``model`` (case-insensitive, spaces or underscores allowed).
+    """Return the profile for ``model``.
+
+    Args:
+        model: The profile id; case-insensitive, spaces or underscores allowed.
+
+    Returns:
+        The model's profile.
 
     Raises:
         UnknownModelError: No profile has that id.

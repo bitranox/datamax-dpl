@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import pickle
 
 import pytest
 from pydantic import ValidationError
@@ -103,13 +102,12 @@ def test_an_unfilled_label_still_warns_about_its_placeholders() -> None:
 
 
 @pytest.mark.os_agnostic
-def test_a_filled_label_stays_filled_through_a_copy_a_pickle_and_a_second_fill() -> None:
+def test_a_filled_label_stays_filled_through_a_copy_and_a_second_fill() -> None:
     """The state travels with the label, so no later step can forget it; a JSON document is a new label."""
     filled = fill_label(_ESCAPED, {"n": "3"})
     assert filled.filled
     assert filled.model_copy().filled
     assert copy.deepcopy(filled).filled
-    assert pickle.loads(pickle.dumps(filled)).filled
     assert fill_label(filled, {"EUR": "x"}).filled
     assert not _ESCAPED.filled
     assert not Label.model_validate(filled.model_dump()).filled

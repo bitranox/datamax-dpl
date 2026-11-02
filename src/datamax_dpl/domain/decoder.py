@@ -507,6 +507,14 @@ def _rebuild(state: _State) -> Label | None:
 def explain(data: bytes) -> Explanation:
     """Explain every command in ``data`` and rebuild the label when there is exactly one format.
 
+    A record cut short or a value it cannot read becomes a problem in the result; nothing raises.
+
+    Args:
+        data: The DPL bytes, whole or in part.
+
+    Returns:
+        The commands in order, the rebuilt label or None, and the problems found.
+
     Example:
         >>> result = explain(b"\\x02L\\r121100000500025Hi\\rE\\r")
         >>> [c.kind.value for c in result.commands]

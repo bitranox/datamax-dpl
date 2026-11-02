@@ -1675,7 +1675,7 @@ def test_print_checked_refuses_a_result_and_renders_that_disagree_before_opening
         opened.append(uri)
         raise AssertionError("the printer must not be opened")
 
-    with pytest.raises(ConfigurationError, match="3 labels.*2 renders"):
+    with pytest.raises(ConfigurationError, match=r"3 labels.*2 renders"):
         print_checked(result, job, uri=URI, timeout=1.0, open_printer=open_printer)
     assert opened == []
 
@@ -1692,6 +1692,6 @@ def test_send_checked_refuses_a_result_and_renders_that_disagree_before_sending(
         open_printer=open_recording_printer(printer),
         reconnect=None,
     )
-    with pytest.raises(ConfigurationError, match="3 labels.*2 renders"):
+    with pytest.raises(ConfigurationError, match=r"3 labels.*2 renders"):
         send_checked(link, result, job)
     assert printer.data == b""

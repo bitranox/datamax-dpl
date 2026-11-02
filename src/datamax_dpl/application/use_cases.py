@@ -132,11 +132,21 @@ def render_batch(
 ) -> BatchResult:
     """Render ``label`` once per record, filling its ``{name}`` placeholders.
 
-    ``held`` is what the printer holds in the image module before the first record, None when it
-    was not asked; with no clear, a name an earlier record downloaded counts as held too.
+    An error finding does not raise: the returned result's ``ok`` is False and its findings name it.
+
+    Args:
+        label: The label holding the placeholders.
+        records: One mapping of field name to value per label.
+        options: The model, fallback policy and job settings.
+        held: What the printer holds in the image module before the first record, None when it
+            was not asked; with no clear, a name an earlier record downloaded counts as held too.
+
+    Returns:
+        One render per record and the joined job; check ``ok`` before sending it.
 
     Raises:
         MissingFieldError: A record lacks a field a placeholder names.
+        UnknownModelError: ``options.model`` names no profile.
         pydantic.ValidationError: A filled value breaks a field limit.
     """
     batch_label = _batch_label(label)

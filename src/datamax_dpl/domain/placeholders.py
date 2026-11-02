@@ -95,6 +95,13 @@ def fill_label(label: Label, record: Mapping[str, str]) -> Label:
 
     The copy is validated again, so a value that makes a field too long is refused here.
 
+    Args:
+        label: The label holding the placeholders.
+        record: The value of each field name.
+
+    Returns:
+        The filled copy; ``label`` is unchanged.
+
     Raises:
         MissingFieldError: A placeholder has no value in ``record``.
         pydantic.ValidationError: A filled field breaks the label model's limits.

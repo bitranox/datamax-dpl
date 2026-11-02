@@ -626,9 +626,7 @@ def _fit_budget(label: Label, options: RenderOptions, *, job: _Job, budget: Imag
     return halved
 
 
-def build_job(
-    label: Label, options: RenderOptions | None = None, *, held: HeldImages | None = None
-) -> RenderResult:
+def build_job(label: Label, options: RenderOptions | None = None, *, held: HeldImages | None = None) -> RenderResult:
     """Render ``label`` for ``options.model`` and report every finding; never raises for a finding.
 
     A job whose image downloads hold more than its image memory budget is encoded a second time
@@ -722,9 +720,7 @@ def _note_skipped_budget(job: _Job, options: RenderOptions) -> None:
     )
 
 
-def _build(
-    label: Label, options: RenderOptions, *, held: HeldImages, halve: bool = False
-) -> RenderedRecord:
+def _build(label: Label, options: RenderOptions, *, held: HeldImages, halve: bool = False) -> RenderedRecord:
     """Render ``label`` and return its result with what the printer holds after its job.
 
     ``halve`` sends every image that can be halved at half resolution whatever the budget says.
@@ -851,8 +847,16 @@ def held_after_read(result: RenderResult, after: HeldImages, listed: frozenset[s
 def render(label: Label, options: RenderOptions | None = None) -> RenderResult:
     """Render ``label`` and refuse it when any finding is an error.
 
+    Args:
+        label: The label to render.
+        options: The model, fallback policy and job settings; None renders for the generic model.
+
+    Returns:
+        The job's bytes and its findings, none of them an error.
+
     Raises:
         LabelRejectedError: At least one finding is an error; ``findings`` holds them all.
+        UnknownModelError: ``options.model`` names no profile.
 
     Example:
         >>> from datamax_dpl.domain.label import Label, Text

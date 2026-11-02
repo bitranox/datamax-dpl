@@ -54,7 +54,13 @@ from .domain.enums import (
     StatusProblem,
     Unit,
 )
-from .domain.errors import LabelRejectedError, PreviewTooLongError, TransportError
+from .domain.errors import (
+    ConfigurationError,
+    LabelRejectedError,
+    PreviewTooLongError,
+    PrinterTimeoutError,
+    TransportError,
+)
 from .domain.findings import Finding
 from .domain.label import (
     Barcode,
@@ -74,9 +80,9 @@ from .domain.label import (
     ScalableText,
     Text,
 )
-from .domain.placeholders import fill_label
+from .domain.placeholders import MissingFieldError, fill_label
 from .domain.preview import SentAs
-from .domain.profiles import PrinterProfile, get_profile, list_profiles
+from .domain.profiles import PrinterProfile, UnknownModelError, get_profile, list_profiles
 from .domain.render import RenderResult, build_job, render
 from .domain.render_context import RenderOptions
 from .domain.symbology import Symbology
@@ -92,6 +98,7 @@ __all__ = [
     "CalibrationLabels",
     "Circle",
     "CommandKind",
+    "ConfigurationError",
     "Counter",
     "Cut",
     "DataMatrixOptions",
@@ -108,6 +115,7 @@ __all__ = [
     "Line",
     "MediaSensor",
     "MediaType",
+    "MissingFieldError",
     "Pdf417Options",
     "Point",
     "Polygon",
@@ -115,6 +123,7 @@ __all__ = [
     "PrinterProfile",
     "PrinterSetting",
     "PrinterStop",
+    "PrinterTimeoutError",
     "Qr",
     "QrError",
     "RenderOptions",
@@ -129,6 +138,7 @@ __all__ = [
     "Text",
     "TransportError",
     "Unit",
+    "UnknownModelError",
     "across_frame_width",
     "across_label",
     "along_label",

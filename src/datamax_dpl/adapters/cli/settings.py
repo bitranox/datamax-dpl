@@ -33,7 +33,14 @@ from ...domain.profiles import Firmware, ParsedFirmware
 from ...domain.render_context import RenderOptions
 from ...domain.timing import MAX_SEND_CHUNK_BYTES, MAX_TIMEOUT_SECONDS, SEND_CHUNK_BYTES, TransportTuning
 from ...domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
-from ..config.sections import CAMERA_SECTION, PREVIEW_SECTION, PRINTER_SECTION, ConfigSection, SectionPath, printer_section
+from ..config.sections import (
+    CAMERA_SECTION,
+    PREVIEW_SECTION,
+    PRINTER_SECTION,
+    ConfigSection,
+    SectionPath,
+    printer_section,
+)
 from ..transport.uri import is_printer_name, is_printer_uri
 
 if TYPE_CHECKING:
@@ -349,8 +356,8 @@ def require_uri(settings: PrinterSettings) -> str:
 
 
 __all__ = [
-    "PrinterOverrides",
     "PreviewSettings",
+    "PrinterOverrides",
     "PrinterSettings",
     "camera_settings",
     "preview_settings",

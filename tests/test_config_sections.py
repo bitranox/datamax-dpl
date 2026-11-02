@@ -212,4 +212,5 @@ def test_a_named_printer_without_a_uri_is_not_told_that_no_printer_was_given() -
     """A printer was given; what it lacks is an address, and the message says where to set it."""
     with pytest.raises(ConfigurationError) as caught:
         require_uri(PrinterSettings(name="lager"))
-    assert str(caught.value) == "printer 'lager' has no uri: set [printers.lager] uri, or [printer] uri for every printer"
+    wanted = "printer 'lager' has no uri: set [printers.lager] uri, or [printer] uri for every printer"
+    assert str(caught.value) == wanted

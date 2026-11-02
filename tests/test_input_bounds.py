@@ -128,7 +128,8 @@ def test_preview_refuses_a_huge_label_before_drawing_it(
 @pytest.mark.os_agnostic
 def test_the_preview_limit_comes_from_the_settings_key(cli_runner: CliRunner, tmp_path: Path) -> None:
     """--set lowers it, and an inch label is measured in millimetres too."""
-    label = _write_label(tmp_path, {"unit": "in", "height": 2, "width": 1, "elements": [{"type": "text", "x": 1, "y": 1, "text": "A"}]})
+    elements = [{"type": "text", "x": 1, "y": 1, "text": "A"}]
+    label = _write_label(tmp_path, {"unit": "in", "height": 2, "width": 1, "elements": elements})
     output = str(tmp_path / "out.png")
     assert _invoke(cli_runner, "--set", "preview.max_length_mm=51", "preview", label, "-o", output).exit_code == 0
     assert _invoke(cli_runner, "--set", "preview.max_length_mm=50", "preview", label, "-o", output).exit_code == 2
@@ -162,9 +163,8 @@ def test_the_library_preview_refuses_too_and_takes_its_own_limit() -> None:
 def test_verify_refuses_a_huge_label_before_anything_is_printed(cli_runner: CliRunner, tmp_path: Path) -> None:
     """The expected picture comes after the print, so the refusal must come before it."""
     label = _write_label(tmp_path, {"height": 100000, "elements": [{"type": "text", "x": 5, "y": 5, "text": "A"}]})
-    result = _invoke(
-        cli_runner, "--json-bare", "--set", "camera.kind=file", "verify", label, "--printer", f"file:{tmp_path / 'x.dpl'}"
-    )
+    target = f"file:{tmp_path / 'x.dpl'}"
+    result = _invoke(cli_runner, "--json-bare", "--set", "camera.kind=file", "verify", label, "--printer", target)
     assert result.exit_code == 2, result.output
     assert "[preview] max_length_mm" in json.loads(result.stdout)["message"]
     assert not (tmp_path / "x.dpl").exists()

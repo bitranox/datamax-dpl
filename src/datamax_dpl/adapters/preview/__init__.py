@@ -138,13 +138,21 @@ def render_preview_png(
 ) -> bytes:
     """Return the preview PNG: lettered with Pillow when available, cell blocks otherwise.
 
-    ``sent_as`` (``RenderResult.sent_as``) says how the job sends its fields: halved images and
-    merged groups are drawn the way they print. ``options`` are the ones the job is rendered with,
-    so that each field sits at the row and column that job writes; None renders for ``profile``.
-    ``max_length_mm`` is the longest side the picture may have, checked before anything is drawn.
+    Args:
+        label: The label to draw.
+        profile: The model whose print width and resolution the picture uses.
+        sent_as: ``RenderResult.sent_as``, how the job sends its fields: halved images and merged
+            groups are drawn the way they print.
+        options: The ones the job is rendered with, so that each field sits at the row and column
+            that job writes; None renders for ``profile``.
+        max_length_mm: The longest side the picture may have, checked before anything is drawn.
+
+    Returns:
+        The PNG file's bytes.
 
     Raises:
         PreviewTooLongError: A side of the picture would be longer than ``max_length_mm``.
+        UnknownModelError: ``options.model`` names no profile.
         ValueError: ``options`` are for another model than ``profile``.
     """
     check_preview_length(canvas_for(label, profile, options=options), max_length_mm=max_length_mm)
@@ -155,6 +163,12 @@ def render_preview_png(
 
 def preview_findings(label: Label) -> list[Finding]:
     """What the preview PNG of ``label`` cannot show: text approximated as cells without Pillow.
+
+    Args:
+        label: The label the preview draws.
+
+    Returns:
+        One finding per approximated field; none when Pillow is available.
 
     Example:
         >>> from datamax_dpl.domain.label import Label, Line

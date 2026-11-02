@@ -847,13 +847,13 @@ def preview_bitmap(
 
 
 __all__ = [
+    "DEFAULT_PREVIEW_MAX_LENGTH_MM",
     "STORED_IMAGE_DOTS",
     "Canvas",
     "CellMm",
     "FieldArea",
     "PreviewGeometry",
     "SentAs",
-    "DEFAULT_PREVIEW_MAX_LENGTH_MM",
     "canvas_for",
     "check_preview_length",
     "draw_element",

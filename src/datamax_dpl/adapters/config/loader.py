@@ -158,6 +158,9 @@ def _get_config(*, profile: str | None = None, start_dir: str | None = None, dot
     Returns:
         Immutable configuration object with provenance tracking.
 
+    Raises:
+        ValueError: ``profile`` is not a valid profile name.
+
     Note:
         This function is cached (maxsize=4). The first call loads and parses all
         configuration files; subsequent calls with the same parameters return the

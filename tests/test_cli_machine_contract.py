@@ -223,9 +223,7 @@ def test_config_deploy_answers_with_the_written_paths(capsys: pytest.CaptureFixt
 def test_a_failed_config_deploy_keeps_its_code_with_an_error_envelope(
     capsys: pytest.CaptureFixture[str], error: Exception, code: int
 ) -> None:
-    got, out, err = _run(
-        ["--json", "config-deploy", "--target", "user"], capsys, deploy_configuration=_raising(error)
-    )
+    got, out, err = _run(["--json", "config-deploy", "--target", "user"], capsys, deploy_configuration=_raising(error))
     assert got == code
     document = json.loads(out)
     assert (document["ok"], document["command"]) == (False, "config-deploy")
