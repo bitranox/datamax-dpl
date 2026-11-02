@@ -18,7 +18,7 @@ import re
 
 from pydantic import BaseModel
 
-from .enums import MemoryKind
+from .enums import ImageModule, MemoryKind
 
 _LINE_BREAK = re.compile(r"\r\n|\r|\n")
 #: Line ends, then nothing but flow control and blanks: the answer's last line was finished.
@@ -51,8 +51,9 @@ NO_MODULES_MEANING = "the manual: corrupt or worn-out module"
 #: The free-bytes figure: eight digits in the manual's sample and in what an Allegro 2 sends, so a
 #: shorter one is an answer cut short, not a smaller number.
 _FIGURE = re.compile(r"[0-9]{8}")
-#: Module letters the manual knows (Appendix L).
-MODULE_LETTERS = frozenset("ABCDE")
+#: Module letters the manual knows (Appendix L). A parsed module keeps its letter as text, so a
+#: garbled one stays visible; this set is what tells it from a module an image can go to.
+MODULE_LETTERS = frozenset(module.value for module in ImageModule)
 #: Longest stored name the manual allows (fonts, graphics and formats alike).
 MAX_NAME_LENGTH = 16
 #: A stored name is printable ASCII.

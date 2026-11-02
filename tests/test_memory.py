@@ -10,7 +10,7 @@ from datamax_dpl.adapters.memory import PrinterOpen, RecordingPrinter, open_reco
 from datamax_dpl.application.use_cases import read_memory_directory
 from datamax_dpl.domain.enums import MemoryKind
 from datamax_dpl.domain.errors import PrinterTimeoutError, UnsupportedOperationError
-from datamax_dpl.domain.memory import MemoryModule, parse_module_directory
+from datamax_dpl.domain.memory import MODULE_LETTERS, MemoryModule, parse_module_directory
 from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS
 
 #: The manual's sample answer to ``<STX>WG`` (DPL Programmer's Manual, page 43-44) as printed:
@@ -379,3 +379,16 @@ def test_a_bad_idle_is_refused_before_the_printer_is_opened() -> None:
             open_printer=open_recording_printer(printer),
         )
     assert printer.opened == []
+
+
+@pytest.mark.os_agnostic
+def test_the_module_letters_are_the_five_the_manual_knows() -> None:
+    assert frozenset({"A", "B", "C", "D", "E"}) == MODULE_LETTERS
+
+
+@pytest.mark.os_agnostic
+def test_a_module_letter_the_manual_does_not_know_leaves_the_directory_unparsed() -> None:
+    answer = b"MODULE: F\rLOGO\rAVAILABLE BYTES IN MODULE:00049083\r"
+    directory = parse_module_directory(answer, kind=MemoryKind.GRAPHIC)
+    assert directory.parsed is False
+    assert [module.module for module in directory.modules] == ["F"]
