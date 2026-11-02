@@ -9,6 +9,7 @@ import rich_click as click
 
 from ....domain.enums import CutterPresence, FallbackPolicy, HardwareOption
 from ....domain.errors import ConfigurationError
+from ....domain.profiles import Firmware, parse_firmware
 from ..settings import PrinterOverrides, PrinterSettings, printer_settings, transport_tuning
 from ..typed_click import option
 
@@ -94,11 +95,13 @@ def command_overrides(given: Mapping[str, Any]) -> PrinterOverrides:
 
     The click options are the command's raw input, so they are validated whole: the model's
     ``extra="forbid"`` refuses an option name it does not know, where picking known names out of
-    ``given`` would silently drop a renamed one. ``--option`` is read first so an unknown value is
-    refused as a configuration error (see :func:`hardware_options`).
+    ``given`` would silently drop a renamed one. ``--option`` and ``--firmware`` are read first so
+    an unknown or malformed value is refused as a configuration error (see :func:`hardware_options`
+    and :func:`firmware_option`).
 
     Raises:
-        ConfigurationError: An ``--option`` value names no :class:`HardwareOption`.
+        ConfigurationError: An ``--option`` value names no :class:`HardwareOption`, or
+            ``--firmware`` is not ``<major>.<minor>``.
         pydantic.ValidationError: Another option holds a value of the wrong type.
 
     Example:
@@ -106,7 +109,8 @@ def command_overrides(given: Mapping[str, Any]) -> PrinterOverrides:
         'allegro-2'
     """
     options = hardware_options(given.get("options") or ())
-    return PrinterOverrides.model_validate({**given, "options": options})
+    firmware = firmware_option(given.get("firmware"))
+    return PrinterOverrides.model_validate({**given, "options": options, "firmware": firmware})
 
 
 def resolve_settings(cli_ctx: CLIContext, overrides: PrinterOverrides) -> PrinterSettings:
@@ -150,6 +154,33 @@ def hardware_options(values: Iterable[str]) -> frozenset[HardwareOption]:
     return frozenset(known[value] for value in given)
 
 
+def firmware_option(value: str | None) -> Firmware | None:
+    """Read the ``--firmware`` value, refusing a malformed one.
+
+    Refused as a configuration error for the reason :func:`hardware_options` gives. Empty text
+    parses to None, the same as not giving the flag, so the configured firmware applies.
+
+    Raises:
+        ConfigurationError: The value is not ``<major>.<minor>``.
+
+    Example:
+        >>> firmware_option("2.01")
+        Firmware(major=2, minor=1)
+        >>> firmware_option(None) is None
+        True
+        >>> firmware_option("two")
+        Traceback (most recent call last):
+        ...
+        datamax_dpl.domain.errors.ConfigurationError: --firmware: firmware must look like 2.01, got 'two'
+    """
+    if value is None:
+        return None
+    try:
+        return parse_firmware(value)
+    except ValueError as exc:
+        raise ConfigurationError(f"--firmware: {exc}") from None
+
+
 def _alternatives(values: list[str]) -> str:
     """Quote and join ``values`` the way pydantic lists an enum's members: 'a', 'b' or 'c'."""
     quoted = [repr(value) for value in values]
@@ -158,6 +189,7 @@ def _alternatives(values: list[str]) -> str:
 
 __all__ = [
     "command_overrides",
+    "firmware_option",
     "hardware_options",
     "loaded_config",
     "printer_choice_decorator",

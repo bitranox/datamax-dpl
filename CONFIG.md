@@ -654,11 +654,15 @@ already holds the section (else `config.toml`, created if missing); comments and
 kept. A `.env` file, an environment variable or `--set` can still override it, and the command
 says so on stderr.
 
-`firmware` must reach the program as text. In a TOML file write it quoted (`firmware = "2.01"`),
-in a `.env` file quote it too (`PRINTER__FIRMWARE="2.01"`). An unquoted `2.01` in a `.env`, an
-environment variable or `--set` is converted to a number and refused with exit 2; there, write it
-with a leading zero (`DATAMAX_DPL___PRINTER__FIRMWARE=02.01`, `--set printer.firmware=02.01`),
-which stays text. The `--firmware` flag takes `2.01` as it is.
+`firmware` is `<major>.<minor>`. In a TOML file write it quoted (`firmware = "2.01"`). An
+unquoted number, there or in a `.env` file, an environment variable or `--set`, is read back as
+its text and means the same version: the minor is read as a decimal, so `2.10` arriving as the
+number `2.1` is still 2.10. A value without a minor (`3`) or any other malformed one is refused
+with exit 2 when the printer settings are read, by every command that reads them, naming the key
+(`printer.firmware: firmware must look like 2.01, got '3'`, or `printers.NAME.firmware: ...`).
+The `--firmware` flag takes `2.01` as it is and refuses a malformed value as
+`--firmware: firmware must look like 2.01, got 'x'`; an empty `--firmware ""` is the same as
+not giving the flag, so the configured firmware applies.
 
 ## Camera Section
 

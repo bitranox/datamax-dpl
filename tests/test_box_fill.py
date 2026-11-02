@@ -15,17 +15,17 @@ from datamax_dpl.domain.decoder import explain
 from datamax_dpl.domain.enums import CombineMode, FillPattern, Unit
 from datamax_dpl.domain.label import Box, Label
 from datamax_dpl.domain.preview import Canvas, PreviewGeometry, canvas_for, draw_element
-from datamax_dpl.domain.profiles import get_profile
+from datamax_dpl.domain.profiles import Firmware, get_profile
 from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.render import build_job, job_context
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.units import Axis
 
 #: Polygon models at 300, 289.56 and 203 dpi (the DMX 400 from firmware 2.01).
-_POLYGON_MODELS = (("dmx-600", ""), ("dmx-430", ""), ("dmx-400", "2.01"))
+_POLYGON_MODELS = (("dmx-600", None), ("dmx-430", None), ("dmx-400", Firmware(major=2, minor=1)))
 
 
-def _layers(box: Box, *, unit: Unit, model: str, firmware: str = "") -> list[Bitmap]:
+def _layers(box: Box, *, unit: Unit, model: str, firmware: Firmware | None = None) -> list[Bitmap]:
     """Render ``box`` alone, decode the job and draw each decoded record on its own layer."""
     result = build_job(Label(unit=unit, elements=[box]), RenderOptions(model=model, firmware=firmware))
     assert result.ok, [f.message for f in result.errors]
@@ -74,7 +74,7 @@ def _box_area(box: Box, canvas: Canvas) -> tuple[int, int, int, int]:
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize(("model", "firmware"), _POLYGON_MODELS)
 @pytest.mark.parametrize("unit", [Unit.INCH, Unit.MM])
-def test_a_patterned_box_fill_and_its_outline_share_no_dot(model: str, firmware: str, unit: Unit) -> None:
+def test_a_patterned_box_fill_and_its_outline_share_no_dot(model: str, firmware: Firmware | None, unit: Unit) -> None:
     size = 1.0 if unit is Unit.INCH else 25.0
     box = Box(
         x=size / 5,
@@ -91,8 +91,8 @@ def test_a_patterned_box_fill_and_its_outline_share_no_dot(model: str, firmware:
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize(("model", "firmware"), [*_POLYGON_MODELS, ("generic", "")])
-def test_a_solid_box_prints_solid(model: str, firmware: str) -> None:
+@pytest.mark.parametrize(("model", "firmware"), [*_POLYGON_MODELS, ("generic", None)])
+def test_a_solid_box_prints_solid(model: str, firmware: Firmware | None) -> None:
     box = Box(x=0.2, y=0.2, width=1.0, height=0.5, thickness=0.05, fill=FillPattern.SOLID)
     layers = _layers(box, unit=Unit.INCH, model=model, firmware=firmware)
     printed = _printed_xor(layers)
@@ -122,7 +122,7 @@ def test_a_patterned_box_whose_outline_fills_it_sends_no_fill() -> None:
     cells=st.tuples(*(st.integers(min_value=1, max_value=60) for _ in range(4))),
 )
 def test_no_patterned_box_shares_a_dot_with_its_outline(
-    model: tuple[str, str], unit: Unit, place: tuple[int, int], cells: tuple[int, int, int, int]
+    model: tuple[str, Firmware | None], unit: Unit, place: tuple[int, int], cells: tuple[int, int, int, int]
 ) -> None:
     """Every position, size and edge, in hundredths of an inch or tenths of a millimetre."""
     step = 0.01 if unit is Unit.INCH else 0.1

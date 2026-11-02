@@ -9,7 +9,7 @@ import pytest
 from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, Severity, SpeedCode
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.label import Label
-from datamax_dpl.domain.profiles import PROFILES
+from datamax_dpl.domain.profiles import PROFILES, Firmware
 from datamax_dpl.domain.render import build_job, render
 from datamax_dpl.domain.render_context import RenderOptions
 
@@ -22,7 +22,7 @@ def label(**fields: object) -> Label:
     return Label.model_validate(document)
 
 
-def codes(result_label: Label, model: str, *, firmware: str = "") -> set[FindingCode]:
+def codes(result_label: Label, model: str, *, firmware: Firmware | None = None) -> set[FindingCode]:
     result = build_job(result_label, RenderOptions(model=model, firmware=firmware))
     return {f.code for f in result.findings}
 
@@ -107,7 +107,7 @@ def test_circle_is_native_where_the_model_has_circles() -> None:
 def test_firmware_unlocks_circles_on_the_dmx_400() -> None:
     circle = label(elements=[{"type": "circle", "x": 20, "y": 20, "radius": 5}])
     assert FindingCode.CIRCLE_RASTERIZED in codes(circle, "dmx-400")
-    assert FindingCode.CIRCLE_RASTERIZED not in codes(circle, "dmx-400", firmware="2.01")
+    assert FindingCode.CIRCLE_RASTERIZED not in codes(circle, "dmx-400", firmware=Firmware(major=2, minor=1))
 
 
 @pytest.mark.os_agnostic

@@ -21,6 +21,7 @@ from ...domain.enums import CutterPresence, FallbackPolicy, HardwareOption, Imag
 from ...domain.errors import ConfigurationError
 from ...domain.job import MAX_STOP_POSITION_MM
 from ...domain.label import stop_position_or_printer
+from ...domain.profiles import Firmware, ParsedFirmware
 from ...domain.render_context import RenderOptions
 from ...domain.timing import MAX_SEND_CHUNK_BYTES, MAX_TIMEOUT_SECONDS, SEND_CHUNK_BYTES, TransportTuning
 from ...domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
@@ -51,7 +52,8 @@ class PrinterSettings(BaseModel):
     model_config = ConfigDict(frozen=True, extra="ignore")
 
     model: str = "generic"
-    firmware: str = ""
+    # Parsed here, so a malformed version is refused naming its key before any job is built.
+    firmware: ParsedFirmware = None
     uri: str = ""
     policy: FallbackPolicy = FallbackPolicy.DEGRADE
     timeout: float = Field(default=10.0, gt=0)
@@ -107,10 +109,10 @@ class PrinterSettings(BaseModel):
     @field_validator("firmware", mode="before")
     @classmethod
     def _firmware_as_text(cls, value: object) -> object:
-        """Accept 2.01 as the layered config delivers an unquoted env value: a number.
+        """Accept 2.01 as the layered config delivers an unquoted value: a number, read as its text.
 
         A float loses trailing zeros (2.10 arrives as 2.1), which ``parse_firmware`` reads the
-        same way, so the comparison is unaffected.
+        same way, so the version is unaffected. Runs before the field's own parse.
         """
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return str(value)
@@ -123,7 +125,7 @@ class PrinterOverrides(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     model: str | None = None
-    firmware: str | None = None
+    firmware: Firmware | None = None
     printer: str | None = None
     policy: FallbackPolicy | None = None
     timeout: float | None = None
@@ -135,7 +137,7 @@ class _CommandLineValues(TypedDict):
     """The settings the command line can replace, each already merged with its configured value."""
 
     model: str
-    firmware: str
+    firmware: Firmware | None
     uri: str
     policy: FallbackPolicy
     timeout: float

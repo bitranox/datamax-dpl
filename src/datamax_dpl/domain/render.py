@@ -43,7 +43,7 @@ from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText,
 from .overlap import inexact_rectangle, printed_dots
 from .placeholders import label_placeholders
 from .preview import SentAs
-from .profiles import CalibrationDefaults, CalibrationKey, Feature, get_profile, parse_firmware
+from .profiles import CalibrationDefaults, CalibrationKey, Feature, get_profile
 from .render_context import RenderContext, RenderOptions, resolved_image_module, resolved_printer_state
 from .transparency import Emulation, emulate_transparency
 from .units import MM_PER_INCH, Axis, Correction, DplUnit, to_inches
@@ -323,7 +323,7 @@ def _context(label: Label, options: RenderOptions, *, halve: bool, held: HeldIma
     bitmap_rows = _bitmap_rows(label)
     probe = RenderContext(
         profile=profile,
-        firmware=parse_firmware(options.firmware),
+        firmware=options.firmware,
         options=options.options,
         unit=label.unit,
         dpl_unit=DplUnit.INCH_HUNDREDTHS,
@@ -363,7 +363,6 @@ def job_context(label: Label, options: RenderOptions | None = None) -> RenderCon
 
     Raises:
         UnknownModelError: ``options.model`` names no profile.
-        ValueError: ``options.firmware`` is malformed.
 
     Example:
         >>> from datamax_dpl.domain.label import Label, Text
@@ -619,7 +618,6 @@ def build_job(
 
     Raises:
         UnknownModelError: ``options.model`` names no profile.
-        ValueError: ``options.firmware`` is malformed.
     """
     return _build(label, options or RenderOptions(), filled=filled, held=held or HeldImages()).result
 
@@ -644,7 +642,6 @@ def build_jobs(
 
     Raises:
         UnknownModelError: ``options.model`` names no profile.
-        ValueError: ``options.firmware`` is malformed.
 
     Example:
         >>> from datamax_dpl.domain.label import Label, Qr
@@ -775,7 +772,6 @@ def build_record(
 
     Raises:
         UnknownModelError: ``options.model`` names no profile.
-        ValueError: ``options.firmware`` is malformed.
 
     Example:
         >>> from datamax_dpl.domain.label import Image, Label

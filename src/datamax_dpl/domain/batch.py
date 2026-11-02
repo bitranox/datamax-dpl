@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from .enums import Attribute, FindingCode, Unit
 from .findings import Finding, FindingCollector
-from .profiles import Feature, get_profile, parse_firmware
+from .profiles import Feature, get_profile
 from .render_context import RenderContext, RenderOptions, resolved_image_module, resolved_printer_state
 from .units import DplUnit
 
@@ -32,7 +32,7 @@ def _context(options: RenderOptions, findings: FindingCollector) -> RenderContex
     profile = get_profile(options.model)
     return RenderContext(
         profile=profile,
-        firmware=parse_firmware(options.firmware),
+        firmware=options.firmware,
         options=options.options,
         unit=Unit.MM,
         dpl_unit=DplUnit.INCH_HUNDREDTHS,

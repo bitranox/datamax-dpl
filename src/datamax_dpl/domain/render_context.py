@@ -30,7 +30,7 @@ from .held_images import HeldImages
 from .image_budget import HALVING_FACTOR, halve, halved_magnification, image_data_bytes
 from .image_records import CR, MAX_WIDTH, download_command
 from .label import StopPosition
-from .profiles import Feature
+from .profiles import Feature, ParsedFirmware
 from .raster import Bitmap
 from .records import MAX_IMAGE_MAGNIFICATION, Magnification
 from .units import (
@@ -123,7 +123,9 @@ class RenderOptions(BaseModel):
 
     Attributes:
         model: Profile id (``datamax-dpl models`` lists them).
-        firmware: Printer firmware ``"<major>.<minor>"``; empty means the oldest the manual covers.
+        firmware: Printer firmware, given as a :class:`~datamax_dpl.domain.profiles.Firmware` or as
+            the text ``"<major>.<minor>"``, which is parsed here and refused when malformed; None (or
+            empty text) means the oldest the manual covers.
         policy: ``degrade`` applies fallbacks, ``strict`` refuses the label instead.
         cutter_installed: Whether the printer has its cutter installed and enabled; None if unknown.
         options: Installed hardware options, e.g. ``{HardwareOption.DATAMATRIX}``.
@@ -192,7 +194,7 @@ class RenderOptions(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     model: str = "generic"
-    firmware: str = ""
+    firmware: ParsedFirmware = None
     policy: FallbackPolicy = FallbackPolicy.DEGRADE
     cutter_installed: bool | None = None
     options: frozenset[HardwareOption] = Field(default_factory=frozenset[HardwareOption])
