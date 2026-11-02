@@ -24,7 +24,7 @@ from datamax_dpl.adapters.transport.tcp import (
     TcpTransport,
 )
 from datamax_dpl.adapters.transport.uri import TcpUri
-from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
+from datamax_dpl.domain.errors import AnswerNotEndedError, PrinterProtocolError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.status import is_status_line
 from datamax_dpl.domain.timing import SEND_CHUNK_BYTES, TransportTuning
 
@@ -865,7 +865,7 @@ def test_read_answer_from_a_printer_that_never_stops_dripping_ends_at_the_total_
     try:
         with TcpTransport.connect(server.uri, timeout=2.0) as printer:
             started = time.monotonic()
-            with pytest.raises(PrinterTimeoutError, match="the answer did not end within 1 s"):
+            with pytest.raises(AnswerNotEndedError, match="the answer did not end within 1 s"):
                 printer.read_answer(b"\x02WG", timeout=1.0, idle=0.5, total=1.0)
             elapsed = time.monotonic() - started
     finally:

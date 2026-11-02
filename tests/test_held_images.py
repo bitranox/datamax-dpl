@@ -64,6 +64,8 @@ _L = LOGO_SENT.encode("ascii")
 _I = ICON_SENT.encode("ascii")
 _WG = MEMORY_DIRECTORY_REQUESTS["graphic"]
 _HOLDS_LOGO = b"MODULE: A\r" + _L + b"\rAVAILABLE BYTES IN MODULE : 00049083\r"
+#: How ``print`` and ``verify`` say to lengthen the names read, as their wait carries it.
+_WAIT_LONGER = "wait longer with [printer] stored_names_wait"
 _LOGO_HELD = HeldImages(listed=frozenset({LOGO_SENT}))
 _NOTHING_HELD = HeldImages(listed=frozenset())
 #: Allegro 2 with no clear at all: no clear before, none after that would empty the module.
@@ -600,13 +602,13 @@ def test_a_names_answer_that_never_ends_is_cut_at_the_wait(serve: Callable[..., 
         uri=server.address,
         timeout=1.0,
         open_printer=build_production().open_printer,
-        wait=AnswerWait(seconds=1.5),
+        wait=AnswerWait(seconds=1.5, wait_longer=_WAIT_LONGER),
     )
     waited = time.monotonic() - started
     server.join()
 
     assert held.listed is None
-    assert held.unread_because.startswith("reading them failed"), held.unread_because
+    assert held.unread_because == f"the answer was still arriving at the end of the 1.5 s wait; {_WAIT_LONGER}"
     assert waited < 4.0, waited
 
 
@@ -654,14 +656,34 @@ def test_an_answer_still_arriving_when_the_wait_ends_is_unread(serve: Callable[.
         uri=server.address,
         timeout=1.0,
         open_printer=build_production().open_printer,
-        wait=AnswerWait(seconds=1.0),
+        wait=AnswerWait(seconds=1.0, wait_longer=_WAIT_LONGER),
     )
     waited = time.monotonic() - started
     server.join()
 
     assert held.listed is None
-    assert held.unread_because.startswith("reading them failed"), held.unread_because
+    assert held.unread_because == f"the answer was still arriving at the end of the 1 s wait; {_WAIT_LONGER}"
     assert waited < 2.9, waited
+
+
+@pytest.mark.os_agnostic
+def test_a_printer_that_never_answers_the_names_request_is_unread_with_the_wait_named(
+    serve: Callable[..., PrinterServer],
+) -> None:
+    server = serve(silent)
+    held = stored_image_names(
+        module="A",
+        uri=server.address,
+        timeout=1.0,
+        open_printer=build_production().open_printer,
+        wait=AnswerWait(seconds=0.5, wait_longer=_WAIT_LONGER),
+    )
+    server.join()
+
+    assert held.listed is None
+    assert held.unread_because.startswith(f"reading them failed: {server.address}: no answer in "), held.unread_because
+    assert _WAIT_LONGER in held.unread_because
+    assert "did not end" not in held.unread_because
 
 
 def _print(printer: RecordingPrinter, label: Label, options: RenderOptions) -> RenderResult:
@@ -825,6 +847,28 @@ def test_a_refused_print_to_a_file_creates_no_file(cli_runner: CliRunner, tmp_pa
 
     assert result.exit_code != 0, result.output
     assert not target.exists()
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.usefixtures("no_ambient_configuration")
+def test_print_says_the_names_answer_was_still_arriving_at_the_end_of_stored_names_wait(
+    cli_runner: CliRunner, tmp_path: Path, serve: Callable[..., PrinterServer]
+) -> None:
+    server = serve(trickling(_WG, _HOLDS_LOGO, every=0.2, for_seconds=4.0), module_printer(ImageModules()))
+    args = ["--json", "print", _label_file(tmp_path, _LOGO), "--model", "allegro-2", "--printer", server.address]
+
+    result = _run(
+        cli_runner, args, DATAMAX_DPL___PRINTER__IMAGE_MODULE="B", DATAMAX_DPL___PRINTER__STORED_NAMES_WAIT="1"
+    )
+    server.join()
+
+    assert result.exit_code == 0, result.output
+    findings = json.loads(result.stdout)["data"]["findings"]
+    [unread] = [finding["message"] for finding in findings if finding["code"] == "image_names_unread"]
+    assert (
+        "the answer was still arriving at the end of the 1 s wait; wait longer with [printer] stored_names_wait"
+        in unread
+    )
 
 
 @pytest.mark.os_agnostic

@@ -7,7 +7,7 @@ import socket
 import time
 from typing import TYPE_CHECKING
 
-from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
+from datamax_dpl.domain.errors import AnswerNotEndedError, PrinterProtocolError, TransportError
 from datamax_dpl.domain.timing import DEFAULT_TRANSPORT_TUNING, MAX_ANSWER_SECONDS, TransportTuning
 
 from .uri import (
@@ -167,8 +167,8 @@ class TcpTransport(ClosingTransport):
             The answer, at most :data:`MAX_IDLE_ANSWER_BYTES` long.
 
         Raises:
-            PrinterTimeoutError: No byte within ``timeout`` seconds, or the answer did not end
-                within ``total`` seconds.
+            PrinterTimeoutError: No byte within ``timeout`` seconds, or (``AnswerNotEndedError``)
+                the answer did not end within ``total`` seconds.
             PrinterProtocolError: More than :data:`MAX_IDLE_ANSWER_BYTES` arrived.
             TransportError: The connection failed, or the printer closed it before answering.
             ValueError: ``timeout``, ``idle`` or ``total`` is not a usable number of seconds.
@@ -301,7 +301,7 @@ class TcpTransport(ClosingTransport):
             if chunk is None and wait >= idle:
                 return bytes(answer)
             if chunk is None:
-                raise PrinterTimeoutError(
+                raise AnswerNotEndedError(
                     f"tcp {self._uri.target}: the answer did not end within {total:g} s ({len(answer)} bytes read)"
                 )
             if not chunk:

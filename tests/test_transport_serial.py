@@ -20,7 +20,7 @@ from datamax_dpl.adapters.transport.serial import SerialTransport
 from datamax_dpl.adapters.transport.tcp import MAX_ANSWER_BYTES, MAX_IDLE_ANSWER_BYTES
 from datamax_dpl.adapters.transport.uri import SerialUri
 from datamax_dpl.application.use_cases import MEMORY_REPORT_LINES, detect_printer
-from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
+from datamax_dpl.domain.errors import AnswerNotEndedError, PrinterProtocolError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.status import is_status_line
 from datamax_dpl.domain.timing import SEND_CHUNK_BYTES, TransportTuning
 
@@ -661,7 +661,7 @@ def test_a_pty_printer_that_never_stops_dripping_ends_at_the_total_deadline(pty_
         thread.start()
         started = time.monotonic()
         try:
-            with pytest.raises(PrinterTimeoutError, match="the answer did not end within 1 s"):
+            with pytest.raises(AnswerNotEndedError, match="the answer did not end within 1 s"):
                 printer.read_answer(b"\x02WG", timeout=1.0, idle=0.5, total=1.0)
         finally:
             stop.set()

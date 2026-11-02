@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 import serial
 
-from datamax_dpl.domain.errors import PrinterProtocolError, PrinterTimeoutError, TransportError
+from datamax_dpl.domain.errors import AnswerNotEndedError, PrinterProtocolError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.timing import DEFAULT_TRANSPORT_TUNING, TransportTuning
 
 from .tcp import MAX_ANSWER_BYTES, MAX_ANSWER_SECONDS, MAX_IDLE_ANSWER_BYTES
@@ -254,8 +254,8 @@ class SerialTransport(ClosingTransport):
             The answer, at most ``MAX_IDLE_ANSWER_BYTES`` long.
 
         Raises:
-            PrinterTimeoutError: No byte within ``timeout`` seconds, or the answer did not end
-                within ``total`` seconds.
+            PrinterTimeoutError: No byte within ``timeout`` seconds, or (``AnswerNotEndedError``)
+                the answer did not end within ``total`` seconds.
             PrinterProtocolError: More than ``MAX_IDLE_ANSWER_BYTES`` arrived.
             TransportError: The port failed or is closed.
             ValueError: ``timeout``, ``idle`` or ``total`` is not a usable number of seconds.
@@ -357,7 +357,7 @@ class SerialTransport(ClosingTransport):
             if not chunk and wait >= idle:
                 return answer
             if not chunk:
-                raise PrinterTimeoutError(
+                raise AnswerNotEndedError(
                     f"serial {self._uri.path}: the answer did not end within {total:g} s ({len(answer)} bytes read)"
                 )
             answer += chunk

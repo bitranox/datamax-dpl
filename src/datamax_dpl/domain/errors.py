@@ -68,6 +68,13 @@ class PrinterTimeoutError(TransportError):
     """The printer did not answer, or did not finish, within the timeout."""
 
 
+class AnswerNotEndedError(PrinterTimeoutError):
+    """The printer answered, but its answer was still arriving when the whole wait for it ended.
+
+    It took the request, so asking again would only start a second answer behind the first.
+    """
+
+
 class UnsupportedOperationError(TransportError):
     """The channel cannot do what was asked, such as reading an answer from a file or stdout."""
 
@@ -81,6 +88,7 @@ class CameraError(Exception):
 
 
 __all__ = [
+    "AnswerNotEndedError",
     "CameraError",
     "ConfigurationError",
     "LabelRejectedError",

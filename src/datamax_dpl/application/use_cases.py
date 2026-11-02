@@ -21,6 +21,7 @@ from ..domain.batch import batch_cuts, with_cut
 from ..domain.detect import Detection, Evidence, suggest_profiles
 from ..domain.enums import Severity
 from ..domain.errors import (
+    AnswerNotEndedError,
     LabelRejectedError,
     PrinterProtocolError,
     PrinterTimeoutError,
@@ -282,9 +283,24 @@ def read_stored_names(
         )
     except UnsupportedOperationError:
         return None, HeldImages(unread_because=ONE_WAY_LINK)
+    except AnswerNotEndedError:
+        return None, HeldImages(unread_because=_still_arriving(AnswerWait(seconds=timeout) if wait is None else wait))
     except TransportError as exc:
         return None, HeldImages(unread_because=f"reading them failed: {exc}")
     return channel, held_images_from(directory, module=module)
+
+
+def _still_arriving(wait: AnswerWait) -> str:
+    """Say that the names answer did not end within ``wait``, naming the wait as configured.
+
+    The transport's own figure is the wait left plus the ending silence, which no setting holds.
+
+    Example:
+        >>> _still_arriving(AnswerWait(seconds=30.0, wait_longer="wait longer with [printer] stored_names_wait"))
+        'the answer was still arriving at the end of the 30 s wait; wait longer with [printer] stored_names_wait'
+    """
+    advice = f"; {wait.wait_longer}" if wait.wait_longer else ""
+    return f"the answer was still arriving at the end of the {wait.seconds:g} s wait{advice}"
 
 
 def with_stored_names(
@@ -562,6 +578,9 @@ class _Tries:
             TransportError: ``error`` itself, any other failure.
         """
         self.last = error
+        if isinstance(error, AnswerNotEndedError):
+            # The printer answered: "no answer in N s" would misreport it, and it took the request.
+            raise error
         if error.unanswered and self.left() > self.wait.retry_interval:
             return
         if error.unanswered or isinstance(error, PrinterTimeoutError):
