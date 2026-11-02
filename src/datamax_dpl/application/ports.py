@@ -146,7 +146,9 @@ class PrinterTransport(Protocol):
 
         Asked without waiting and without taking a byte of an answer that is waiting. False when
         the channel is open, or when it cannot tell (a serial line, a file): a close that comes
-        after this question, or after the next write, is not seen.
+        after this question, or after the next write, is not seen. Over TCP (measured on Linux
+        loopback) a byte still waiting ahead of a close hides that close, so the rest goes to a
+        closed connection, and a far end that only stops writing (a half close) reads as closed.
         """
         ...
 

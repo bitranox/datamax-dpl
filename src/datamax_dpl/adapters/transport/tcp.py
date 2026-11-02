@@ -105,9 +105,12 @@ class TcpTransport(ClosingTransport):
     def peer_closed(self) -> bool:
         """True when the printer or print server has closed or reset the connection.
 
-        Peeks without waiting, so a byte of an answer that is waiting stays for the next read. A
-        close (an empty peek) or a reset that has arrived is seen; a close still on its way, or one
-        the server makes after the next write, is not.
+        Peeks one byte without waiting, so a byte of an answer that is waiting stays for the next
+        read. Measured over Linux loopback: a close (FIN) or a reset (RST) with nothing ahead of it
+        is seen; a byte still waiting ahead of a close hides it, so the rest is then written to a
+        closed connection; a server that only stops writing (a half close, ``SHUT_WR``) reads as
+        closed, which costs a needless new connection and nothing else. A close still on its way,
+        or one the server makes after the next write, is not seen.
         """
         if self._sock.fileno() == -1:
             return True

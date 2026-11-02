@@ -561,7 +561,10 @@ Allegro 2), or print over a one-way link. The directory read is the one pause in
 a second when the printer answers at once. A print server that closes the connection during it is
 seen before the rest goes out, and the rest goes on a new connection (tried again within
 `stored_names_wait` while it is refused). A close that comes only after the rest was written is
-not seen: that label is lost while `print` reports it sent.
+not seen: that label is lost while `print` reports it sent. Nor is a close behind a byte the
+server sent after the answer: the byte still waiting hides it (measured over Linux loopback), and
+the rest then goes to a closed connection. A server that only stops sending (a half close) reads
+as closed and the rest goes on a new connection, which costs nothing else.
 
 `max_format_rows` ships unset too. The Allegro 2 cuts a long format off; its model limit is 1648
 dot rows, about 201 mm at its default `scale_along`, the lowest row any test format was cut at on

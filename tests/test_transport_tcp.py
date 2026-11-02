@@ -7,6 +7,7 @@ import errno
 import re
 import select
 import socket
+import struct
 import sys
 import threading
 import time
@@ -925,3 +926,84 @@ def test_peer_closed_sees_the_far_end_close_and_a_closed_transport() -> None:
     assert printer.peer_closed()
     printer.close()
     assert printer.peer_closed()
+
+
+def _tcp_pair() -> tuple[socket.socket, socket.socket]:
+    """A real TCP connection over loopback: our end and the printer's.
+
+    Bound to 127.0.0.1 itself, never the name localhost, which a CI runner may resolve to ::1.
+    """
+    with socket.create_server(("127.0.0.1", 0)) as listener:
+        ours = socket.create_connection(listener.getsockname()[:2], timeout=JOIN_SECONDS)
+        theirs, _ = listener.accept()
+    return ours, theirs
+
+
+def _reset(sock: socket.socket) -> None:
+    """Close ``sock`` with a reset (RST) instead of a close (FIN): a linger of 0 seconds."""
+    # Windows declares struct linger as two u_short, POSIX as two int.
+    linger = struct.pack("HH", 1, 0) if sys.platform == "win32" else struct.pack("ii", 1, 0)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, linger)
+    sock.close()
+
+
+@pytest.mark.os_agnostic
+def test_peer_closed_over_tcp_is_false_while_idle_and_keeps_the_write_timeout() -> None:
+    ours, theirs = _tcp_pair()
+    with theirs, TcpTransport(ours, uri=TcpUri(host="127.0.0.1"), timeout=2.0) as printer:
+        assert not printer.peer_closed()
+        assert ours.gettimeout() == 2.0
+
+
+@pytest.mark.os_agnostic
+def test_peer_closed_over_tcp_is_false_with_answer_bytes_waiting_and_leaves_them_to_read() -> None:
+    ours, theirs = _tcp_pair()
+    with theirs, TcpTransport(ours, uri=TcpUri(host="127.0.0.1"), timeout=2.0) as printer:
+        theirs.sendall(b"AB")
+        _readable(ours)
+
+        assert not printer.peer_closed()
+        assert ours.recv(8) == b"AB"
+
+
+@pytest.mark.os_agnostic
+def test_peer_closed_over_tcp_sees_a_close() -> None:
+    ours, theirs = _tcp_pair()
+    with TcpTransport(ours, uri=TcpUri(host="127.0.0.1"), timeout=2.0) as printer:
+        theirs.close()
+        _readable(ours)
+
+        assert printer.peer_closed()
+
+
+@pytest.mark.os_agnostic
+def test_peer_closed_over_tcp_sees_a_reset() -> None:
+    ours, theirs = _tcp_pair()
+    with TcpTransport(ours, uri=TcpUri(host="127.0.0.1"), timeout=2.0) as printer:
+        _reset(theirs)
+        _readable(ours)
+
+        assert printer.peer_closed()
+
+
+@pytest.mark.os_agnostic
+def test_peer_closed_over_tcp_misses_a_close_behind_a_byte_still_waiting() -> None:
+    """The documented limit: the peek takes the waiting byte, so the close behind it stays unseen."""
+    ours, theirs = _tcp_pair()
+    with TcpTransport(ours, uri=TcpUri(host="127.0.0.1"), timeout=2.0) as printer:
+        theirs.sendall(b"X")
+        theirs.close()
+        _readable(ours)
+
+        assert not printer.peer_closed()
+
+
+@pytest.mark.os_agnostic
+def test_peer_closed_over_tcp_reads_a_half_close_as_closed() -> None:
+    """A server that stops writing but still reads looks closed: the rest then goes on a new connection."""
+    ours, theirs = _tcp_pair()
+    with theirs, TcpTransport(ours, uri=TcpUri(host="127.0.0.1"), timeout=2.0) as printer:
+        theirs.shutdown(socket.SHUT_WR)
+        _readable(ours)
+
+        assert printer.peer_closed()
