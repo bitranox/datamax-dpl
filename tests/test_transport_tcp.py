@@ -486,6 +486,38 @@ def test_a_request_cut_off_part_way_advises_no_power_cycle(error: OSError) -> No
     assert caught.value.advice == ""
 
 
+class _FloodingSocket(socket.socket):
+    """A socket whose peer always has more to read, faster than any reader: nothing here can drain it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.taken = 0
+        self.sent = bytearray()
+
+    def recv(self, bufsize: int, flags: int = 0, /) -> bytes:
+        self.taken += bufsize
+        if self.taken > _FLOOD_GIVEN_UP_AT:
+            pytest.fail("the read before the request never stopped")
+        return b"x" * bufsize
+
+    def sendall(self, data: ReadableBuffer, flags: int = 0, /) -> None:
+        self.sent += bytes(data)
+
+
+#: Far past what a read before a request may drop, so a test of that bound ends when it is missing.
+_FLOOD_GIVEN_UP_AT = 64 * 1024 * 1024
+
+
+@pytest.mark.os_agnostic
+def test_a_flooding_peer_does_not_keep_a_request_from_going_out() -> None:
+    with _FloodingSocket() as flood:
+        printer = TcpTransport(flood, uri=TcpUri(host="127.0.0.1"), timeout=2.0)
+        with pytest.raises(PrinterProtocolError):
+            printer.query(b"ask", timeout=1.0)
+        assert bytes(flood.sent) == b"ask"
+        assert flood.taken <= MAX_IDLE_ANSWER_BYTES + MAX_ANSWER_BYTES + 2 * 4096
+
+
 @pytest.mark.os_agnostic
 def test_a_reset_that_arrived_before_the_request_went_out_is_unanswered(serve: Callable[..., PrinterServer]) -> None:
     """The reset is already waiting when the query drops stale bytes, so that read reports it.

@@ -150,6 +150,8 @@ class ResetCheck:
         calibrate: True prints one calibration label on a report; False only reports it
             (``calibrate_after_reset``).
         text: What the calibration label says (``calibration_label_text``).
+        off_because: Why no label goes when ``calibrate`` is False, quoted in the finding: a caller
+            with a setting for it names the setting.
 
     Raises:
         ValueError: ``wait`` is not a usable number of seconds, or ``text`` is no text field's
@@ -163,6 +165,7 @@ class ResetCheck:
     wait: float = RESET_CHECK_WAIT_SECONDS
     calibrate: bool = CALIBRATE_AFTER_RESET
     text: str = CALIBRATION_LABEL_TEXT
+    off_because: str = "calibration labels are turned off"
 
     def __post_init__(self) -> None:
         """Refuse a value that could only fail once a job is on its way."""
@@ -290,7 +293,7 @@ class Link:
     reconnect: AnswerWait
     bytes_sent: int = 0
     reset_seen: bool = False
-    _opened: list[PrinterTransport] = field(default_factory=list["PrinterTransport"])
+    _opened: PrinterTransport | None = None
 
     def send(self, data: bytes) -> None:
         """Write ``data`` on the open channel, opening one first when a failed read left none.
@@ -309,12 +312,12 @@ class Link:
         self.bytes_sent += len(data)
 
     def channel(self) -> PrinterTransport:
-        """The open channel, a new one when a failed read left none; :meth:`close_opened` closes a new one."""
+        """The open channel, a new one when a failed read left none; :meth:`close_opened` closes that one."""
         if self.printer is None:
             self.printer = open_within(
                 uri=self.uri, timeout=self.timeout, open_printer=self.open_printer, wait=self.reconnect
             )
-            self._opened.append(self.printer)
+            self._hold_opened(self.printer)
         return self.printer
 
     def read(self, module: ImageModule, *, wait: AnswerWait) -> HeldImages:
@@ -325,14 +328,23 @@ class Link:
         )
         self.printer = read.channel
         if self.printer is not None and self.printer is not before:
-            self._opened.append(self.printer)
+            self._hold_opened(self.printer)
         self.reset_seen = self.reset_seen or read.held.reset_reported
         return read.held
 
+    def _hold_opened(self, printer: PrinterTransport) -> None:
+        """Hold ``printer`` as the channel this link opened, closing the one it replaces.
+
+        A print server can drop a connection at each read, so a list of them would grow with the labels.
+        """
+        if self._opened is not None and self._opened is not printer:
+            self._opened.close()
+        self._opened = printer
+
     def close_opened(self) -> None:
-        """Close every channel this link opened itself; the one it was given stays the caller's."""
-        for printer in self._opened:
-            printer.close()
+        """Close the channel this link opened itself, if any; the one it was given stays the caller's."""
+        if self._opened is not None:
+            self._opened.close()
 
 
 class _Found(NamedTuple):
@@ -878,7 +890,7 @@ def _reset_in_rounds(link: Link, render: RecordRender, job: CheckedJob, *, passe
 def _on_reset(link: Link, render: RecordRender, reset: ResetCheck) -> tuple[Finding, ...]:
     """Send the calibration label a reset report asks for, or say why none went; return what the job should say."""
     if not reset.calibrate:
-        return (_not_calibrated("[printer] calibrate_after_reset is off", severity=Severity.INFO),)
+        return (_not_calibrated(reset.off_because, severity=Severity.INFO),)
     calibration = render.calibration(reset.text)
     if not calibration.ok:
         reasons = "; ".join(f.message for f in calibration.errors)

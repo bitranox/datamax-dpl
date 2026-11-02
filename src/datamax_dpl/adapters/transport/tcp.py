@@ -44,6 +44,9 @@ MAX_IDLE_ANSWER_BYTES = 1024 * 1024
 REFUSED_RETRY_SECONDS = 3.0
 _REFUSED_RETRY_INTERVAL = 0.25
 _RECV_CHUNK = 4096
+#: Most bytes dropped before a request. An earlier answer is no longer than this, and a peer sending
+#: faster than this reads could otherwise keep the request from ever going out.
+_MOST_STALE_BYTES = MAX_IDLE_ANSWER_BYTES
 
 
 class TcpTransport(ClosingTransport):
@@ -269,11 +272,12 @@ class TcpTransport(ClosingTransport):
 
         It runs before a request is written, so a hang-up here is ``unanswered``.
         """
+        dropped = 0
         try:
             # A zero timeout makes recv raise at once when nothing is waiting.
             self._sock.settimeout(0.0)
-            while self._sock.recv(_RECV_CHUNK):
-                pass
+            while dropped < _MOST_STALE_BYTES and (stale := self._sock.recv(_RECV_CHUNK)):
+                dropped += len(stale)
         except BlockingIOError:
             pass
         except OSError as exc:
