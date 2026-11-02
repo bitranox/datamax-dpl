@@ -185,14 +185,20 @@ def _run(argv: list[str], *, program: str, timeout: float) -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
-    except OSError as exc:
-        raise CameraError(f"camera program {program!r} could not be started: {exc.strerror or exc}") from exc
+    except (OSError, ValueError) as exc:
+        # ValueError: a NUL in an argument, which no program can be started with.
+        reason = exc.strerror if isinstance(exc, OSError) and exc.strerror else exc
+        raise CameraError(f"camera program {program!r} could not be started: {reason}") from exc
     stderr = _StderrTail(process.stderr)
     try:
         returncode = process.wait(timeout)
     except subprocess.TimeoutExpired as exc:
         _kill_tree(process, timeout=timeout)
         raise CameraError(f"camera program {program!r} timed out after {timeout:g} s") from exc
+    except BaseException:
+        # An interrupt sent to this process alone (kill -INT, a supervisor) must not leave it running.
+        _kill_tree(process, timeout=timeout)
+        raise
     if returncode != 0:
         # What is left of the capture's time, so a helper holding stderr cannot stretch the capture.
         tail = stderr.text(wait=deadline - time.monotonic())

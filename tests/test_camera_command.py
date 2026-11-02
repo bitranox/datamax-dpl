@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -206,7 +207,8 @@ def test_a_chatty_program_is_not_kept_in_memory(tmp_path: Path) -> None:
     finally:
         tracemalloc.stop()
     assert peak < 4 * 1024 * 1024
-    assert len(str(caught.value)) < STDERR_TAIL_CHARS + 200
+    # Less the program's own path, which the message names and which a test's tmp dir can make long.
+    assert len(str(caught.value)) - len(sys.executable) < STDERR_TAIL_CHARS + 200
 
 
 @pytest.mark.os_agnostic
@@ -239,3 +241,47 @@ def test_on_windows_a_timeout_ends_the_whole_process_tree(tmp_path: Path) -> Non
         check=False,
     )
     assert pid_file.read_text() not in tasklist.stdout
+
+
+@pytest.mark.os_agnostic
+def test_a_nul_in_an_argument_is_a_camera_error(tmp_path: Path) -> None:
+    """No program can be started with one, and the docstring promises this one type."""
+    with pytest.raises(CameraError, match="could not be started"):
+        capture_with_command(_settings(sys.executable, "-c", "a\x00b", "{output}"), stem=tmp_path / "c")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="SIGINT to one process has no equivalent to send on Windows")
+def test_an_interrupt_to_this_process_alone_ends_the_camera_program(tmp_path: Path) -> None:
+    """A supervisor's kill -INT reaches only this process, and a program left running would outlive it."""
+    pid_file = tmp_path / "program.pid"
+    capture = (
+        "import sys\n"
+        "from pathlib import Path\n"
+        "from datamax_dpl.adapters.camera.command import capture_with_command\n"
+        "from datamax_dpl.domain.camera import CameraKind, CameraSettings\n"
+        "program = \"import os, sys, time; open(sys.argv[1], 'w').write(str(os.getpid())); time.sleep(60)\"\n"
+        f"argv = [sys.executable, '-c', program, {str(pid_file)!r}, '{{output}}']\n"
+        "settings = CameraSettings(kind=CameraKind.COMMAND, command=argv, timeout=60.0)\n"
+        f"capture_with_command(settings, stem=Path({str(tmp_path / 'c')!r}))\n"
+    )
+    process = subprocess.Popen([sys.executable, "-c", capture], stderr=subprocess.DEVNULL)  # noqa: S603 - this interpreter
+    try:
+        deadline = time.monotonic() + 30.0
+        while not (pid_file.exists() and pid_file.read_text()) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        program = int(pid_file.read_text())
+        process.send_signal(signal.SIGINT)
+        process.wait(30)
+        with pytest.raises(ProcessLookupError):
+            _wait_until_gone(program)
+    finally:
+        process.kill()
+        process.wait()
+
+
+def _wait_until_gone(pid: int) -> None:
+    """Raise ProcessLookupError once ``pid`` no longer exists; ``_kill_tree`` has reaped it by then."""
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        os.kill(pid, 0)
+        time.sleep(0.02)

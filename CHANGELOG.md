@@ -312,6 +312,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The HTTP camera's `timeout` holds for the whole capture: dripped headers or
+  chunk sizes ran past it without bound, and it now shuts the socket at the
+  deadline (a TLS handshake is still bound per receive only). A body shorter
+  than its `Content-Length` is refused; it was stored and reported as a good
+  photo. A malformed camera URL and a NUL in a camera command's argument are
+  `CameraError`s, and an interrupt sent to this process alone ends the camera
+  program too.
 - Ctrl-C exits 130 with one line on stderr and, under `--json`, an error
   envelope; it exited 1, which reads as a refusal with nothing printed.
 - The printer URI `-` keeps standard output to the job: `--json` and

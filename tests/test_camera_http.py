@@ -6,6 +6,7 @@ import base64
 import contextlib
 import gc
 import re
+import socket
 import threading
 import time
 import warnings
@@ -348,3 +349,93 @@ def test_a_refused_answer_leaves_no_socket_for_the_garbage_collector(
         gc.collect()
     assert answer in message
     assert [str(warning.message) for warning in caught if warning.category is ResourceWarning] == []
+
+
+class _RawCamera:
+    """A socket that answers a request with bytes on a schedule, for what http.server will not do."""
+
+    def __init__(self, answer: bytes, *, dripped: bytes = b"", interval: float = 0.0, then_close: bool = True) -> None:
+        self._answer = answer
+        self._dripped = dripped
+        self._interval = interval
+        self._then_close = then_close
+        self._listener = socket.create_server(("127.0.0.1", 0))
+        self.url = f"http://127.0.0.1:{self._listener.getsockname()[1]}/snap"
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+
+    def __enter__(self) -> _RawCamera:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self._listener.close()
+        self._thread.join(5)
+
+    def _serve(self) -> None:
+        with contextlib.suppress(OSError):
+            client, _address = self._listener.accept()
+            with client:
+                client.recv(65536)
+                self._send(client)
+                if not self._then_close:
+                    # Until the far end goes away, however long that takes.
+                    client.recv(1)
+
+    def _send(self, client: socket.socket) -> None:
+        client.sendall(self._answer)
+        for byte in self._dripped:
+            client.sendall(bytes((byte,)))
+            time.sleep(self._interval)
+
+
+_OK_HEAD = b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n"
+#: Far more than the 1 s timeout, far less than what a capture with no overall bound would take.
+_WELL_PAST_THE_TIMEOUT = 4.0
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("answer", "dripped"),
+    [
+        pytest.param(b"HTTP/1.1 200 OK\r\n", b"X-Pad: " + b"a" * 200, id="headers"),
+        pytest.param(_OK_HEAD + b"Transfer-Encoding: chunked\r\n\r\n", b"0" * 200, id="chunk-size-line"),
+    ],
+)
+def test_a_camera_dripping_what_http_client_reads_inside_one_call_is_cut_off(
+    tmp_path: Path, answer: bytes, dripped: bytes
+) -> None:
+    """Every byte restarts the socket's timeout, so only a deadline outside the read can end these."""
+    with _RawCamera(answer, dripped=dripped, interval=0.05) as raw:
+        started = time.monotonic()
+        with pytest.raises(CameraError, match=r"within 1 s"):
+            capture_with_http(CameraSettings(kind=CameraKind.HTTP, url=raw.url, timeout=1.0), stem=tmp_path / "s")
+    assert time.monotonic() - started < _WELL_PAST_THE_TIMEOUT
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.os_agnostic
+def test_an_image_with_no_length_cut_off_by_the_deadline_is_not_stored(tmp_path: Path) -> None:
+    """Such a body simply ends when its socket does, so an end here must not read as a whole image."""
+    answer = _OK_HEAD + b"Connection: close\r\n\r\n" + TINY_PNG[:10]
+    with _RawCamera(answer, then_close=False) as raw:
+        with pytest.raises(CameraError, match=r"within 1 s"):
+            capture_with_http(CameraSettings(kind=CameraKind.HTTP, url=raw.url, timeout=1.0), stem=tmp_path / "s")
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.os_agnostic
+def test_a_body_shorter_than_it_announced_is_refused(tmp_path: Path) -> None:
+    """A camera restarting mid-send: exit 0 and 100 bytes of a million would sit beside the preview."""
+    answer = _OK_HEAD + b"Content-Length: 1000000\r\n\r\n" + b"x" * 100
+    with _RawCamera(answer) as raw:
+        with pytest.raises(CameraError, match="before it was complete"):
+            capture_with_http(CameraSettings(kind=CameraKind.HTTP, url=raw.url, timeout=5.0), stem=tmp_path / "s")
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.os_agnostic
+def test_a_url_urlsplit_refuses_is_a_camera_error_that_keeps_its_password(tmp_path: Path) -> None:
+    settings = CameraSettings(kind=CameraKind.HTTP, url=f"http://u:{PASSWORD}@[bad/x", timeout=1.0)
+    with pytest.raises(CameraError, match="malformed") as caught:
+        capture_with_http(settings, stem=tmp_path / "s")
+    assert PASSWORD not in str(caught.value)

@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import base64
 import http.client
+import socket
 import ssl
-import time
+import threading
 from contextlib import closing
 from dataclasses import dataclass
 from enum import Enum
@@ -30,13 +31,13 @@ from ..config.sections import CAMERA_SECTION
 from .stored import MAX_IMAGE_BYTES, StoredImage
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Mapping
     from pathlib import Path
 
     from ...domain.camera import CameraSettings
 
-#: Most bytes taken from the socket between two looks at the capture's deadline. No setting: it
-#: only decides how often the clock is read, and one receive takes what has already arrived.
+#: Most bytes taken from the socket in one receive. No setting: one receive takes what has already
+#: arrived, so this decides nothing a caller can see.
 _READ_CHUNK_BYTES = 64 * 1024
 
 #: The media type each accepted ``Content-Type`` names, in the order the request's ``Accept`` lists
@@ -71,16 +72,60 @@ class _CameraUrl:
     scheme: _Scheme
 
 
-def capture_with_http(
-    settings: CameraSettings, *, stem: Path, clock: Callable[[], float] = time.monotonic
-) -> StoredImage:
+class _Deadline:
+    """Shuts a connection's socket when the capture's time is up, whatever it is waiting in.
+
+    The socket's own timeout restarts on every byte, and http.client reads headers and chunk sizes
+    a line at a time inside its own calls, so a camera dripping them passes any check made between
+    receives. Shutting the socket down wakes the blocked read from outside. The window it cannot
+    reach is the TLS handshake, which runs before the socket is handed over.
+    """
+
+    def __init__(self, seconds: float) -> None:
+        self._lock = threading.Lock()
+        self._socket: socket.socket | None = None
+        self.passed = False
+        self._timer = threading.Timer(seconds, self._fire)
+        self._timer.daemon = True
+
+    def __enter__(self) -> _Deadline:
+        self._timer.start()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self._timer.cancel()
+        self._timer.join()
+
+    def watch(self, sock: socket.socket | None) -> None:
+        """Shut ``sock`` down at the deadline; at once if it has already passed."""
+        with self._lock:
+            self._socket = sock
+            if self.passed:
+                self._shut()
+
+    def _fire(self) -> None:
+        with self._lock:
+            self.passed = True
+            self._shut()
+
+    def _shut(self) -> None:
+        if self._socket is None:
+            return
+        try:
+            self._socket.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            # Already closed or reset: whatever was reading it has been woken by that.
+            return
+
+
+def capture_with_http(settings: CameraSettings, *, stem: Path) -> StoredImage:
     """GET ``settings.url`` and store the image it returns.
 
     Args:
         settings: The camera settings; ``url``, ``user``, ``password`` and ``timeout`` are used.
-            ``timeout`` is for the whole capture, a camera dripping its image included.
+            ``timeout`` is for the whole capture from the connection on, a camera dripping its
+            headers or its image included; a TLS handshake is bound per receive only.
         stem: Output path without extension; the extension follows the response's media type.
-        clock: Monotonic seconds for the capture's deadline.
 
     Returns:
         The image written, with the media type the response named.
@@ -88,21 +133,23 @@ def capture_with_http(
     Raises:
         CameraError: The URL is not ``http``/``https``, the camera is unreachable, answers a
             status other than 200, sends a media type that is not JPEG or PNG, an empty body,
-            or more than :data:`MAX_IMAGE_BYTES`, or has not finished within ``timeout``.
+            a body shorter than it announced or more than :data:`MAX_IMAGE_BYTES`, or has not
+            finished within ``timeout``.
     """
-    deadline = clock() + settings.timeout
     url = _parse_url(settings.url)
     connection = _connect(url, timeout=settings.timeout)
     target = url.parts
-    try:
-        # Closed on its own: a camera that ends the connection after answering hands the socket to
-        # the response, and closing the connection then no longer reaches it.
-        with closing(_get(connection, target=target, headers=_headers(settings, target=target))) as response:
-            _require_ok(response, target=target)
-            media_type = _media_type(response)
-            body = _read_body(response, time_left=lambda: deadline - clock(), timeout=settings.timeout)
-    finally:
-        connection.close()
+    with _Deadline(settings.timeout) as deadline:
+        try:
+            media_type, body = _fetch(connection, settings, target=target, deadline=deadline)
+        except CameraError as exc:
+            # What the shut socket looks like varies (no answer, a cut body), and says nothing.
+            raise _late(settings.timeout) if deadline.passed else exc
+        finally:
+            connection.close()
+        if deadline.passed:
+            # An image with no announced length simply ends when its socket does.
+            raise _late(settings.timeout)
     output = stem.with_suffix(EXTENSION_BY_MEDIA_TYPE[media_type])
     try:
         output.write_bytes(body)
@@ -111,11 +158,32 @@ def capture_with_http(
     return StoredImage(path=output, media_type=media_type)
 
 
+def _late(timeout: float) -> CameraError:
+    return CameraError(f"camera did not finish sending the image within {timeout:g} s")
+
+
+def _fetch(
+    connection: http.client.HTTPConnection, settings: CameraSettings, *, target: SplitResult, deadline: _Deadline
+) -> tuple[MediaType, bytes]:
+    """Connect, ask for the image and read it, with ``deadline`` watching the socket throughout."""
+    _open(connection, target=target)
+    deadline.watch(connection.sock)
+    # Closed on its own: a camera that ends the connection after answering hands the socket to
+    # the response, and closing the connection then no longer reaches it.
+    with closing(_get(connection, target=target, headers=_headers(settings, target=target))) as response:
+        _require_ok(response, target=target)
+        return _media_type(response), _read_body(response)
+
+
 def _parse_url(url: str) -> _CameraUrl:
     """Split ``url``, refusing anything but an ``http``/``https`` URL with a host."""
     if not url:
         raise CameraError(f"no camera URL configured: set {CAMERA_SECTION.setting('url')}")
-    target = urlsplit(url)
+    try:
+        target = urlsplit(url)
+    except ValueError as exc:
+        # Its own text: the URL may hold a password, and urlsplit's message is no help to a reader.
+        raise CameraError("camera URL is malformed (a host in brackets must be an IPv6 address)") from exc
     try:
         scheme = _Scheme(target.scheme.lower())
     except ValueError:
@@ -157,6 +225,19 @@ def _headers(settings: CameraSettings, *, target: SplitResult) -> dict[str, str]
     return headers
 
 
+def _open(connection: http.client.HTTPConnection, *, target: SplitResult) -> None:
+    """Connect now rather than inside the request, so the deadline can watch the socket from here on."""
+    try:
+        connection.connect()
+    except TimeoutError as exc:
+        raise CameraError(f"camera at {target.hostname!r} did not answer in time") from exc
+    except UnicodeError as exc:
+        # The socket's idna codec is what refuses a bad host name, and only here.
+        raise CameraError(f"camera URL has an invalid host {target.hostname!r}") from exc
+    except OSError as exc:
+        raise CameraError(f"camera at {target.hostname!r} is unreachable: {type(exc).__name__}") from exc
+
+
 def _get(
     connection: http.client.HTTPConnection, *, target: SplitResult, headers: dict[str, str]
 ) -> http.client.HTTPResponse:
@@ -169,9 +250,6 @@ def _get(
         response = connection.getresponse()
     except TimeoutError as exc:
         raise CameraError(f"camera at {target.hostname!r} did not answer in time") from exc
-    except UnicodeError as exc:
-        # The connection opens here, and the socket's idna codec is what refuses a bad host name.
-        raise CameraError(f"camera URL has an invalid host {target.hostname!r}") from exc
     except (OSError, http.client.HTTPException) as exc:
         raise CameraError(f"camera at {target.hostname!r} is unreachable: {type(exc).__name__}") from exc
     return response
@@ -193,19 +271,13 @@ def _media_type(response: http.client.HTTPResponse) -> MediaType:
     return media_type
 
 
-def _read_body(response: http.client.HTTPResponse, *, time_left: Callable[[], float], timeout: float) -> bytes:
-    """Read the body, refusing an empty one, one past :data:`MAX_IMAGE_BYTES` or one past the deadline.
-
-    The socket's timeout bounds each receive only: a camera sending a byte now and then would pass
-    it forever, so the deadline is read between receives.
-    """
+def _read_body(response: http.client.HTTPResponse) -> bytes:
+    """Read the body, refusing an empty one, a cut-off one and one past :data:`MAX_IMAGE_BYTES`."""
     pieces: list[bytes] = []
     size = 0
     try:
         # One byte past the cap is enough to tell "too large" without reading the rest.
         while size <= MAX_IMAGE_BYTES:
-            if time_left() <= 0:
-                raise CameraError(f"camera did not finish sending the image within {timeout:g} s")
             piece = response.read1(_READ_CHUNK_BYTES)
             if not piece:
                 break
@@ -217,6 +289,9 @@ def _read_body(response: http.client.HTTPResponse, *, time_left: Callable[[], fl
         raise CameraError(f"camera image could not be read: {type(exc).__name__}") from exc
     if size > MAX_IMAGE_BYTES:
         raise CameraError(f"camera image is larger than {MAX_IMAGE_BYTES} bytes")
+    # What the camera announced and never sent: read1 reports a connection closed early as an end.
+    if response.length:
+        raise CameraError("camera stopped sending the image before it was complete")
     if not size:
         raise CameraError("camera sent an empty image")
     return b"".join(pieces)
