@@ -522,7 +522,8 @@ does) and leave out the download of each name it holds; the label then prints th
 (`image_name_held`). Where the names cannot be read (`render`, `validate` and `preview` never ask;
 a one-way link cannot answer, so a file, stdout or a device file is not opened to ask; `C` is the
 default module, whose real letter a directory does not show; the printer did not answer within
-`stored_names_wait`) every image is downloaded and `image_names_unread` says so. A name the printer
+`stored_names_wait`; its answer did not list the job's module, which an answer cut short looks
+like) every image is downloaded and `image_names_unread` says so. A name the printer
 lists only in another letter case is another name: one Allegro 2 kept a name as it was sent and
 printed no image for a format naming it in another case. In a `--data` batch a name an earlier
 label downloaded is not downloaded again, and a different picture whose content name an earlier

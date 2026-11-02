@@ -579,6 +579,27 @@ def test_the_directory_s_names_of_the_job_s_module_are_the_held_ones() -> None:
 
 
 @pytest.mark.os_agnostic
+def test_a_directory_that_does_not_list_the_job_s_module_leaves_its_names_unread() -> None:
+    """An answer cut before module B's block reads as B unknown, never as B holding nothing."""
+    directory = parse_module_directory(b"MODULE: A\rOTHER\rAVAILABLE BYTES IN MODULE: 00049000\r", kind="graphic")
+    assert directory.parsed
+
+    held = held_images_from(directory, module="B")
+
+    assert held.listed is None
+    assert held.unread_because == "the printer's directory answer did not list module B"
+
+
+@pytest.mark.os_agnostic
+def test_a_module_the_directory_lists_with_no_names_holds_none() -> None:
+    directory = parse_module_directory(
+        b"MODULE: A\rOTHER\rAVAILABLE BYTES IN MODULE: 00049000\rMODULE: B\rAVAILABLE BYTES IN MODULE: 00049088\r",
+        kind="graphic",
+    )
+    assert held_images_from(directory, module="B").listed == frozenset()
+
+
+@pytest.mark.os_agnostic
 def test_an_unreadable_directory_gives_no_names() -> None:
     directory = parse_module_directory(b"MODULE: A\rLOGO\r", kind="graphic")
     held = held_images_from(directory, module="A")

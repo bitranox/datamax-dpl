@@ -166,9 +166,11 @@ EMPTY_MODULE = HeldImages(listed=frozenset())
 def held_images_from(directory: MemoryDirectory, *, module: str) -> HeldImages:
     """Return what ``directory`` (a graphic ``<STX>W`` answer) says ``module`` holds.
 
-    A module the answer does not list holds nothing the job could collide with. An answer the
-    parser could not read gives no names, and so does the default module ``C``, which the answer
-    never lists by that letter: every download is then kept, as when nothing was asked.
+    A module the answer lists with no names holds none. A module the answer does not list gives
+    no names: the answer may have ended before it, and a module read as empty that holds a name
+    would get that name downloaded again, which prints nothing. An answer the parser could not
+    read gives no names either, and so does the default module ``C``, which the answer never lists
+    by that letter: every download is then kept, as when nothing was asked.
 
     Args:
         directory: The printer's graphic directory.
@@ -183,8 +185,8 @@ def held_images_from(directory: MemoryDirectory, *, module: str) -> HeldImages:
         >>> answer = parse_module_directory(raw, kind="graphic")
         >>> held_images_from(answer, module="A").listed
         frozenset({'LOGO'})
-        >>> held_images_from(answer, module="B").listed
-        frozenset()
+        >>> held_images_from(answer, module="B").unread_because
+        "the printer's directory answer did not list module B"
         >>> held_images_from(answer, module="C").listed is None
         True
     """
@@ -192,8 +194,10 @@ def held_images_from(directory: MemoryDirectory, *, module: str) -> HeldImages:
         return HeldImages(unread_because=DEFAULT_MODULE_UNREAD)
     if not directory.parsed:
         return HeldImages(unread_because="the printer's directory answer could not be read")
-    names = (entry.names for entry in directory.modules if entry.module == module)
-    return HeldImages(listed=frozenset(name for listing in names for name in listing))
+    listings = [entry.names for entry in directory.modules if entry.module == module]
+    if not listings:
+        return HeldImages(unread_because=f"the printer's directory answer did not list module {module}")
+    return HeldImages(listed=frozenset(name for listing in listings for name in listing))
 
 
 __all__ = ["DEFAULT_MODULE", "DEFAULT_MODULE_UNREAD", "EMPTY_MODULE", "NOT_ASKED", "HeldImages", "held_images_from"]

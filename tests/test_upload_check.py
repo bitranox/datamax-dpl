@@ -531,6 +531,33 @@ def test_a_name_an_earlier_round_sent_keeps_its_picture_so_another_picture_under
     assert modules.downloaded_held == []
 
 
+class _CutBeforeModuleB(ImageModules):
+    """Answers the first directory request with module A's block only, as if the answer ended there."""
+
+    def _directory(self) -> bytes:
+        whole = super()._directory()
+        return whole.split(b"MODULE: B")[0] if self.requests == 1 else whole
+
+
+@pytest.mark.os_agnostic
+def test_a_directory_answer_that_leaves_out_the_job_s_module_is_no_answer_and_no_name_goes_twice() -> None:
+    """Read as module B empty, the answer would make round 2 download LOGO, which B holds, again."""
+    label = Label(elements=[LOGO])
+    [logo] = render_label(label, PLUG_IN_TWO_WAY).downloads
+    modules = _CutBeforeModuleB(held=[("A", "OTHER", 10)])
+    printer = ModulePrinter(modules)
+    result = render_label(label, PLUG_IN_TWO_WAY, held=READ_EMPTY)
+    job = CheckedJob(renders=record_renders(label, None, PLUG_IN_TWO_WAY), check=_check(), held=READ_EMPTY)
+
+    report = print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+
+    assert modules.downloaded_held == []
+    assert modules.downloads.count(logo) == 1
+    assert printer.data.count(FORMAT) == 1
+    skipped, _ = (f.message for f in _single(report.result).findings if f.code is FindingCode.IMAGE_UPLOAD_RETRIED)
+    assert skipped.startswith(f"round 2 skipped, it would download again {logo}:")
+
+
 @pytest.mark.os_agnostic
 def test_the_plain_prodigy_removes_each_of_the_labels_own_names_instead_of_a_clear() -> None:
     options = RenderOptions(model="prodigy", image_module=ImageModule.A)
