@@ -317,6 +317,11 @@ All notable changes to this project are documented here. The format follows
   `--json` and `--json-bare`: they printed text. They keep their exit codes
   13, 22, 78 and 1, now with an error envelope. `config` ignores `--format`
   there.
+- The wait hints of `status`, `memory`, `print` and `verify` name the section
+  in effect (`wait longer with [printers.lager] status_wait or --timeout`);
+  following the `[printer]` hint changed nothing for a named printer that sets
+  its own. A named printer with no `uri` says so (`printer 'lager' has no uri:
+  ...`) rather than `no printer given`.
 
 ## [0.4.0] - 2026-10-30
 

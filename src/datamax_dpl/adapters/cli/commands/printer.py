@@ -36,7 +36,7 @@ from ....domain.preview import canvas_for, check_preview_length
 from ....domain.profiles import get_profile
 from ....domain.render import RenderResult
 from ....domain.status import PrinterStatus
-from ...config.sections import CAMERA_SECTION, PREVIEW_SECTION, PRINTER_SECTION
+from ...config.sections import CAMERA_SECTION, PREVIEW_SECTION, printer_section
 from ...preview import pillow_available, preview_findings, render_preview_png
 from ...transport.uri import is_one_way, parse_printer_uri
 from ..constants import CLICK_CONTEXT_SETTINGS
@@ -227,8 +227,14 @@ def _render_to_print(
     return render_with_stored_names(lambda held: render_loaded(label, records, options, held=held), read=read)
 
 
-#: How the CLI lengthens the wait ``status`` and ``memory`` keep trying for, named when it runs out.
-WAIT_LONGER = f"wait longer with {PRINTER_SECTION.setting('status_wait')} or --timeout"
+def wait_longer_hint(settings: PrinterSettings) -> str:
+    """How to lengthen the wait ``status`` and ``memory`` keep trying for, named when it runs out.
+
+    Example:
+        >>> wait_longer_hint(PrinterSettings(name="lager"))
+        'wait longer with [printers.lager] status_wait or --timeout'
+    """
+    return f"wait longer with {printer_section(settings.name).setting('status_wait')} or --timeout"
 
 
 def _answer_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> AnswerWait:
@@ -236,14 +242,20 @@ def _answer_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> AnswerWait:
     return AnswerWait(
         seconds=settings.status_wait,
         retry_interval=settings.status_retry_interval,
-        wait_longer=WAIT_LONGER,
+        wait_longer=wait_longer_hint(settings),
         clock=cli_ctx.services.clock,
         sleep=cli_ctx.services.sleep,
     )
 
 
-#: How the CLI lengthens the wait for the stored image names, named when it runs out.
-STORED_NAMES_WAIT_LONGER = f"wait longer with {PRINTER_SECTION.setting('stored_names_wait')}"
+def stored_names_wait_longer_hint(settings: PrinterSettings) -> str:
+    """How to lengthen the wait for the stored image names, named when it runs out.
+
+    Example:
+        >>> stored_names_wait_longer_hint(PrinterSettings())
+        'wait longer with [printer] stored_names_wait'
+    """
+    return f"wait longer with {printer_section(settings.name).setting('stored_names_wait')}"
 
 
 def _stored_names_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> AnswerWait:
@@ -251,7 +263,7 @@ def _stored_names_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> Answer
     return AnswerWait(
         seconds=settings.stored_names_wait,
         retry_interval=settings.status_retry_interval,
-        wait_longer=STORED_NAMES_WAIT_LONGER,
+        wait_longer=stored_names_wait_longer_hint(settings),
         clock=cli_ctx.services.clock,
         sleep=cli_ctx.services.sleep,
     )

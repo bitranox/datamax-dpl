@@ -335,13 +335,17 @@ def require_uri(settings: PrinterSettings) -> str:
     """Return the printer URI or raise when none is configured or given.
 
     Raises:
-        ConfigurationError: Neither ``--printer`` nor ``[printer] uri`` names a printer.
+        ConfigurationError: Neither ``--printer`` nor a configured ``uri`` names a printer's address;
+            the message names the section in effect.
     """
-    if not settings.uri:
-        # The [printer] uri, also for a named printer: every printer's section falls back to it.
-        msg = f"no printer given: pass --printer NAME or URI, or set {PRINTER_SECTION.setting('uri')}"
-        raise ConfigurationError(msg)
-    return settings.uri
+    if settings.uri:
+        return settings.uri
+    uri_key = PRINTER_SECTION.setting("uri")
+    if settings.name:
+        # A printer was given; a named section that sets no uri falls back to the [printer] one.
+        own_key = printer_section(settings.name).setting("uri")
+        raise ConfigurationError(f"printer {settings.name!r} has no uri: set {own_key}, or {uri_key} for every printer")
+    raise ConfigurationError(f"no printer given: pass --printer NAME or URI, or set {uri_key}")
 
 
 __all__ = [

@@ -15,7 +15,7 @@ from lib_layered_config import Config
 
 from datamax_dpl.adapters.camera import capture_image
 from datamax_dpl.adapters.cli import root as cli_mod
-from datamax_dpl.adapters.cli.commands.printer import STORED_NAMES_WAIT_LONGER, WAIT_LONGER
+from datamax_dpl.adapters.cli.commands.printer import stored_names_wait_longer_hint, wait_longer_hint
 from datamax_dpl.adapters.cli.settings import (
     PrinterOverrides,
     PrinterSettings,
@@ -133,11 +133,9 @@ def test_a_camera_refusal_names_the_camera_key() -> None:
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("name", ["", "lager"])
-def test_no_uri_names_the_printer_section_uri(name: str) -> None:
-    # The printer section's uri also serves a named printer that sets none of its own.
+def test_no_uri_names_the_printer_section_uri() -> None:
     with pytest.raises(ConfigurationError) as caught:
-        require_uri(PrinterSettings(name=name))
+        require_uri(PrinterSettings())
 
     assert str(caught.value) == "no printer given: pass --printer NAME or URI, or set [printer] uri"
 
@@ -162,8 +160,8 @@ def test_an_unconfigured_camera_names_the_key_to_set(kind: CameraKind, refusal: 
 
 @pytest.mark.os_agnostic
 def test_the_wait_hints_name_the_printer_section_keys() -> None:
-    assert WAIT_LONGER == "wait longer with [printer] status_wait or --timeout"
-    assert STORED_NAMES_WAIT_LONGER == "wait longer with [printer] stored_names_wait"
+    assert wait_longer_hint(PrinterSettings()) == "wait longer with [printer] status_wait or --timeout"
+    assert stored_names_wait_longer_hint(PrinterSettings()) == "wait longer with [printer] stored_names_wait"
 
 
 def _command(*path: str) -> click.Command:
@@ -195,3 +193,23 @@ def test_the_help_texts_name_the_sections_as_the_file_spells_them() -> None:
         "Configured printer name ([printers.NAME]); default the [printer] section."
     )
     assert _command("capture").help == "Take one photo with the configured camera ([camera] section)."
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("name", "shown"),
+    [("", "[printer]"), ("lager", "[printers.lager]")],
+)
+def test_each_wait_hint_names_the_section_in_effect(name: str, shown: str) -> None:
+    """Following a hint must work: [printer] status_wait does nothing where [printers.lager] sets it."""
+    settings = PrinterSettings(name=name)
+    assert wait_longer_hint(settings) == f"wait longer with {shown} status_wait or --timeout"
+    assert stored_names_wait_longer_hint(settings) == f"wait longer with {shown} stored_names_wait"
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printer_without_a_uri_is_not_told_that_no_printer_was_given() -> None:
+    """A printer was given; what it lacks is an address, and the message says where to set it."""
+    with pytest.raises(ConfigurationError) as caught:
+        require_uri(PrinterSettings(name="lager"))
+    assert str(caught.value) == "printer 'lager' has no uri: set [printers.lager] uri, or [printer] uri for every printer"

@@ -366,3 +366,28 @@ def test_memory_asks_again_on_a_new_connection_after_one_closed_unanswered(cli_r
     (directory,) = envelope(result)["data"]["directories"]
     assert (directory["kind"], directory["parsed"]) == ("graphic", True)
     assert server.connections == [bytearray(request), bytearray(request)]
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printers_wait_hint_names_its_own_section_and_following_it_works(
+    cli_runner: CliRunner, serve: Serve
+) -> None:
+    """[printers.lager] status_wait is the key in effect; [printer] status_wait would change nothing."""
+    server = serve(silent)
+    named = ["--set", f"printers.lager.uri=tcp://{server.address.removeprefix('tcp://')}"]
+    result = run(cli_runner, ["--json", *named, "--set", "printers.lager.status_wait=0.3", "status", "--printer", "lager"])
+    server.join()
+
+    assert result.exit_code == 2, result.output
+    message = envelope(result)["message"]
+    assert "wait longer with [printers.lager] status_wait or --timeout" in message
+    assert "[printer] status_wait" not in message
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printer_without_a_uri_says_which_section_lacks_it(cli_runner: CliRunner) -> None:
+    result = run(cli_runner, ["--json", "--set", "printers.lager.model=dmx-600", "status", "--printer", "lager"])
+    assert result.exit_code == 2, result.output
+    message = envelope(result)["message"]
+    assert "no printer given" not in message
+    assert "[printers.lager] uri" in message
