@@ -603,11 +603,13 @@ def test_a_pty_answer_longer_than_the_bound_is_a_protocol_error(pty_printer: Pty
         pty_printer.read(2, deadline=time.monotonic() + JOIN_SECONDS)
         os.write(pty_printer.master, b"x" * (MAX_ANSWER_BYTES + 10))
 
-    with SerialTransport.open(SerialUri(path=pty_printer.path, baud=115200), timeout=1.5) as printer:
+    # The size bound is what ends this read, so the timeout only guards against a wedge. At 1.5 s a
+    # starved runner lost the race: PrinterTimeoutError with 37776 of the bytes read.
+    with SerialTransport.open(SerialUri(path=pty_printer.path, baud=115200), timeout=30.0) as printer:
         thread = threading.Thread(target=flood, daemon=True)
         thread.start()
         with pytest.raises(PrinterProtocolError, match="no answer terminator within"):
-            printer.query(b"\x02KQ", timeout=1.5)
+            printer.query(b"\x02KQ", timeout=30.0)
 
 
 @pytest.mark.os_posix
