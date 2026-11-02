@@ -20,7 +20,7 @@ from ..domain.png import encode_png
 from ..domain.preview import preview_bitmap
 from ..domain.render import RenderResult
 from ..domain.status import PrinterStatus
-from ..domain.timing import MAX_TIMEOUT_SECONDS, check_timeout
+from ..domain.timing import MAX_TIMEOUT_SECONDS, TimeoutName, check_timeout
 from .upload_check import CheckedJob, Link, UploadRefusedError, send_checked_label
 from .use_cases import AnswerWait, poll_status
 
@@ -100,9 +100,9 @@ def check_idle_wait(wait: IdleWait) -> IdleWait:
         ...
         ValueError: one-way settle must be at least 0 and at most 2147483 seconds, got -1.0
     """
-    check_timeout(wait.answer.seconds, name="wait")
-    check_timeout(wait.answer.retry_interval, name="retry interval")
-    check_timeout(wait.poll_interval, name="poll interval")
+    check_timeout(wait.answer.seconds, name=TimeoutName.WAIT)
+    check_timeout(wait.answer.retry_interval, name=TimeoutName.RETRY_INTERVAL)
+    check_timeout(wait.poll_interval, name=TimeoutName.POLL_INTERVAL)
     settle = wait.one_way_settle
     if not (math.isfinite(settle) and 0 <= settle <= MAX_TIMEOUT_SECONDS):
         msg = f"one-way settle must be at least 0 and at most {MAX_TIMEOUT_SECONDS:.0f} seconds, got {settle!r}"

@@ -8,6 +8,7 @@ carries the settings that pace a transport's writes, which decide what a write t
 from __future__ import annotations
 
 import math
+from enum import Enum
 
 from pydantic import BaseModel, Field
 
@@ -54,12 +55,28 @@ class TransportTuning(BaseModel, frozen=True, extra="forbid"):
 DEFAULT_TRANSPORT_TUNING = TransportTuning()
 
 
-def check_timeout(timeout: float, *, name: str = "timeout") -> float:
+class TimeoutName(str, Enum):
+    """Which seconds :func:`check_timeout` checks, as its refusal names them.
+
+    Example:
+        >>> TimeoutName.RETRY_INTERVAL.value
+        'retry interval'
+    """
+
+    TIMEOUT = "timeout"
+    IDLE = "idle"
+    TOTAL = "total"
+    WAIT = "wait"
+    RETRY_INTERVAL = "retry interval"
+    POLL_INTERVAL = "poll interval"
+
+
+def check_timeout(timeout: float, *, name: TimeoutName = TimeoutName.TIMEOUT) -> float:
     """Return ``timeout`` when it is a usable number of seconds.
 
     Args:
         timeout: Seconds.
-        name: What the seconds are, for the refusal message (``timeout``, ``idle``, ``total``).
+        name: What the seconds are, for the refusal message.
 
     Returns:
         ``timeout`` unchanged.
@@ -70,13 +87,13 @@ def check_timeout(timeout: float, *, name: str = "timeout") -> float:
     Example:
         >>> check_timeout(2.5)
         2.5
-        >>> check_timeout(0.0, name="idle")
+        >>> check_timeout(0.0, name=TimeoutName.IDLE)
         Traceback (most recent call last):
         ...
         ValueError: idle must be above 0 and at most 2147483 seconds, got 0.0
     """
     if not (math.isfinite(timeout) and 0 < timeout <= MAX_TIMEOUT_SECONDS):
-        raise ValueError(f"{name} must be above 0 and at most {MAX_TIMEOUT_SECONDS:.0f} seconds, got {timeout!r}")
+        raise ValueError(f"{name.value} must be above 0 and at most {MAX_TIMEOUT_SECONDS:.0f} seconds, got {timeout!r}")
     return timeout
 
 
@@ -86,6 +103,7 @@ __all__ = [
     "MAX_SEND_CHUNK_BYTES",
     "MAX_TIMEOUT_SECONDS",
     "SEND_CHUNK_BYTES",
+    "TimeoutName",
     "TransportTuning",
     "check_timeout",
 ]

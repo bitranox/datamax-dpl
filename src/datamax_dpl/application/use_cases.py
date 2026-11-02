@@ -53,7 +53,7 @@ from ..domain.status import (
     parse_memory_report,
     parse_version,
 )
-from ..domain.timing import MAX_ANSWER_SECONDS, check_timeout
+from ..domain.timing import MAX_ANSWER_SECONDS, TimeoutName, check_timeout
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -638,8 +638,8 @@ def _first_answer(
         ValueError: ``timeout`` or a wait value is not a usable number of seconds; nothing was opened.
     """
     check_timeout(timeout)
-    check_timeout(wait.seconds, name="wait")
-    check_timeout(wait.retry_interval, name="retry interval")
+    check_timeout(wait.seconds, name=TimeoutName.WAIT)
+    check_timeout(wait.retry_interval, name=TimeoutName.RETRY_INTERVAL)
     tries = _Tries(uri, wait, started=started)
     while True:
         # No attempt starts once the wait is over: the pause before it can overrun the end.
@@ -783,7 +783,7 @@ def read_memory_directory(
         TransportError: The printer could not be reached.
         ValueError: ``idle`` is not a usable number of seconds; nothing was opened.
     """
-    check_timeout(idle, name="idle")
+    check_timeout(idle, name=TimeoutName.IDLE)
     if not kinds:
         return ()
     asked = _ask_directories(

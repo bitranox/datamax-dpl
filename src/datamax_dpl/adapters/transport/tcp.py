@@ -8,10 +8,11 @@ import time
 from typing import TYPE_CHECKING
 
 from datamax_dpl.domain.errors import AnswerNotEndedError, PrinterProtocolError, TransportError
-from datamax_dpl.domain.timing import DEFAULT_TRANSPORT_TUNING, MAX_ANSWER_SECONDS, TransportTuning
+from datamax_dpl.domain.timing import DEFAULT_TRANSPORT_TUNING, MAX_ANSWER_SECONDS, TimeoutName, TransportTuning
 
 from .uri import (
     NOTHING_SKIPPED,
+    ChannelAction,
     ClosingTransport,
     Skipped,
     TcpUri,
@@ -94,7 +95,7 @@ class TcpTransport(ClosingTransport):
             # the connect waits for the handshake and then reads the socket's error, which by then
             # is the reset. An unknown or unreachable host is not worth asking again.
             no_request = isinstance(exc, TimeoutError) or _is_hang_up(exc)
-            raise transport_error(uri, action="connect to", error=exc, unanswered=no_request) from exc
+            raise transport_error(uri, action=ChannelAction.CONNECT, error=exc, unanswered=no_request) from exc
         return cls(sock, uri=uri, timeout=timeout, tuning=tuning)
 
     @property
@@ -198,8 +199,8 @@ class TcpTransport(ClosingTransport):
         """
         started = time.monotonic()
         check_timeout(timeout)
-        check_timeout(idle, name="idle")
-        check_timeout(total, name="total")
+        check_timeout(idle, name=TimeoutName.IDLE)
+        check_timeout(total, name=TimeoutName.TOTAL)
         self._ensure_open()
         self._send_request(request)
         try:
@@ -254,7 +255,9 @@ class TcpTransport(ClosingTransport):
             # failing piece starts, so part of that piece may have gone too. A request is a few
             # bytes, never a job the printer could wait on.
             advice = "" if request else truncated_job_advice(written=written, size=len(data))
-            raise transport_error(self._uri, action="write to", error=exc, unanswered=hung_up, advice=advice) from exc
+            raise transport_error(
+                self._uri, action=ChannelAction.WRITE, error=exc, unanswered=hung_up, advice=advice
+            ) from exc
 
     def _discard_waiting(self) -> None:
         """Read and drop whatever already sits in the receive buffer, without waiting.
@@ -270,7 +273,7 @@ class TcpTransport(ClosingTransport):
             pass
         except OSError as exc:
             hung_up = _is_hang_up(exc)
-            raise transport_error(self._uri, action="read from", error=exc, unanswered=hung_up) from exc
+            raise transport_error(self._uri, action=ChannelAction.READ, error=exc, unanswered=hung_up) from exc
         finally:
             self._sock.settimeout(self._timeout)
 
@@ -299,7 +302,7 @@ class TcpTransport(ClosingTransport):
             raise no_answer(f"tcp {self._uri.target}", wait=wait, received=received, skipped=skipped) from exc
         except OSError as exc:
             hung_up = nothing_came and isinstance(exc, ConnectionError)
-            raise transport_error(self._uri, action="read from", error=exc, unanswered=hung_up) from exc
+            raise transport_error(self._uri, action=ChannelAction.READ, error=exc, unanswered=hung_up) from exc
         if not chunk:
             read = len(received) + skipped.size
             raise TransportError(
@@ -345,7 +348,7 @@ class TcpTransport(ClosingTransport):
         except TimeoutError:
             return None
         except OSError as exc:
-            raise transport_error(self._uri, action="read from", error=exc) from exc
+            raise transport_error(self._uri, action=ChannelAction.READ, error=exc) from exc
 
 
 class _Lines:

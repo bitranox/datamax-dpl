@@ -14,7 +14,7 @@ from datamax_dpl.domain.errors import TransportError
 from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS
 
 from .device import WRITE_FLAGS, DescriptorTransport
-from .uri import ClosingTransport, FileUri, StdoutUri, channel_name, transport_error, unsupported_query
+from .uri import ChannelAction, ClosingTransport, FileUri, StdoutUri, channel_name, transport_error, unsupported_query
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -36,7 +36,7 @@ class FileTransport(DescriptorTransport):
         try:
             fd = os.open(uri.path, WRITE_FLAGS | os.O_CREAT, _NEW_FILE_MODE)
         except OSError as exc:
-            raise transport_error(uri, action="open", error=exc) from exc
+            raise transport_error(uri, action=ChannelAction.OPEN, error=exc) from exc
         return cls(fd, uri=uri)
 
 
@@ -117,7 +117,7 @@ def _write(stream: BinaryIO, data: bytes, *, uri: StdoutUri) -> None:
         stream.write(data)
         stream.flush()
     except OSError as exc:
-        raise transport_error(uri, action="write to", error=exc) from exc
+        raise transport_error(uri, action=ChannelAction.WRITE, error=exc) from exc
     except ValueError as exc:
         raise TransportError(f"cannot write to {channel_name(uri)}: the stream is closed") from exc
 

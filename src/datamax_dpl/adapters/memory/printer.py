@@ -11,7 +11,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from datamax_dpl.domain.errors import PrinterTimeoutError, TransportError, UnsupportedOperationError
-from datamax_dpl.domain.timing import DEFAULT_TRANSPORT_TUNING, MAX_ANSWER_SECONDS, TransportTuning, check_timeout
+from datamax_dpl.domain.timing import (
+    DEFAULT_TRANSPORT_TUNING,
+    MAX_ANSWER_SECONDS,
+    TimeoutName,
+    TransportTuning,
+    check_timeout,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -135,8 +141,8 @@ class RecordingPrinter:
             TransportError: The printer was closed.
         """
         check_timeout(timeout)
-        check_timeout(idle, name="idle")
-        check_timeout(total, name="total")
+        check_timeout(idle, name=TimeoutName.IDLE)
+        check_timeout(total, name=TimeoutName.TOTAL)
         return self._answer(request, timeout=timeout)
 
     def close(self) -> None:

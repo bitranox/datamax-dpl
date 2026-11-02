@@ -57,7 +57,6 @@ _FILE_URL_PREFIX = "file://"
 _HOST_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?")
 _BAUD = re.compile(r"[0-9]{1,7}")
 _WINDOWS_DRIVE = re.compile(r"/[A-Za-z]:[/\\]")
-_SERIAL_KEYS = frozenset({"baud", "parity", "bytesize", "stopbits", "rtscts", "xonxoff"})
 _FLAGS = {"0": False, "1": True}
 _BYTESIZES: dict[str, Literal[7, 8]] = {"7": 7, "8": 8}
 _STOPBITS: dict[str, Literal[1, 2]] = {"1": 1, "2": 2}
@@ -76,6 +75,36 @@ class Parity(str, Enum):
     NONE = "N"
     EVEN = "E"
     ODD = "O"
+
+
+class _SerialSetting(str, Enum):
+    """A setting a serial URI's query takes, spelled as the query and its refusals spell it.
+
+    Example:
+        >>> _SerialSetting("stopbits") is _SerialSetting.STOPBITS
+        True
+    """
+
+    BAUD = "baud"
+    PARITY = "parity"
+    BYTESIZE = "bytesize"
+    STOPBITS = "stopbits"
+    RTSCTS = "rtscts"
+    XONXOFF = "xonxoff"
+
+
+class ChannelAction(str, Enum):
+    """What was attempted on a channel when it failed, as :func:`transport_error` words it.
+
+    Example:
+        >>> ChannelAction.WRITE.value
+        'write to'
+    """
+
+    CONNECT = "connect to"
+    OPEN = "open"
+    READ = "read from"
+    WRITE = "write to"
 
 
 class TcpUri(BaseModel, frozen=True, extra="forbid"):
@@ -214,7 +243,7 @@ def parse_printer_uri(uri: str) -> PrinterUri:
 
 
 def transport_error(
-    uri: PrinterUri, *, action: str, error: OSError, unanswered: bool = False, advice: str = ""
+    uri: PrinterUri, *, action: ChannelAction, error: OSError, unanswered: bool = False, advice: str = ""
 ) -> TransportError:
     """Turn an ``OSError`` into the :class:`~datamax_dpl.domain.errors.TransportError` callers see.
 
@@ -227,7 +256,7 @@ def transport_error(
 
     Args:
         uri: The channel the error happened on.
-        action: What was attempted, e.g. ``open`` or ``write to``.
+        action: What was attempted.
         error: The operating system's error.
         unanswered: The channel took no request (see ``TransportError``), such as a connect
             that timed out.
@@ -239,16 +268,17 @@ def transport_error(
         target and the reason in one line.
 
     Example:
-        >>> str(transport_error(StdoutUri(), action="write to", error=BrokenPipeError(32, "Broken pipe")))
+        >>> str(transport_error(StdoutUri(), action=ChannelAction.WRITE, error=BrokenPipeError(32, "Broken pipe")))
         'cannot write to stdout: Broken pipe'
-        >>> type(transport_error(StdoutUri(), action="read from", error=TimeoutError())).__name__
+        >>> type(transport_error(StdoutUri(), action=ChannelAction.READ, error=TimeoutError())).__name__
         'PrinterTimeoutError'
         >>> refused = ConnectionRefusedError(111, "Connection refused")
-        >>> transport_error(TcpUri(host="192.0.2.60", port=9100), action="connect to", error=refused).unanswered
+        >>> printer = TcpUri(host="192.0.2.60", port=9100)
+        >>> transport_error(printer, action=ChannelAction.CONNECT, error=refused).unanswered
         True
     """
     reason = error.strerror or str(error) or type(error).__name__
-    message = f"cannot {action} {channel_name(uri)}: {reason}"
+    message = f"cannot {action.value} {channel_name(uri)}: {reason}"
     if isinstance(error, TimeoutError):
         return PrinterTimeoutError(message, unanswered=unanswered, advice=advice)
     return TransportError(message, unanswered=unanswered or isinstance(error, ConnectionRefusedError), advice=advice)
@@ -488,17 +518,21 @@ def _parse_serial(uri: str) -> SerialUri:
     settings = dict(pairs)
     if len(settings) != len(pairs):
         raise ValueError("a serial setting is given twice")
-    unknown = sorted(set(settings) - _SERIAL_KEYS)
+    unknown = sorted(set(settings) - {setting.value for setting in _SerialSetting})
     if unknown:
         raise ValueError(f"unknown serial setting(s) {', '.join(unknown)}")
     return SerialUri(
         path=path,
-        baud=_baud(settings.get("baud", str(DEFAULT_BAUD))),
-        parity=_choice(settings.get("parity", "N").upper(), {p.value: p for p in Parity}, what="parity"),
-        bytesize=_choice(settings.get("bytesize", "8"), _BYTESIZES, what="bytesize"),
-        stopbits=_choice(settings.get("stopbits", "1"), _STOPBITS, what="stopbits"),
-        rtscts=_choice(settings.get("rtscts", "0"), _FLAGS, what="rtscts"),
-        xonxoff=_choice(settings.get("xonxoff", "0"), _FLAGS, what="xonxoff"),
+        baud=_baud(settings.get(_SerialSetting.BAUD.value, str(DEFAULT_BAUD))),
+        parity=_choice(
+            settings.get(_SerialSetting.PARITY.value, "N").upper(),
+            {p.value: p for p in Parity},
+            setting=_SerialSetting.PARITY,
+        ),
+        bytesize=_choice(settings.get(_SerialSetting.BYTESIZE.value, "8"), _BYTESIZES, setting=_SerialSetting.BYTESIZE),
+        stopbits=_choice(settings.get(_SerialSetting.STOPBITS.value, "1"), _STOPBITS, setting=_SerialSetting.STOPBITS),
+        rtscts=_choice(settings.get(_SerialSetting.RTSCTS.value, "0"), _FLAGS, setting=_SerialSetting.RTSCTS),
+        xonxoff=_choice(settings.get(_SerialSetting.XONXOFF.value, "0"), _FLAGS, setting=_SerialSetting.XONXOFF),
     )
 
 
@@ -537,10 +571,10 @@ def _baud(text: str) -> int:
     return int(text)
 
 
-def _choice(text: str, choices: dict[str, _T], *, what: str) -> _T:
-    """Return ``choices[text]`` or refuse with the allowed spellings."""
+def _choice(text: str, choices: dict[str, _T], *, setting: _SerialSetting) -> _T:
+    """Return ``choices[text]`` or refuse with the allowed spellings of ``setting``."""
     if text not in choices:
-        raise ValueError(f"{what} must be one of {'/'.join(choices)}, got {text!r}")
+        raise ValueError(f"{setting.value} must be one of {'/'.join(choices)}, got {text!r}")
     return choices[text]
 
 
@@ -553,6 +587,7 @@ __all__ = [
     "MAX_TIMEOUT_SECONDS",
     "NOTHING_SKIPPED",
     "NO_ANSWER_HINT",
+    "ChannelAction",
     "ClosingTransport",
     "DeviceUri",
     "FileUri",

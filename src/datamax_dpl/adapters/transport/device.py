@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from datamax_dpl.domain.errors import TransportError
 from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS
 
-from .uri import ClosingTransport, DeviceUri, FileUri, channel_name, transport_error, unsupported_query
+from .uri import ChannelAction, ClosingTransport, DeviceUri, FileUri, channel_name, transport_error, unsupported_query
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -56,7 +56,7 @@ class DescriptorTransport(ClosingTransport):
             while view:
                 view = view[os.write(self._fd, view) :]
         except OSError as exc:
-            raise transport_error(self._uri, action="write to", error=exc) from exc
+            raise transport_error(self._uri, action=ChannelAction.WRITE, error=exc) from exc
 
     def query(
         self,
@@ -102,7 +102,7 @@ class DeviceTransport(DescriptorTransport):
         try:
             fd = os.open(uri.path, WRITE_FLAGS)
         except OSError as exc:
-            raise transport_error(uri, action="open", error=exc) from exc
+            raise transport_error(uri, action=ChannelAction.OPEN, error=exc) from exc
         return cls(fd, uri=uri)
 
 

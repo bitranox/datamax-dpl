@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol
 import serial
 
 from datamax_dpl.domain.errors import AnswerNotEndedError, PrinterProtocolError, PrinterTimeoutError, TransportError
-from datamax_dpl.domain.timing import DEFAULT_TRANSPORT_TUNING, TransportTuning
+from datamax_dpl.domain.timing import DEFAULT_TRANSPORT_TUNING, TimeoutName, TransportTuning
 
 from .tcp import MAX_ANSWER_BYTES, MAX_ANSWER_SECONDS, MAX_IDLE_ANSWER_BYTES
 from .uri import (
@@ -266,8 +266,8 @@ class SerialTransport(ClosingTransport):
         """
         started = time.monotonic()
         check_timeout(timeout)
-        check_timeout(idle, name="idle")
-        check_timeout(total, name="total")
+        check_timeout(idle, name=TimeoutName.IDLE)
+        check_timeout(total, name=TimeoutName.TOTAL)
         self._drop_waiting_input()
         self._write(request, request=True)
         answer = self._read_start(Wait.since(started, min(timeout, total)))

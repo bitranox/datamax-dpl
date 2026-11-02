@@ -11,6 +11,7 @@ from hypothesis import strategies as st
 from datamax_dpl.adapters.transport.uri import (
     ACCEPTED_FORMS,
     MAX_TIMEOUT_SECONDS,
+    ChannelAction,
     DeviceUri,
     FileUri,
     Parity,
@@ -25,6 +26,7 @@ from datamax_dpl.adapters.transport.uri import (
     unsupported_query,
 )
 from datamax_dpl.domain.errors import PrinterTimeoutError, TransportError, UnsupportedOperationError
+from datamax_dpl.domain.timing import TimeoutName
 
 # --- tcp ---------------------------------------------------------------------------------------
 
@@ -218,9 +220,41 @@ def test_an_unusable_timeout_is_refused(timeout: float) -> None:
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("name", "spelled"),
+    [
+        (TimeoutName.TIMEOUT, "timeout"),
+        (TimeoutName.IDLE, "idle"),
+        (TimeoutName.TOTAL, "total"),
+        (TimeoutName.WAIT, "wait"),
+        (TimeoutName.RETRY_INTERVAL, "retry interval"),
+        (TimeoutName.POLL_INTERVAL, "poll interval"),
+    ],
+)
+def test_a_refused_timeout_is_named_as_the_seconds_it_is(name: TimeoutName, spelled: str) -> None:
+    with pytest.raises(ValueError, match=f"^{spelled} must be above 0 and at most 2147483 seconds, got 0.0$"):
+        check_timeout(0.0, name=name)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("action", "spelled"),
+    [
+        (ChannelAction.CONNECT, "connect to"),
+        (ChannelAction.OPEN, "open"),
+        (ChannelAction.READ, "read from"),
+        (ChannelAction.WRITE, "write to"),
+    ],
+)
+def test_a_wrapped_os_error_names_the_action_as_the_message_spells_it(action: ChannelAction, spelled: str) -> None:
+    error = transport_error(StdoutUri(), action=action, error=BrokenPipeError(32, "Broken pipe"))
+    assert str(error) == f"cannot {spelled} stdout: Broken pipe"
+
+
+@pytest.mark.os_agnostic
 def test_a_wrapped_os_error_names_kind_target_and_reason() -> None:
     error = transport_error(
-        TcpUri(host="h", port=9100), action="connect to", error=ConnectionRefusedError(111, "refused")
+        TcpUri(host="h", port=9100), action=ChannelAction.CONNECT, error=ConnectionRefusedError(111, "refused")
     )
     assert type(error) is TransportError
     assert str(error) == "cannot connect to tcp h:9100: refused"
@@ -228,7 +262,7 @@ def test_a_wrapped_os_error_names_kind_target_and_reason() -> None:
 
 @pytest.mark.os_agnostic
 def test_a_wrapped_timeout_becomes_a_printer_timeout() -> None:
-    error = transport_error(DeviceUri(path="/dev/lp0"), action="write to", error=TimeoutError())
+    error = transport_error(DeviceUri(path="/dev/lp0"), action=ChannelAction.WRITE, error=TimeoutError())
     assert isinstance(error, PrinterTimeoutError)
     assert str(error) == "cannot write to device /dev/lp0: TimeoutError"
 
