@@ -338,6 +338,19 @@ def test_a_missing_label_height_is_named_too(
 
 
 @pytest.mark.os_agnostic
+def test_a_missing_label_size_without_a_printer_name_names_the_printer_section(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    target = tmp_path / "out.dpl"
+    config = {"printer": {"model": "allegro-2", "uri": f"file:{target}"}}
+
+    result = _calibrate(cli_runner, config_cli_context(config))
+
+    assert result.exit_code == 2
+    assert json.loads(result.stdout)["message"] == "no label width: pass --width in mm, or set label_width in [printer]"
+
+
+@pytest.mark.os_agnostic
 def test_the_along_label_needs_only_the_width(
     cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
 ) -> None:
@@ -569,6 +582,25 @@ def test_an_along_measurement_with_a_format_limit_and_no_known_width_is_refused(
     assert "--along-length" in message
     assert "--width" in message
     assert base.read_text(encoding="utf-8") == '[printers.lager]\nmodel = "allegro-2"\n'
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("section", "args"), [("[printers.lager]", ("--printer", "lager")), ("[printer]", ())], ids=["named", "unnamed"]
+)
+def test_the_along_width_refusal_names_the_section_the_width_belongs_in(
+    cli_runner: CliRunner, tmp_path: Path, section: str, args: tuple[str, ...]
+) -> None:
+    base = tmp_path / "config.toml"
+    base.write_text(f'{section}\nmodel = "allegro-2"\n', encoding="utf-8")
+
+    result = _set(cli_runner, _user_layer(base), *args, "--along", "190")
+
+    assert result.exit_code == 2, result.output
+    assert json.loads(result.stdout)["message"] == (
+        "the along bar's default length depends on the label width: pass --along-length MM (the length "
+        f"printed on the label), or --width MM, or set label_width in {section}"
+    )
 
 
 @pytest.mark.os_agnostic

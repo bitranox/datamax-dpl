@@ -26,6 +26,7 @@ from ....domain.findings import Finding
 from ....domain.profiles import CalibrationKey
 from ....domain.render import build_job, effective_calibration, format_row_limit
 from ....domain.units import Axis
+from ...config.sections import ConfigSection
 from ...transport.uri import is_printer_uri
 from .. import safe_console
 from ..config_load import load_config
@@ -382,9 +383,15 @@ def _size(side: _LabelSide, given: float | None, configured: float | None, setti
         return given
     if configured is not None:
         return configured
-    where = f"[printers.{settings.name}]" if settings.name else "[printer]"
-    msg = f"no label {side.value}: pass --{side.value} in mm, or set label_{side.value} in {where}"
+    msg = f"no label {side.value}: pass --{side.value} in mm, or set label_{side.value} in {_section_of(settings)}"
     raise ConfigurationError(msg)
+
+
+def _section_of(settings: PrinterSettings) -> str:
+    """The section ``settings`` came from as the file spells it: ``[printers.<name>]`` or ``[printer]``."""
+    if settings.name:
+        return f"[{ConfigSection.PRINTERS.value}.{settings.name}]"
+    return f"[{ConfigSection.PRINTER.value}]"
 
 
 @cli_calibrate.command("set", context_settings=CLICK_CONTEXT_SETTINGS)
@@ -483,10 +490,9 @@ def _along_bar_length(
         return ALONG_LENGTH_MM
     label_width = width if width is not None else settings.label_width
     if label_width is None:
-        where = f"[printers.{settings.name}]" if settings.name else "[printer]"
         msg = (
             "the along bar's default length depends on the label width: pass --along-length MM (the "
-            f"length printed on the label), or --width MM, or set label_width in {where}"
+            f"length printed on the label), or --width MM, or set label_width in {_section_of(settings)}"
         )
         raise ConfigurationError(msg)
     title = _title(settings, effective_calibration(options).scale_along)
