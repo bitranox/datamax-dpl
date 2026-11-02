@@ -8,7 +8,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from datamax_dpl.domain.enums import StatusProblem, Unit
+from datamax_dpl.domain.enums import StatusFlag, StatusProblem, Unit
 from datamax_dpl.domain.errors import PrinterProtocolError
 from datamax_dpl.domain.status import (
     BATCH_REQUEST,
@@ -258,8 +258,9 @@ def test_problems_lists_every_condition_that_needs_a_person_in_order() -> None:
 @pytest.mark.parametrize("flag", FLAG_ORDER)
 def test_flags_names_every_field_in_the_printer_order_with_its_own_value(flag: str) -> None:
     flags = _status(**{flag: True}).flags()
-    assert [name for name, _ in flags] == list(FLAG_ORDER) == list(PrinterStatus.model_fields)
-    assert [name for name, is_set in flags if is_set] == [flag]
+    assert [state.flag for state in flags] == list(StatusFlag)
+    assert [state.flag.value for state in flags] == list(FLAG_ORDER) == list(PrinterStatus.model_fields)
+    assert [state.flag.value for state in flags if state.is_set] == [flag]
 
 
 @pytest.mark.os_agnostic
@@ -391,6 +392,31 @@ def test_a_non_numeric_block_count_reads_as_none_and_stays_in_raw() -> None:
 @pytest.mark.os_agnostic
 def test_the_first_of_two_repeated_memory_lines_wins() -> None:
     assert parse_memory_report(b"VER: 1\rVER: 2\r").version == "1"
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "line",
+    [
+        b"INTERNAL MEMORY\r",
+        b"VER: 2\r",
+        b"INSTALLED: 1\r",
+        b"AVAILABLE: 1\r",
+        b"MODULE: D\r",
+        b"SCALABLE: NONE\r",
+        b"LABEL MEM: 0128\r",
+        b"LABEL SIZE: 0410:0600:IN\r",
+    ],
+)
+def test_each_line_the_manual_describes_makes_an_answer_a_memory_report_on_its_own(line: bytes) -> None:
+    assert parse_memory_report(line).raw == line.decode("ascii")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("answer", [b"INTERNAL MEMORY: 1\r", b"LABEL MEMORY: 1\r", b"ver: 2\r"])
+def test_a_header_with_a_value_or_a_key_the_manual_does_not_name_is_no_memory_line(answer: bytes) -> None:
+    with pytest.raises(PrinterProtocolError):
+        parse_memory_report(answer)
 
 
 @pytest.mark.os_agnostic

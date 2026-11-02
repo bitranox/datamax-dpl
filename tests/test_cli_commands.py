@@ -195,6 +195,33 @@ def test_status_reports_idle_and_problems(cli_runner: CliRunner) -> None:
 
 
 @pytest.mark.os_agnostic
+def test_status_lists_every_flag_in_the_printer_order_in_both_outputs(cli_runner: CliRunner) -> None:
+    def paper_out() -> Callable[[], AppServices]:
+        return factory(RecordingPrinter(answers={b"\x01A": PAPER_OUT}))
+
+    human = run(cli_runner, ["status", "--printer", PRINTER], paper_out())
+    assert human.stdout.splitlines() == [
+        "interpreter_busy no",
+        "paper_out        yes",
+        "ribbon_out       no",
+        "printing_batch   no",
+        "busy_printing    no",
+        "paused           no",
+        "label_presented  no",
+    ]
+    flags = envelope(run(cli_runner, ["--json", "status", "--printer", PRINTER], paper_out()))["data"]["flags"]
+    assert list(flags.items()) == [
+        ("interpreter_busy", False),
+        ("paper_out", True),
+        ("ribbon_out", False),
+        ("printing_batch", False),
+        ("busy_printing", False),
+        ("paused", False),
+        ("label_presented", False),
+    ]
+
+
+@pytest.mark.os_agnostic
 def test_status_on_a_one_way_channel_is_an_error(cli_runner: CliRunner) -> None:
     result = run(cli_runner, ["--json", "status", "--printer", PRINTER], factory(RecordingPrinter(bidirectional=False)))
     assert result.exit_code == 2

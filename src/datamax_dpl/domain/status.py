@@ -16,16 +16,17 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from enum import Enum
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from pydantic import BaseModel
 
-from .enums import MemoryKind, StatusProblem, Unit
+from .enums import MemoryKind, StatusFlag, StatusProblem, Unit
 from .errors import PrinterProtocolError
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
 #: ``<SOH>A``: status as eight ``Y``/``N`` characters.
 STATUS_REQUEST = b"\x01A"
@@ -89,23 +90,25 @@ _YES = ord("Y")
 _NO = ord("N")
 _FIRST_PRINTABLE = 0x20
 _LAST_PRINTABLE = 0x7E
-_STATUS_FIELDS = (
-    "interpreter_busy",
-    "paper_out",
-    "ribbon_out",
-    "printing_batch",
-    "busy_printing",
-    "paused",
-    "label_presented",
-)
 _DIGITS = re.compile(rb"[0-9]{4}")
 _NUMBER = re.compile(r"[0-9]{1,9}")
 _LINE_BREAK = re.compile(r"[\r\n]+")
 _MEMORY_HEADER = "INTERNAL MEMORY"
-_MEMORY_KEYS = frozenset({"VER", "INSTALLED", "AVAILABLE", "MODULE", "SCALABLE", "LABEL MEM", "LABEL SIZE"})
 _LABEL_SIZE_PARTS = 3
 #: The ``oo`` units code of ``LABEL SIZE`` as the printer writes it, and the unit it names.
 _LABEL_SIZE_UNITS: Mapping[str, Unit] = MappingProxyType({"IN": Unit.INCH, "MM": Unit.MM})
+
+
+class FlagState(NamedTuple):
+    """One status condition and whether the printer reported it set.
+
+    Example:
+        >>> FlagState(StatusFlag.PAUSED, True).flag.value
+        'paused'
+    """
+
+    flag: StatusFlag
+    is_set: bool
 
 
 class PrinterStatus(BaseModel, frozen=True, extra="forbid"):
@@ -125,16 +128,21 @@ class PrinterStatus(BaseModel, frozen=True, extra="forbid"):
     paused: bool
     label_presented: bool
 
-    def flags(self) -> tuple[tuple[str, bool], ...]:
-        """Each condition's name and whether it is set, in the order the printer reports them."""
+    def flags(self) -> tuple[FlagState, ...]:
+        """Each condition and whether it is set, in the order the printer reports them.
+
+        Example:
+            >>> [state.flag.value for state in parse_ascii_status(b"NYNNNNNN\\r").flags() if state.is_set]
+            ['paper_out']
+        """
         return (
-            ("interpreter_busy", self.interpreter_busy),
-            ("paper_out", self.paper_out),
-            ("ribbon_out", self.ribbon_out),
-            ("printing_batch", self.printing_batch),
-            ("busy_printing", self.busy_printing),
-            ("paused", self.paused),
-            ("label_presented", self.label_presented),
+            FlagState(StatusFlag.INTERPRETER_BUSY, self.interpreter_busy),
+            FlagState(StatusFlag.PAPER_OUT, self.paper_out),
+            FlagState(StatusFlag.RIBBON_OUT, self.ribbon_out),
+            FlagState(StatusFlag.PRINTING_BATCH, self.printing_batch),
+            FlagState(StatusFlag.BUSY_PRINTING, self.busy_printing),
+            FlagState(StatusFlag.PAUSED, self.paused),
+            FlagState(StatusFlag.LABEL_PRESENTED, self.label_presented),
         )
 
     @property
@@ -198,9 +206,7 @@ def parse_ascii_status(answer: bytes) -> PrinterStatus:
         raise PrinterProtocolError(f"{what}: expected Y/N characters, got {show_answer(answer)}")
     if body[-1] != _NO:
         raise PrinterProtocolError(f"{what}: reserved eighth flag is not N in {show_answer(answer)}")
-    return PrinterStatus.model_validate(
-        dict(zip(_STATUS_FIELDS, (char == _YES for char in body[: len(_STATUS_FIELDS)]), strict=True))
-    )
+    return _status_from_flags([char == _YES for char in body[: len(StatusFlag)]])
 
 
 def is_status_line(line: bytes) -> bool:
@@ -256,7 +262,21 @@ def parse_status_byte(answer: bytes) -> PrinterStatus:
     value = _fixed_body(answer, width=1, what=what, answer=answer)[0]
     if value >> RESERVED_STATUS_BIT:
         raise PrinterProtocolError(f"{what}: reserved bit 7 is set in {show_answer(answer)}")
-    return PrinterStatus.model_validate({name: bool(value >> bit & 1) for bit, name in enumerate(_STATUS_FIELDS)})
+    return _status_from_flags([bool(value >> bit & 1) for bit in range(len(StatusFlag))])
+
+
+def _status_from_flags(flags: Sequence[bool]) -> PrinterStatus:
+    """Build the status from one bool per :class:`StatusFlag`, in that order."""
+    interpreter_busy, paper_out, ribbon_out, printing_batch, busy_printing, paused, label_presented = flags
+    return PrinterStatus(
+        interpreter_busy=interpreter_busy,
+        paper_out=paper_out,
+        ribbon_out=ribbon_out,
+        printing_batch=printing_batch,
+        busy_printing=busy_printing,
+        paused=paused,
+        label_presented=label_presented,
+    )
 
 
 def parse_batch_remaining(answer: bytes) -> int:
@@ -335,14 +355,14 @@ def parse_memory_report(answer: bytes) -> MemoryReport:
         ('2.03', 400, 600, <Unit.INCH: 'in'>, None)
     """
     raw = _drop_flow_control(answer).decode("ascii", errors="replace")
-    fields = _memory_fields(raw)
-    if not fields:
+    lines = _memory_lines(raw)
+    if not lines.recognised:
         raise PrinterProtocolError(f"<STX>KQ memory report: no line the manual describes in {show_answer(answer)}")
-    size = _label_size(fields.get("LABEL SIZE", ""))
+    size = _label_size(lines.label_size)
     return MemoryReport(
-        version=fields.get("VER") or None,
-        installed_blocks=_number(fields.get("INSTALLED", "")),
-        available_blocks=_number(fields.get("AVAILABLE", "")),
+        version=lines.version or None,
+        installed_blocks=_number(lines.installed),
+        available_blocks=_number(lines.available),
         label_width=size.width,
         label_length=size.length,
         units=size.units,
@@ -378,17 +398,57 @@ def _refuse_prefix(prefix: bytes, *, what: str, answer: bytes) -> None:
     raise PrinterProtocolError(f"{what}: {detail} before the answer in {show_answer(answer)}")
 
 
-def _memory_fields(raw: str) -> dict[str, str]:
-    """Map each recognised ``<STX>KQ`` line to its value; the first occurrence of a key wins."""
-    fields: dict[str, str] = {}
+class _MemoryKey(str, Enum):
+    """The keys of the ``KEY: value`` lines an ``<STX>KQ`` answer may hold (manual section 8)."""
+
+    VERSION = "VER"
+    INSTALLED = "INSTALLED"
+    AVAILABLE = "AVAILABLE"
+    MODULE = "MODULE"
+    SCALABLE = "SCALABLE"
+    LABEL_MEMORY = "LABEL MEM"
+    LABEL_SIZE = "LABEL SIZE"
+
+
+_MEMORY_KEYS: Mapping[str, _MemoryKey] = MappingProxyType({key.value: key for key in _MemoryKey})
+
+
+@dataclass(frozen=True, slots=True)
+class _MemoryLines:
+    """The values of the ``<STX>KQ`` lines a memory report is built from; None where a line is missing.
+
+    Attributes:
+        recognised: Whether any line, the ``INTERNAL MEMORY`` header included, is one the manual
+            describes. ``MODULE``, ``SCALABLE`` and ``LABEL MEM`` count here although no value
+            is read from them.
+    """
+
+    recognised: bool
+    version: str | None
+    installed: str | None
+    available: str | None
+    label_size: str | None
+
+
+def _memory_lines(raw: str) -> _MemoryLines:
+    """Read each recognised ``<STX>KQ`` line's value; the first occurrence of a key wins."""
+    values: dict[_MemoryKey, str] = {}
+    header = False
     for line in _LINE_BREAK.split(raw):
-        key, separator, value = line.partition(":")
-        key = key.strip()
-        if key == _MEMORY_HEADER and not separator:
-            fields.setdefault(key, "")
-        elif separator and key in _MEMORY_KEYS:
-            fields.setdefault(key, value.strip())
-    return fields
+        text, separator, value = line.partition(":")
+        text = text.strip()
+        key = _MEMORY_KEYS.get(text)
+        if text == _MEMORY_HEADER and not separator:
+            header = True
+        elif separator and key is not None:
+            values.setdefault(key, value.strip())
+    return _MemoryLines(
+        recognised=header or bool(values),
+        version=values.get(_MemoryKey.VERSION),
+        installed=values.get(_MemoryKey.INSTALLED),
+        available=values.get(_MemoryKey.AVAILABLE),
+        label_size=values.get(_MemoryKey.LABEL_SIZE),
+    )
 
 
 @dataclass(frozen=True)
@@ -400,17 +460,19 @@ class _LabelSize:
     units: Unit | None = None
 
 
-def _label_size(value: str) -> _LabelSize:
-    """Split ``wwww:gggg:oo`` into width, length and units; a malformed part reads as None."""
+def _label_size(value: str | None) -> _LabelSize:
+    """Split ``wwww:gggg:oo`` into width, length and units; a malformed or missing part reads as None."""
+    if value is None:
+        return _LabelSize()
     parts = [part.strip() for part in value.split(":")]
     if len(parts) != _LABEL_SIZE_PARTS:
         return _LabelSize()
     return _LabelSize(width=_number(parts[0]), length=_number(parts[1]), units=_LABEL_SIZE_UNITS.get(parts[2]))
 
 
-def _number(text: str) -> int | None:
+def _number(text: str | None) -> int | None:
     """Return ``text`` as an int when it is plain ASCII digits, else None."""
-    return int(text) if _NUMBER.fullmatch(text) else None
+    return int(text) if text is not None and _NUMBER.fullmatch(text) else None
 
 
 def show_answer(answer: bytes) -> str:
@@ -449,6 +511,7 @@ __all__ = [
     "VERSION_REQUEST",
     "XOFF",
     "XON",
+    "FlagState",
     "MemoryReport",
     "PrinterStatus",
     "is_status_line",

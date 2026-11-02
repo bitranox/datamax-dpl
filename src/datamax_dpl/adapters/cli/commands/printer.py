@@ -146,7 +146,7 @@ def cli_status(ctx: click.Context, **given: Any) -> None:
             wait=_answer_wait(settings, cli_ctx),
         )
         payload = StatusPayload(printer=uri, idle=status.idle, problems=list(status.problems), flags=status)
-        lines = [f"{name:16} {'yes' if is_set else 'no'}" for name, is_set in status.flags()]
+        lines = [f"{state.flag.value:16} {'yes' if state.is_set else 'no'}" for state in status.flags()]
         return CommandResult(ok=not status.problems, payload=payload, human="\n".join(lines))
 
     run_command(ctx, command="status", body=body)

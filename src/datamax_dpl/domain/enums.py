@@ -445,6 +445,25 @@ class StatusProblem(str, Enum):
     PAUSED = "paused"
 
 
+class StatusFlag(str, Enum):
+    """One condition of a printer status answer, in the order ``<SOH>A`` and ``<SOH>F`` report them.
+
+    Each value is the name of the matching field of the status model.
+
+    Example:
+        >>> [flag.value for flag in StatusFlag][:2]
+        ['interpreter_busy', 'paper_out']
+    """
+
+    INTERPRETER_BUSY = "interpreter_busy"
+    PAPER_OUT = "paper_out"
+    RIBBON_OUT = "ribbon_out"
+    PRINTING_BATCH = "printing_batch"
+    BUSY_PRINTING = "busy_printing"
+    PAUSED = "paused"
+    LABEL_PRESENTED = "label_presented"
+
+
 class ModelFamily(str, Enum):
     """Printer family; models of one family share a feature set.
 
@@ -572,6 +591,7 @@ __all__ = [
     "Rotation",
     "Severity",
     "SpeedCode",
+    "StatusFlag",
     "StatusProblem",
     "Unit",
 ]
