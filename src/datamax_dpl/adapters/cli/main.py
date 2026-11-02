@@ -29,6 +29,7 @@ from .context import (
 )
 from .envelope import CommandName, ErrorEnvelope, Outcome, OutputMode, write_envelope
 from .exit_codes import ExitCode
+from .interrupt import noting_interrupts
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -368,7 +369,8 @@ def main(
 
     previous_state = snapshot_traceback_state()
     try:
-        code = _run_cli(argv, services_factory=services_factory)
+        with noting_interrupts():
+            code = _run_cli(argv, services_factory=services_factory)
     finally:
         if restore_traceback:
             restore_traceback_state(previous_state)

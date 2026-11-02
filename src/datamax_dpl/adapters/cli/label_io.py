@@ -22,6 +22,7 @@ from pydantic import ValidationError
 from ...domain.errors import DatamaxDplError
 from ...domain.label import Label
 from ...domain.printable import printable
+from .interrupt import raise_if_interrupted
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -173,7 +174,18 @@ class Records:
         self._count = sum(1 for _ in checked)
 
     def __iter__(self) -> Iterator[dict[str, str]]:
-        """Parse the records again from the start, one at a time."""
+        """Parse the records again from the start, one at a time.
+
+        Raises:
+            KeyboardInterrupt: A Ctrl-C came and its raise was lost, as it can be while a record is
+                filled (see :mod:`.interrupt`); looked for at each record and at the end.
+        """
+        for record in self._parsed():
+            raise_if_interrupted()
+            yield record
+        raise_if_interrupted()
+
+    def _parsed(self) -> Iterator[dict[str, str]]:
         if self._csv:
             return _records_from_csv(self._data, self._source)
         if self._rows is None:

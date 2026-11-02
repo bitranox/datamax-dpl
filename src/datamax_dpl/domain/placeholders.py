@@ -134,6 +134,8 @@ def fill_label(label: Label, record: Mapping[str, str]) -> Label:
     # Every element is filled before anything is validated, so a missing field is reported
     # ahead of a field that filling made too long, whichever element comes first. The label
     # models set revalidate_instances, which is what makes this model_validate re-check the copy.
+    # It stays although it costs time per record and is where a Ctrl-C can be swallowed: it is the
+    # one place a value's limits are enforced, and the CLI finds such a Ctrl-C again per record.
     elements = [_fill_element(element, record) for element in label.elements]
     return Label.model_validate(label.model_copy(update=_ElementsUpdate(elements=elements))).marked_filled()
 

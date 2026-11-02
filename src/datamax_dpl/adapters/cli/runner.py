@@ -24,6 +24,7 @@ from . import safe_console
 from .constants import TRACEBACK_VERBOSE_LIMIT
 from .context import CLIContext, get_cli_context
 from .envelope import CommandName, Envelope, Outcome, report_failure, write_envelope
+from .interrupt import raise_if_interrupted
 from .label_io import LabelInputError, validation_lines
 
 if TYPE_CHECKING:
@@ -89,6 +90,9 @@ def run_command(ctx: rich_click.Context, *, command: CommandName, body: Callable
     cli_ctx = get_cli_context(ctx)
     try:
         result = body(cli_ctx)
+        # The last record's fill comes after the pass over the records has ended, and a single
+        # label has no pass: what was lost there still must not read as a run that finished.
+        raise_if_interrupted()
     except _CLICK_CONTROL:
         raise
     except Exception as exc:
