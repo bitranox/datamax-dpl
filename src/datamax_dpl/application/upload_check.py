@@ -17,7 +17,10 @@ after). A name missing, or no answer within ``stored_names_wait``, starts the ne
 
 Where no clear may go (a plug-in module, a model with no clear) a round renders the label again
 with what the last read listed, so a name the module holds is left out rather than downloaded
-again, which would print nothing; that listing passes on to the next label of a batch. A label
+again, which would print nothing; that listing passes on to the next label of a batch. Where the
+read got no answer, each name sent before it may be held: a round that would download one of them
+again is left out (round 2 sends the same names, so it is skipped; round 3 runs only where every
+download gets a new name by halving, which a QR Code never does). A label
 that, rendered again for a round, has an error finding (the module it now holds leaves too little
 memory, a held name in error) is refused there, before anything of that round is sent.
 
@@ -248,6 +251,10 @@ class _Record:
     findings: list[Finding] = field(default_factory=list[Finding])
     _last_read: str = field(default="", init=False)
     _listed: HeldImages = field(default=HeldImages(), init=False)
+    # Unknown where no read has answered yet: then nothing is known to leave out.
+    _known: frozenset[str] | None = field(default=None, init=False)
+    # Names downloaded since the last read that answered: each may be held, or may be lost.
+    _unsure: frozenset[str] = field(default=frozenset(), init=False)
 
     def __post_init__(self) -> None:
         """Render the label as it is first sent."""
@@ -259,31 +266,59 @@ class _Record:
         self.link.send(self.result.data[: self.result.upload_end])
         listed = self.link.read(module, wait=self.check.wait)
         self._listed = listed
+        if listed.listed is None:
+            self._unsure |= frozenset(self.result.downloads)
+        else:
+            self._known, self._unsure = listed.listed, frozenset()
         self._last_read = _what_was_read(module, missing := _missing(self.result, listed), listed)
         return missing
 
     def _uncleared(self) -> HeldImages | None:
-        """What the module holds before an upload again where no clear went, from the last read.
+        """What the module holds before an upload again where no clear went, from the last read that answered.
 
         None where a clear went (the module is known empty, or the Prodigy removed the label's own
-        names, so its downloads go again as they were), or where the read listed nothing known.
-        A name the read listed is held: downloading it again would print nothing (one Allegro 2,
+        names, so its downloads go again as they were), or where no read of the label answered.
+        A name a read listed is held: downloading it again would print nothing (one Allegro 2,
         2026-11-01), so the label is rendered again leaving it out.
         """
-        if self.result.retry_clear or self._listed.listed is None:
+        if self.result.retry_clear or self._known is None:
             return None
-        return self.after.as_listed(self._listed.listed)
+        return self.after.as_listed(self._known)
 
-    def clear_and_upload(self) -> tuple[str, ...] | str:
+    def _downloaded_again(self, result: RenderResult) -> tuple[str, ...]:
+        """The names ``result`` would download that may be held already, with no clear before them.
+
+        A name sent since the last read that answered may have arrived; downloading it again, with
+        no clear to empty the module first, would print nothing (one Allegro 2, 2026-11-01).
+        """
+        if self.result.retry_clear:
+            return ()
+        return tuple(name for name in result.downloads if name in self._unsure)
+
+    @staticmethod
+    def _unread(names: tuple[str, ...]) -> str:
+        """Why ``names`` may be held: no clear may empty the module, and the read after them got no answer."""
+        held = "it may be held" if len(names) == 1 else "they may be held"
+        return (
+            f"{', '.join(names)}: {held} already, since no clear may empty the module and the read after "
+            "got no answer, and a download of a held name prints nothing"
+        )
+
+    def clear_and_upload(self) -> tuple[str, ...] | str | _Skipped:
         """Round 2: clear where a clear may go, render again for what the module then holds, upload again.
 
-        The reason instead where the label, rendered again, has an error: nothing of the round
-        is sent then.
+        The reason instead where the label, rendered again, has an error, and :class:`_Skipped`
+        where the upload again would download a name the module may hold: nothing of the round is
+        sent then.
         """
         base = EMPTY_MODULE if self.result.retry_clear_empties else self._uncleared()
         again = None if base is None else self.render(base, halve=False)
         if again is not None and not again[0].ok:
             return "rendered again for round 2 the label is refused: " + "; ".join(f.message for f in again[0].errors)
+        if twice := self._downloaded_again(self.result if again is None else again[0]):
+            skipped = _Skipped(f"round 2 skipped, it would download again {self._unread(twice)}")
+            self._retried(skipped.reason)
+            return skipped
         self.link.send(self.result.retry_clear)
         cleared = _clear_text(self.result)
         if again is not None:
@@ -300,6 +335,9 @@ class _Record:
             return "no image of the label can be halved (a QR Code never is, nor an image halved already)"
         if not halved.ok:
             return "halving is refused: " + "; ".join(f.message for f in halved.errors)
+        if twice := self._downloaded_again(halved):
+            stays = "a QR Code is never halved, so its name stays"
+            return f"halving is skipped, it would download again ({stays}) {self._unread(twice)}"
         self.link.send(self.result.retry_clear)
         cleared = _clear_text(self.result)
         self.result, self.after = halved, after
@@ -331,27 +369,40 @@ class _Record:
         return self.result.model_copy(update={"findings": self.result.findings + tuple(self.findings)})
 
 
+class _Skipped(NamedTuple):
+    """A round left out, with why; the next round may still run."""
+
+    reason: str
+
+
 def _check_label(record: _Record) -> bool:
     """Run a label's rounds; return True when its images are listed and the rest may follow."""
     missing = record.upload()
     rounds = 1
-    why_not = ""
+    why_not: list[str] = []
     if missing and record.check.rounds >= CLEAR_ROUND:
         outcome = record.clear_and_upload()
-        if isinstance(outcome, str):
-            why_not = outcome
+        if isinstance(outcome, _Skipped):
+            why_not.append(outcome.reason)
+        elif isinstance(outcome, str):
+            return _refused(record, missing, rounds=rounds, why_not=[outcome])
         else:
-            missing, rounds = outcome, CLEAR_ROUND
-    if missing and not why_not and record.check.rounds >= HALVING_ROUND:
+            missing, rounds = outcome, rounds + 1
+    if missing and record.check.rounds >= HALVING_ROUND:
         outcome = record.halve_and_upload()
         if isinstance(outcome, str):
-            why_not = outcome
+            why_not.append(outcome)
         else:
-            missing, rounds = outcome, HALVING_ROUND
+            missing, rounds = outcome, rounds + 1
     if missing:
-        record.refuse(missing, rounds=rounds, why_not=why_not)
-        return False
+        return _refused(record, missing, rounds=rounds, why_not=why_not)
     return True
+
+
+def _refused(record: _Record, missing: tuple[str, ...], *, rounds: int, why_not: list[str]) -> bool:
+    """Refuse ``record`` after ``rounds`` rounds run, each reason a round did not run in ``why_not``."""
+    record.refuse(missing, rounds=rounds, why_not="; ".join(why_not))
+    return False
 
 
 def _unlisted_module(result: RenderResult) -> RenderResult | None:

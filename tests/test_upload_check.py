@@ -258,6 +258,80 @@ def test_a_batch_on_such_a_module_carries_what_the_directory_listed_to_the_next_
 
 
 @pytest.mark.os_agnostic
+def test_such_a_module_skips_round_2_after_a_read_with_no_answer_and_halves_under_new_names() -> None:
+    label = Label(elements=[LOGO])
+    [logo] = render_label(label, PLUG_IN).downloads
+    modules = ImageModules(silent={0})
+
+    printer, sent = _print(modules, label, PLUG_IN)
+
+    result = _single(sent)
+    assert modules.downloaded_held == []
+    assert modules.downloads.count(logo) == 1
+    assert result.halved_elements == (0,)
+    assert printer.queries == [WG, WG]
+    assert printer.data.count(FORMAT) == 1
+    first, second = (f.message for f in result.findings if f.code is FindingCode.IMAGE_UPLOAD_RETRIED)
+    assert first.startswith("round 2 skipped,")
+    assert logo in first
+    assert "no answer" in first
+    assert second.startswith("round 3:")
+
+
+@pytest.mark.os_agnostic
+def test_such_a_module_refuses_after_a_read_with_no_answer_when_nothing_can_be_halved() -> None:
+    label = Label(elements=[Qr(x=5, y=150, data="CODE")])
+
+    printer, refused = _refused(ImageModules(silent={0}), label, PLUG_IN)
+
+    result = _single(refused.result)
+    assert FORMAT not in printer.data
+    assert printer.queries == [WG]
+    assert len(printer.sent) == 2  # the one upload, its read; no clear may go
+    message = _message(result, FindingCode.IMAGE_UPLOAD_REFUSED)
+    assert "after 1 round " in message
+    assert "round 2 skipped," in message
+    assert "no image of the label can be halved" in message
+    assert _message(result, FindingCode.IMAGE_UPLOAD_RETRIED).startswith("round 2 skipped,")
+
+
+@pytest.mark.os_agnostic
+def test_such_a_module_refuses_the_halving_round_that_would_download_an_unread_qr_code_again() -> None:
+    label = Label(elements=[Qr(x=5, y=150, data="CODE"), LOGO])
+    qr, _logo = render_label(label, PLUG_IN).downloads
+    modules = ImageModules(silent={0})
+
+    printer, refused = _refused(modules, label, PLUG_IN)
+
+    assert modules.downloaded_held == []
+    assert modules.downloads.count(qr) == 1
+    assert FORMAT not in printer.data
+    assert printer.queries == [WG]
+    message = _message(_single(refused.result), FindingCode.IMAGE_UPLOAD_REFUSED)
+    assert "round 2 skipped," in message
+    assert (
+        f"halving is skipped, it would download again (a QR Code is never halved, so its name stays) {qr}:" in message
+    )
+
+
+@pytest.mark.os_agnostic
+def test_such_a_module_halves_from_the_last_answered_read_when_the_round_2_read_got_no_answer() -> None:
+    label = Label(elements=[Qr(x=5, y=150, data="CODE"), LOGO])
+    qr, logo = render_label(label, PLUG_IN).downloads
+    modules = ImageModules(lose={1}, silent={1})
+
+    printer, sent = _print(modules, label, PLUG_IN)
+
+    result = _single(sent)
+    assert modules.downloaded_held == []
+    assert modules.downloads.count(qr) == 1
+    assert modules.downloads.count(logo) == 2
+    assert result.halved_elements == (1,)
+    assert printer.queries == [WG, WG, WG]
+    assert printer.data.count(FORMAT) == 1
+
+
+@pytest.mark.os_agnostic
 def test_the_plain_prodigy_removes_each_of_the_labels_own_names_instead_of_a_clear() -> None:
     options = RenderOptions(model="prodigy", image_module=ImageModule.A)
     [full] = render_label(Label(elements=[LOGO]), options).downloads

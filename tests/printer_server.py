@@ -369,7 +369,8 @@ class ImageModules:
     that does not fit is lost with no error, as on one Allegro 2 (2026-10-31). ``lose`` names
     downloads (0 the first one seen) lost whatever the room, for a printer that drops one upload.
     ``<STX>q<m>`` empties module ``m``; ``<STX>R<name>`` removes the name from every module.
-    ``answers`` False leaves every directory request unanswered.
+    ``answers`` False leaves every directory request unanswered; ``silent`` names the requests (0
+    the first one seen) left unanswered, for a printer that misses one read.
 
     Attributes:
         stored: Each module's names, each with what it costs.
@@ -387,6 +388,7 @@ class ImageModules:
         held: Iterable[tuple[str, str, int]] = (),
         lose: Iterable[int] = (),
         answers: bool = True,
+        silent: Iterable[int] = (),
     ) -> None:
         self.capacity = capacity
         self.stored: dict[str, dict[str, int]] = {}
@@ -397,6 +399,7 @@ class ImageModules:
         self.requests = 0
         self._lose = frozenset(lose)
         self._answers = answers
+        self._silent = frozenset(silent)
         self._pending = b""
         self._lock = threading.Lock()
 
@@ -429,8 +432,8 @@ class ImageModules:
         """Do what ``command`` does to the modules; return its answer."""
         kind = command[1:2]
         if command == _GRAPHIC_DIRECTORY:
-            self.requests += 1
-            return self._directory() if self._answers else b""
+            request, self.requests = self.requests, self.requests + 1
+            return self._directory() if self._answers and request not in self._silent else b""
         if command[:1] != _STX:
             return b""
         if kind == b"q":

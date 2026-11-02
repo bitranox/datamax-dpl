@@ -112,12 +112,12 @@ cut off part way says to power-cycle the printer, which may be waiting for the r
 - Upload check (`print`, `verify`, two-way link): a download into a full module is lost silently,
   so a label's downloads go first, the printer's directory (`<STX>W`) is read within
   `stored_names_wait` (plus the 1 s of silence that ends the answer), and its format follows only
-  once every downloaded name is listed. Else round 2 clears (`q` on built-in RAM, the Prodigy's
-  `R`, never a plug-in module) and uploads again (with no clear, only the names the directory did
-  not list), round 3 uploads halved (`image_upload_retried`); still missing, or in error once
-  rendered again for a round, the label is refused and nothing more is sent
-  (`image_upload_refused`). `[printer] upload_check_rounds` (1-3, default 3). An
-  `image_module` of `C` (no directory lists it) is refused before anything is sent
+  once every downloaded name is listed. Else round 2 clears (`q` on built-in RAM, the Prodigy's `R`,
+  never a plug-in module) and uploads again (with no clear, only the names the directory did not
+  list, and none of the same names after a read with no answer), round 3 uploads halved
+  (`image_upload_retried`); still missing, or in error once rendered again for a round, the label is
+  refused and nothing more is sent (`image_upload_refused`). `[printer] upload_check_rounds` (1-3,
+  default 3). An `image_module` of `C` (no directory lists it) is refused before anything is sent
   (`image_module_unlisted`); set the real letter (A on the Allegro 2) or use a one-way link.
 - Every downloaded image goes under its content name (`D` + 7 characters from `0-9 A-Z a-z`, from
   its hash; letter case counts, measured kept and matched exactly on an Allegro 2 CA02 03.04 only),
