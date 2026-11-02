@@ -9,7 +9,7 @@ import pytest
 from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, Severity, SpeedCode
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.label import Label
-from datamax_dpl.domain.profiles import PROFILES, Firmware
+from datamax_dpl.domain.profiles import PROFILES, Firmware, get_profile
 from datamax_dpl.domain.render import build_job, render
 from datamax_dpl.domain.render_context import RenderOptions
 
@@ -236,3 +236,32 @@ def test_every_error_finding_is_marked_as_error_severity() -> None:
     result = build_job(label(mirror=True), RenderOptions(model="allegro"))
     assert all(f.severity is Severity.ERROR for f in result.errors)
     assert not result.ok
+
+
+@pytest.mark.os_agnostic
+def test_encoding_stops_once_a_label_has_more_fields_than_the_model_takes() -> None:
+    """Refused either way, so the elements past the limit cost no time: each would warn here."""
+    many = label(elements=[{"type": "text", "x": 1, "y": 1, "text": "€"} for _ in range(1000)])
+    result = build_job(many, RenderOptions(model="prodigy"))
+    assert [f.message for f in result.errors] == ["at least 101 fields; Prodigy takes at most 100"]
+    assert sum(f.code is FindingCode.CHARACTERS_UNMAPPABLE for f in result.findings) == 101
+
+
+@pytest.mark.os_agnostic
+def test_a_label_exactly_at_the_field_limit_passes() -> None:
+    limit = label(elements=[{"type": "text", "x": 1, "y": 1, "text": str(i)} for i in range(100)])
+    assert build_job(limit, RenderOptions(model="prodigy")).ok
+
+
+@pytest.mark.os_agnostic
+def test_merged_fields_count_as_the_one_record_they_send() -> None:
+    """Why the limit reads records, not elements: more elements than fields can still fit."""
+    limit = get_profile("allegro-2").max_fields
+    lines = [
+        {"type": "line", "x": 1 + i % 50, "y": 1, "x2": 1 + i % 50, "y2": 50, "thickness": 2}
+        for i in range(limit + 1)
+    ]
+    merged = label(attribute=2, elements=lines)
+    codes = {f.code for f in build_job(merged, RenderOptions(model="allegro-2")).findings}
+    assert FindingCode.TRANSPARENCY_EMULATED in codes
+    assert FindingCode.TOO_MANY_FIELDS not in codes

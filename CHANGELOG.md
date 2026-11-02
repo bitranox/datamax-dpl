@@ -360,6 +360,10 @@ All notable changes to this project are documented here. The format follows
   `%0A` created a file with a newline in its name.
 - A refused printer URI or value is quoted up to 200 characters with its
   length: a 3000-digit baud rate gave a 6 KB message.
+- A label with far more fields than its model takes is refused as soon as the
+  count passes the limit, with no full encoding first: 258334 elements cost 8
+  s and 381 MB before the refusal. Its message says `at least N fields`, and
+  its findings stop at that element.
 
 ## [0.4.0] - 2026-10-30
 

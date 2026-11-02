@@ -51,7 +51,7 @@ from .transparency import Emulation, emulate_transparency
 from .units import MM_PER_INCH, Axis, Correction, DplUnit, to_inches
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
 
     from .label import Element, Label
     from .profiles import PrinterProfile
@@ -527,17 +527,29 @@ def _encode_element(element: Element, *, index: int, ctx: RenderContext) -> list
 
 
 def _encode_elements(elements: list[Element], ctx: RenderContext, emulation: Emulation) -> list[bytes]:
-    """Encode each element, putting a merged group's image where its first element stands."""
+    """Encode each element, putting a merged group's image where its first element stands.
+
+    Stops once the records pass the model's limit: the job is refused whatever follows, and a label
+    with thousands of elements would otherwise cost seconds and hundreds of MB first. The limit
+    counts records, not elements, because a merged group sends one record for many elements.
+    """
     lines: list[bytes] = []
+    records = 0
     for index, element in enumerate(elements):
         if index in emulation.placed:
-            lines.extend(emulation.placed[index])
-        elif index not in emulation.merged:
-            lines.extend(_encode_element(element, index=index, ctx=ctx))
+            encoded = emulation.placed[index]
+        elif index in emulation.merged:
+            continue
+        else:
+            encoded = _encode_element(element, index=index, ctx=ctx)
+        lines.extend(encoded)
+        records += _count_records(encoded)
+        if records > ctx.profile.max_fields:
+            break
     return lines
 
 
-def _count_records(lines: list[bytes]) -> int:
+def _count_records(lines: Sequence[bytes]) -> int:
     return sum(1 for item in lines if item[:1].decode("ascii", "replace") in _RECORD_PREFIXES)
 
 
@@ -567,7 +579,7 @@ def _encode(label: Label, options: RenderOptions, *, halve: bool, held: HeldImag
     if record_count > ctx.profile.max_fields:
         ctx.findings.refuse(
             FindingCode.TOO_MANY_FIELDS,
-            f"{record_count} fields; {ctx.profile.name} takes at most {ctx.profile.max_fields}",
+            f"at least {record_count} fields; {ctx.profile.name} takes at most {ctx.profile.max_fields}",
         )
     _check_format_length(label, ctx, max_rows=_row_limit(options, ctx.profile))
     return _Job(ctx=ctx, prefix=prefix, body=body, record_count=record_count)
@@ -855,7 +867,8 @@ def render(label: Label, options: RenderOptions | None = None) -> RenderResult:
         The job's bytes and its findings, none of them an error.
 
     Raises:
-        LabelRejectedError: At least one finding is an error; ``findings`` holds them all.
+        LabelRejectedError: At least one finding is an error; ``findings`` holds them all, up to
+            the element that passed the model's field limit when that is the refusal.
         UnknownModelError: ``options.model`` names no profile.
 
     Example:
