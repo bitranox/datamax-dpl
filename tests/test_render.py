@@ -480,6 +480,15 @@ def test_an_allegro_2_without_options_reports_the_model_defaults_it_applied() ->
 
 
 @pytest.mark.os_agnostic
+def test_the_model_defaults_report_names_each_option_with_its_unit() -> None:
+    (finding,) = _model_defaults_findings(RenderOptions(model="allegro-2"))
+    assert finding.message == (
+        "model defaults (measured on one Allegro 2, firmware CA02 03.04, 2026-10-29 and 2026-10-30):"
+        " scale_along 0.976, offset_along -0.25 mm, stop_position 66.8 mm"
+    )
+
+
+@pytest.mark.os_agnostic
 def test_an_explicit_option_wins_over_the_model_default_and_is_not_reported() -> None:
     explicit = RenderOptions(model="allegro-2", scale_along=1.0, stop_position_mm=40.0)
     (finding,) = _model_defaults_findings(explicit)

@@ -17,6 +17,7 @@ renders a batch, where a name an earlier label downloaded counts as held for the
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import BaseModel, ConfigDict
@@ -24,7 +25,7 @@ from pydantic import BaseModel, ConfigDict
 from .encode_barcode import encode_barcode
 from .encode_graphics import encode_box, encode_circle, encode_image, encode_line, encode_polygon, encode_qr
 from .encode_text import encode_scalable_text, encode_text
-from .enums import Attribute, FindingCode, ImageModule, PrinterSetting, PrinterStop, Severity, Unit
+from .enums import Attribute, FindingCode, ImageModule, PrinterSetting, PrinterStop, Rotation, Severity, Unit
 from .errors import LabelRejectedError
 from .findings import Finding, FindingCollector
 from .held_images import EMPTY_MODULE, HeldImages
@@ -54,7 +55,8 @@ if TYPE_CHECKING:
     from .label import Element, Label
     from .profiles import PrinterProfile
 
-_RECORD_PREFIXES = tuple("1234")
+#: The first character of a record line: its rotation digit.
+_RECORD_PREFIXES = tuple(str(rotation.dpl_digit) for rotation in Rotation)
 _Given = TypeVar("_Given")
 _Default = TypeVar("_Default")
 
@@ -216,17 +218,34 @@ class _ModelDefault:
     stop_position: bool = False
 
 
+class _DefaultOption(str, Enum):
+    """An option the model's calibration may supply, as the model defaults report names it.
+
+    The scale factors and offsets go by their configuration keys; the stop position by the
+    ``[printer]`` key that sets it.
+    """
+
+    SCALE_ACROSS = CalibrationKey.SCALE_ACROSS.value
+    SCALE_ALONG = CalibrationKey.SCALE_ALONG.value
+    OFFSET_ACROSS = CalibrationKey.OFFSET_ACROSS.value
+    OFFSET_ALONG = CalibrationKey.OFFSET_ALONG.value
+    STOP_POSITION = "stop_position"
+
+    @property
+    def unit(self) -> str:
+        """What the report writes after the value: nothing after a scale factor, else millimetres."""
+        return "" if self in (_DefaultOption.SCALE_ACROSS, _DefaultOption.SCALE_ALONG) else " mm"
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _Candidate:
     """A value the model's calibration may supply: as the options give it, as resolved, as neutral."""
 
-    option: str
+    option: _DefaultOption
     given: float | PrinterStop | None
     value: float | None
     nominal: float | None
-    unit: str = ""
     offset_axis: Axis | None = None
-    stop_position: bool = False
 
 
 def _model_defaults_used(options: RenderOptions, calibration: CalibrationDefaults) -> tuple[_ModelDefault, ...]:
@@ -239,46 +258,46 @@ def _model_defaults_used(options: RenderOptions, calibration: CalibrationDefault
     neutral = CalibrationDefaults()
     candidates = (
         _Candidate(
-            option=CalibrationKey.SCALE_ACROSS.value,
+            option=_DefaultOption.SCALE_ACROSS,
             given=options.scale_across,
             value=calibration.scale_across,
             nominal=neutral.scale_across,
         ),
         _Candidate(
-            option=CalibrationKey.SCALE_ALONG.value,
+            option=_DefaultOption.SCALE_ALONG,
             given=options.scale_along,
             value=calibration.scale_along,
             nominal=neutral.scale_along,
         ),
         _Candidate(
-            option=CalibrationKey.OFFSET_ACROSS.value,
+            option=_DefaultOption.OFFSET_ACROSS,
             given=options.offset_across,
             value=calibration.offset_across,
             nominal=neutral.offset_across,
-            unit=" mm",
             offset_axis=Axis.ACROSS,
         ),
         _Candidate(
-            option=CalibrationKey.OFFSET_ALONG.value,
+            option=_DefaultOption.OFFSET_ALONG,
             given=options.offset_along,
             value=calibration.offset_along,
             nominal=neutral.offset_along,
-            unit=" mm",
             offset_axis=Axis.ALONG,
         ),
         # The given value is "printer" for a stop position that keeps the printer's own: the job's
         # value is then None, so the model's default is not named.
         _Candidate(
-            option="stop_position",
+            option=_DefaultOption.STOP_POSITION,
             given=options.stop_position_mm,
             value=calibration.stop_position_mm,
             nominal=neutral.stop_position_mm,
-            unit=" mm",
-            stop_position=True,
         ),
     )
     return tuple(
-        _ModelDefault(text=f"{c.option} {c.value:g}{c.unit}", offset_axis=c.offset_axis, stop_position=c.stop_position)
+        _ModelDefault(
+            text=f"{c.option.value} {c.value:g}{c.option.unit}",
+            offset_axis=c.offset_axis,
+            stop_position=c.option is _DefaultOption.STOP_POSITION,
+        )
         for c in candidates
         if c.value is not None and c.value not in (c.given, c.nominal)
     )
