@@ -32,6 +32,7 @@ from ....domain.enums import ImageModule, MemoryKind, Severity, StatusProblem
 from ....domain.errors import CameraError, PreviewTooLongError
 from ....domain.held_images import HeldImages
 from ....domain.memory import NO_MODULES_MEANING, MemoryDirectory
+from ....domain.placeholders import fill_label
 from ....domain.preview import canvas_for, check_preview_length
 from ....domain.profiles import get_profile
 from ....domain.render import RenderResult
@@ -489,8 +490,6 @@ def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | 
         settings = resolve_settings(cli_ctx, PrinterOverrides(model=model))
         label = load_label(label_source)
         if data is not None:
-            from ....domain.placeholders import fill_label  # noqa: PLC0415 - only the preview of a batch needs it
-
             label = fill_label(label, load_records(data)[0])
         profile = get_profile(settings.model)
         options = render_options(settings)

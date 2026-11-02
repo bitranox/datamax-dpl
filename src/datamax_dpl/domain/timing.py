@@ -92,7 +92,12 @@ def check_timeout(timeout: float, *, name: TimeoutName = TimeoutName.TIMEOUT) ->
         ...
         ValueError: idle must be above 0 and at most 2147483 seconds, got 0.0
     """
-    if not (math.isfinite(timeout) and 0 < timeout <= MAX_TIMEOUT_SECONDS):
+    try:
+        usable = math.isfinite(timeout) and 0 < timeout <= MAX_TIMEOUT_SECONDS
+    except OverflowError:
+        # An int past what a float holds: isfinite converts it first.
+        usable = False
+    if not usable:
         raise ValueError(f"{name.value} must be above 0 and at most {MAX_TIMEOUT_SECONDS:.0f} seconds, got {timeout!r}")
     return timeout
 

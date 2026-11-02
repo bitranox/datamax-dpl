@@ -310,6 +310,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `check_timeout` (and so `open_printer`) refuses a timeout too large for a
+  float with its documented `ValueError`; `10**400` escaped as
+  `OverflowError`.
 - `calibrate set` no longer writes a value the next load refuses: `--top nan`
   wrote `offset_along = nan` into the user's configuration, after which every
   command failed until the file was edited by hand. A border that is not

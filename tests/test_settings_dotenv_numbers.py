@@ -14,11 +14,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from pydantic import ValidationError
 
-from datamax_dpl.adapters.logging.setup import (
-    _build_runtime_config,  # pyright: ignore[reportPrivateUsage]
-)
+from datamax_dpl.adapters.logging.setup import InvalidLoggingConfigError, LoggingConfigModel, check_logging_config
 from datamax_dpl.composition import build_production
 
 if TYPE_CHECKING:
@@ -42,14 +39,13 @@ def test_a_digit_only_logging_name_reaches_lib_log_rich_as_its_text(
     # Premise: the library hands the value over as a number. Without it the test proves nothing.
     assert isinstance(config.get("lib_log_rich", {})[key.lower()], int)
 
-    runtime = _build_runtime_config(config)
-
-    assert getattr(runtime, key.lower()) == "4711"
+    check_logging_config(config)
+    assert getattr(LoggingConfigModel.model_validate(config.get("lib_log_rich", {})), key.lower()) == "4711"
 
 
 @pytest.mark.os_agnostic
 def test_an_invalid_logging_value_is_still_refused(tmp_path: Path, clear_config_cache: None) -> None:
     config = _load_dotenv(tmp_path, "LIB_LOG_RICH__SERVICE=[1, 2]")
 
-    with pytest.raises(ValidationError):
-        _build_runtime_config(config)
+    with pytest.raises(InvalidLoggingConfigError, match=r"lib_log_rich\.service"):
+        check_logging_config(config)

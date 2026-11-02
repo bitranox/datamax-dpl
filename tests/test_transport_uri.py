@@ -395,3 +395,10 @@ def test_a_host_name_over_253_characters_is_refused() -> None:
 def test_a_host_name_at_the_limits_still_parses(host: str) -> None:
     assert len(host) <= 253
     assert parse_printer_uri(f"tcp://{host}:9100") == TcpUri(host=host, port=9100)
+
+
+@pytest.mark.os_agnostic
+def test_a_timeout_too_big_for_a_float_is_the_documented_refusal() -> None:
+    """math.isfinite converts first, so 10**400 escaped as OverflowError where a ValueError is documented."""
+    with pytest.raises(ValueError, match="must be above 0"):
+        check_timeout(10**400)
