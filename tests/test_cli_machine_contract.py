@@ -35,7 +35,7 @@ def _services(data: dict[str, Any] | None = None, **overrides: Any) -> Callable[
     return build
 
 
-def _raising(error: Exception) -> Callable[..., Any]:
+def _raising(error: BaseException) -> Callable[..., Any]:
     def raise_it(*_args: Any, **_kwargs: Any) -> Any:
         raise error
 

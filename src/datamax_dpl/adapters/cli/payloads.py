@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict
 
 from ...application.use_cases import BatchResult
+from ...domain._invariants import require_same_keys
 from ...domain.decoder import readable
 from ...domain.enums import FindingCode, Severity
 from ...domain.units import DplUnit
@@ -110,8 +111,7 @@ def render_payload(
 #: Sort rank of each severity in human output: the most severe first.
 _SEVERITY_ORDER: Mapping[Severity, int] = MappingProxyType({Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2})
 # A new Severity without a rank fails here at import, not as a KeyError in human output only.
-if set(_SEVERITY_ORDER) != set(Severity):  # pragma: no cover - import-time guard
-    raise RuntimeError("every Severity needs a rank in _SEVERITY_ORDER")
+require_same_keys(_SEVERITY_ORDER, Severity, what="a rank in _SEVERITY_ORDER")
 
 
 def findings_text(findings: list[FindingOut]) -> str:

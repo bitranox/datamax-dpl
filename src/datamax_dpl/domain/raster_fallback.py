@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, get_args
 
+from ._invariants import require_same_keys
 from .encode_common import column_of, image_edge, row_of
 from .enums import FillPattern, FindingCode
 from .geometry import DotPoint, Size
@@ -37,8 +38,7 @@ _RASTERIZED: Mapping[type[Graphic], FindingCode] = MappingProxyType(
         Polygon: FindingCode.POLYGON_RASTERIZED,
     }
 )
-if set(_RASTERIZED) != set(get_args(Graphic)):  # pragma: no cover - import-time guard
-    raise RuntimeError("every Graphic type needs a *_rasterized FindingCode")
+require_same_keys(_RASTERIZED, get_args(Graphic), what="a *_rasterized FindingCode")
 
 
 @dataclass(frozen=True)

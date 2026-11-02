@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 from ...application.upload_check import MAX_UPLOAD_CHECK_ROUNDS, MIN_UPLOAD_CHECK_ROUNDS, UPLOAD_CHECK_ROUNDS
 from ...application.use_cases import RETRY_INTERVAL_SECONDS, STATUS_WAIT_SECONDS, STORED_NAMES_WAIT_SECONDS
 from ...application.verify import ONE_WAY_SETTLE_SECONDS, POLL_SECONDS
+from ...domain._invariants import require_update_fields
 from ...domain.camera import CameraSettings, refuse_boolean
 from ...domain.enums import (
     CutterPresence,
@@ -187,9 +188,7 @@ class _CommandLineValues(TypedDict):
     options: frozenset[HardwareOption]
 
 
-# model_copy(update=...) takes any key and sets it unchecked, so the keys are checked here at import.
-if not _CommandLineValues.__required_keys__ <= PrinterSettings.model_fields.keys():  # pragma: no cover
-    raise RuntimeError("_CommandLineValues names a field PrinterSettings does not have")
+require_update_fields(_CommandLineValues, PrinterSettings)
 
 
 def _table(section: object, *, path: str) -> Mapping[str, Any]:

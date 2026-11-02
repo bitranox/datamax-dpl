@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Generic, NamedTuple, Protocol, TypedDict, Type
 
 from pydantic import BaseModel, ConfigDict
 
+from ..domain._invariants import require_update_fields
 from ..domain.batch import batch_cuts, with_cut
 from ..domain.detect import Detection, Evidence, suggest_profiles
 from ..domain.enums import ImageModule, MemoryKind, Severity
@@ -163,9 +164,7 @@ class _CutUpdate(TypedDict):
     cut: Cut | None
 
 
-# model_copy(update=...) takes any key and sets it unchecked, so the key is checked here at import.
-if not _CutUpdate.__required_keys__ <= Label.model_fields.keys():  # pragma: no cover
-    raise RuntimeError("_CutUpdate names a field Label does not have")
+require_update_fields(_CutUpdate, Label)
 
 
 @dataclass(frozen=True)

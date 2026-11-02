@@ -13,6 +13,7 @@ from typing import TypedDict
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from ._invariants import require_update_fields
 from .enums import CommandKind, CounterSign, FillPattern, Rotation, SpeedCode, Unit
 from .label import Barcode, Box, Circle, Counter, Cut, Element, Image, Label, Line, Point, Polygon, ScalableText, Text
 from .profiles import OLD_SERIES_POINTS
@@ -37,9 +38,7 @@ class _CounterUpdate(TypedDict):
     counter: Counter
 
 
-# model_copy(update=...) takes any key and sets it unchecked, so the key is checked here at import.
-if not _CounterUpdate.__required_keys__ <= Text.model_fields.keys() & Barcode.model_fields.keys():  # pragma: no cover
-    raise RuntimeError("_CounterUpdate names a field Text or Barcode does not have")
+require_update_fields(_CounterUpdate, Text, Barcode)
 _SCALABLE_SIZE_PREFIXES = "SsUu"
 _FONT_9 = 9
 _PRESENT_DISTANCE_DIGITS = 4

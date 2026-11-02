@@ -57,13 +57,13 @@ class SymbologyCode:
 
     Attributes:
         with_text: Identifier that prints human-readable text, or None when the symbology has none.
-        bars_only: Identifier that prints the bars alone, or None when it always prints text.
+        bars_only: Identifier that prints the bars alone; every symbology has one.
         two_dimensional: True for the stacked and matrix codes, whose ``c``/``d`` header digits are
             a module size rather than a wide:narrow ratio.
     """
 
     with_text: str | None
-    bars_only: str | None
+    bars_only: str
     two_dimensional: bool = False
 
     def identifier(self, *, human_readable: bool) -> str:
@@ -75,17 +75,11 @@ class SymbologyCode:
             >>> SYMBOLOGY_CODES[Symbology.POSTNET].identifier(human_readable=True)
             'p'
         """
-        preferred = self.with_text if human_readable else self.bars_only
-        fallback = self.bars_only if human_readable else self.with_text
-        chosen = preferred if preferred is not None else fallback
-        if chosen is None:  # pragma: no cover - every table row names at least one identifier
-            msg = "symbology has no DPL identifier"
-            raise ValueError(msg)
-        return chosen
+        return self.with_text if human_readable and self.with_text is not None else self.bars_only
 
     def offers_text_choice(self) -> bool:
         """Return True when the symbology can be printed both with and without text."""
-        return self.with_text is not None and self.bars_only is not None
+        return self.with_text is not None
 
 
 def _pair(letter: str) -> SymbologyCode:

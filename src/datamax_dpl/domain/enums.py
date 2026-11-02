@@ -11,6 +11,8 @@ from enum import Enum, IntEnum
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+from ._invariants import require_same_keys
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -448,8 +450,7 @@ _BARCODE_FINDING_CODES: Mapping[BarcodeProblemCode, FindingCode] = MappingProxyT
         BarcodeProblemCode.CONTROL_CHARACTER: FindingCode.BARCODE_CONTROL_CHARACTER,
     }
 )
-if set(_BARCODE_FINDING_CODES) != set(BarcodeProblemCode):  # pragma: no cover - import-time guard
-    raise RuntimeError("every BarcodeProblemCode needs a FindingCode")
+require_same_keys(_BARCODE_FINDING_CODES, BarcodeProblemCode, what="a FindingCode")
 
 
 class CommandKind(str, Enum):

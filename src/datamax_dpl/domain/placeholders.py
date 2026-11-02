@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, TypedDict
 
+from ._invariants import require_update_fields
 from .errors import DatamaxDplError
 from .label import Barcode, Element, Label, Qr, ScalableText, Text
 
@@ -37,13 +38,9 @@ class _ElementsUpdate(TypedDict):
     elements: list[Element]
 
 
-# model_copy(update=...) takes any key and sets it unchecked, so the keys are checked here at import.
-if not _TextUpdate.__required_keys__ <= Text.model_fields.keys() & ScalableText.model_fields.keys():  # pragma: no cover
-    raise RuntimeError("_TextUpdate names a field Text or ScalableText does not have")
-if not _DataUpdate.__required_keys__ <= Barcode.model_fields.keys() & Qr.model_fields.keys():  # pragma: no cover
-    raise RuntimeError("_DataUpdate names a field Barcode or Qr does not have")
-if not _ElementsUpdate.__required_keys__ <= Label.model_fields.keys():  # pragma: no cover
-    raise RuntimeError("_ElementsUpdate names a field Label does not have")
+require_update_fields(_TextUpdate, Text, ScalableText)
+require_update_fields(_DataUpdate, Barcode, Qr)
+require_update_fields(_ElementsUpdate, Label)
 
 
 class MissingFieldError(DatamaxDplError, LookupError):

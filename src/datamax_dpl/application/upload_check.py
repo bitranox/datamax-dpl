@@ -58,6 +58,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Generic, NamedTuple, TypedDict, TypeVar
 
+from ..domain._invariants import require_update_fields
 from ..domain.batch import with_cut
 from ..domain.enums import FindingCode, ImageModule, Severity
 from ..domain.errors import ConfigurationError, LabelRejectedError
@@ -84,9 +85,7 @@ class _FindingsUpdate(TypedDict):
     findings: tuple[Finding, ...]
 
 
-# model_copy(update=...) takes any key and sets it unchecked, so the key is checked here at import.
-if not _FindingsUpdate.__required_keys__ <= RenderResult.model_fields.keys():  # pragma: no cover
-    raise RuntimeError("_FindingsUpdate names a field RenderResult does not have")
+require_update_fields(_FindingsUpdate, RenderResult)
 
 #: Default of ``[printer] upload_check_rounds``: upload, then a clear and a second upload, then the
 #: images halved and a third upload, before a label is refused (user decision, 2026-11-01).
