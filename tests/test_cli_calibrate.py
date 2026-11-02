@@ -12,8 +12,10 @@ import tomlkit
 from lib_layered_config import Config
 
 from datamax_dpl.adapters import cli as cli_mod
+from datamax_dpl.adapters.cli.commands.calibrate import AxisChoice
 from datamax_dpl.adapters.config.user_edit import write_printer_values
 from datamax_dpl.composition import AppServices, build_testing
+from datamax_dpl.domain.units import Axis
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -786,3 +788,12 @@ def test_a_written_value_no_layer_reads_back_reports_the_models_default_in_force
     assert data["changes"][0]["effective"] == 0.976
     assert "could not be read back" not in result.stderr
     assert "scale_along is 0.976, not 0.9709" in result.stderr
+
+
+@pytest.mark.os_agnostic
+def test_every_axis_choice_names_the_labels_it_prints_across_first() -> None:
+    assert {choice: choice.axes for choice in AxisChoice} == {
+        AxisChoice.ACROSS: (Axis.ACROSS,),
+        AxisChoice.ALONG: (Axis.ALONG,),
+        AxisChoice.BOTH: (Axis.ACROSS, Axis.ALONG),
+    }

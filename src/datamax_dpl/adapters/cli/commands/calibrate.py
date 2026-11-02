@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 import rich_click as click
@@ -44,6 +45,8 @@ from .model_options import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from ....domain.label import Label
     from ....domain.profiles import CalibrationDefaults
     from ....domain.render import RenderResult
@@ -62,7 +65,16 @@ class AxisChoice(str, Enum):
     @property
     def axes(self) -> tuple[Axis, ...]:
         """The labels to print, across first."""
-        return (Axis.ACROSS, Axis.ALONG) if self is AxisChoice.BOTH else (Axis(self.value),)
+        return _AXES[self]
+
+
+_AXES: Mapping[AxisChoice, tuple[Axis, ...]] = MappingProxyType(
+    {
+        AxisChoice.ACROSS: (Axis.ACROSS,),
+        AxisChoice.ALONG: (Axis.ALONG,),
+        AxisChoice.BOTH: (Axis.ACROSS, Axis.ALONG),
+    }
+)
 
 
 class _LabelSide(str, Enum):
