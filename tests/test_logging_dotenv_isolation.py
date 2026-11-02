@@ -17,13 +17,13 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import lib_log_rich.runtime
 import pytest
+from cli_process import run_cli_text
 from layer_roots import SYSTEM_LAYER_ROOT_VARIABLES
 from lib_layered_config import Config
 
@@ -35,6 +35,7 @@ from datamax_dpl.adapters.logging.setup import (
 )
 
 if TYPE_CHECKING:
+    import subprocess
     from collections.abc import Iterator
 
 PREFIX = __init__conf__.LAYEREDCONF_SLUG.upper().replace("-", "_")
@@ -50,16 +51,7 @@ def _run(cwd: Path, *args: str, env: dict[str, str] | None = None) -> subprocess
     clean = {k: v for k, v in os.environ.items() if _inherited(k)}
     clean.update(dict.fromkeys(_HOMES, str(cwd)))
     clean.update(env or {})
-    return subprocess.run(  # noqa: S603 - fixed argv: this interpreter running this package
-        [sys.executable, "-m", "datamax_dpl", *args],
-        cwd=cwd,
-        env=clean,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    return run_cli_text(args, cwd=str(cwd), env=clean)
 
 
 @pytest.fixture

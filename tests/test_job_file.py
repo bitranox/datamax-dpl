@@ -10,11 +10,11 @@ import json
 import os
 import signal
 import stat
-import subprocess
 import sys
 from typing import TYPE_CHECKING
 
 import pytest
+from cli_process import run_cli, run_cli_text
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.interrupt import noting_interrupts
@@ -25,6 +25,7 @@ from datamax_dpl.domain.label import Label, Qr, Text
 from datamax_dpl.domain.render_context import RenderOptions
 
 if TYPE_CHECKING:
+    import subprocess
     from collections.abc import Callable
     from pathlib import Path
 
@@ -181,14 +182,7 @@ def test_a_device_takes_the_job_with_nothing_left_beside_it(cli_runner: CliRunne
 
 def _piped(args: list[str], *, tmp_path: Path, pass_fds: tuple[int, ...] = ()) -> subprocess.CompletedProcess[bytes]:
     env = {**os.environ, "XDG_CONFIG_HOME": str(tmp_path), "HOME": str(tmp_path)}
-    return subprocess.run(  # noqa: S603 - fixed argv: this interpreter and the package under test
-        [sys.executable, "-m", "datamax_dpl", *args],
-        capture_output=True,
-        env=env,
-        pass_fds=pass_fds,
-        check=False,
-        timeout=120,
-    )
+    return run_cli(args, env=env, pass_fds=pass_fds)
 
 
 @pytest.mark.os_posix
@@ -242,15 +236,7 @@ sys.exit(main(sys.argv[1:], services_factory=build_production))
 def _limited(args: list[str], *, tmp_path: Path) -> subprocess.CompletedProcess[str]:
     """Run the CLI where a file stops growing at the limit, so a write fails as on a full disk."""
     env = {**os.environ, "XDG_CONFIG_HOME": str(tmp_path), "HOME": str(tmp_path)}
-    return subprocess.run(  # noqa: S603 - fixed argv: this interpreter and the package under test
-        [sys.executable, "-c", _LIMITED.format(limit=_FILE_SIZE_LIMIT), *args],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        env=env,
-        check=False,
-        timeout=120,
-    )
+    return run_cli_text(args, entry=("-c", _LIMITED.format(limit=_FILE_SIZE_LIMIT)), env=env)
 
 
 def _good_rows(count: int = 400) -> str:

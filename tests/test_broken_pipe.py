@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import os
 import socket
-import subprocess
-import sys
 from typing import TYPE_CHECKING
 
 import pytest
+from cli_process import run_cli, start_cli
 
 if TYPE_CHECKING:
+    import subprocess
     from pathlib import Path
 
 #: Exit code of a process killed by SIGPIPE, which shells and pipelines read as "the reader left".
@@ -26,14 +26,7 @@ def _run_with_closed_stdout(args: list[str], *, tmp_path: Path) -> subprocess.Co
     os.close(reader)
     env = {**os.environ, "XDG_CONFIG_HOME": str(tmp_path), "HOME": str(tmp_path)}
     try:
-        return subprocess.run(  # noqa: S603 - fixed argv: this interpreter and the package under test
-            [sys.executable, "-m", "datamax_dpl", *args],
-            stdout=writer,
-            stderr=subprocess.PIPE,
-            env=env,
-            check=False,
-            timeout=120,
-        )
+        return run_cli(args, stdout=writer, env=env)
     finally:
         os.close(writer)
 
@@ -74,13 +67,7 @@ def test_a_usage_error_with_the_reader_gone_still_reports_on_stderr(tmp_path: Pa
 def test_a_reader_that_stays_gets_the_output_and_the_command_s_own_exit_code(tmp_path: Path) -> None:
     """The control: nothing above may hide a normal run."""
     env = {**os.environ, "XDG_CONFIG_HOME": str(tmp_path), "HOME": str(tmp_path)}
-    done = subprocess.run(
-        [sys.executable, "-m", "datamax_dpl", "models"],
-        capture_output=True,
-        env=env,
-        check=False,
-        timeout=120,
-    )
+    done = run_cli(["models"], env=env)
     assert done.returncode == 0
     assert b"dmx-600" in done.stdout
 
@@ -124,9 +111,7 @@ def test_a_reader_that_leaves_mid_job_is_a_quiet_exit(command: tuple[str, ...], 
     label, data = _label_and_data(tmp_path, rows=_ROWS_PAST_A_PIPE)
     env = {**os.environ, "XDG_CONFIG_HOME": str(tmp_path), "HOME": str(tmp_path)}
     args = [word.format(label=label, data=data) for word in command]
-    with subprocess.Popen(  # noqa: S603 - fixed argv: this interpreter and the package under test
-        [sys.executable, "-m", "datamax_dpl", *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
-    ) as running:
+    with start_cli(args, env=env) as running:
         assert running.stdout is not None
         assert running.stderr is not None
         assert len(running.stdout.read(_READ_BEFORE_LEAVING)) == _READ_BEFORE_LEAVING
@@ -144,21 +129,8 @@ def test_a_printer_that_cannot_be_reached_is_not_a_reader_that_left(tmp_path: Pa
     port = server.getsockname()[1]
     server.close()
     label, _ = _label_and_data(tmp_path)
-    done = subprocess.run(  # noqa: S603 - fixed argv: this interpreter and the package under test
-        [
-            sys.executable,
-            "-m",
-            "datamax_dpl",
-            "print",
-            label,
-            "--model",
-            "dmx-600",
-            "--printer",
-            f"tcp://127.0.0.1:{port}",
-        ],
-        capture_output=True,
+    done = run_cli(
+        ["print", label, "--model", "dmx-600", "--printer", f"tcp://127.0.0.1:{port}"],
         env={**os.environ, "XDG_CONFIG_HOME": str(tmp_path), "HOME": str(tmp_path)},
-        check=False,
-        timeout=120,
     )
     assert done.returncode == 2, done.stderr

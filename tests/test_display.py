@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
-import sys
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from cli_process import run_cli_text
 from layer_roots import SYSTEM_LAYER_ROOT_VARIABLES
 from lib_layered_config import Config
 
@@ -146,16 +145,7 @@ def _config_json(tmp_path: Path, *options: str) -> dict[str, Any]:
     """Run the real ``config --format json`` with every configuration location under ``tmp_path``."""
     env = {k: v for k, v in os.environ.items() if _inherited(k)}
     env.update(dict.fromkeys(_HOMES, str(tmp_path)))
-    completed = subprocess.run(  # noqa: S603 - fixed argv: this interpreter running this package
-        [sys.executable, "-m", "datamax_dpl", *options, "config", "--format", "json"],
-        cwd=tmp_path,
-        env=env,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    completed = run_cli_text([*options, "config", "--format", "json"], cwd=str(tmp_path), env=env)
     assert completed.returncode == 0, completed.stderr
     return cast("dict[str, Any]", json.loads(completed.stdout))
 
