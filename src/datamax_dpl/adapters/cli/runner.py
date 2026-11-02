@@ -24,6 +24,7 @@ from . import safe_console
 from .constants import TRACEBACK_VERBOSE_LIMIT
 from .context import CLIContext, get_cli_context
 from .envelope import CommandName, Envelope, Outcome, report_failure, write_envelope
+from .gone_reader import is_gone_reader_error
 from .interrupt import raise_if_interrupted
 from .label_io import LabelInputError, validation_lines
 
@@ -81,6 +82,16 @@ def _fail(exc: BaseException, *, command: CommandName, cli_ctx: CLIContext) -> O
     return Outcome.REFUSED if isinstance(exc, REFUSALS) else Outcome.ERROR
 
 
+def _gone_reader(exc: Exception, *, cli_ctx: CLIContext) -> OSError | None:
+    """The stream error when ``exc`` says the reader of a job on stdout left; None for any other failure.
+
+    ``print --printer -`` wraps it into a ``TransportError`` as any transport does. A socket's broken
+    pipe wraps into one too and is about the printer, so only a job on stdout unwraps.
+    """
+    found = exc.__cause__ if isinstance(exc, TransportError) and cli_ctx.job_on_stdout else exc
+    return found if isinstance(found, OSError) and is_gone_reader_error(found) else None
+
+
 def run_command(ctx: rich_click.Context, *, command: CommandName, body: Callable[[CLIContext], CommandResult]) -> None:
     """Run ``body`` and exit with its outcome.
 
@@ -96,6 +107,10 @@ def run_command(ctx: rich_click.Context, *, command: CommandName, body: Callable
     except _CLICK_CONTROL:
         raise
     except Exception as exc:
+        # main turns it into exit 141 and says nothing, as for a reader lost at any other write.
+        gone = _gone_reader(exc, cli_ctx=cli_ctx)
+        if gone is not None:
+            raise gone from None
         ctx.exit(_fail(exc, command=command, cli_ctx=cli_ctx))
         return
     if cli_ctx.mode.machine:

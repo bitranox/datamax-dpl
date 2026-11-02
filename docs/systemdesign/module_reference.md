@@ -126,6 +126,8 @@ turn the outcome into output and an exit code.
 - `cli/commands/info.py` - info.
 - `cli/label_io.py` - reading labels and data records from files or stdin.
 - `cli/job_file.py` - writing a batch's job to a file as it is rendered, replacing the target only when every record passed.
+- `cli/interrupt.py` - noting a Ctrl-C before it is raised, so a pass over the records finds one a C extension swallowed.
+- `cli/gone_reader.py` - telling a reader of the output that went away from a failure that needs saying.
 - `cli/settings.py` - `[printer]` and `[camera]` settings with command-line overrides.
 - `cli/runner.py` - runs a command body, maps outcomes to output and exit codes.
 - `cli/envelope.py` - the JSON envelope and the command names it carries (`CommandName`).

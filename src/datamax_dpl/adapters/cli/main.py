@@ -9,7 +9,6 @@ Contents:
 
 from __future__ import annotations
 
-import errno
 import os
 import sys
 import threading
@@ -29,6 +28,7 @@ from .context import (
 )
 from .envelope import CommandName, ErrorEnvelope, Outcome, OutputMode, write_envelope
 from .exit_codes import ExitCode
+from .gone_reader import is_gone_reader_error
 from .interrupt import noting_interrupts
 
 if TYPE_CHECKING:
@@ -123,36 +123,6 @@ def _report_click_error(exc: click.ClickException, *, mode: OutputMode, command:
         write_envelope(envelope, mode=mode)
 
 
-def _is_gone_reader_error(exc: OSError, *, windows: bool = os.name == "nt") -> bool:
-    """Whether a failed write or flush to a standard stream means its reader left.
-
-    The Windows C runtime reports a pipe with no reader as a bare EINVAL, on a write as much as on a
-    flush. A bare one only: EINVAL from a bad file name carries the name, and from a socket a Windows
-    error code, and those are real failures that must not read as "the reader left".
-
-    Args:
-        exc: The error the stream raised.
-        windows: Whether the C runtime's Windows reporting applies.
-
-    Returns:
-        True for EPIPE everywhere and for a bare EINVAL on Windows.
-
-    Example:
-        >>> _is_gone_reader_error(BrokenPipeError(errno.EPIPE, "Broken pipe"), windows=False)
-        True
-        >>> _is_gone_reader_error(OSError(errno.EINVAL, "Invalid argument"), windows=True)
-        True
-        >>> _is_gone_reader_error(OSError(errno.EINVAL, "Invalid argument"), windows=False)
-        False
-        >>> _is_gone_reader_error(OSError(errno.EINVAL, "Invalid argument", "bad?name"), windows=True)
-        False
-    """
-    if exc.errno == errno.EPIPE:
-        return True
-    bare = exc.filename is None and getattr(exc, "winerror", None) is None
-    return windows and exc.errno == errno.EINVAL and bare
-
-
 def _reader_left(exc: BaseException) -> bool:
     """Whether a command stopped because the reader of its output went away.
 
@@ -161,13 +131,13 @@ def _reader_left(exc: BaseException) -> bool:
     context counts: a transport error raised from a socket's broken pipe is about the printer.
 
     Example:
-        >>> _reader_left(BrokenPipeError(errno.EPIPE, "Broken pipe"))
+        >>> _reader_left(BrokenPipeError(32, "Broken pipe"))
         True
         >>> _reader_left(SystemExit(1))
         False
     """
     cause = exc.__context__ if isinstance(exc, SystemExit) else exc
-    return isinstance(cause, OSError) and _is_gone_reader_error(cause)
+    return isinstance(cause, OSError) and is_gone_reader_error(cause)
 
 
 def _discard_stream(stream: TextIO) -> None:
@@ -217,7 +187,7 @@ def _flush_streams() -> _Flushed:
             stream.flush()
         except OSError as exc:
             _discard_stream(stream)
-            if _is_gone_reader_error(exc):
+            if is_gone_reader_error(exc):
                 gone = True
             elif failure is None:
                 failure = exc
@@ -257,7 +227,7 @@ def _invoke_cli(args: list[str], *, services_factory: Callable[[], AppServices])
         try:
             _report_click_error(exc, mode=_usage_error_mode(args, exc, cli), command=_named_command(args, cli))
         except OSError as write_error:
-            if not _is_gone_reader_error(write_error):
+            if not is_gone_reader_error(write_error):
                 raise
         return exc.exit_code
     except click.exceptions.Abort as exc:
@@ -280,7 +250,7 @@ def _report_interrupt(args: Sequence[str], root: click.Command) -> None:
         if mode.machine:
             write_envelope(ErrorEnvelope(command=command, error="KeyboardInterrupt", message=message), mode=mode)
     except OSError as write_error:
-        if not _is_gone_reader_error(write_error):
+        if not is_gone_reader_error(write_error):
             raise
 
 
