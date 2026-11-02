@@ -17,7 +17,15 @@ from printer_server import ImageModules, ModulePrinter, module_printer
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.settings import PrinterOverrides, PrinterSettings, printer_settings
 from datamax_dpl.adapters.memory import FakeCamera, RecordingPrinter, open_recording_printer
-from datamax_dpl.application.upload_check import CheckedJob, Link, ResetCheck, UploadCheck, print_checked, send_checked
+from datamax_dpl.application.upload_check import (
+    CheckedJob,
+    Link,
+    ResetCheck,
+    UploadCheck,
+    UploadRefusedError,
+    print_checked,
+    send_checked,
+)
 from datamax_dpl.application.use_cases import (
     AnswerWait,
     BatchResult,
@@ -1003,3 +1011,98 @@ def test_a_text_the_mapping_leaves_alone_warns_of_nothing(caplog: pytest.LogCapt
     with caplog.at_level(logging.WARNING, logger="datamax_dpl.adapters.cli.settings"):
         _settings({"calibration_label_text": "Feed"})
     assert caplog.text == ""
+
+
+# ======================== A report on a directory read ========================
+
+
+def _image_print(
+    modules: ImageModules, *, reset: ResetCheck | None = DEFAULT_RESET, records: int | None = None
+) -> tuple[RenderResult | BatchResult, ModulePrinter]:
+    printer = ModulePrinter(modules)
+    filled = None if records is None else [{"a": str(number)} for number in range(records)]
+    elements = [LOGO] if filled is None else [LOGO, Text(x=5, y=30, text="{a}")]
+    label = Label(width=100, height=60, elements=elements)
+    options = RenderOptions(model="allegro-2", model_image_budget=False)
+    _, sent, _ = _print(printer, label, options=options, records=filled, reset=reset)
+    return sent, printer
+
+
+@pytest.mark.os_agnostic
+def test_a_report_on_the_first_label_s_directory_read_gets_the_calibration_label() -> None:
+    """The status read stayed silent, so the report comes with the read after the upload, before the format."""
+    modules = ImageModules(reset=POWER_ON, status=False)
+    sent, printer = _image_print(modules)
+    assert _codes(sent) == [FindingCode.PRINTER_RESET_CALIBRATED]
+    data = printer.data
+    assert data.count(CALIBRATION_TEXT) == 1
+    assert data.index(STX + b"I") < data.index(CALIBRATION_TEXT)
+    assert data.index(CALIBRATION_TEXT) < data.rindex(FORMAT)
+    assert modules.placed_missing == []
+
+
+@pytest.mark.os_agnostic
+def test_a_batch_gets_one_calibration_label_for_a_report_on_a_directory_read() -> None:
+    sent, printer = _image_print(ImageModules(reset=POWER_ON, status=False), records=3)
+    assert printer.data.count(CALIBRATION_TEXT) == 1
+    assert _codes(sent) == [FindingCode.PRINTER_RESET_CALIBRATED]
+
+
+@pytest.mark.os_agnostic
+def test_a_report_on_a_directory_read_with_the_key_off_only_says_so() -> None:
+    sent, printer = _image_print(ImageModules(reset=POWER_ON, status=False), reset=ResetCheck(calibrate=False))
+    assert CALIBRATION_TEXT not in printer.data
+    assert _codes(sent) == [FindingCode.PRINTER_RESET_NOT_CALIBRATED]
+    assert next(f for f in _findings(sent) if "reset" in f.code.value).severity is Severity.INFO
+
+
+@pytest.mark.os_agnostic
+def test_a_report_after_a_status_read_that_told_it_gets_no_second_label() -> None:
+    sent, printer = _image_print(ImageModules(reset=POWER_ON))
+    assert printer.data.count(CALIBRATION_TEXT) == 1
+    assert _codes(sent) == [FindingCode.PRINTER_RESET_CALIBRATED]
+
+
+@pytest.mark.os_agnostic
+def test_a_label_refused_after_a_report_on_a_directory_read_says_the_report_is_used_up() -> None:
+    """Every upload is lost: no format goes, so no label takes the shift and the next job hears nothing."""
+    modules = ImageModules(reset=POWER_ON, status=False, capacity=0)
+    with pytest.raises(UploadRefusedError) as refused:
+        _image_print(modules)
+    finding = next(f for f in _findings(refused.value.result) if "reset" in f.code.value)
+    assert finding.code is FindingCode.PRINTER_RESET_NOT_CALIBRATED
+    assert finding.severity is Severity.WARNING
+    assert "used up" in finding.message
+
+
+@pytest.mark.os_agnostic
+def test_a_caller_who_asks_nothing_ignores_a_report_on_a_directory_read() -> None:
+    sent, printer = _image_print(ImageModules(reset=POWER_ON, status=False), reset=None)
+    assert CALIBRATION_TEXT not in printer.data
+    assert _codes(sent) == []
+
+
+# ======================== What print_checked refuses up front ========================
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "check",
+    [
+        UploadCheck(wait=AnswerWait(seconds=0.0)),
+        UploadCheck(wait=AnswerWait(seconds=float("nan"))),
+        UploadCheck(wait=AnswerWait(seconds=1.0, retry_interval=-1.0)),
+        UploadCheck(wait=AnswerWait(seconds=1.0), rounds=0),
+        UploadCheck(wait=AnswerWait(seconds=1.0), rounds=4),
+    ],
+    ids=["no wait", "nan wait", "negative interval", "rounds 0", "rounds 4"],
+)
+def test_an_unusable_upload_check_is_refused_before_a_byte_goes_out(check: UploadCheck) -> None:
+    printer = ModulePrinter(ImageModules())
+    label = Label(width=100, height=60, elements=[LOGO])
+    job = CheckedJob(renders=record_renders(label, None, ALLEGRO), check=check)
+    with pytest.raises(ValueError, match=r"wait|interval|rounds|retry"):
+        print_checked(
+            render_label(label, ALLEGRO), job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer)
+        )
+    assert printer.sent == []

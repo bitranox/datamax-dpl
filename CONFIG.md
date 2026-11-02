@@ -646,6 +646,10 @@ false, or where the calibration label itself has errors, `printer_reset_not_cali
 first label may be shifted. A reset is never read as an empty module: what the module holds is what
 the reads say.
 
+A status read that stays silent can still be followed by a directory read of the first label that
+answers with the report. Its format has not gone yet, so the calibration label goes then, after that
+label's images. A label those rounds refuse sends no format and says `printer_reset_not_calibrated`.
+
 Two limits. A `status` or `memory` run before the job takes the report, since the printer gives it
 once, so that job's first label can be shifted; a job refused after its names read takes it the same
 way. And a one-way link (a file, stdout, a device file) reads nothing, so it cannot see a reset and

@@ -35,8 +35,11 @@ once (:class:`ResetCheck`): its first answer after a power cycle reports the res
 printed the first label after one about 12 mm shifted. On such a report one calibration label goes
 first, so that the shift lands on it (``printer_reset_calibrated``). A names read before the job
 may have taken the report already (:attr:`~datamax_dpl.domain.held_images.HeldImages.reset_reported`);
-nothing is asked then. Nothing here reads a reset as an empty module, and a label the upload check
-refuses later still had its calibration label: only uploading can tell.
+nothing is asked then. A status read that stays silent can still be followed by a directory read that
+answers with the report: the first label's format has not gone yet then, so the calibration label goes
+at that point, and a label those rounds refuse says the report was taken with nothing printed
+(``printer_reset_not_calibrated``). Nothing here reads a reset as an empty module, and a label the
+upload check refuses later still had its calibration label: only uploading can tell.
 
 Still missing: the label is refused (``image_upload_refused``), its format is never sent, nothing
 after it is sent, and the module is cleared again where a clear may go. Each round after the
@@ -260,6 +263,7 @@ class Link:
         reconnect: How long a send keeps trying to open a new channel where a failed read left
             none (``stored_names_wait``, as the read itself).
         bytes_sent: Job bytes written so far, the directory requests not counted.
+        reset_seen: A read of the directory carried a reset report.
     """
 
     printer: PrinterTransport | None
@@ -268,6 +272,7 @@ class Link:
     open_printer: OpenPrinter
     reconnect: AnswerWait
     bytes_sent: int = 0
+    reset_seen: bool = False
     _opened: list[PrinterTransport] = field(default_factory=list["PrinterTransport"])
 
     def send(self, data: bytes) -> None:
@@ -304,6 +309,7 @@ class Link:
         self.printer = read.channel
         if self.printer is not None and self.printer is not before:
             self._opened.append(self.printer)
+        self.reset_seen = self.reset_seen or read.held.reset_reported
         return read.held
 
     def close_opened(self) -> None:
@@ -814,8 +820,26 @@ def _after_reset(link: Link, render: RecordRender, job: CheckedJob) -> tuple[Fin
     if reset is None:
         return ()
     reported = job.held.reset_reported or read_reset_report(link.channel(), wait=reset.wait)
-    if not reported:
+    return _on_reset(link, render, reset) if reported else ()
+
+
+def _reset_in_rounds(link: Link, render: RecordRender, job: CheckedJob, *, passed: bool) -> tuple[Finding, ...]:
+    """Act on a report that came with a directory read of the first label, the status read having told nothing.
+
+    The printer gives a report once, so this one is the only one: the label's format has not gone
+    yet, so the calibration label can still take the shift. A label those rounds refused sends
+    no format, and nothing else tells the next job.
+    """
+    if job.reset is None or not link.reset_seen:
         return ()
+    if not passed:
+        why = "the upload check refused the label before a calibration label could go; the report is used up"
+        return (_not_calibrated(why, severity=Severity.WARNING),)
+    return _on_reset(link, render, job.reset)
+
+
+def _on_reset(link: Link, render: RecordRender, reset: ResetCheck) -> tuple[Finding, ...]:
+    """Send the calibration label a reset report asks for, or say why none went; return what the job should say."""
     if not reset.calibrate:
         return (_not_calibrated("[printer] calibrate_after_reset is off", severity=Severity.INFO),)
     calibration = render.calibration(reset.text)
@@ -840,6 +864,7 @@ def _send_labels(link: Link, job: CheckedJob, *, cuts: Sequence[bool]) -> _Label
     """Send each label of ``job`` in turn, with a batch cut after each label ``cuts`` marks."""
     sent: list[RenderResult] = []
     before = _PassedOn(held=job.held)
+    told: tuple[Finding, ...] = ()
     for render, cut in zip(job.renders, cuts, strict=True):
         record = _Record(render=render, before=before, link=link, check=job.check)
         if not record.result.ok:
@@ -847,8 +872,12 @@ def _send_labels(link: Link, job: CheckedJob, *, cuts: Sequence[bool]) -> _Label
         if (unlisted := _unlisted_module(record.result)) is not None:
             return _LabelsSent(sent=(*sent, unlisted), all_sent=False)
         if not sent:
-            record.findings.extend(_after_reset(link, render, job))
-        if record.result.downloads and not _check_label(record):
+            told = _after_reset(link, render, job)
+            record.findings.extend(told)
+        passed = not record.result.downloads or _check_label(record)
+        if not sent and not told:
+            record.findings.extend(_reset_in_rounds(link, render, job, passed=passed))
+        if not passed:
             return _LabelsSent(sent=(*sent, record.as_sent()), all_sent=False)
         # Built after the check: a round may have rendered the label again.
         whole = with_cut(record.result.data, record.result.closing, cut=cut)
@@ -899,15 +928,45 @@ def send_checked(
     return CheckedSend(result=whole, all_sent=labels.all_sent)
 
 
+def _refuse_bad_check(check: UploadCheck) -> None:
+    """Refuse an upload check that could only fail once part of the job is out.
+
+    Raises:
+        ValueError: A wait is not a usable number of seconds, or the rounds are out of range.
+    """
+    check_timeout(check.wait.seconds, name=TimeoutName.WAIT)
+    check_timeout(check.wait.retry_interval, name=TimeoutName.RETRY_INTERVAL)
+    if not MIN_UPLOAD_CHECK_ROUNDS <= check.rounds <= MAX_UPLOAD_CHECK_ROUNDS:
+        msg = f"rounds must be {MIN_UPLOAD_CHECK_ROUNDS} to {MAX_UPLOAD_CHECK_ROUNDS}, got {check.rounds}"
+        raise ValueError(msg)
+
+
 def print_checked(
     result: RenderResult | BatchResult, job: CheckedJob, *, uri: str, timeout: float, open_printer: OpenPrinter
 ) -> CheckedPrint:
     """Send a rendered job, checking each label's image upload before its format goes out.
 
-    A channel that cannot read answers gets the whole job at once, as :func:`print_result` sends it.
+    On a two-way link the printer is asked for its status once first (``job.reset``, None asks
+    nothing). When it reports a reset, one extra label comes out ahead of the job: the calibration
+    label, which takes the shift a first label can print with. A channel that cannot read answers
+    gets the whole job at once, as :func:`print_result` sends it.
+
+    A reset never reads as an empty module, so ``job.held`` is trusted where it lists a name. A
+    listing from before a power cycle is then wrong and the label prints without its image; a
+    caller holding one for longer than a job reads the names again (:func:`read_stored_names`).
+
+    Args:
+        result: The job as first rendered.
+        job: How to render each label again, the upload check and the reset check.
+        uri: The printer.
+        timeout: Seconds for each connect and write.
+        open_printer: Opens the channel.
+
+    Returns:
+        What was sent where, and the job as it went out with the checks' findings.
 
     Raises:
-        LabelRejectedError: The job has an error finding; nothing was sent.
+        LabelRejectedError: The job has an error finding; nothing was sent. Its ``findings`` name them.
         UploadRefusedError: A label's images were still not listed after every round, or the
             label, rendered again for what the printer then held, has an error finding
             (``image_upload_render_refused``); its format and everything after it were not sent.
@@ -916,11 +975,13 @@ def print_checked(
         ConfigurationError: ``result`` and ``job.renders`` hold different numbers of labels; nothing
             was sent.
         TransportError: The printer could not be reached or written.
+        ValueError: A value of ``job.check`` is not usable; nothing was sent.
     """
     if not result.ok:
         msg = "label has errors; nothing was sent"
         raise LabelRejectedError(msg, error_findings(result))
     _refuse_mismatch(result, job)
+    _refuse_bad_check(job.check)
     printer = open_printer(uri, timeout=timeout)
     link = Link(printer=printer, uri=uri, timeout=timeout, open_printer=open_printer, reconnect=job.check.wait)
     try:

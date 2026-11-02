@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A reset report that comes with a directory read of the first label, the status read having stayed silent, now gets
+  the calibration label too, once. Before, the report was taken and dropped, so the label printed shifted and nothing
+  said so. If the upload check refuses that label, it says `printer_reset_not_calibrated`.
+- `print_checked` refuses an unusable wait or a `rounds` outside 1 to 3 before anything goes out.
 - `print`, `verify` and `render -o -` now say why in human mode: errors on a refusal, warnings and errors on success,
   on stderr where the job owns stdout. Before, a refusal printed `REFUSED` with no reason, and `render -o -` nothing.
 - Control characters from a label file, a printer or a camera no longer reach the terminal raw: C0, DEL and C1 print
