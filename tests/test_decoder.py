@@ -67,7 +67,13 @@ def test_rendered_label_survives_a_round_trip() -> None:
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize(
     "counter",
-    [Counter(step=1), Counter(step=5, decrement=True, alphanumeric=True, fill=" "), Counter(step=12, decrement=True)],
+    [
+        Counter(step=1),
+        Counter(step=5, decrement=True, alphanumeric=True, fill=" "),
+        Counter(step=12, decrement=True),
+        Counter(step=2, alphanumeric=True),
+    ],
+    ids=["up", "letters-down", "down", "letters-up"],
 )
 def test_a_counting_field_keeps_its_counter_through_a_round_trip(counter: Counter) -> None:
     original = Label(

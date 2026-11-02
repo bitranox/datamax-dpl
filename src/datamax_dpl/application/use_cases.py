@@ -14,6 +14,7 @@ import time
 from contextlib import closing
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Generic, NamedTuple, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict
@@ -422,13 +423,15 @@ class PrinterCommand(str, Enum):
     CUT = "cut"
 
 
-_COMMAND_BYTES: dict[PrinterCommand, bytes] = {
-    PrinterCommand.RESET: RESET,
-    PrinterCommand.CANCEL: CANCEL,
-    PrinterCommand.PAUSE: TOGGLE_PAUSE,
-    PrinterCommand.FEED: FORM_FEED,
-    PrinterCommand.CUT: CUT_NOW,
-}
+_COMMAND_BYTES: Mapping[PrinterCommand, bytes] = MappingProxyType(
+    {
+        PrinterCommand.RESET: RESET,
+        PrinterCommand.CANCEL: CANCEL,
+        PrinterCommand.PAUSE: TOGGLE_PAUSE,
+        PrinterCommand.FEED: FORM_FEED,
+        PrinterCommand.CUT: CUT_NOW,
+    }
+)
 
 
 def send_command(command: PrinterCommand, *, uri: str, timeout: float, open_printer: OpenPrinter) -> PrintReport:

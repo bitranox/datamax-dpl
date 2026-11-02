@@ -8,6 +8,11 @@ listed in ``docs/dpl-reference.md``.
 from __future__ import annotations
 
 from enum import Enum, IntEnum
+from types import MappingProxyType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 class OutputFormat(str, Enum):
@@ -180,7 +185,9 @@ class SpeedCode(str, Enum):
 
 
 #: Inches per second for each speed letter (A = 1.0, then 0.5 per letter).
-SPEED_IPS: dict[SpeedCode, float] = {code: 1.0 + 0.5 * index for index, code in enumerate(SpeedCode)}
+SPEED_IPS: Mapping[SpeedCode, float] = MappingProxyType(
+    {code: 1.0 + 0.5 * index for index, code in enumerate(SpeedCode)}
+)
 
 
 class MediaSensor(str, Enum):
@@ -389,18 +396,20 @@ class BarcodeProblemCode(str, Enum):
 
 # A table rather than FindingCode(f"barcode_{...}"), so a member added to one enum and not the
 # other fails at import instead of at the first render that meets it.
-_BARCODE_FINDING_CODES: dict[BarcodeProblemCode, FindingCode] = {
-    BarcodeProblemCode.EMPTY: FindingCode.BARCODE_EMPTY,
-    BarcodeProblemCode.BAD_CHARACTER: FindingCode.BARCODE_BAD_CHARACTER,
-    BarcodeProblemCode.BAD_LENGTH: FindingCode.BARCODE_BAD_LENGTH,
-    BarcodeProblemCode.BAD_CHECK_DIGIT: FindingCode.BARCODE_BAD_CHECK_DIGIT,
-    BarcodeProblemCode.BAD_PRICE_MARKER: FindingCode.BARCODE_BAD_PRICE_MARKER,
-    BarcodeProblemCode.BAD_ESCAPE: FindingCode.BARCODE_BAD_ESCAPE,
-    BarcodeProblemCode.BAD_START_STOP: FindingCode.BARCODE_BAD_START_STOP,
-    BarcodeProblemCode.MISSING_PREFIX: FindingCode.BARCODE_MISSING_PREFIX,
-    BarcodeProblemCode.TOO_LONG: FindingCode.BARCODE_TOO_LONG,
-    BarcodeProblemCode.RECORD_TERMINATOR: FindingCode.BARCODE_RECORD_TERMINATOR,
-}
+_BARCODE_FINDING_CODES: Mapping[BarcodeProblemCode, FindingCode] = MappingProxyType(
+    {
+        BarcodeProblemCode.EMPTY: FindingCode.BARCODE_EMPTY,
+        BarcodeProblemCode.BAD_CHARACTER: FindingCode.BARCODE_BAD_CHARACTER,
+        BarcodeProblemCode.BAD_LENGTH: FindingCode.BARCODE_BAD_LENGTH,
+        BarcodeProblemCode.BAD_CHECK_DIGIT: FindingCode.BARCODE_BAD_CHECK_DIGIT,
+        BarcodeProblemCode.BAD_PRICE_MARKER: FindingCode.BARCODE_BAD_PRICE_MARKER,
+        BarcodeProblemCode.BAD_ESCAPE: FindingCode.BARCODE_BAD_ESCAPE,
+        BarcodeProblemCode.BAD_START_STOP: FindingCode.BARCODE_BAD_START_STOP,
+        BarcodeProblemCode.MISSING_PREFIX: FindingCode.BARCODE_MISSING_PREFIX,
+        BarcodeProblemCode.TOO_LONG: FindingCode.BARCODE_TOO_LONG,
+        BarcodeProblemCode.RECORD_TERMINATOR: FindingCode.BARCODE_RECORD_TERMINATOR,
+    }
+)
 if set(_BARCODE_FINDING_CODES) != set(BarcodeProblemCode):  # pragma: no cover - import-time guard
     raise RuntimeError("every BarcodeProblemCode needs a FindingCode")
 

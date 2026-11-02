@@ -7,6 +7,7 @@ the boundary, so a typo in a config file is reported as a configuration error wi
 from __future__ import annotations
 
 from collections.abc import Mapping
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
@@ -207,11 +208,13 @@ def camera_settings(config: Config) -> CameraSettings:
         raise ConfigurationError(_describe(exc, section="camera")) from None
 
 
-_CUTTER: dict[CutterPresence, bool | None] = {
-    CutterPresence.YES: True,
-    CutterPresence.NO: False,
-    CutterPresence.UNKNOWN: None,
-}
+_CUTTER: Mapping[CutterPresence, bool | None] = MappingProxyType(
+    {
+        CutterPresence.YES: True,
+        CutterPresence.NO: False,
+        CutterPresence.UNKNOWN: None,
+    }
+)
 
 
 def render_options(settings: PrinterSettings) -> RenderOptions:

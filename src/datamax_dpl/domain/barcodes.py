@@ -14,6 +14,7 @@ from __future__ import annotations
 import string
 from dataclasses import dataclass
 from functools import partial
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
@@ -23,7 +24,7 @@ from .label import MAX_FIELD_DATA, MAX_PDF417_DATA, DataMatrixOptions, Pdf417Opt
 from .symbology import Symbology
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
 
 DIGITS = frozenset(string.digits)
 CODE39_CHARACTERS = frozenset(string.digits + string.ascii_uppercase + " -.$/+%*")
@@ -459,48 +460,50 @@ def _check_hibc(data: str) -> _Outcome:
     return _Outcome(problems=problems)
 
 
-_CHECKERS: dict[Symbology, Callable[[str], _Outcome]] = {
-    Symbology.CODE39: partial(
-        _check_charset, allowed=CODE39_CHARACTERS.__contains__, description="Code 39: 0-9 A-Z space - . $ / + % *"
-    ),
-    Symbology.UPC_A: partial(_check_gs1, spec=_UPC_A),
-    Symbology.UPC_E: partial(_check_gs1, spec=_UPC_E),
-    Symbology.I2OF5: _digits(_ANY_LENGTH),
-    Symbology.CODE128: _check_code128,
-    Symbology.EAN13: partial(_check_gs1, spec=_EAN13),
-    Symbology.EAN8: partial(_check_gs1, spec=_EAN8),
-    Symbology.HIBC: _check_hibc,
-    Symbology.CODABAR: _check_codabar,
-    Symbology.I2OF5_MOD10: _digits(_ANY_LENGTH),
-    Symbology.PLESSEY: _digits(_Lengths(maximum=PLESSEY_MAX_DIGITS)),
-    Symbology.I2OF5_BEARER: _digits(_Lengths(allowed=frozenset({I2OF5_BEARER_DIGITS}))),
-    Symbology.ADDON2: _digits(_Lengths(allowed=frozenset({ADDON2_DIGITS}))),
-    Symbology.ADDON5: _digits(_Lengths(allowed=frozenset({ADDON5_DIGITS}))),
-    Symbology.CODE93: partial(
-        _check_charset, allowed=CODE93_CHARACTERS.__contains__, description="Code 93: 0-9 A-Z - . $ / + % space"
-    ),
-    Symbology.POSTNET: _digits(_Lengths(allowed=POSTNET_DIGITS)),
-    Symbology.UCC_EAN128: _digits(_Lengths(allowed=frozenset({UCC_EAN128_DIGITS}))),
-    Symbology.UCC_EAN128_KMART: _digits(_Lengths(allowed=frozenset({KMART_DIGITS}))),
-    Symbology.UCC_EAN128_RANDOM_WEIGHT: _digits(_Lengths(minimum=RANDOM_WEIGHT_MIN_DIGITS)),
-    Symbology.TELEPEN: partial(_check_charset, allowed=_is_ascii, description="Telepen takes ASCII 0-127"),
-    Symbology.MAXICODE: partial(
-        _check_charset,
-        allowed=_is_ascii,
-        description="MaxiCode takes ASCII 0-127",
-        lengths=_Lengths(maximum=MAXICODE_MAX_DATA),
-    ),
-    Symbology.FIM: partial(
-        _check_charset,
-        allowed=FIM_PATTERNS.__contains__,
-        description="FIM is one of A B C D",
-        lengths=_Lengths(allowed=frozenset({1})),
-    ),
-    Symbology.PDF417: partial(_check_charset, allowed=_is_byte, description="PDF417 takes 8-bit characters 0-255"),
-    Symbology.DATAMATRIX: partial(
-        _check_charset, allowed=_is_byte, description="DataMatrix takes 8-bit characters 0-255"
-    ),
-}
+_CHECKERS: Mapping[Symbology, Callable[[str], _Outcome]] = MappingProxyType(
+    {
+        Symbology.CODE39: partial(
+            _check_charset, allowed=CODE39_CHARACTERS.__contains__, description="Code 39: 0-9 A-Z space - . $ / + % *"
+        ),
+        Symbology.UPC_A: partial(_check_gs1, spec=_UPC_A),
+        Symbology.UPC_E: partial(_check_gs1, spec=_UPC_E),
+        Symbology.I2OF5: _digits(_ANY_LENGTH),
+        Symbology.CODE128: _check_code128,
+        Symbology.EAN13: partial(_check_gs1, spec=_EAN13),
+        Symbology.EAN8: partial(_check_gs1, spec=_EAN8),
+        Symbology.HIBC: _check_hibc,
+        Symbology.CODABAR: _check_codabar,
+        Symbology.I2OF5_MOD10: _digits(_ANY_LENGTH),
+        Symbology.PLESSEY: _digits(_Lengths(maximum=PLESSEY_MAX_DIGITS)),
+        Symbology.I2OF5_BEARER: _digits(_Lengths(allowed=frozenset({I2OF5_BEARER_DIGITS}))),
+        Symbology.ADDON2: _digits(_Lengths(allowed=frozenset({ADDON2_DIGITS}))),
+        Symbology.ADDON5: _digits(_Lengths(allowed=frozenset({ADDON5_DIGITS}))),
+        Symbology.CODE93: partial(
+            _check_charset, allowed=CODE93_CHARACTERS.__contains__, description="Code 93: 0-9 A-Z - . $ / + % space"
+        ),
+        Symbology.POSTNET: _digits(_Lengths(allowed=POSTNET_DIGITS)),
+        Symbology.UCC_EAN128: _digits(_Lengths(allowed=frozenset({UCC_EAN128_DIGITS}))),
+        Symbology.UCC_EAN128_KMART: _digits(_Lengths(allowed=frozenset({KMART_DIGITS}))),
+        Symbology.UCC_EAN128_RANDOM_WEIGHT: _digits(_Lengths(minimum=RANDOM_WEIGHT_MIN_DIGITS)),
+        Symbology.TELEPEN: partial(_check_charset, allowed=_is_ascii, description="Telepen takes ASCII 0-127"),
+        Symbology.MAXICODE: partial(
+            _check_charset,
+            allowed=_is_ascii,
+            description="MaxiCode takes ASCII 0-127",
+            lengths=_Lengths(maximum=MAXICODE_MAX_DATA),
+        ),
+        Symbology.FIM: partial(
+            _check_charset,
+            allowed=FIM_PATTERNS.__contains__,
+            description="FIM is one of A B C D",
+            lengths=_Lengths(allowed=frozenset({1})),
+        ),
+        Symbology.PDF417: partial(_check_charset, allowed=_is_byte, description="PDF417 takes 8-bit characters 0-255"),
+        Symbology.DATAMATRIX: partial(
+            _check_charset, allowed=_is_byte, description="DataMatrix takes 8-bit characters 0-255"
+        ),
+    }
+)
 
 __all__ = [
     "BarcodeCheck",

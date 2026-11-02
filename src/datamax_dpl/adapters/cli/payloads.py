@@ -7,6 +7,7 @@ read, ``dpl_base64`` carries them exactly for a caller that wants to send them i
 from __future__ import annotations
 
 import base64
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
@@ -17,6 +18,8 @@ from ...domain.enums import FindingCode, Severity
 from ...domain.units import DplUnit
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from ...domain.findings import Finding
     from ...domain.render import RenderResult
 
@@ -87,7 +90,7 @@ def render_payload(result: RenderResult | BatchResult, *, include_dpl: bool) -> 
 
 
 #: Sort rank of each severity in human output: the most severe first.
-_SEVERITY_ORDER: dict[Severity, int] = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
+_SEVERITY_ORDER: Mapping[Severity, int] = MappingProxyType({Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2})
 # A new Severity without a rank fails here at import, not as a KeyError in human output only.
 if set(_SEVERITY_ORDER) != set(Severity):  # pragma: no cover - import-time guard
     raise RuntimeError("every Severity needs a rank in _SEVERITY_ORDER")

@@ -10,6 +10,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 class Symbology(str, Enum):
@@ -87,39 +92,43 @@ def _pair(letter: str) -> SymbologyCode:
     return SymbologyCode(with_text=letter.upper(), bars_only=letter.lower())
 
 
-SYMBOLOGY_CODES: dict[Symbology, SymbologyCode] = {
-    Symbology.CODE39: _pair("a"),
-    Symbology.UPC_A: _pair("b"),
-    Symbology.UPC_E: _pair("c"),
-    Symbology.I2OF5: _pair("d"),
-    Symbology.CODE128: _pair("e"),
-    Symbology.EAN13: _pair("f"),
-    Symbology.EAN8: _pair("g"),
-    Symbology.HIBC: _pair("h"),
-    Symbology.CODABAR: _pair("i"),
-    Symbology.I2OF5_MOD10: _pair("j"),
-    Symbology.PLESSEY: _pair("k"),
-    Symbology.I2OF5_BEARER: _pair("l"),
-    Symbology.ADDON2: _pair("m"),
-    Symbology.ADDON5: _pair("n"),
-    Symbology.CODE93: _pair("o"),
-    Symbology.POSTNET: SymbologyCode(with_text=None, bars_only="p"),
-    Symbology.UCC_EAN128: _pair("q"),
-    Symbology.UCC_EAN128_KMART: _pair("r"),
-    Symbology.UCC_EAN128_RANDOM_WEIGHT: _pair("s"),
-    Symbology.TELEPEN: _pair("t"),
-    Symbology.MAXICODE: SymbologyCode(with_text=None, bars_only="u", two_dimensional=True),
-    Symbology.FIM: SymbologyCode(with_text=None, bars_only="v"),
-    Symbology.PDF417: SymbologyCode(with_text=None, bars_only="z", two_dimensional=True),
-    Symbology.DATAMATRIX: SymbologyCode(with_text=None, bars_only="W1c", two_dimensional=True),
-}
+SYMBOLOGY_CODES: Mapping[Symbology, SymbologyCode] = MappingProxyType(
+    {
+        Symbology.CODE39: _pair("a"),
+        Symbology.UPC_A: _pair("b"),
+        Symbology.UPC_E: _pair("c"),
+        Symbology.I2OF5: _pair("d"),
+        Symbology.CODE128: _pair("e"),
+        Symbology.EAN13: _pair("f"),
+        Symbology.EAN8: _pair("g"),
+        Symbology.HIBC: _pair("h"),
+        Symbology.CODABAR: _pair("i"),
+        Symbology.I2OF5_MOD10: _pair("j"),
+        Symbology.PLESSEY: _pair("k"),
+        Symbology.I2OF5_BEARER: _pair("l"),
+        Symbology.ADDON2: _pair("m"),
+        Symbology.ADDON5: _pair("n"),
+        Symbology.CODE93: _pair("o"),
+        Symbology.POSTNET: SymbologyCode(with_text=None, bars_only="p"),
+        Symbology.UCC_EAN128: _pair("q"),
+        Symbology.UCC_EAN128_KMART: _pair("r"),
+        Symbology.UCC_EAN128_RANDOM_WEIGHT: _pair("s"),
+        Symbology.TELEPEN: _pair("t"),
+        Symbology.MAXICODE: SymbologyCode(with_text=None, bars_only="u", two_dimensional=True),
+        Symbology.FIM: SymbologyCode(with_text=None, bars_only="v"),
+        Symbology.PDF417: SymbologyCode(with_text=None, bars_only="z", two_dimensional=True),
+        Symbology.DATAMATRIX: SymbologyCode(with_text=None, bars_only="W1c", two_dimensional=True),
+    }
+)
 
 #: Identifier character (or ``W1c``) back to its symbology, for decoding DPL.
-SYMBOLOGY_BY_IDENTIFIER: dict[str, Symbology] = {
-    identifier: symbology
-    for symbology, code in SYMBOLOGY_CODES.items()
-    for identifier in (code.with_text, code.bars_only)
-    if identifier is not None
-}
+SYMBOLOGY_BY_IDENTIFIER: Mapping[str, Symbology] = MappingProxyType(
+    {
+        identifier: symbology
+        for symbology, code in SYMBOLOGY_CODES.items()
+        for identifier in (code.with_text, code.bars_only)
+        if identifier is not None
+    }
+)
 
 __all__ = ["SYMBOLOGY_BY_IDENTIFIER", "SYMBOLOGY_CODES", "Symbology", "SymbologyCode"]

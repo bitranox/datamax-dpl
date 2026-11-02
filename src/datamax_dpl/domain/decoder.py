@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import TYPE_CHECKING, TypedDict
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -18,12 +20,43 @@ from .profiles import OLD_SERIES_POINTS
 from .records import MAX_IMAGE_MAGNIFICATION, multiplier_value
 from .symbology import SYMBOLOGY_BY_IDENTIFIER
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 _SOH, _STX, _CR = 0x01, 0x02, 0x0D
 _PRINTABLE = range(32, 127)
 #: A record header is 15 characters: a b c d eee ffff gggg.
 _HEADER_LENGTH = 15
-#: Counter line sign -> (decrement, alphanumeric); the encoder's ``counter_lines`` writes the same.
-_COUNTER_SIGNS = {"+": (False, False), "-": (True, False), ">": (False, True), "<": (True, True)}
+
+
+@dataclass(frozen=True, slots=True)
+class _Counting:
+    """How a counter line's sign counts the field before it."""
+
+    decrement: bool
+    alphanumeric: bool
+
+
+#: The counting each counter line sign stands for; the encoder's ``counter_lines`` writes the same.
+_COUNTER_SIGNS: Mapping[str, _Counting] = MappingProxyType(
+    {
+        "+": _Counting(decrement=False, alphanumeric=False),
+        "-": _Counting(decrement=True, alphanumeric=False),
+        ">": _Counting(decrement=False, alphanumeric=True),
+        "<": _Counting(decrement=True, alphanumeric=True),
+    }
+)
+
+
+class _CounterUpdate(TypedDict):
+    """The field a counter line sets on the text or barcode before it; a key of both models."""
+
+    counter: Counter
+
+
+# model_copy(update=...) takes any key and sets it unchecked, so the key is checked here at import.
+if not _CounterUpdate.__required_keys__ <= Text.model_fields.keys() & Barcode.model_fields.keys():  # pragma: no cover
+    raise RuntimeError("_CounterUpdate names a field Text or Barcode does not have")
 _SCALABLE_SIZE_PREFIXES = "SsUu"
 _FONT_9 = 9
 _PRESENT_DISTANCE_DIGITS = 4
@@ -293,15 +326,20 @@ def _counter(text: bytes, state: _State) -> str:
         state.problems.append(f"{readable(text)}: no text or barcode field right before it to count")
         return "counter (nothing to count)"
     decoded = text.decode("latin-1")
-    decrement, alphanumeric = _COUNTER_SIGNS[decoded[0]]
+    counting = _COUNTER_SIGNS[decoded[0]]
     try:
-        counter = Counter(step=int(decoded[2:4]), decrement=decrement, alphanumeric=alphanumeric, fill=decoded[1:2])
+        counter = Counter(
+            step=int(decoded[2:4]),
+            decrement=counting.decrement,
+            alphanumeric=counting.alphanumeric,
+            fill=decoded[1:2],
+        )
     except (ValueError, ValidationError) as exc:
         state.problems.append(f"{readable(text)}: {exc.__class__.__name__}")
         return "counter (not understood)"
-    state.elements[index] = target.model_copy(update={"counter": counter})
-    letters = " (letters too)" if alphanumeric else ""
-    return f"count the previous field {'down' if decrement else 'up'} by {counter.step}{letters}"
+    state.elements[index] = target.model_copy(update=_CounterUpdate(counter=counter))
+    letters = " (letters too)" if counting.alphanumeric else ""
+    return f"count the previous field {'down' if counting.decrement else 'up'} by {counter.step}{letters}"
 
 
 @dataclass(frozen=True)

@@ -14,6 +14,7 @@ Every image is stored in ``output_dir`` as ``capture-<UTC timestamp>.<ext>``. Wa
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Protocol
 
 from ...domain.camera import CameraKind, CapturedImage
@@ -23,6 +24,7 @@ from .file import MEDIA_TYPE_BY_SUFFIX, capture_from_directory
 from .http import capture_with_http
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
     from ...domain.camera import CameraSettings
@@ -35,11 +37,14 @@ class _Capture(Protocol):
     def __call__(self, settings: CameraSettings, *, stem: Path) -> Path: ...
 
 
-_CAPTURE_BY_KIND: dict[CameraKind, _Capture] = {
-    CameraKind.COMMAND: capture_with_command,
-    CameraKind.HTTP: capture_with_http,
-    CameraKind.FILE: capture_from_directory,
-}
+#: The strategy of every camera kind but ``none``, which takes no photo.
+_CAPTURE_BY_KIND: Mapping[CameraKind, _Capture] = MappingProxyType(
+    {
+        CameraKind.COMMAND: capture_with_command,
+        CameraKind.HTTP: capture_with_http,
+        CameraKind.FILE: capture_from_directory,
+    }
+)
 
 #: strftime pattern of the timestamp in an image file name; microseconds keep names unique.
 CAPTURE_STAMP_FORMAT = "%Y%m%dT%H%M%S%fZ"

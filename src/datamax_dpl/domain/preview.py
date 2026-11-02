@@ -663,13 +663,16 @@ def _top_dots(element: Element, geometry: PreviewGeometry) -> int:
     return geometry.dots(_graphic_top(element), axis=Axis.ALONG)
 
 
-#: The combine mode of each attribute that has one. Inverse (5) prints a field white on black,
-#: which the preview does not draw, so it has no mode and shows as XOR.
-_ATTRIBUTE_MODES: dict[Attribute, CombineMode] = {
-    Attribute.XOR: CombineMode.XOR,
-    Attribute.TRANSPARENT: CombineMode.OR,
-    Attribute.OPAQUE: CombineMode.OPAQUE,
-}
+#: The combine mode of each attribute. Inverse (5) prints a field white on black, which the
+#: preview does not draw, so it shows as XOR.
+_ATTRIBUTE_MODES: Mapping[Attribute, CombineMode] = MappingProxyType(
+    {
+        Attribute.XOR: CombineMode.XOR,
+        Attribute.TRANSPARENT: CombineMode.OR,
+        Attribute.OPAQUE: CombineMode.OPAQUE,
+        Attribute.INVERSE: CombineMode.XOR,
+    }
+)
 
 
 def _has_attributes(profile: PrinterProfile) -> bool:
@@ -682,7 +685,7 @@ def _combine_mode(element: Element, label: Label) -> CombineMode:
     """The mode a field prints in on a model with attributes: its own, the label's, else XOR."""
     own = element.attribute if isinstance(element, (Text, ScalableText)) else None
     attribute = own or label.attribute or Attribute.XOR
-    return _ATTRIBUTE_MODES.get(attribute, CombineMode.XOR)
+    return _ATTRIBUTE_MODES[attribute]
 
 
 def _draw_layer(element: Element, layer: Bitmap, canvas: Canvas, *, halved: bool, mask: Bitmap | None) -> None:

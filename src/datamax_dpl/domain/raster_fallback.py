@@ -9,6 +9,7 @@ only, which is fine here because the rasterised shape already has its final orie
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING, get_args
 
 from .encode_common import column_of, image_edge, row_of
@@ -20,18 +21,22 @@ from .records import image_record, line
 from .units import Axis
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from .render_context import PlacedImage, RenderContext
 
 Graphic = Line | Box | Circle | Polygon
 
 # Keyed by class rather than built as f"{element.type}_rasterized", so the code is a FindingCode
 # member a type checker sees, and a graphic added to the union without one fails at import.
-_RASTERIZED: dict[type[Graphic], FindingCode] = {
-    Line: FindingCode.LINE_RASTERIZED,
-    Box: FindingCode.BOX_RASTERIZED,
-    Circle: FindingCode.CIRCLE_RASTERIZED,
-    Polygon: FindingCode.POLYGON_RASTERIZED,
-}
+_RASTERIZED: Mapping[type[Graphic], FindingCode] = MappingProxyType(
+    {
+        Line: FindingCode.LINE_RASTERIZED,
+        Box: FindingCode.BOX_RASTERIZED,
+        Circle: FindingCode.CIRCLE_RASTERIZED,
+        Polygon: FindingCode.POLYGON_RASTERIZED,
+    }
+)
 if set(_RASTERIZED) != set(get_args(Graphic)):  # pragma: no cover - import-time guard
     raise RuntimeError("every Graphic type needs a *_rasterized FindingCode")
 

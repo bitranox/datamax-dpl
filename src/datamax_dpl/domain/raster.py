@@ -21,13 +21,14 @@ from __future__ import annotations
 
 import itertools
 import math
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from .enums import CombineMode, FillPattern
 from .geometry import DotPoint, Rect
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Iterator, Mapping, Sequence
 
 #: Edge length of every fill-pattern tile, in pixels.
 TILE_SIZE = 8
@@ -39,13 +40,16 @@ _BLACK_CHARS = "1#"
 _WHITE_CHARS = "0."
 _TO_BITS = str.maketrans("#.", "10")
 
-_SHADE_PERCENT: dict[FillPattern, int] = {
-    FillPattern.SHADE_6: 6,
-    FillPattern.SHADE_12: 12,
-    FillPattern.SHADE_25: 25,
-    FillPattern.SHADE_38: 38,
-    FillPattern.SHADE_50: 50,
-}
+#: The nominal black share of each shade pattern, in percent; the other patterns are drawn.
+_SHADE_PERCENT: Mapping[FillPattern, int] = MappingProxyType(
+    {
+        FillPattern.SHADE_6: 6,
+        FillPattern.SHADE_12: 12,
+        FillPattern.SHADE_25: 25,
+        FillPattern.SHADE_38: 38,
+        FillPattern.SHADE_50: 50,
+    }
+)
 
 _DIAMOND_TILE = (
     "...#....",
@@ -113,7 +117,7 @@ def _grid_tile() -> tuple[str, ...]:
     return ("1" * TILE_SIZE,) + ("1" + "0" * (TILE_SIZE - 1),) * (TILE_SIZE - 1)
 
 
-def _build_tiles() -> dict[FillPattern, tuple[str, ...]]:
+def _build_tiles() -> Mapping[FillPattern, tuple[str, ...]]:
     """Return the 8x8 ``1``/``0`` tile of every fill pattern."""
     tiles: dict[FillPattern, tuple[str, ...]] = {
         FillPattern.NONE: ("0" * TILE_SIZE,) * TILE_SIZE,
@@ -126,7 +130,7 @@ def _build_tiles() -> dict[FillPattern, tuple[str, ...]]:
         FillPattern.GRID: _grid_tile(),
     }
     tiles.update({pattern: _shade_tile(percent) for pattern, percent in _SHADE_PERCENT.items()})
-    return tiles
+    return MappingProxyType(tiles)
 
 
 _TILES = _build_tiles()
