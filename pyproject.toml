@@ -321,9 +321,14 @@ source_modules = ["datamax_dpl.domain", "datamax_dpl.application"]
 forbidden_modules = [
   "serial", "socket", "subprocess", "ssl", "http", "urllib", "select", "os", "shutil", "tempfile", "fcntl", "termios",
   "pty", "mmap", "ctypes", "multiprocessing", "threading", "asyncio", "concurrent",
-  "click", "rich_click", "rich", "lib_layered_config", "lib_log_rich", "tomlkit", "orjson", "dotenv", "PIL",
+  "click", "rich_click", "rich", "lib_layered_config", "lib_log_rich", "tomlkit", "orjson", "dotenv", "PIL", "importlib", "signal", "logging", "pickle", "io", "sys", "glob", "secrets", "random", "getpass", "platform", "resource",
 ]
 allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Adapters of different kinds do not know each other"
+type = "independence"
+modules = ["datamax_dpl.adapters.transport", "datamax_dpl.adapters.camera", "datamax_dpl.adapters.preview", "datamax_dpl.adapters.memory"]
 
 [tool.bashate]
 # bashate style settings for .sh files (E003 excluded: indent handled by shfmt)

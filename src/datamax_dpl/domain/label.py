@@ -514,6 +514,7 @@ __all__ = [
     "Pdf417Options",
     "Point",
     "Polygon",
+    "Positive",
     "Qr",
     "ScalableText",
     "StopPosition",

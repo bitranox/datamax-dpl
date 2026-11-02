@@ -324,7 +324,7 @@ class ReportedFinding(NamedTuple):
 
 
 @dataclass(frozen=True)
-class _BatchJob:
+class BatchJob:
     """What it takes to render a checked batch again: its records are read again, never held."""
 
     label: Label
@@ -368,7 +368,7 @@ class BatchReport:
         plan: Where the batch cuts across its records.
     """
 
-    job: _BatchJob | None
+    job: BatchJob | None
     limits: ReportLimits
     model: str
     dpl_unit: DplUnit
@@ -386,7 +386,7 @@ class BatchReport:
     unlisted_at: int | None
     plan: CutPlan
 
-    def _job(self) -> _BatchJob:
+    def _job(self) -> BatchJob:
         if self.job is None:
             msg = "the report of a batch held whole renders nothing again: its result holds the jobs"
             raise ValueError(msg)
@@ -517,7 +517,7 @@ class BatchTally:
         if self._unlisted_at is None and unlisted_download(result):
             self._unlisted_at = record
 
-    def report(self, job: _BatchJob | None) -> BatchReport:
+    def report(self, job: BatchJob | None) -> BatchReport:
         """Return the report of what was added, ``job`` being how to render it again.
 
         Raises:
@@ -591,7 +591,7 @@ def check_batch(
         tally.add(entry.result, cut=entry.cut_after)
         if each is not None:
             each(entry)
-    return tally.report(_BatchJob(label=label, records=records, options=options, held=held, limits=limits))
+    return tally.report(BatchJob(label=label, records=records, options=options, held=held, limits=limits))
 
 
 class _CutUpdate(TypedDict):
@@ -1408,16 +1408,24 @@ __all__ = [
     "STATUS_WAIT_SECONDS",
     "STORED_NAMES_WAIT_SECONDS",
     "AnswerWait",
+    "BatchEntry",
+    "BatchJob",
+    "BatchReport",
     "BatchResult",
+    "BatchTally",
     "DetectReport",
     "PrintReport",
     "PrinterCommand",
     "RecordRender",
     "RenderedJob",
+    "ReportLimits",
+    "ReportedFinding",
     "StatusPoll",
     "StoredNamesRead",
+    "check_batch",
     "detect_printer",
     "error_findings",
+    "iter_batch",
     "open_within",
     "poll_status",
     "print_result",
@@ -1429,7 +1437,9 @@ __all__ = [
     "render_batch",
     "render_label",
     "render_with_stored_names",
+    "report_of",
     "send_bytes",
     "send_command",
     "stored_image_names",
+    "unlisted_download",
 ]
