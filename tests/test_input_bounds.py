@@ -128,7 +128,7 @@ def test_preview_refuses_a_huge_label_before_drawing_it(
 @pytest.mark.os_agnostic
 def test_the_preview_limit_comes_from_the_settings_key(cli_runner: CliRunner, tmp_path: Path) -> None:
     """--set lowers it, and an inch label is measured in millimetres too."""
-    label = _write_label(tmp_path, {"unit": "inch", "height": 2, "width": 1, "elements": [{"type": "text", "x": 1, "y": 1, "text": "A"}]})
+    label = _write_label(tmp_path, {"unit": "in", "height": 2, "width": 1, "elements": [{"type": "text", "x": 1, "y": 1, "text": "A"}]})
     output = str(tmp_path / "out.png")
     assert _invoke(cli_runner, "--set", "preview.max_length_mm=51", "preview", label, "-o", output).exit_code == 0
     assert _invoke(cli_runner, "--set", "preview.max_length_mm=50", "preview", label, "-o", output).exit_code == 2
