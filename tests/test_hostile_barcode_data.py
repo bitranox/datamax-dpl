@@ -13,7 +13,7 @@ from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.barcodes import check_barcode
 from datamax_dpl.domain.enums import BarcodeProblemCode, FindingCode, Unit
 from datamax_dpl.domain.errors import LabelRejectedError
-from datamax_dpl.domain.label import Barcode, Counter, Label
+from datamax_dpl.domain.label import Barcode, Counter, DataMatrixOptions, Label, Pdf417Options, Text
 from datamax_dpl.domain.render import build_job, render
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.symbology import Symbology
@@ -118,3 +118,93 @@ def test_a_counter_fill_takes_printable_ascii_only(fill: str) -> None:
 def test_a_counter_fill_keeps_every_printable_character(fill: str) -> None:
     """The printable range edges and the documented fills still work."""
     assert Counter(fill=fill).fill == fill
+
+
+# ======================== Documented records through a whole render ========================
+
+
+def _record_lines(label: Label, model: str = MODEL) -> list[bytes]:
+    result = build_job(label, RenderOptions(model=model))
+    assert result.ok, [finding.message for finding in result.errors]
+    return result.data.split(b"\r")
+
+
+def _codes(document: dict[str, object], model: str = MODEL) -> set[FindingCode]:
+    label = Label.model_validate({"elements": [{"type": "text", "x": 5, "y": 5, "text": "X"}], **document})
+    return {finding.code for finding in build_job(label, RenderOptions(model=model)).findings}
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("symbology", "pdf417", "datamatrix", "field"),
+    [
+        (Symbology.PDF417, None, None, b"F2000000AB12"),
+        (Symbology.PDF417, Pdf417Options(truncated=True, security_level=8), None, b"T8000000AB12"),
+        (Symbology.DATAMATRIX, None, None, b"2000000000AB12"),
+        (Symbology.DATAMATRIX, None, DataMatrixOptions(ecc=200, rows=18, columns=18), b"2000018018AB12"),
+    ],
+    ids=["pdf417", "pdf417-options", "datamatrix", "datamatrix-options"],
+)
+def test_a_2d_barcode_reaches_the_job_with_its_data_header(
+    symbology: Symbology, pdf417: Pdf417Options | None, datamatrix: DataMatrixOptions | None, field: bytes
+) -> None:
+    barcode = Barcode(x=5, y=5, symbology=symbology, data="AB12", pdf417=pdf417, datamatrix=datamatrix)
+    [record] = [line for line in _record_lines(Label(unit=Unit.MM, elements=[barcode])) if line.endswith(b"AB12")]
+    assert record.endswith(field)
+    assert not record[: -len(field)].endswith(b"AB12")
+
+
+@pytest.mark.os_agnostic
+def test_the_column_and_row_offsets_reach_the_job() -> None:
+    """The job addresses 1/10 mm here (it opens with ``m``), so 10 and 20 mm are 100 and 200."""
+    lines = _record_lines(Label(unit=Unit.MM, column_offset=10, row_offset=20, elements=[Text(x=5, y=5, text="X")]))
+    assert b"C0100" in lines
+    assert b"R0200" in lines
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("document", "code", "model"),
+    [
+        ({"media": "continuous"}, FindingCode.CONTINUOUS_LENGTH_MISSING, MODEL),
+        ({"column_offset": 3000}, FindingCode.DISTANCE_TOO_LARGE, MODEL),
+        ({"elements": [{"type": "text", "x": 3000, "y": 5, "text": "X"}]}, FindingCode.DISTANCE_TOO_LARGE, MODEL),
+        (
+            {"elements": [{"type": "barcode", "x": 5, "y": 5, "symbology": "code128", "data": "A" * 256}]},
+            FindingCode.FIELD_TOO_LONG,
+            MODEL,
+        ),
+        (
+            {"elements": [{"type": "barcode", "x": 5, "y": 5, "symbology": "code128", "data": "A", "height": 300}]},
+            FindingCode.BARCODE_HEIGHT_OUT_OF_RANGE,
+            MODEL,
+        ),
+        (
+            {"elements": [{"type": "barcode", "x": 5, "y": 5, "symbology": "code128", "data": "A", "height": 0.01}]},
+            FindingCode.BARCODE_HEIGHT_OUT_OF_RANGE,
+            MODEL,
+        ),
+        (
+            {"elements": [{"type": "text", "x": 5, "y": 5, "text": "X", "attribute": 5}]},
+            FindingCode.ATTRIBUTE_UNSUPPORTED,
+            "allegro-2",
+        ),
+    ],
+    ids=["continuous", "offset", "field-x", "field-length", "height-high", "height-low", "inverse"],
+)
+def test_a_value_no_record_can_hold_is_refused_by_name(
+    document: dict[str, object], code: FindingCode, model: str
+) -> None:
+    label = Label.model_validate({"elements": [{"type": "text", "x": 5, "y": 5, "text": "X"}], **document})
+    result = build_job(label, RenderOptions(model=model))
+    assert code in {finding.code for finding in result.errors}
+    assert not result.ok
+
+
+@pytest.mark.os_agnostic
+def test_a_cut_past_the_quantity_is_said_and_sends_no_cut_count() -> None:
+    assert FindingCode.CUT_BY_NOT_BELOW_QUANTITY in _codes({"quantity": 2, "cut": {"every": 5}})
+    label = Label.model_validate(
+        {"quantity": 2, "cut": {"every": 5}, "elements": [{"type": "text", "x": 5, "y": 5, "text": "X"}]}
+    )
+    assert b":0005" not in _record_lines(label)

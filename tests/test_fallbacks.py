@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import ast
 import re
+from pathlib import Path
 
 import pytest
 
+import datamax_dpl
+from datamax_dpl.application.use_cases import render_batch
 from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, Severity, SpeedCode
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.label import Label
@@ -79,6 +83,121 @@ def test_under_strict_every_applied_fallback_becomes_an_error(model: str) -> Non
     strict = build_job(KITCHEN_SINK, kitchen_sink_options(model, policy=FallbackPolicy.STRICT))
     fallbacks = {f.code for f in degraded.findings if f.fallback is not None}
     assert {f.code for f in strict.errors} == fallbacks
+
+
+#: What the kitchen sink above cannot show: each needs a label of its own, on a model lacking the feature.
+_NEEDS_ITS_OWN_LABEL: dict[FindingCode, dict[str, object]] = {
+    FindingCode.ATTRIBUTE_UNSUPPORTED: {"attribute": 3},
+    FindingCode.DATAMATRIX_OPTION_UNCONFIRMED: {
+        "elements": [{"type": "barcode", "x": 5, "y": 5, "symbology": "datamatrix", "data": "DM"}]
+    },
+    FindingCode.SYMBOL_SET_UNSUPPORTED: {"symbol_set": "PC"},
+}
+#: Each reached by its own tests, in the module named: they need a setting or a printer state, not a label.
+_REACHED_ELSEWHERE = {
+    FindingCode.IMAGE_HALVED: "test_upload_check",
+    FindingCode.MAX_LABEL_LENGTH_TOO_SHORT: "test_job_preamble",
+    FindingCode.MODEL_OFFSET_CLAMPED: "test_render",
+    FindingCode.STOP_POSITION_UNSUPPORTED: "test_render",
+    FindingCode.TRANSPARENCY_EMULATED: "test_overlap",
+    FindingCode.TRANSPARENCY_NOT_EMULATED: "test_overlap",
+}
+#: The rasterized codes share one call through a table, and transparency passes findings it was given.
+_DEVIATE_THROUGH_A_VARIABLE = 2
+_KITCHEN_SINK_CODES = {
+    FindingCode.BOX_RASTERIZED,
+    FindingCode.CHARACTERS_UNMAPPABLE,
+    FindingCode.CIRCLE_RASTERIZED,
+    FindingCode.CUT_BY_UNSUPPORTED,
+    FindingCode.CUT_NOW_UNSUPPORTED,
+    FindingCode.DEFAULT_BAR_WIDTHS_UNSUPPORTED,
+    FindingCode.FONT_SIZE_SUBSTITUTED,
+    FindingCode.HEAT_OUT_OF_RANGE,
+    FindingCode.LINE_RASTERIZED,
+    FindingCode.PAUSE_EACH_LABEL_UNSUPPORTED,
+    FindingCode.POLYGON_RASTERIZED,
+    FindingCode.PRESENT_DISTANCE_UNSUPPORTED,
+    FindingCode.SCALABLE_FONT_UNSUPPORTED,
+    FindingCode.SENSOR_SELECT_UNSUPPORTED,
+    FindingCode.SPEED_OUT_OF_RANGE,
+    FindingCode.SPEED_UNSUPPORTED,
+}
+
+
+def _deviate_calls() -> tuple[set[str], int]:
+    """Read every ``.deviate(...)`` in the package: the codes it names, and the calls naming none."""
+    named: set[str] = set()
+    through_a_variable = 0
+    for path in Path(datamax_dpl.__file__).parent.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not (
+                isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "deviate"
+            ):
+                continue
+            first = node.args[0]
+            if isinstance(first, ast.Attribute) and ast.unparse(first.value) == "FindingCode":
+                named.add(first.attr)
+            else:
+                through_a_variable += 1
+    return named, through_a_variable
+
+
+@pytest.mark.os_agnostic
+def test_every_deviate_code_is_on_a_list_that_has_it_proven_under_strict() -> None:
+    """A new fallback fails here until it is listed, so none stays a warning under strict unseen."""
+    named, through_a_variable = _deviate_calls()
+    assert named, "the walk found no deviate call: it read the wrong directory"
+    assert through_a_variable == _DEVIATE_THROUGH_A_VARIABLE
+    listed = (
+        _KITCHEN_SINK_CODES | set(_NEEDS_ITS_OWN_LABEL) | set(_REACHED_ELSEWHERE) | {FindingCode.BATCH_CUT_UNSUPPORTED}
+    )
+    rasterized_and_passed = {
+        FindingCode.BOX_RASTERIZED,
+        FindingCode.CIRCLE_RASTERIZED,
+        FindingCode.LINE_RASTERIZED,
+        FindingCode.POLYGON_RASTERIZED,
+        FindingCode.TRANSPARENCY_EMULATED,
+        FindingCode.TRANSPARENCY_NOT_EMULATED,
+    }
+    assert {FindingCode[name] for name in named} | rasterized_and_passed == listed
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("code", "module"), _REACHED_ELSEWHERE.items(), ids=str)
+def test_the_module_a_code_is_left_to_does_test_it(code: FindingCode, module: str) -> None:
+    source = Path(__file__).with_name(f"{module}.py").read_text(encoding="utf-8")
+    assert code.value in source or code.name in source
+
+
+@pytest.mark.os_agnostic
+def test_the_kitchen_sink_reaches_every_code_it_is_listed_for() -> None:
+    reached: set[FindingCode] = set()
+    for model in PROFILES:
+        degraded = build_job(KITCHEN_SINK, kitchen_sink_options(model))
+        reached |= {finding.code for finding in degraded.findings if finding.fallback is not None}
+    assert reached == _KITCHEN_SINK_CODES
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("code", list(_NEEDS_ITS_OWN_LABEL), ids=lambda code: code.value)
+def test_a_fallback_the_kitchen_sink_cannot_show_is_an_error_under_strict(code: FindingCode) -> None:
+    document = _NEEDS_ITS_OWN_LABEL[code]
+    assert code in codes(label(**document), "allegro-2")
+    strict = build_job(label(**document), RenderOptions(model="allegro-2", policy=FallbackPolicy.STRICT))
+    assert code in {finding.code for finding in strict.errors}
+
+
+@pytest.mark.os_agnostic
+def test_a_batch_cut_the_model_cannot_send_is_an_error_under_strict() -> None:
+    cut_label = label(cut={"every": 2})
+    records: list[dict[str, str]] = [{}, {}]
+    degraded = render_batch(cut_label, records, RenderOptions(model="prodigy"))
+    assert degraded.ok
+    assert [finding.severity for finding in degraded.batch_findings] == [Severity.WARNING]
+    strict = render_batch(cut_label, records, RenderOptions(model="prodigy", policy=FallbackPolicy.STRICT))
+    assert [(finding.code, finding.severity) for finding in strict.batch_findings] == [
+        (FindingCode.BATCH_CUT_UNSUPPORTED, Severity.ERROR)
+    ]
 
 
 @pytest.mark.os_agnostic
