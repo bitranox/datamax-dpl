@@ -31,19 +31,27 @@ from ....application.verify import IdleWait, verify_print
 from ....domain.enums import ImageModule, MemoryKind, Severity, StatusProblem
 from ....domain.held_images import HeldImages
 from ....domain.memory import NO_MODULES_MEANING, MemoryDirectory
-from ....domain.preview import canvas_for
+from ....domain.errors import PreviewTooLongError
+from ....domain.preview import canvas_for, check_preview_length
 from ....domain.profiles import get_profile
 from ....domain.render import RenderResult
 from ....domain.status import PrinterStatus
-from ...config.sections import CAMERA_SECTION, PRINTER_SECTION
+from ...config.sections import CAMERA_SECTION, PREVIEW_SECTION, PRINTER_SECTION
 from ...preview import pillow_available, preview_findings, render_preview_png
 from ...transport.uri import is_one_way, parse_printer_uri
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
-from ..label_io import load_label, load_records
+from ..label_io import LabelInputError, load_label, load_records
 from ..payloads import FindingOut, findings_text, render_payload
 from ..runner import CommandResult, run_command
-from ..settings import PrinterOverrides, PrinterSettings, camera_settings, render_options, require_uri
+from ..settings import (
+    PrinterOverrides,
+    PrinterSettings,
+    camera_settings,
+    preview_settings,
+    render_options,
+    require_uri,
+)
 from ..typed_click import argument, option
 from .labels import render_loaded
 from .model_options import (
@@ -422,6 +430,23 @@ class PreviewPayload(BaseModel):
     findings: list[FindingOut]
 
 
+def _preview_limit(cli_ctx: CLIContext) -> float:
+    """The longest side a preview may have, in millimetres: ``[preview] max_length_mm``."""
+    return preview_settings(loaded_config(cli_ctx)).max_length_mm
+
+
+def _refuse_long_preview(label: Label, options: RenderOptions, *, limit: float) -> None:
+    """Refuse a label whose picture would pass ``limit``, before anything is drawn or printed.
+
+    Raises:
+        LabelInputError: The picture would be too long; the message names the key that allows it.
+    """
+    try:
+        check_preview_length(canvas_for(label, get_profile(options.model), options=options), max_length_mm=limit)
+    except PreviewTooLongError as exc:
+        raise LabelInputError(f"{exc}; a longer one needs {PREVIEW_SECTION.setting('max_length_mm')}") from None
+
+
 @click.command("preview", context_settings=CLICK_CONTEXT_SETTINGS)
 @argument("label_source", metavar="LABEL")
 @option("-o", "--output", required=True, help="PNG file to write.")
@@ -440,10 +465,12 @@ def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | 
             label = fill_label(label, load_records(data)[0])
         profile = get_profile(settings.model)
         options = render_options(settings)
+        limit = _preview_limit(cli_ctx)
+        _refuse_long_preview(label, options, limit=limit)
         canvas = canvas_for(label, profile, options=options)
         # Rendered for how the job sends its fields: halved images and merged groups preview as they print.
         sent_as = render_label(label, options).sent_as
-        Path(output).write_bytes(render_preview_png(label, profile, sent_as=sent_as, options=options))
+        Path(output).write_bytes(render_preview_png(label, profile, sent_as=sent_as, options=options, max_length_mm=limit))
         payload = PreviewPayload(
             output=output,
             width_dots=canvas.width,
@@ -506,6 +533,8 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
         label = load_label(label_source)
         link = _link(settings)
         options = _print_options(settings, link=link)
+        # The expected picture is drawn after the print, so a label too long for it stops here.
+        _refuse_long_preview(label, options, limit=_preview_limit(cli_ctx))
         rendered = _render_to_print(label, None, options, settings, cli_ctx, link=link)
         result = rendered.result
         uri = link.uri

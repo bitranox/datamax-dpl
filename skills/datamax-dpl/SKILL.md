@@ -43,7 +43,8 @@ cut off part way says to power-cycle the printer, which may be waiting for the r
    longest values. There is no automatic text wrapping or shrinking: long text runs off the edge.
    It draws overlapping fields as they print (see "Overlapping fields"), rotation, and line
    records exactly; text is grey cells, or Pillow's font (not the printer's) with the `preview`
-   extra (`uvx --from "datamax-dpl[preview]" datamax-dpl`, Python 3.11+).
+   extra (`uvx --from "datamax-dpl[preview]" datamax-dpl`, Python 3.11+). A label longer than
+   `[preview] max_length_mm` (2000) is refused.
 4. Print ONE label first: a data file with the header and one row, `datamax-dpl print label.json
    --data one.csv --model MODEL --printer tcp://HOST:9100`. Scan the barcode. Then print the
    remaining rows (leave out the one already printed).

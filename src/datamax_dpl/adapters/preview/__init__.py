@@ -25,7 +25,14 @@ from ...domain.enums import FindingCode, Severity
 from ...domain.findings import Finding
 from ...domain.label import Barcode, ScalableText, Text
 from ...domain.png import encode_png
-from ...domain.preview import FieldArea, canvas_for, mask_area, preview_bitmap
+from ...domain.preview import (
+    DEFAULT_PREVIEW_MAX_LENGTH_MM,
+    FieldArea,
+    canvas_for,
+    check_preview_length,
+    mask_area,
+    preview_bitmap,
+)
 from ...domain.raster import Bitmap
 
 if TYPE_CHECKING:
@@ -122,17 +129,25 @@ def _masks(pillow: _Pillow, label: Label, profile: PrinterProfile, options: Rend
 
 
 def render_preview_png(
-    label: Label, profile: PrinterProfile, *, sent_as: SentAs | None = None, options: RenderOptions | None = None
+    label: Label,
+    profile: PrinterProfile,
+    *,
+    sent_as: SentAs | None = None,
+    options: RenderOptions | None = None,
+    max_length_mm: float = DEFAULT_PREVIEW_MAX_LENGTH_MM,
 ) -> bytes:
     """Return the preview PNG: lettered with Pillow when available, cell blocks otherwise.
 
     ``sent_as`` (``RenderResult.sent_as``) says how the job sends its fields: halved images and
     merged groups are drawn the way they print. ``options`` are the ones the job is rendered with,
     so that each field sits at the row and column that job writes; None renders for ``profile``.
+    ``max_length_mm`` is the longest side the picture may have, checked before anything is drawn.
 
     Raises:
+        PreviewTooLongError: A side of the picture would be longer than ``max_length_mm``.
         ValueError: ``options`` are for another model than ``profile``.
     """
+    check_preview_length(canvas_for(label, profile, options=options), max_length_mm=max_length_mm)
     pillow = _pillow()
     masks = None if pillow is None else _masks(pillow, label, profile, options)
     return encode_png(preview_bitmap(label, profile, sent_as=sent_as, options=options, masks=masks))

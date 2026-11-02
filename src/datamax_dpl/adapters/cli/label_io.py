@@ -115,8 +115,12 @@ def _records_from_csv(data: bytes, source: str) -> list[dict[str, str]]:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise LabelInputError(f"{source} is not UTF-8: {exc.reason}") from None
-    reader = csv.DictReader(io.StringIO(text, newline=""))
-    return [{key: value or "" for key, value in row.items() if key is not None} for row in reader]
+    # strict: without it a stray quote silently merges every row after it into one field.
+    reader = csv.DictReader(io.StringIO(text, newline=""), strict=True)
+    try:
+        return [{key: value or "" for key, value in row.items() if key is not None} for row in reader]
+    except csv.Error as exc:
+        raise LabelInputError(f"{source} is not valid CSV: line {reader.line_num}: {exc}") from None
 
 
 def load_records(source: str) -> list[dict[str, str]]:

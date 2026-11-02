@@ -87,11 +87,16 @@ class CameraError(Exception):
     """The camera could not take or deliver a photo."""
 
 
+class PreviewTooLongError(ValueError):
+    """A preview would be longer than the limit it was asked to keep to; nothing was drawn."""
+
+
 __all__ = [
     "AnswerNotEndedError",
     "CameraError",
     "ConfigurationError",
     "LabelRejectedError",
+    "PreviewTooLongError",
     "PrinterProtocolError",
     "PrinterTimeoutError",
     "TransportError",

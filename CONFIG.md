@@ -721,6 +721,17 @@ datamax-dpl config --section printer
 datamax-dpl config --section camera
 ```
 
+## Preview Section
+
+The `[preview]` section (shipped in `config.d/50-printer.toml`) bounds the picture `preview` and
+`verify` draw. One number in a label decides how much memory the picture takes, so a label past the
+limit is refused with exit 2 before anything is drawn, and `verify` refuses it before printing,
+because its expected picture needs the same canvas.
+
+| Key             | Type       | Default  | Environment variable                   | Meaning                                                                                      |
+|-----------------|------------|----------|----------------------------------------|----------------------------------------------------------------------------------------------|
+| `max_length_mm` | float, > 0 | `2000.0` | `DATAMAX_DPL___PREVIEW__MAX_LENGTH_MM` | Longest side of the picture in mm, along or across the feed. `render` and `print` ignore it. |
+
 ---
 
 ## Environment Variables

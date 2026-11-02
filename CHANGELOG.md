@@ -126,6 +126,11 @@ All notable changes to this project are documented here. The format follows
   for what the preview PNG of a label cannot show: one
   `preview_text_approximated` (info) when the label has text and Pillow is
   not installed, else none.
+- `[preview] max_length_mm` (default 2000.0): `preview` refuses a label whose
+  picture would be longer than this either way, exit 2, before drawing it, and
+  `verify` before printing it; `render_preview_png` takes `max_length_mm` and
+  raises `PreviewTooLongError`, exported from `datamax_dpl`. A height of
+  100000 mm took 118 s and 1.47 GB, and 1e9 raised `MemoryError`.
 
 ### Changed
 
@@ -296,6 +301,12 @@ All notable changes to this project are documented here. The format follows
   (`http://USER:PASSWORD@HOST/...`) as `***REDACTED***`, in human and JSON
   output and for `--section camera` and `--section camera.url`; it printed the
   URL as written. The route and the redaction are in `CONFIG.md`.
+- A CSV data file with a field over the `csv` limit (131072 characters) or a
+  stray quote is refused as `is not valid CSV`, exit 2 with an envelope: the
+  first exited 1 with no envelope, and the second merged every following row
+  into one field and printed it.
+- `explain` on a record cut short, as a truncated job holds, lists it in
+  `problems`; a graphic record raised `IndexError`, exit 1 with no envelope.
 
 ## [0.4.0] - 2026-10-30
 

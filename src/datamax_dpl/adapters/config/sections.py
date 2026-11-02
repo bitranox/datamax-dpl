@@ -26,6 +26,7 @@ class ConfigSection(str, Enum):
     PRINTER = "printer"
     PRINTERS = "printers"
     CAMERA = "camera"
+    PREVIEW = "preview"
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +120,9 @@ PRINTER_SECTION: Final = SectionPath(ConfigSection.PRINTER)
 #: The ``[camera]`` section.
 CAMERA_SECTION: Final = SectionPath(ConfigSection.CAMERA)
 
+#: The ``[preview]`` section.
+PREVIEW_SECTION: Final = SectionPath(ConfigSection.PREVIEW)
+
 
 def printer_section(name: str) -> SectionPath:
     """The table a printer's own settings are read from and written to.
@@ -136,4 +140,4 @@ def printer_section(name: str) -> SectionPath:
     return SectionPath(ConfigSection.PRINTERS, name) if name else PRINTER_SECTION
 
 
-__all__ = ["CAMERA_SECTION", "PRINTER_SECTION", "ConfigSection", "SectionPath", "printer_section"]
+__all__ = ["CAMERA_SECTION", "PREVIEW_SECTION", "PRINTER_SECTION", "ConfigSection", "SectionPath", "printer_section"]

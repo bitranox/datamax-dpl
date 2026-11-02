@@ -292,7 +292,8 @@ def _record(text: bytes, state: _State) -> str:
     state.latest_field = None
     try:
         parsed = _parse_record(text.decode("latin-1"), state)
-    except (ValueError, KeyError, ValidationError) as exc:
+    # IndexError: a record cut short, which is what a truncated job holds.
+    except (ValueError, KeyError, IndexError, ValidationError) as exc:
         state.problems.append(f"{readable(text)}: {exc.__class__.__name__}")
         return "record (not understood)"
     if parsed.element is not None:

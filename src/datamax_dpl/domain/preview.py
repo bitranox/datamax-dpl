@@ -56,6 +56,7 @@ from typing import TYPE_CHECKING
 from .encode_common import position_units
 from .encode_graphics import qr_symbol_position
 from .enums import Attribute, CombineMode, FillPattern, Rotation, Unit
+from .errors import PreviewTooLongError
 from .geometry import DotPoint, Rect, Size, Span
 from .image_budget import HALVING_FACTOR, halve, magnify
 from .label import FONT_9, Barcode, Box, Circle, Element, Image, Label, Line, Polygon, Qr, ScalableText, Text
@@ -583,6 +584,10 @@ def draw_element(element: Element, bitmap: Bitmap, canvas: Canvas) -> None:
         _draw_graphic(element, bitmap, canvas)
 
 
+#: The longest side a preview draws unless told otherwise: about 16000 dot rows at 203 dpi.
+DEFAULT_PREVIEW_MAX_LENGTH_MM = 2000.0
+
+
 def canvas_for(label: Label, profile: PrinterProfile, *, options: RenderOptions | None = None) -> Canvas:
     """Size the preview: the label size when given, else the print width and the tallest field.
 
@@ -608,6 +613,35 @@ def _job_context(label: Label, profile: PrinterProfile, options: RenderOptions |
         msg = f"options are for {chosen.model}, not {profile.id}"
         raise ValueError(msg)
     return job_context(label, chosen)
+
+
+def check_preview_length(canvas: Canvas, *, max_length_mm: float) -> None:
+    """Refuse a preview whose canvas would be longer than ``max_length_mm`` either way.
+
+    The canvas is only a size at this point: one number in a label decides how much memory the
+    picture takes (100000 mm took 118 s and 1.47 GB), so this runs before anything is drawn.
+
+    Args:
+        canvas: The preview's size, from :func:`canvas_for`.
+        max_length_mm: The longest side allowed, in millimetres.
+
+    Raises:
+        PreviewTooLongError: A side is longer than the limit.
+
+    Example:
+        >>> from datamax_dpl.domain.label import Label, Text
+        >>> from datamax_dpl.domain.profiles import get_profile
+        >>> label = Label(height=30, width=30, elements=[Text(x=1, y=1, text="A")])
+        >>> check_preview_length(canvas_for(label, get_profile("dmx-600")), max_length_mm=30)
+    """
+    dpi = canvas.geometry.dpi
+    # In dots, rounded as _canvas rounds a label's size: a label of exactly the limit passes.
+    limit = round(max_length_mm / _MM_PER_INCH * dpi)
+    # Each side holds one dot more than its length: the frame's far edge.
+    longest = max(canvas.width, canvas.height) - 1
+    if longest > limit:
+        msg = f"the preview would be {longest / dpi * _MM_PER_INCH:.0f} mm long, past the {max_length_mm:g} mm it draws"
+        raise PreviewTooLongError(msg)
 
 
 def _canvas(label: Label, geometry: PreviewGeometry) -> Canvas:
@@ -819,7 +853,9 @@ __all__ = [
     "FieldArea",
     "PreviewGeometry",
     "SentAs",
+    "DEFAULT_PREVIEW_MAX_LENGTH_MM",
     "canvas_for",
+    "check_preview_length",
     "draw_element",
     "field_area",
     "mask_area",

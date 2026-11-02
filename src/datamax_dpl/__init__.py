@@ -54,7 +54,7 @@ from .domain.enums import (
     StatusProblem,
     Unit,
 )
-from .domain.errors import LabelRejectedError, TransportError
+from .domain.errors import LabelRejectedError, PreviewTooLongError, TransportError
 from .domain.findings import Finding
 from .domain.label import (
     Barcode,
@@ -111,6 +111,7 @@ __all__ = [
     "Pdf417Options",
     "Point",
     "Polygon",
+    "PreviewTooLongError",
     "PrinterProfile",
     "PrinterSetting",
     "PrinterStop",

@@ -305,3 +305,16 @@ options = []
 # scale_along = 0.977
 #
 # Environment Variable: DATAMAX_DPL___PRINTERS__LAGER__SCALE_ALONG=0.977
+
+# -------------------------------------------------------------------------------
+# [preview]: how large a picture 'preview' and 'verify' draw
+# -------------------------------------------------------------------------------
+[preview]
+
+# Purpose: Longest side of a preview in mm. One number in a label decides how much
+#          memory the picture takes, so a label past this is refused before drawing;
+#          'verify' refuses it before printing, as its expected picture needs it too.
+# Type: float, above 0
+# Default: 2000.0
+# Environment Variable: DATAMAX_DPL___PREVIEW__MAX_LENGTH_MM=3000
+max_length_mm = 2000.0

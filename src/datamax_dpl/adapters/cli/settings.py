@@ -28,11 +28,12 @@ from ...domain.enums import (
 from ...domain.errors import ConfigurationError
 from ...domain.job import MAX_STOP_POSITION_MM
 from ...domain.label import stop_position_or_printer
+from ...domain.preview import DEFAULT_PREVIEW_MAX_LENGTH_MM
 from ...domain.profiles import Firmware, ParsedFirmware
 from ...domain.render_context import RenderOptions
 from ...domain.timing import MAX_SEND_CHUNK_BYTES, MAX_TIMEOUT_SECONDS, SEND_CHUNK_BYTES, TransportTuning
 from ...domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
-from ..config.sections import CAMERA_SECTION, PRINTER_SECTION, ConfigSection, SectionPath, printer_section
+from ..config.sections import CAMERA_SECTION, PREVIEW_SECTION, PRINTER_SECTION, ConfigSection, SectionPath, printer_section
 from ..transport.uri import is_printer_name, is_printer_uri
 
 if TYPE_CHECKING:
@@ -253,6 +254,32 @@ def camera_settings(config: Config) -> CameraSettings:
         raise ConfigurationError(_describe(exc, section=CAMERA_SECTION)) from None
 
 
+class PreviewSettings(BaseModel):
+    """The ``[preview]`` section.
+
+    Example:
+        >>> PreviewSettings().max_length_mm
+        2000.0
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    # Finite: infinity would read as "no limit", which is what the key exists to prevent.
+    max_length_mm: float = Field(default=DEFAULT_PREVIEW_MAX_LENGTH_MM, gt=0, allow_inf_nan=False)
+
+
+def preview_settings(config: Config) -> PreviewSettings:
+    """Read the ``[preview]`` section.
+
+    Raises:
+        ConfigurationError: A configured value is invalid; the message names the key.
+    """
+    try:
+        return PreviewSettings.model_validate(dict(_section(config, ConfigSection.PREVIEW)))
+    except ValidationError as exc:
+        raise ConfigurationError(_describe(exc, section=PREVIEW_SECTION)) from None
+
+
 _CUTTER: Mapping[CutterPresence, bool | None] = MappingProxyType(
     {
         CutterPresence.YES: True,
@@ -319,8 +346,10 @@ def require_uri(settings: PrinterSettings) -> str:
 
 __all__ = [
     "PrinterOverrides",
+    "PreviewSettings",
     "PrinterSettings",
     "camera_settings",
+    "preview_settings",
     "printer_settings",
     "render_options",
     "require_uri",
