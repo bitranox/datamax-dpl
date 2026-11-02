@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 import sys
 import time
+import tracemalloc
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -156,3 +160,82 @@ def test_a_path_with_backslashes_is_substituted_literally(tmp_path: Path) -> Non
     image = capture_with_command(_settings(sys.executable, "-c", WRITE_IMAGE, "{output}"), stem=directory / "shot")
 
     assert image.path.read_bytes() == b"\xff\xd8\xff-image"
+
+
+# A wrapper that starts a helper and leaves it running with the wrapper's stdout and stderr, the way
+# a .cmd or a shell script around a camera tool does.
+_START_HELPER = "import subprocess, sys; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(8)']); "
+
+
+@pytest.mark.os_agnostic
+def test_a_helper_left_holding_the_output_does_not_hold_up_a_finished_capture(tmp_path: Path) -> None:
+    """The program is done and its image is there; its helper's open pipes are not the capture's business."""
+    script = _START_HELPER + WRITE_IMAGE
+    started = time.monotonic()
+    image = capture_with_command(
+        _settings(sys.executable, "-c", script, "{output}", timeout=5.0), stem=tmp_path / "capture"
+    )
+    assert image.path.read_bytes() == b"\xff\xd8\xff-image"
+    assert time.monotonic() - started < 4.0
+
+
+@pytest.mark.os_agnostic
+def test_a_failure_is_reported_although_a_helper_still_holds_stderr(tmp_path: Path) -> None:
+    script = _START_HELPER + "sys.stderr.write('camera busy\\n'); sys.stderr.flush(); sys.exit(3)"
+    with pytest.raises(CameraError, match=r"exited with status 3: camera busy"):
+        capture_with_command(_settings(sys.executable, "-c", script, "{output}", timeout=4.0), stem=tmp_path / "c")
+
+
+@pytest.mark.os_agnostic
+def test_a_chatty_program_is_not_kept_in_memory(tmp_path: Path) -> None:
+    """Both streams drained and dropped: a tool printing 32 MiB costs no 32 MiB here."""
+    script = (
+        "import sys\n"
+        "for stream in (sys.stdout, sys.stderr):\n"
+        "    for _ in range(32):\n"
+        "        stream.write('x' * 1048576)\n"
+        "    stream.flush()\n"
+        "sys.stderr.write('THE END')\n"
+        "sys.exit(1)\n"
+    )
+    tracemalloc.start()
+    try:
+        with pytest.raises(CameraError, match=r"THE END$") as caught:
+            capture_with_command(_settings(sys.executable, "-c", script, "{output}", timeout=60.0), stem=tmp_path / "c")
+        _current, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 4 * 1024 * 1024
+    assert len(str(caught.value)) < STDERR_TAIL_CHARS + 200
+
+
+@pytest.mark.os_agnostic
+def test_a_stderr_tail_cut_inside_a_character_is_still_readable(tmp_path: Path) -> None:
+    script = "import sys; sys.stderr.buffer.write('\\u00e4'.encode() * 5000); sys.exit(1)"
+    with pytest.raises(CameraError, match=chr(0xE4) + "{100}"):
+        capture_with_command(_settings(sys.executable, "-c", script, "{output}"), stem=tmp_path / "c")
+
+
+@pytest.mark.os_windows
+@pytest.mark.skipif(os.name != "nt", reason="taskkill /T is the Windows way to end a process tree")
+def test_on_windows_a_timeout_ends_the_whole_process_tree(tmp_path: Path) -> None:
+    """Only the program was killed before, and its child kept the pipes and the capture open."""
+    pid_file = tmp_path / "helper.pid"
+    script = (
+        "import pathlib, subprocess, sys, time\n"
+        "helper = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        f"pathlib.Path({str(pid_file)!r}).write_text(str(helper.pid))\n"
+        "time.sleep(60)\n"
+    )
+    started = time.monotonic()
+    with pytest.raises(CameraError, match="timed out"):
+        capture_with_command(_settings(sys.executable, "-c", script, "{output}", timeout=5.0), stem=tmp_path / "c")
+    assert time.monotonic() - started < 30.0
+    tasklist = subprocess.run(  # noqa: S603 - fixed argv with a pid this test read back
+        [shutil.which("tasklist") or "tasklist", "/FI", f"PID eq {pid_file.read_text()}", "/NH"],
+        capture_output=True,
+        encoding="oem",
+        errors="replace",
+        check=False,
+    )
+    assert pid_file.read_text() not in tasklist.stdout

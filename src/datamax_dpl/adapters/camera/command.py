@@ -1,7 +1,9 @@
 """Take a photo by running an external capture program (``[camera] kind = "command"``).
 
 The configured argv is run directly, never through a shell. Every occurrence of
-:data:`~datamax_dpl.domain.camera.OUTPUT_PLACEHOLDER` is replaced by the image path.
+:data:`~datamax_dpl.domain.camera.OUTPUT_PLACEHOLDER` is replaced by the image path. Its stdout is
+dropped and only the end of its stderr is kept; the capture is over when the program exits, whatever
+helpers it left running. On a timeout Windows ends the whole process tree, POSIX the program.
 
 Extension rule:
     The image is a ``.jpg`` unless the argv writes the placeholder immediately followed by an
@@ -14,10 +16,14 @@ Extension rule:
 
 from __future__ import annotations
 
+import contextlib
+import os
 import re
 import shutil
 import subprocess  # nosec B404 # running the operator's capture program is this module's job
-from typing import TYPE_CHECKING
+import threading
+import time
+from typing import IO, TYPE_CHECKING
 
 from ...domain.camera import OUTPUT_PLACEHOLDER
 from ...domain.errors import CameraError
@@ -35,6 +41,12 @@ DEFAULT_EXTENSION = ".jpg"
 
 #: How many trailing characters of the program's stderr an error message carries.
 STDERR_TAIL_CHARS = 500
+
+#: Bytes kept for that tail: the longest a character can be in UTF-8, so the cut never costs one.
+_STDERR_TAIL_BYTES = STDERR_TAIL_CHARS * 4
+
+#: Most bytes taken from the program's stderr in one read. No setting: it changes no outcome.
+_READ_BYTES = 64 * 1024
 
 _PLACEHOLDER_PATTERN = re.compile(re.escape(OUTPUT_PLACEHOLDER) + r"(\.(?:png|jpe?g))?", re.IGNORECASE)
 
@@ -111,29 +123,80 @@ def _resolve_program(program: str) -> str:
     return resolved
 
 
+class _StderrTail:
+    """Drains a stream on its own thread and keeps only its end.
+
+    A thread, so that nothing here waits for the stream to close: a helper the program left running
+    holds it open after the program is gone. The program must never block on a full pipe either, so
+    the rest is read and dropped rather than left unread.
+    """
+
+    def __init__(self, stream: IO[bytes] | None) -> None:
+        self._kept = b""
+        # Daemon: one still blocked on a helper's open pipe must not hold up the interpreter's exit.
+        self._thread = threading.Thread(target=self._drain, args=(stream,), daemon=True)
+        self._thread.start()
+
+    def _drain(self, stream: IO[bytes] | None) -> None:
+        if stream is None:
+            return
+        # os.read, not stream.read: that one would wait for a full buffer or the stream's end, and
+        # the tail of a failed program is wanted even though a helper keeps the pipe open.
+        with stream:
+            while chunk := os.read(stream.fileno(), _READ_BYTES):
+                self._kept = (self._kept + chunk)[-_STDERR_TAIL_BYTES:]
+
+    def text(self, *, wait: float) -> str:
+        """The last :data:`STDERR_TAIL_CHARS` characters, decoded leniently, at the stream's end or after ``wait``."""
+        self._thread.join(max(wait, 0.0))
+        text = self._kept.decode("utf-8", errors="replace").strip()
+        return text[-STDERR_TAIL_CHARS:] if text else "(no stderr output)"
+
+
+def _kill_tree(process: subprocess.Popen[bytes], *, timeout: float) -> None:
+    """End the program and, on Windows, everything it started.
+
+    Windows gives a killed process's children no signal, and they keep running. POSIX stays with the
+    program alone: a new session for the tree would also take it out of the reach of Ctrl-C.
+    """
+    taskkill = shutil.which("taskkill") if os.name == "nt" else None
+    if taskkill is not None:
+        with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+            subprocess.run(  # noqa: S603 - the system's taskkill and a pid this process started # nosec B603
+                [taskkill, "/T", "/F", "/PID", str(process.pid)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout,
+                check=False,
+            )
+    process.kill()
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        process.wait(timeout)
+
+
 def _run(argv: list[str], *, program: str, timeout: float) -> None:
     """Run ``argv`` to completion, turning every failure into a :class:`CameraError`."""
+    deadline = time.monotonic() + timeout
     try:
-        completed = subprocess.run(  # noqa: S603 - operator-configured argv, no shell # nosec B603
+        process = subprocess.Popen(  # noqa: S603 - operator-configured argv, no shell # nosec B603
             argv,
             stdin=subprocess.DEVNULL,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
         )
-    except subprocess.TimeoutExpired as exc:
-        raise CameraError(f"camera program {program!r} timed out after {timeout:g} s") from exc
     except OSError as exc:
         raise CameraError(f"camera program {program!r} could not be started: {exc.strerror or exc}") from exc
-    if completed.returncode != 0:
-        tail = _stderr_tail(completed.stderr)
-        raise CameraError(f"camera program {program!r} exited with status {completed.returncode}: {tail}")
-
-
-def _stderr_tail(stderr: bytes) -> str:
-    """Return the last :data:`STDERR_TAIL_CHARS` characters of ``stderr``, decoded leniently."""
-    text = stderr.decode("utf-8", errors="replace").strip()
-    return text[-STDERR_TAIL_CHARS:] if text else "(no stderr output)"
+    stderr = _StderrTail(process.stderr)
+    try:
+        returncode = process.wait(timeout)
+    except subprocess.TimeoutExpired as exc:
+        _kill_tree(process, timeout=timeout)
+        raise CameraError(f"camera program {program!r} timed out after {timeout:g} s") from exc
+    if returncode != 0:
+        # What is left of the capture's time, so a helper holding stderr cannot stretch the capture.
+        tail = stderr.text(wait=deadline - time.monotonic())
+        raise CameraError(f"camera program {program!r} exited with status {returncode}: {tail}")
 
 
 def _require_image(output: Path, *, program: str) -> None:

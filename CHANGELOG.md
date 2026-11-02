@@ -364,6 +364,10 @@ All notable changes to this project are documented here. The format follows
   count passes the limit, with no full encoding first: 258334 elements cost 8
   s and 381 MB before the refusal. Its message says `at least N fields`, and
   its findings stop at that element.
+- The `command` camera drops the program's stdout and keeps only the end of
+  its stderr, where it held both in memory; a helper the program left running
+  no longer holds a finished capture open until the timeout. On a timeout on
+  Windows it ends the whole process tree with `taskkill /T /F`.
 
 ## [0.4.0] - 2026-10-30
 
