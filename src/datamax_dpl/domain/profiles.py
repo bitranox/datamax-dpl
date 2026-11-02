@@ -13,8 +13,10 @@ safest output when the model is unknown) and ``permissive`` (no model limits, sy
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
+from types import MappingProxyType
 from typing import NamedTuple, TypeVar
 
 from .enums import HardwareOption, ImageModule, ModelFamily, SpeedCode
@@ -254,6 +256,50 @@ class SoftwareSwitchBits:
         return ", ".join(f"{bit} {option}" for bit, option in named)
 
 
+class _Features(Mapping[Feature, Support]):
+    """A read-only copy of a feature table that copies and pickles.
+
+    A ``types.MappingProxyType`` would be read-only too, but it cannot be deep-copied or pickled,
+    so neither could a :class:`PrinterProfile` holding one, nor could ``dataclasses.asdict`` read
+    it. This one is rebuilt from a plain dict, which every pickle protocol takes.
+
+    Example:
+        >>> features = _Features({Feature.MIRROR: YES})
+        >>> features[Feature.MIRROR].available, len(features)
+        (True, 1)
+    """
+
+    __slots__ = ("_table",)
+
+    def __init__(self, table: Mapping[Feature, Support]) -> None:
+        """Hold a copy of ``table``, so a later change to it changes nothing here."""
+        self._table = dict(table)
+
+    def __getitem__(self, feature: Feature) -> Support:
+        """Return the support for ``feature``."""
+        return self._table[feature]
+
+    def __iter__(self) -> Iterator[Feature]:
+        """Iterate the features."""
+        return iter(self._table)
+
+    def __len__(self) -> int:
+        """Return how many features there are."""
+        return len(self._table)
+
+    def __repr__(self) -> str:
+        """Show the table."""
+        return f"{type(self).__name__}({self._table!r})"
+
+    def __reduce__(self) -> tuple[type[_Features], tuple[dict[Feature, Support]]]:
+        """Rebuild from a plain dict, for copy and every pickle protocol."""
+        return (type(self), (dict(self._table),))
+
+
+def _no_features() -> Mapping[Feature, Support]:
+    return _Features({})
+
+
 @dataclass(frozen=True)
 class PrinterProfile:
     """Everything the encoder needs to know about one printer model.
@@ -272,7 +318,7 @@ class PrinterProfile:
         backup_speed: Backfeed speed range, or None when the model has no backfeed speed.
         a_series_points: Font 9 point sizes this model has as ``Annn`` codes (empty: none).
         old_series_points: Font 9 point sizes this model has in the old ``000``-``010`` numbering.
-        features: Support for each :class:`Feature`.
+        features: Support for each :class:`Feature`; a read-only copy of the mapping given.
         synthetic: True for ``generic`` and ``permissive``, which are not real models.
         family: The family whose feature set the model has; None for ``generic`` and
             ``permissive``, which belong to none.
@@ -316,7 +362,7 @@ class PrinterProfile:
     backup_speed: SpeedRange | None
     a_series_points: tuple[int, ...]
     old_series_points: tuple[int, ...]
-    features: dict[Feature, Support] = field(default_factory=dict[Feature, Support])
+    features: Mapping[Feature, Support] = field(default_factory=_no_features)
     synthetic: bool = False
     family: ModelFamily | None = None
     default_dot_size: DotSize = _D22
@@ -330,6 +376,10 @@ class PrinterProfile:
     feed_rate: SpeedCode | None = None
     software_switches: SoftwareSwitchBits | None = None
 
+    def __post_init__(self) -> None:
+        """Hold ``features`` as a read-only copy, so a profile stays what it was made with."""
+        object.__setattr__(self, "features", _Features(self.features))
+
     def support(self, feature: Feature) -> Support:
         """Return how this model supports ``feature`` (missing entries mean no)."""
         return self.features.get(feature, NO)
@@ -340,59 +390,79 @@ class PrinterProfile:
 # instead has no clear module (<STX>q, p.35); the Prodigy 152 is its 152 dpi variant (Appendix K),
 # not a Prodigy Plus, so it shares both. <STX>O, M, S and V carry no "not available" note, so every
 # model is sent them and no Feature stands for them.
-_ALL_FEATURES_YES: dict[Feature, Support] = dict.fromkeys(Feature, YES) | {
-    Feature.CUTTER_PULSE: NO,
-    Feature.PRESENT_DISTANCE: NO,
-    Feature.DATAMATRIX: DATAMATRIX_OPTION,
-    Feature.REMOVE_IMAGE: NO,
-}
-
-_FAMILY_FEATURES: dict[ModelFamily, dict[Feature, Support]] = {
-    ModelFamily.ALLEGRO: _ALL_FEATURES_YES
+_ALL_FEATURES_YES: Mapping[Feature, Support] = MappingProxyType(
+    dict.fromkeys(Feature, YES)
     | {
-        Feature.ATTRIBUTE: NO,
-        Feature.MIRROR: NO,
-        Feature.FORMAT_METRIC: NO,
-        Feature.FIELD_TERMINATOR: NO,
-        Feature.BACKUP_SPEED: NO,
-        Feature.CIRCLE_POLYGON: NO,
-        Feature.SCALABLE_FONTS: NO,
-        Feature.EXTENDED_BARCODES: NO,
-        Feature.PDF417: from_firmware(3, 20),
-    },
-    ModelFamily.PRODIGY: dict.fromkeys(Feature, NO)
-    | {
-        Feature.CUTTER_PULSE: YES,
-        Feature.DEFAULT_BAR_WIDTHS: YES,
-        Feature.PDF417: from_firmware(3, 20),
+        Feature.CUTTER_PULSE: NO,
+        Feature.PRESENT_DISTANCE: NO,
         Feature.DATAMATRIX: DATAMATRIX_OPTION,
-        Feature.REMOVE_IMAGE: YES,
-    },
-    ModelFamily.PRODIGY_PLUS: _ALL_FEATURES_YES
-    | {
-        Feature.CUT_NOW: from_firmware(1, 18),
-        Feature.CUTTER_PULSE: YES,
-        Feature.PAUSE_EACH_LABEL: NO,
-        Feature.ATTRIBUTE: NO,
-        Feature.MIRROR: NO,
-        Feature.FORMAT_METRIC: NO,
-        Feature.CIRCLE_POLYGON: NO,
-        Feature.SCALABLE_FONTS: NO,
-        Feature.EXTENDED_BARCODES: NO,
-        Feature.PDF417: from_firmware(3, 20),
-        Feature.DEFAULT_BAR_WIDTHS: NO,
-    },
-    ModelFamily.DMX_400: _ALL_FEATURES_YES
-    | {Feature.MIRROR: NO, Feature.CIRCLE_POLYGON: from_firmware(2, 1), Feature.SCALABLE_FONTS: NO},
-    ModelFamily.DMX_430: _ALL_FEATURES_YES | {Feature.MIRROR: NO, Feature.SCALABLE_FONTS: NO},
-    ModelFamily.DMX_600: _ALL_FEATURES_YES
-    | {Feature.MIRROR: from_firmware(2, 1), Feature.SCALABLE_FONTS: from_firmware(2, 1)},
-    ModelFamily.DMX_800: _ALL_FEATURES_YES,
-    ModelFamily.MAX_PE: _ALL_FEATURES_YES,
-    ModelFamily.PE: _ALL_FEATURES_YES | {Feature.PRESENT_DISTANCE: YES},
-    ModelFamily.OVATION: _ALL_FEATURES_YES | {Feature.PRESENT_DISTANCE: YES, Feature.SCALABLE_FONTS: NO},
-    ModelFamily.TITAN: _ALL_FEATURES_YES,
-}
+        Feature.REMOVE_IMAGE: NO,
+    }
+)
+
+
+def _changed(base: Mapping[Feature, Support], changes: Mapping[Feature, Support]) -> Mapping[Feature, Support]:
+    """Return a read-only copy of ``base`` with ``changes`` applied."""
+    return MappingProxyType({**base, **changes})
+
+
+_FAMILY_FEATURES: Mapping[ModelFamily, Mapping[Feature, Support]] = MappingProxyType(
+    {
+        ModelFamily.ALLEGRO: _changed(
+            _ALL_FEATURES_YES,
+            {
+                Feature.ATTRIBUTE: NO,
+                Feature.MIRROR: NO,
+                Feature.FORMAT_METRIC: NO,
+                Feature.FIELD_TERMINATOR: NO,
+                Feature.BACKUP_SPEED: NO,
+                Feature.CIRCLE_POLYGON: NO,
+                Feature.SCALABLE_FONTS: NO,
+                Feature.EXTENDED_BARCODES: NO,
+                Feature.PDF417: from_firmware(3, 20),
+            },
+        ),
+        ModelFamily.PRODIGY: _changed(
+            dict.fromkeys(Feature, NO),
+            {
+                Feature.CUTTER_PULSE: YES,
+                Feature.DEFAULT_BAR_WIDTHS: YES,
+                Feature.PDF417: from_firmware(3, 20),
+                Feature.DATAMATRIX: DATAMATRIX_OPTION,
+                Feature.REMOVE_IMAGE: YES,
+            },
+        ),
+        ModelFamily.PRODIGY_PLUS: _changed(
+            _ALL_FEATURES_YES,
+            {
+                Feature.CUT_NOW: from_firmware(1, 18),
+                Feature.CUTTER_PULSE: YES,
+                Feature.PAUSE_EACH_LABEL: NO,
+                Feature.ATTRIBUTE: NO,
+                Feature.MIRROR: NO,
+                Feature.FORMAT_METRIC: NO,
+                Feature.CIRCLE_POLYGON: NO,
+                Feature.SCALABLE_FONTS: NO,
+                Feature.EXTENDED_BARCODES: NO,
+                Feature.PDF417: from_firmware(3, 20),
+                Feature.DEFAULT_BAR_WIDTHS: NO,
+            },
+        ),
+        ModelFamily.DMX_400: _changed(
+            _ALL_FEATURES_YES,
+            {Feature.MIRROR: NO, Feature.CIRCLE_POLYGON: from_firmware(2, 1), Feature.SCALABLE_FONTS: NO},
+        ),
+        ModelFamily.DMX_430: _changed(_ALL_FEATURES_YES, {Feature.MIRROR: NO, Feature.SCALABLE_FONTS: NO}),
+        ModelFamily.DMX_600: _changed(
+            _ALL_FEATURES_YES, {Feature.MIRROR: from_firmware(2, 1), Feature.SCALABLE_FONTS: from_firmware(2, 1)}
+        ),
+        ModelFamily.DMX_800: _ALL_FEATURES_YES,
+        ModelFamily.MAX_PE: _ALL_FEATURES_YES,
+        ModelFamily.PE: _changed(_ALL_FEATURES_YES, {Feature.PRESENT_DISTANCE: YES}),
+        ModelFamily.OVATION: _changed(_ALL_FEATURES_YES, {Feature.PRESENT_DISTANCE: YES, Feature.SCALABLE_FONTS: NO}),
+        ModelFamily.TITAN: _ALL_FEATURES_YES,
+    }
+)
 
 # A72 exists on the DMX 600/800 only; PE42/PE43 and the Prodigy Max lack A04 and A05.
 _A72 = 72
@@ -401,336 +471,14 @@ _A_FULL = tuple(p for p in A_SERIES_POINTS if p != _A72)
 _A_NO_SMALL = tuple(p for p in _A_FULL if p >= _SMALLEST_KEPT_ON_PE)
 _OLD_NO_5PT = OLD_SERIES_POINTS[1:]
 
-
-@dataclass(frozen=True)
-class _Row:
-    id: str
-    name: str
-    family: ModelFamily
-    dpi: float
-    max_column: int
-    width: float
-    fields: int
-    chars: int
-    heat: int
-    speeds: tuple[str, str, str | None]
-    a_points: tuple[int, ...]
-    old_points: tuple[int, ...] = OLD_SERIES_POINTS
-
-
-_ROWS: tuple[_Row, ...] = (
-    _Row(
-        "allegro", "Allegro", ModelFamily.ALLEGRO, 203, 410, 4.10, 200, 5000, 20, ("C C", "C C", "C C"), (), _OLD_NO_5PT
-    ),
-    _Row(
-        "allegro-2",
-        "Allegro 2",
-        ModelFamily.ALLEGRO,
-        203,
-        410,
-        4.10,
-        200,
-        5000,
-        20,
-        ("C-E C", "C-E C", "C-E C"),
-        (),
-        _OLD_NO_5PT,
-    ),
-    _Row("prodigy", "Prodigy", ModelFamily.PRODIGY, 203, 410, 4.10, 100, 3000, 20, ("A-G E", "A-G G", None), ()),
-    _Row(
-        "prodigy-152", "Prodigy 152", ModelFamily.PRODIGY, 152, 410, 4.15, 100, 3000, 20, ("A-G E", "A-G G", None), ()
-    ),
-    _Row(
-        "prodigy-plus",
-        "Prodigy Plus",
-        ModelFamily.PRODIGY_PLUS,
-        203,
-        410,
-        4.10,
-        200,
-        5000,
-        20,
-        ("C-O K", "C-O K", "C-I E"),
-        (),
-        _OLD_NO_5PT,
-    ),
-    _Row(
-        "prodigy-plus-152",
-        "Prodigy Plus 152",
-        ModelFamily.PRODIGY_PLUS,
-        152,
-        410,
-        4.21,
-        200,
-        5000,
-        20,
-        ("C-O K", "C-O K", "C-I E"),
-        (),
-        _OLD_NO_5PT,
-    ),
-    _Row("dmx-400", "DMX 400", ModelFamily.DMX_400, 203, 410, 4.10, 199, 5000, 20, ("C-G G", "C-I K", "C-I E"), ()),
-    _Row(
-        "dmx-430",
-        "DMX 430",
-        ModelFamily.DMX_430,
-        289.56,
-        398,
-        3.98,
-        399,
-        10000,
-        20,
-        ("C-K G", "C-K K", "C-I E"),
-        _A_FULL,
-    ),
-    _Row(
-        "dmx-600",
-        "DMX 600",
-        ModelFamily.DMX_600,
-        300,
-        640,
-        6.40,
-        399,
-        10000,
-        20,
-        ("C-O K", "C-S O", "C-I E"),
-        A_SERIES_POINTS,
-    ),
-    _Row(
-        "dmx-800",
-        "DMX 800",
-        ModelFamily.DMX_800,
-        300,
-        860,
-        8.53,
-        399,
-        10000,
-        20,
-        ("C-I G", "C-K K", "C-I E"),
-        A_SERIES_POINTS,
-    ),
-    _Row(
-        "prodigy-max-203",
-        "Prodigy Max 203",
-        ModelFamily.MAX_PE,
-        203,
-        410,
-        4.10,
-        319,
-        7000,
-        30,
-        ("C-S K", "C-S O", "C-I I"),
-        _A_NO_SMALL,
-    ),
-    _Row(
-        "prodigy-max-300",
-        "Prodigy Max 300",
-        ModelFamily.MAX_PE,
-        300,
-        410,
-        4.16,
-        319,
-        7000,
-        30,
-        ("C-O K", "C-O O", "C-I E"),
-        _A_NO_SMALL,
-    ),
-    _Row("pe42", "PE42", ModelFamily.PE, 203, 410, 4.10, 319, 7000, 30, ("C-S K", "C-S O", "C-I E"), _A_NO_SMALL),
-    _Row("pe43", "PE43", ModelFamily.PE, 300, 410, 4.16, 319, 7000, 30, ("C-O K", "C-O M", "C-I E"), _A_NO_SMALL),
-    _Row(
-        "ovation", "Ovation!", ModelFamily.OVATION, 203, 410, 4.10, 319, 7000, 30, ("A-C C", "A-C C", "A-C C"), _A_FULL
-    ),
-    _Row(
-        "ovation-300",
-        "Ovation! 300",
-        ModelFamily.OVATION,
-        300,
-        410,
-        4.16,
-        319,
-        7000,
-        30,
-        ("A-C C", "A-C C", "A-C C"),
-        _A_FULL,
-    ),
-    _Row(
-        "ovation-2",
-        "Ovation 2",
-        ModelFamily.OVATION,
-        203,
-        425,
-        4.256,
-        319,
-        7000,
-        30,
-        ("A-C C", "A-C C", "A-C C"),
-        _A_FULL,
-    ),
-    _Row(
-        "titan-6200",
-        "Titan 6200",
-        ModelFamily.TITAN,
-        203,
-        661,
-        6.62,
-        399,
-        10000,
-        30,
-        ("C-K G", "C-K K", "C-G C"),
-        _A_FULL,
-    ),
-)
-
-
-#: The manual's ``D`` command: "Default setting: D22 for all printers except the DMX 600/800".
-_FAMILIES_DEFAULTING_TO_D11 = frozenset({ModelFamily.DMX_600, ModelFamily.DMX_800})
-
-#: Models measured to print one 1/100 in as whole dots: a 787/100 in line printed as 1574 dot
-#: rows on an Allegro 2 (2 per unit, not 2.03). Other models keep the exact unit until measured;
-#: a per-printer scale factor absorbs what remains.
-_INCH_UNIT_DOTS: dict[str, int] = {"allegro-2": 2}
-
-#: Calibration measured on paper per model. One printer stands for its model here: the platen
-#: roller and the sensor position differ between printers, so ``datamax-dpl calibrate`` still
-#: measures each one, and these values only replace the nominal ones where nothing was measured.
-_CALIBRATION: dict[str, CalibrationDefaults] = {
-    "allegro-2": CalibrationDefaults(
-        scale_along=0.976,
-        offset_along=-0.25,
-        stop_position_mm=66.8,
-        provenance="measured on one Allegro 2, firmware CA02 03.04, 2026-10-29 and 2026-10-30",
-        # The free bytes <STX>W reported for module A, less a margin for what the printer adds per
-        # stored image and for graphics stored later: the module was not empty when it was read.
-        image_memory_bytes=48631 - 4096,
-        image_memory_provenance=(
-            "48631 free bytes of module A read on one Allegro 2 holding 11 stored graphics, "
-            "2026-10-30, less a 4096-byte margin"
-        ),
-    ),
-}
-
-
-#: The module of each model's built-in RAM, from the manual's Appendix L. On the DMX 600/800
-#: modules A and B are plug-ins and D is non-volatile NVRAM, so images go to E, its RAM, and vanish
-#: at power-off as they do on the Allegro 2. The Prodigy and Prodigy Plus have no built-in module
-#: (A and B are plug-ins): None, so a job downloading images there needs the module named.
-#: Only A has been seen on a printer (an Allegro 2).
-_IMAGE_MODULE: dict[str, ImageModule | None] = {
-    "allegro": ImageModule.A,
-    "allegro-2": ImageModule.A,
-    "dmx-400": ImageModule.A,
-    "dmx-430": ImageModule.A,
-    "prodigy-max-203": ImageModule.A,
-    "prodigy-max-300": ImageModule.A,
-    "pe42": ImageModule.A,
-    "pe43": ImageModule.A,
-    "ovation": ImageModule.A,
-    "ovation-300": ImageModule.A,
-    "ovation-2": ImageModule.A,
-    "titan-6200": ImageModule.A,
-    "dmx-600": ImageModule.E,
-    "dmx-800": ImageModule.E,
-    "prodigy": None,
-    "prodigy-152": None,
-    "prodigy-plus": None,
-    "prodigy-plus-152": None,
-}
-
-
-#: The built-in RAM modules of each model, from the manual's Appendix L (p.189): "Internal RAM" A
-#: on the Allegro and DMX 400/430, RAM E on the DMX 600/800, RAM A on the Prodigy Max, PE42/PE43,
-#: Ovation, Ovation 2 and 6200. Every other module is a plug-in (B everywhere; A on the Prodigy,
-#: Prodigy Plus and DMX 600/800, where A is not listed as RAM), the internal non-volatile NVRAM D,
-#: or C, which stands for whichever module was made the default (manual, ``<STX>X``). A plug-in
-#: module may be flash, which each ``<STX>q`` wears (manual p.35), and NVRAM or C are not known to
-#: be RAM, so a job clears only the modules listed here. The Prodigy and Prodigy Plus have none.
-_RAM_MODULES: dict[str, frozenset[ImageModule]] = {
-    "allegro": frozenset({ImageModule.A}),
-    "allegro-2": frozenset({ImageModule.A}),
-    "dmx-400": frozenset({ImageModule.A}),
-    "dmx-430": frozenset({ImageModule.A}),
-    "prodigy-max-203": frozenset({ImageModule.A}),
-    "prodigy-max-300": frozenset({ImageModule.A}),
-    "pe42": frozenset({ImageModule.A}),
-    "pe43": frozenset({ImageModule.A}),
-    "ovation": frozenset({ImageModule.A}),
-    "ovation-300": frozenset({ImageModule.A}),
-    "ovation-2": frozenset({ImageModule.A}),
-    "titan-6200": frozenset({ImageModule.A}),
-    "dmx-600": frozenset({ImageModule.E}),
-    "dmx-800": frozenset({ImageModule.E}),
-    "prodigy": frozenset(),
-    "prodigy-152": frozenset(),
-    "prodigy-plus": frozenset(),
-    "prodigy-plus-152": frozenset(),
-}
-
-
-#: The highest dot row along the feed a format may reach, at dot height 1, counted as the encoder
-#: commands it. For the Allegro 2 it is the lowest row any test format was cut at (one Allegro 2,
-#: firmware CA02 03.04, 2026-10-30; docs/dpl-reference.md lists the formats). Where the printer
-#: cuts depends on the format's content in a way that is not understood: a tall element running up
-#: from the bottom was cut at rows 1648 to 1652, a format with nothing tall printed to row 1675.
-#: So 1648 is conservative, and max_format_rows raises it. No other model has one: their manuals
-#: give none and none was measured.
-_MAX_FORMAT_ROWS: dict[str, int] = {"allegro-2": 1648}
-
-
-#: The default start of print, ``<STX>O``, from the manual's table (p.32), in hundredths of an
-#: inch: Prodigy 0250; "Prodigy Plus, 6200" 0110; "All others" 0220. The table's "Prodigy Max" is
-#: "110/250, DIP switch selectable" (footnote 1), so which a printer uses is not known: None sends
-#: none and keeps the printer's own. Footnote 2, "Menu selectable, if equipped", marks the 6200 and
-#: "All others", the Allegro 2 among them: an operator may have set another value on the front
-#: panel, and a job sending O0220 overrides it, which is why sending O by default waits for a
-#: comparison print on a real printer. The Prodigy 152 and Prodigy Plus 152 are the 152 dpi
-#: variants of the Prodigy and Prodigy Plus (Appendix K), so they take those rows; Ovation! 300
-#: takes "All others".
-_START_OF_PRINT: dict[str, int | None] = {
-    "allegro": 220,
-    "allegro-2": 220,
-    "prodigy": 250,
-    "prodigy-152": 250,
-    "prodigy-plus": 110,
-    "prodigy-plus-152": 110,
-    "dmx-400": 220,
-    "dmx-430": 220,
-    "dmx-600": 220,
-    "dmx-800": 220,
-    "prodigy-max-203": None,
-    "prodigy-max-300": None,
-    "pe42": 220,
-    "pe43": 220,
-    "ovation": 220,
-    "ovation-300": 220,
-    "ovation-2": 220,
-    "titan-6200": 110,
-}
+_RAM_A = frozenset({ImageModule.A})
+_RAM_E = frozenset({ImageModule.E})
+_NO_RAM: frozenset[ImageModule] = frozenset()
 
 #: The default maximum label length, ``<STX>M``, from the manual's table (p.30), in hundredths of
-#: an inch: 12 in for "Prodigy Plus, Prodigy, 400, 430, Allegro, Allegro 2, Ovation, and Ovation
-#: 2", 16 in for "Prodigy Max, PE42, PE43, 600, 800 and 6200". The 152 dpi variants take their
-#: model's row, and Ovation! 300 the Ovation's.
+#: an inch.
 _TWELVE_INCHES = 1200
 _SIXTEEN_INCHES = 1600
-_MAX_LABEL_LENGTH: dict[str, int] = {
-    "allegro": _TWELVE_INCHES,
-    "allegro-2": _TWELVE_INCHES,
-    "prodigy": _TWELVE_INCHES,
-    "prodigy-152": _TWELVE_INCHES,
-    "prodigy-plus": _TWELVE_INCHES,
-    "prodigy-plus-152": _TWELVE_INCHES,
-    "dmx-400": _TWELVE_INCHES,
-    "dmx-430": _TWELVE_INCHES,
-    "dmx-600": _SIXTEEN_INCHES,
-    "dmx-800": _SIXTEEN_INCHES,
-    "prodigy-max-203": _SIXTEEN_INCHES,
-    "prodigy-max-300": _SIXTEEN_INCHES,
-    "pe42": _SIXTEEN_INCHES,
-    "pe43": _SIXTEEN_INCHES,
-    "ovation": _TWELVE_INCHES,
-    "ovation-300": _TWELVE_INCHES,
-    "ovation-2": _TWELVE_INCHES,
-    "titan-6200": _SIXTEEN_INCHES,
-}
 
 #: The ``<STX>V`` bit layouts of the manual's bit assignment table (p.42), one per column.
 _SWITCHES_400_600_800_6200 = SoftwareSwitchBits(cutter=0, internal_batch=1, label_present=2)
@@ -743,30 +491,490 @@ _SWITCHES_PRODIGY = SoftwareSwitchBits(
 _SWITCHES_ALLEGRO = SoftwareSwitchBits(cutter=0, internal_batch=1)
 _SWITCHES_MAX_OVATION_PE = SoftwareSwitchBits(cutter=0, label_present=2)
 
-#: The ``<STX>V`` layout per model. The table has no DMX 430 column, so the 430 has None rather
-#: than the 400's layout: a value built from a guessed bit must never be sent. The 152 dpi
-#: variants take their model's column, Ovation! 300 the Ovation's.
-_SOFTWARE_SWITCHES: dict[str, SoftwareSwitchBits | None] = {
-    "allegro": _SWITCHES_ALLEGRO,
-    "allegro-2": _SWITCHES_ALLEGRO,
-    "prodigy": _SWITCHES_PRODIGY,
-    "prodigy-152": _SWITCHES_PRODIGY,
-    "prodigy-plus": _SWITCHES_PRODIGY_PLUS,
-    "prodigy-plus-152": _SWITCHES_PRODIGY_PLUS,
-    "dmx-400": _SWITCHES_400_600_800_6200,
-    # Manual p.42: the STX V bit table has no DMX 430 column; no bit is guessed for it.
-    "dmx-430": None,
-    "dmx-600": _SWITCHES_400_600_800_6200,
-    "dmx-800": _SWITCHES_400_600_800_6200,
-    "prodigy-max-203": _SWITCHES_MAX_OVATION_PE,
-    "prodigy-max-300": _SWITCHES_MAX_OVATION_PE,
-    "pe42": _SWITCHES_MAX_OVATION_PE,
-    "pe43": _SWITCHES_MAX_OVATION_PE,
-    "ovation": _SWITCHES_MAX_OVATION_PE,
-    "ovation-300": _SWITCHES_MAX_OVATION_PE,
-    "ovation-2": _SWITCHES_MAX_OVATION_PE,
-    "titan-6200": _SWITCHES_400_600_800_6200,
-}
+#: Calibration measured on paper on one Allegro 2.
+_ALLEGRO_2_CALIBRATION = CalibrationDefaults(
+    scale_along=0.976,
+    offset_along=-0.25,
+    stop_position_mm=66.8,
+    provenance="measured on one Allegro 2, firmware CA02 03.04, 2026-10-29 and 2026-10-30",
+    # The free bytes <STX>W reported for module A, less a margin for what the printer adds per
+    # stored image and for graphics stored later: the module was not empty when it was read.
+    image_memory_bytes=48631 - 4096,
+    image_memory_provenance=(
+        "48631 free bytes of module A read on one Allegro 2 holding 11 stored graphics, "
+        "2026-10-30, less a 4096-byte margin"
+    ),
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class _Row:
+    """One model's facts, as the manual and the test prints give them.
+
+    Attributes:
+        id: Profile name (``--model``).
+        name: Model name as the manual writes it.
+        family: The family whose feature set the model has.
+        dpi: Print resolution.
+        max_column: Largest column value in hundredths of an inch.
+        width: Printable width in inches.
+        fields: Largest number of records in one format.
+        chars: Largest number of data characters in one record.
+        heat: Largest heat value.
+        print_speed: Print speed range and default.
+        slew_speed: Slew speed range and default.
+        backup_speed: Backfeed speed range and default, or None where the model has none.
+        a_points: Font 9 point sizes the model has as ``Annn`` codes.
+        old_points: Font 9 point sizes the model has in the old numbering.
+        image_module: The module of the model's built-in RAM, from the manual's Appendix L. On
+            the DMX 600/800 modules A and B are plug-ins and D is non-volatile NVRAM, so images go
+            to E, its RAM, and vanish at power-off as they do on the Allegro 2. The Prodigy and
+            Prodigy Plus have no built-in module (A and B are plug-ins): None, so a job
+            downloading images there needs the module named. Only A has been seen on a printer
+            (an Allegro 2).
+        ram_modules: The built-in RAM modules, from the manual's Appendix L (p.189): "Internal
+            RAM" A on the Allegro and DMX 400/430, RAM E on the DMX 600/800, RAM A on the Prodigy
+            Max, PE42/PE43, Ovation, Ovation 2 and 6200. Every other module is a plug-in (B
+            everywhere; A on the Prodigy, Prodigy Plus and DMX 600/800, where A is not listed as
+            RAM), the internal non-volatile NVRAM D, or C, which stands for whichever module was
+            made the default (manual, ``<STX>X``). A plug-in module may be flash, which each
+            ``<STX>q`` wears (manual p.35), and NVRAM or C are not known to be RAM, so a job
+            clears only the modules listed here. The Prodigy and Prodigy Plus have none.
+        start_of_print: The default start of print, ``<STX>O``, from the manual's table (p.32), in
+            hundredths of an inch: Prodigy 0250; "Prodigy Plus, 6200" 0110; "All others" 0220.
+            The table's "Prodigy Max" is "110/250, DIP switch selectable" (footnote 1), so which
+            a printer uses is not known: None sends none and keeps the printer's own. Footnote 2,
+            "Menu selectable, if equipped", marks the 6200 and "All others", the Allegro 2 among
+            them: an operator may have set another value on the front panel, and a job sending
+            O0220 overrides it, which is why sending O by default waits for a comparison print on
+            a real printer. The Prodigy 152 and Prodigy Plus 152 are the 152 dpi variants of the
+            Prodigy and Prodigy Plus (Appendix K), so they take those rows; Ovation! 300 takes
+            "All others".
+        max_label_length: The default maximum label length, ``<STX>M``, from the manual's table
+            (p.30), in hundredths of an inch: 12 in for "Prodigy Plus, Prodigy, 400, 430,
+            Allegro, Allegro 2, Ovation, and Ovation 2", 16 in for "Prodigy Max, PE42, PE43, 600,
+            800 and 6200". The 152 dpi variants take their model's row, and Ovation! 300 the
+            Ovation's.
+        software_switches: The ``<STX>V`` layout, one column of the manual's table (p.42). The
+            table has no DMX 430 column, so the 430 has None rather than the 400's layout: a
+            value built from a guessed bit must never be sent. The 152 dpi variants take their
+            model's column, Ovation! 300 the Ovation's.
+        inch_unit_dots: Whole dots one 1/100 in prints as, on a model measured to round it: a
+            787/100 in line printed as 1574 dot rows on an Allegro 2 (2 per unit, not 2.03).
+            Other models keep the exact unit until measured; a per-printer scale factor absorbs
+            what remains.
+        calibration: Calibration measured on paper. One printer stands for its model here: the
+            platen roller and the sensor position differ between printers, so ``datamax-dpl
+            calibrate`` still measures each one, and these values only replace the nominal ones
+            where nothing was measured.
+        max_format_rows: The highest dot row along the feed a format may reach, at dot height 1,
+            counted as the encoder commands it. For the Allegro 2 it is the lowest row any test
+            format was cut at (one Allegro 2, firmware CA02 03.04, 2026-10-30;
+            docs/dpl-reference.md lists the formats). Where the printer cuts depends on the
+            format's content in a way that is not understood: a tall element running up from the
+            bottom was cut at rows 1648 to 1652, a format with nothing tall printed to row 1675.
+            So 1648 is conservative, and max_format_rows raises it. No other model has one: their
+            manuals give none and none was measured.
+    """
+
+    id: str
+    name: str
+    family: ModelFamily
+    dpi: float
+    max_column: int
+    width: float
+    fields: int
+    chars: int
+    heat: int
+    print_speed: SpeedRange
+    slew_speed: SpeedRange
+    backup_speed: SpeedRange | None
+    a_points: tuple[int, ...]
+    old_points: tuple[int, ...] = OLD_SERIES_POINTS
+    image_module: ImageModule | None
+    ram_modules: frozenset[ImageModule]
+    start_of_print: int | None
+    max_label_length: int
+    software_switches: SoftwareSwitchBits | None
+    inch_unit_dots: int | None = None
+    calibration: CalibrationDefaults = CalibrationDefaults()
+    max_format_rows: int | None = None
+
+
+_ROWS: tuple[_Row, ...] = (
+    _Row(
+        id="allegro",
+        name="Allegro",
+        family=ModelFamily.ALLEGRO,
+        dpi=203,
+        max_column=410,
+        width=4.1,
+        fields=200,
+        chars=5000,
+        heat=20,
+        print_speed=_speeds("C C"),
+        slew_speed=_speeds("C C"),
+        backup_speed=_speeds("C C"),
+        a_points=(),
+        old_points=_OLD_NO_5PT,
+        image_module=ImageModule.A,
+        ram_modules=_RAM_A,
+        start_of_print=220,
+        max_label_length=_TWELVE_INCHES,
+        software_switches=_SWITCHES_ALLEGRO,
+    ),
+    _Row(
+        id="allegro-2",
+        name="Allegro 2",
+        family=ModelFamily.ALLEGRO,
+        dpi=203,
+        max_column=410,
+        width=4.1,
+        fields=200,
+        chars=5000,
+        heat=20,
+        print_speed=_speeds("C-E C"),
+        slew_speed=_speeds("C-E C"),
+        backup_speed=_speeds("C-E C"),
+        a_points=(),
+        old_points=_OLD_NO_5PT,
+        image_module=ImageModule.A,
+        ram_modules=_RAM_A,
+        start_of_print=220,
+        max_label_length=_TWELVE_INCHES,
+        software_switches=_SWITCHES_ALLEGRO,
+        inch_unit_dots=2,
+        calibration=_ALLEGRO_2_CALIBRATION,
+        max_format_rows=1648,
+    ),
+    _Row(
+        id="prodigy",
+        name="Prodigy",
+        family=ModelFamily.PRODIGY,
+        dpi=203,
+        max_column=410,
+        width=4.1,
+        fields=100,
+        chars=3000,
+        heat=20,
+        print_speed=_speeds("A-G E"),
+        slew_speed=_speeds("A-G G"),
+        backup_speed=None,
+        a_points=(),
+        image_module=None,
+        ram_modules=_NO_RAM,
+        start_of_print=250,
+        max_label_length=_TWELVE_INCHES,
+        software_switches=_SWITCHES_PRODIGY,
+    ),
+    _Row(
+        id="prodigy-152",
+        name="Prodigy 152",
+        family=ModelFamily.PRODIGY,
+        dpi=152,
+        max_column=410,
+        width=4.15,
+        fields=100,
+        chars=3000,
+        heat=20,
+        print_speed=_speeds("A-G E"),
+        slew_speed=_speeds("A-G G"),
+        backup_speed=None,
+        a_points=(),
+        image_module=None,
+        ram_modules=_NO_RAM,
+        start_of_print=250,
+        max_label_length=_TWELVE_INCHES,
+        software_switches=_SWITCHES_PRODIGY,
+    ),
+    _Row(
+        id="prodigy-plus",
+        name="Prodigy Plus",
+        family=ModelFamily.PRODIGY_PLUS,
+        dpi=203,
+        max_column=410,
+        width=4.1,
+        fields=200,
+        chars=5000,
+        heat=20,
+        print_speed=_speeds("C-O K"),
+        slew_speed=_speeds("C-O K"),
+        backup_speed=_speeds("C-I E"),
+        a_points=(),
+        old_points=_OLD_NO_5PT,
+        image_module=None,
+        ram_modules=_NO_RAM,
+        start_of_print=110,
+        max_label_length=_TWELVE_INCHES,
+        software_switches=_SWITCHES_PRODIGY_PLUS,
+    ),
+    _Row(
+        id="prodigy-plus-152",
+        name="Prodigy Plus 152",
+        family=ModelFamily.PRODIGY_PLUS,
+        dpi=152,
+        max_column=410,
+        width=4.21,
+        fields=200,
+        chars=5000,
+        heat=20,
+        print_speed=_speeds("C-O K"),
+        slew_speed=_speeds("C-O K"),
+        backup_speed=_speeds("C-I E"),
+        a_points=(),
+        old_points=_OLD_NO_5PT,
+        image_module=None,
+        ram_modules=_NO_RAM,
+        start_of_print=110,
+        max_label_length=_TWELVE_INCHES,
+        software_switches=_SWITCHES_PRODIGY_PLUS,
+    ),
+    _Row(
+        id="dmx-400",
+        name="DMX 400",
+        family=ModelFamily.DMX_400,
+        dpi=203,
+        max_column=410,
+        width=4.1,
+        fields=199,
+        chars=5000,
+        heat=20,
+        print_speed=_speeds("C-G G"),
+        slew_speed=_speeds("C-I K"),
+        backup_speed=_speeds("C-I E"),
+        a_points=(),
+        image_module=ImageModule.A,
+        ram_modules=_RAM_A,
+        start_of_print=220,
+        max_label_length=_TWELVE_INCHES,
+        software_switches=_SWITCHES_400_600_800_6200,
+    ),
+    _Row(
+        id="dmx-430",
+        name="DMX 430",
+        family=ModelFamily.DMX_430,
+        dpi=289.56,
+        max_column=398,
+        width=3.98,
+        fields=399,
+        chars=10000,
+        heat=20,
+        print_speed=_speeds("C-K G"),
+        slew_speed=_speeds("C-K K"),
+        backup_speed=_speeds("C-I E"),
+        a_points=_A_FULL,
+        image_module=ImageModule.A,
+        ram_modules=_RAM_A,
+        start_of_print=220,
+        max_label_length=_TWELVE_INCHES,
+        # Manual p.42: the STX V bit table has no DMX 430 column; no bit is guessed for it.
+        software_switches=None,
+    ),
+    _Row(
+        id="dmx-600",
+        name="DMX 600",
+        family=ModelFamily.DMX_600,
+        dpi=300,
+        max_column=640,
+        width=6.4,
+        fields=399,
+        chars=10000,
+        heat=20,
+        print_speed=_speeds("C-O K"),
+        slew_speed=_speeds("C-S O"),
+        backup_speed=_speeds("C-I E"),
+        a_points=A_SERIES_POINTS,
+        image_module=ImageModule.E,
+        ram_modules=_RAM_E,
+        start_of_print=220,
+        max_label_length=_SIXTEEN_INCHES,
+        software_switches=_SWITCHES_400_600_800_6200,
+    ),
+    _Row(
+        id="dmx-800",
+        name="DMX 800",
+        family=ModelFamily.DMX_800,
+        dpi=300,
+        max_column=860,
+        width=8.53,
+        fields=399,
+        chars=10000,
+        heat=20,
+        print_speed=_speeds("C-I G"),
+        slew_speed=_speeds("C-K K"),
+        backup_speed=_speeds("C-I E"),
+        a_points=A_SERIES_POINTS,
+        image_module=ImageModule.E,
+        ram_modules=_RAM_E,
+        start_of_print=220,
+        max_label_length=_SIXTEEN_INCHES,
+        software_switches=_SWITCHES_400_600_800_6200,
+    ),
+    _Row(
+        id="prodigy-max-203",
+        name="Prodigy Max 203",
+        family=ModelFamily.MAX_PE,
+        dpi=203,
+        max_column=410,
+        width=4.1,
+        fields=319,
+        chars=7000,
+        heat=30,
+        print_speed=_speeds("C-S K"),
+        slew_speed=_speeds("C-S O"),
+        backup_speed=_speeds("C-I I"),
+        a_points=_A_NO_SMALL,
+        image_module=ImageModule.A,
+        ram_modules=_RAM_A,
+        start_of_print=None,
+        max_label_length=_SIXTEEN_INCHES,
+        software_switches=_SWITCHES_MAX_OVATION_PE,
+    ),
+    _Row(
+        id="prodigy-max-300",
+        name="Prodigy Max 300",
+        family=ModelFamily.MAX_PE,
+        dpi=300,
+        max_column=410,
+        width=4.16,
+        fields=319,
+        chars=7000,
+        heat=30,
+        print_speed=_speeds("C-O K"),
+        slew_speed=_speeds("C-O O"),
+        backup_speed=_speeds("C-I E"),
+        a_points=_A_NO_SMALL,
+        image_module=ImageModule.A,
+        ram_modules=_RAM_A,
+        start_of_print=None,
+        max_label_length=_SIXTEEN_INCHES,
+        software_switches=_SWITCHES_MAX_OVATION_PE,
+    ),
+    _Row(
+        id="pe42",
+        name="PE42",
+        family=ModelFamily.PE,
+        dpi=203,
+        max_column=410,
+        width=4.1,
+        fields=319,
+        chars=7000,
+        heat=30,
+        print_speed=_speeds("C-S K"),
+        slew_speed=_speeds("C-S O"),
+        backup_speed=_speeds("C-I E"),
+        a_points=_A_NO_SMALL,
+        image_module=ImageModule.A,
+        ram_modules=_RAM_A,
+        start_of_print=220,
+        max_label_length=_SIXTEEN_INCHES,
+        software_switches=_SWITCHES_MAX_OVATION_PE,
+    ),
+    _Row(
+        id="pe43",
+        name="PE43",
+        family=ModelFamily.PE,
+        dpi=300,
+        max_column=410,
+        width=4.16,
+        fields=319,
+        chars=7000,
+        heat=30,
+        print_speed=_speeds("C-O K"),
+        slew_speed=_speeds("C-O M"),
+        backup_speed=_speeds("C-I E"),
+        a_points=_A_NO_SMALL,
+        image_module=ImageModule.A,
+        ram_modules=_RAM_A,
+        start_of_print=220,
+        max_label_length=_SIXTEEN_INCHES,
+        software_switches=_SWITCHES_MAX_OVATION_PE,
+    ),
+    _Row(
+        id="ovation",
+        name="Ovation!",
+        family=ModelFamily.OVATION,
+        dpi=203,
+        max_column=410,
+        width=4.1,
+        fields=319,
+        chars=7000,
+        heat=30,
+        print_speed=_speeds("A-C C"),
+        slew_speed=_speeds("A-C C"),
+        backup_speed=_speeds("A-C C"),
+        a_points=_A_FULL,
+        image_module=ImageModule.A,
+        ram_modules=_RAM_A,
+        start_of_print=220,
+        max_label_length=_TWELVE_INCHES,
+        software_switches=_SWITCHES_MAX_OVATION_PE,
+    ),
+    _Row(
+        id="ovation-300",
+        name="Ovation! 300",
+        family=ModelFamily.OVATION,
+        dpi=300,
+        max_column=410,
+        width=4.16,
+        fields=319,
+        chars=7000,
+        heat=30,
+        print_speed=_speeds("A-C C"),
+        slew_speed=_speeds("A-C C"),
+        backup_speed=_speeds("A-C C"),
+        a_points=_A_FULL,
+        image_module=ImageModule.A,
+        ram_modules=_RAM_A,
+        start_of_print=220,
+        max_label_length=_TWELVE_INCHES,
+        software_switches=_SWITCHES_MAX_OVATION_PE,
+    ),
+    _Row(
+        id="ovation-2",
+        name="Ovation 2",
+        family=ModelFamily.OVATION,
+        dpi=203,
+        max_column=425,
+        width=4.256,
+        fields=319,
+        chars=7000,
+        heat=30,
+        print_speed=_speeds("A-C C"),
+        slew_speed=_speeds("A-C C"),
+        backup_speed=_speeds("A-C C"),
+        a_points=_A_FULL,
+        image_module=ImageModule.A,
+        ram_modules=_RAM_A,
+        start_of_print=220,
+        max_label_length=_TWELVE_INCHES,
+        software_switches=_SWITCHES_MAX_OVATION_PE,
+    ),
+    _Row(
+        id="titan-6200",
+        name="Titan 6200",
+        family=ModelFamily.TITAN,
+        dpi=203,
+        max_column=661,
+        width=6.62,
+        fields=399,
+        chars=10000,
+        heat=30,
+        print_speed=_speeds("C-K G"),
+        slew_speed=_speeds("C-K K"),
+        backup_speed=_speeds("C-G C"),
+        a_points=_A_FULL,
+        image_module=ImageModule.A,
+        ram_modules=_RAM_A,
+        start_of_print=110,
+        max_label_length=_SIXTEEN_INCHES,
+        software_switches=_SWITCHES_400_600_800_6200,
+    ),
+)
+
+
+#: The manual's ``D`` command: "Default setting: D22 for all printers except the DMX 600/800".
+_FAMILIES_DEFAULTING_TO_D11 = frozenset({ModelFamily.DMX_600, ModelFamily.DMX_800})
 
 
 def _feed_rate(slew: SpeedRange) -> SpeedCode | None:
@@ -779,13 +987,7 @@ def _feed_rate(slew: SpeedRange) -> SpeedCode | None:
     return slew.default if slew.contains(slew.default) else None
 
 
-def _start_of_print_mm(model: str) -> float | None:
-    hundredths = _START_OF_PRINT[model]
-    return None if hundredths is None else hundredths_to_mm(hundredths)
-
-
 def _build(row: _Row) -> PrinterProfile:
-    print_speed, slew_speed, backup_speed = row.speeds
     return PrinterProfile(
         id=row.id,
         name=row.name,
@@ -795,25 +997,25 @@ def _build(row: _Row) -> PrinterProfile:
         max_fields=row.fields,
         max_field_chars=row.chars,
         heat_max=row.heat,
-        print_speed=_speeds(print_speed),
-        slew_speed=_speeds(slew_speed),
-        backup_speed=_speeds(backup_speed) if backup_speed else None,
+        print_speed=row.print_speed,
+        slew_speed=row.slew_speed,
+        backup_speed=row.backup_speed,
         a_series_points=row.a_points,
         old_series_points=row.old_points,
-        features=dict(_FAMILY_FEATURES[row.family]),
+        features=_FAMILY_FEATURES[row.family],
         family=row.family,
         default_dot_size=_D11 if row.family in _FAMILIES_DEFAULTING_TO_D11 else _D22,
-        inch_unit_dots=_INCH_UNIT_DOTS.get(row.id),
-        calibration=_CALIBRATION.get(row.id, CalibrationDefaults()),
-        image_module=_IMAGE_MODULE[row.id],
-        ram_modules=_RAM_MODULES[row.id],
-        max_format_rows=_MAX_FORMAT_ROWS.get(row.id),
-        start_of_print_mm=_start_of_print_mm(row.id),
-        max_label_length_mm=hundredths_to_mm(_MAX_LABEL_LENGTH[row.id]),
+        inch_unit_dots=row.inch_unit_dots,
+        calibration=row.calibration,
+        image_module=row.image_module,
+        ram_modules=row.ram_modules,
+        max_format_rows=row.max_format_rows,
+        start_of_print_mm=None if row.start_of_print is None else hundredths_to_mm(row.start_of_print),
+        max_label_length_mm=hundredths_to_mm(row.max_label_length),
         # The manual gives no feed rate default; the feed button feeding at the slew speed the
         # printer uses anyway is the reading that changes nothing a user would notice.
-        feed_rate=_feed_rate(_speeds(slew_speed)),
-        software_switches=_SOFTWARE_SWITCHES[row.id],
+        feed_rate=_feed_rate(row.slew_speed),
+        software_switches=row.software_switches,
     )
 
 
