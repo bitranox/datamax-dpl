@@ -9,14 +9,16 @@ module directory (``<STX>W``), which the application reads; the domain only weig
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from .enums import ImageModule
+from .frozen_mapping import FrozenMapping
 from .memory import NO_MODULES_MEANING
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from .memory import MemoryDirectory
 
 #: Why the names are unknown when nobody asked the printer: an offline render, validate or preview.
@@ -29,47 +31,6 @@ DEFAULT_MODULE_UNREAD = "C is the printer's default module; which letter it is w
 
 def _no_commands() -> dict[str, bytes]:
     return {}
-
-
-class _ReadOnlyCommands(Mapping[str, bytes]):
-    """A read-only copy of image names, each with its download command, that copies and pickles.
-
-    A ``types.MappingProxyType`` would be read-only too, but it cannot be deep-copied or pickled,
-    so neither could a :class:`HeldImages` holding one, nor could ``dataclasses.asdict`` read it.
-    This one copies and pickles by every pickle protocol: it is rebuilt from a plain dict, since
-    protocols 0 and 1 refuse an object with ``__slots__`` otherwise.
-
-    Example:
-        >>> commands = _ReadOnlyCommands({"D1": b"one"})
-        >>> commands["D1"], dict(commands) == {"D1": b"one"}
-        (b'one', True)
-    """
-
-    __slots__ = ("_commands",)
-
-    def __init__(self, commands: Mapping[str, bytes]) -> None:
-        """Hold a copy of ``commands``, so a later change to them changes nothing here."""
-        self._commands = dict(commands)
-
-    def __getitem__(self, name: str) -> bytes:
-        """Return the download command of ``name``."""
-        return self._commands[name]
-
-    def __iter__(self) -> Iterator[str]:
-        """Iterate the names."""
-        return iter(self._commands)
-
-    def __len__(self) -> int:
-        """Return how many names there are."""
-        return len(self._commands)
-
-    def __repr__(self) -> str:
-        """Show the names and commands."""
-        return f"{type(self).__name__}({self._commands!r})"
-
-    def __reduce__(self) -> tuple[type[_ReadOnlyCommands], tuple[dict[str, bytes]]]:
-        """Rebuild from a plain dict of the names and commands, for copy and every pickle protocol."""
-        return (type(self), (dict(self._commands),))
 
 
 @dataclass(frozen=True)
@@ -110,8 +71,8 @@ class HeldImages:
         """Hold ``sent`` and ``placed`` as read-only copies."""
         # Frozen stops rebinding a field, not changing the dict it holds; a read-only copy stops
         # both the caller's dict and any reader from changing what a batch carries along.
-        object.__setattr__(self, "sent", _ReadOnlyCommands(self.sent))
-        object.__setattr__(self, "placed", _ReadOnlyCommands(self.placed))
+        object.__setattr__(self, "sent", FrozenMapping(self.sent))
+        object.__setattr__(self, "placed", FrozenMapping(self.placed))
 
     def holds(self, name: str) -> bool:
         """Return True when the printer is known to hold ``name`` in the module.

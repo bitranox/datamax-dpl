@@ -67,6 +67,9 @@ turn the outcome into output and an exit code.
 - `barcodes.py` - barcode data checks per symbology, check digits, PDF417 and DataMatrix fields.
 - `charset.py` - text to font bytes (code page 437, symbol sets), unprintable characters.
 - `profiles.py` - the printer model profiles and their feature tables.
+- `frozen_mapping.py` - the read-only mapping frozen value objects hold (`FrozenMapping`); it copies
+  and pickles.
+- `held_images.py` - the image names a printer already holds in a job's image module.
 - `findings.py` - findings and the collector that applies the fallback policy.
 - `render_context.py` - render options, the per-render context, content names of drawn images
   (`drawn_image_name`).
@@ -91,7 +94,8 @@ turn the outcome into output and an exit code.
 - `decoder.py` - reads DPL back: explains commands, rebuilds labels.
 - `status.py` - status requests and parsing of the answers.
 - `memory.py` - the memory module directory (`<STX>W`) and its parser.
-- `timing.py` - the seconds rule for timeouts (`check_timeout`) and the read-until-silence deadline.
+- `timing.py` - the seconds rule for timeouts (`check_timeout`, named by `TimeoutName`) and the
+  read-until-silence deadline.
 - `detect.py` - suggests model profiles from printer answers.
 - `camera.py` - camera settings and captured images.
 - `errors.py` - domain exception types.
@@ -114,7 +118,7 @@ turn the outcome into output and an exit code.
 - `cli/label_io.py` - reading labels and data records from files or stdin.
 - `cli/settings.py` - `[printer]` and `[camera]` settings with command-line overrides.
 - `cli/runner.py` - runs a command body, maps outcomes to output and exit codes.
-- `cli/envelope.py` - the JSON envelope.
+- `cli/envelope.py` - the JSON envelope and the command names it carries (`CommandName`).
 - `cli/payloads.py` - per-command JSON payloads.
 - `cli/config_load.py` - configuration loading for the CLI.
 - `cli/context.py`, `cli/constants.py`, `cli/exit_codes.py`, `cli/safe_console.py`, `cli/typed_click.py` - CLI plumbing.

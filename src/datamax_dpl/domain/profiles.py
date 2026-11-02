@@ -13,15 +13,18 @@ safest output when the model is unknown) and ``permissive`` (no model limits, sy
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import NamedTuple, TypeVar
+from typing import TYPE_CHECKING, NamedTuple, TypeVar
 
 from .enums import HardwareOption, ImageModule, ModelFamily, SpeedCode
+from .frozen_mapping import FrozenMapping
 from .label import DotSize
 from .units import Axis, hundredths_to_mm
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 class Feature(str, Enum):
@@ -300,48 +303,8 @@ class SoftwareSwitchBits:
         return ", ".join(f"{bit} {option}" for bit, option in named)
 
 
-class _Features(Mapping[Feature, Support]):
-    """A read-only copy of a feature table that copies and pickles.
-
-    A ``types.MappingProxyType`` would be read-only too, but it cannot be deep-copied or pickled,
-    so neither could a :class:`PrinterProfile` holding one, nor could ``dataclasses.asdict`` read
-    it. This one is rebuilt from a plain dict, which every pickle protocol takes.
-
-    Example:
-        >>> features = _Features({Feature.MIRROR: YES})
-        >>> features[Feature.MIRROR].available, len(features)
-        (True, 1)
-    """
-
-    __slots__ = ("_table",)
-
-    def __init__(self, table: Mapping[Feature, Support]) -> None:
-        """Hold a copy of ``table``, so a later change to it changes nothing here."""
-        self._table = dict(table)
-
-    def __getitem__(self, feature: Feature) -> Support:
-        """Return the support for ``feature``."""
-        return self._table[feature]
-
-    def __iter__(self) -> Iterator[Feature]:
-        """Iterate the features."""
-        return iter(self._table)
-
-    def __len__(self) -> int:
-        """Return how many features there are."""
-        return len(self._table)
-
-    def __repr__(self) -> str:
-        """Show the table."""
-        return f"{type(self).__name__}({self._table!r})"
-
-    def __reduce__(self) -> tuple[type[_Features], tuple[dict[Feature, Support]]]:
-        """Rebuild from a plain dict, for copy and every pickle protocol."""
-        return (type(self), (dict(self._table),))
-
-
 def _no_features() -> Mapping[Feature, Support]:
-    return _Features({})
+    return FrozenMapping({})
 
 
 @dataclass(frozen=True)
@@ -422,7 +385,7 @@ class PrinterProfile:
 
     def __post_init__(self) -> None:
         """Hold ``features`` as a read-only copy, so a profile stays what it was made with."""
-        object.__setattr__(self, "features", _Features(self.features))
+        object.__setattr__(self, "features", FrozenMapping(self.features))
 
     def support(self, feature: Feature) -> Support:
         """Return how this model supports ``feature`` (missing entries mean no)."""
