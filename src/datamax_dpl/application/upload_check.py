@@ -1099,8 +1099,11 @@ def print_checked(
             (``image_module_unlisted``); nothing was sent.
         ConfigurationError: ``result`` and ``job.renders`` hold different numbers of labels; nothing
             was sent, unless the renders are not sized (a generator) and only their running out told.
+            The same when a report's records, read again, come to another number than were checked.
+        MissingFieldError: A report's record, read again, lacks a field a placeholder names.
         TransportError: The printer could not be reached or written.
         ValueError: A value of ``job.check`` is not usable; nothing was sent.
+        pydantic.ValidationError: A report's record, read again, breaks a field limit.
     """
     if not result.ok:
         msg = "label has errors; nothing was sent"

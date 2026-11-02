@@ -11,6 +11,7 @@ graphic directory and renders again; every other render, and every offline one, 
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
 from contextlib import closing
 from dataclasses import dataclass
 from enum import Enum
@@ -38,6 +39,7 @@ from ..domain.enums import FindingCode, ImageModule, MemoryKind, Severity
 from ..domain.errors import (
     AnswerNotEndedError,
     BatchTooLargeError,
+    ConfigurationError,
     LabelRejectedError,
     PrinterProtocolError,
     PrinterTimeoutError,
@@ -72,7 +74,7 @@ from ..domain.status import (
 from ..domain.timing import MAX_ANSWER_SECONDS, TimeoutName, check_timeout
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
 
     from ..domain.render_context import RenderOptions
     from ..domain.units import DplUnit
@@ -400,8 +402,33 @@ class BatchReport:
         return _entries(job.label, job.records, job.options, held=job.held)
 
     def record_jobs(self) -> Iterator[bytes]:
-        """Each record's bytes in turn, its batch cut included."""
-        return (entry.job for entry in self.entries())
+        """Each record's bytes in turn, its batch cut included, refusing records that are not the ones checked.
+
+        Nothing else stands between the second read of the records and the wire on a one-way link, so
+        a record that has gone bad, or one more or fewer than were checked, stops the job here.
+
+        Yields:
+            The next record's job.
+
+        Raises:
+            LabelRejectedError: A record now has an error finding, which :attr:`findings` of the
+                exception name; what came before it has been yielded.
+            ConfigurationError: The records now come to another number than were checked.
+            MissingFieldError: A record now lacks a field a placeholder names.
+            pydantic.ValidationError: A filled value now breaks a field limit.
+        """
+        count = 0
+        for entry in self.entries():
+            count += 1
+            if count > self.records:
+                break
+            if not entry.result.ok:
+                msg = f"data record {count - 1} has errors it did not have when it was checked"
+                raise LabelRejectedError(msg, error_findings(entry.result))
+            yield entry.job
+        if count != self.records:
+            msg = f"the batch was checked with {self.records} records and now reads another number"
+            raise ConfigurationError(msg)
 
     def renders(self) -> Iterator[RecordRender]:
         """How to render each label for a checked send (``CheckedJob.renders``), one at a time."""
@@ -537,7 +564,9 @@ def check_batch(
     Args:
         label: The label holding the placeholders.
         records: One mapping of field name to value per label, which can be iterated again (a list,
-            or an object whose ``__iter__`` starts over), since sending reads them again.
+            or an object whose ``__iter__`` starts over) and yields the same records each time: sending
+            reads them again, and what it reads then was never checked. One that has gone bad or
+            changed in number is refused when its turn comes, after the records before it went out.
         options: The model, fallback policy and job settings.
         held: What the printer holds in the image module before the first record, None when it
             was not asked.
@@ -553,7 +582,8 @@ def check_batch(
         ValueError: ``records`` can be read only once, or holds no record.
         pydantic.ValidationError: A filled value breaks a field limit.
     """
-    if iter(records) is records:
+    # Asked of the type: calling iter() on a re-iterable would be one read of its source before the check.
+    if isinstance(records, Iterator):
         msg = "check_batch reads the records again, and a generator can be read only once; use iter_batch for one"
         raise ValueError(msg)
     tally = BatchTally(limits, plan=_plan_of(_batch_label(label), options))
