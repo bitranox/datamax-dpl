@@ -212,3 +212,13 @@ def test_a_file_that_cannot_be_written_is_refused_naming_it_not_a_temporary_file
         write_printer_values([target], printer="", values=_ALONG)
     assert str(target) in str(caught.value)
     assert ".tmp" not in str(caught.value)
+
+
+@pytest.mark.os_agnostic
+def test_a_failed_replace_leaves_no_temporary_file(tmp_path: Path) -> None:
+    """A directory at the target's name fails the final rename, after the temporary file was written."""
+    target = tmp_path / "config.toml"
+    target.mkdir()
+    with pytest.raises(ConfigurationError, match="cannot write"):
+        write_printer_values([target], printer="", values=_ALONG)
+    assert [path.name for path in tmp_path.iterdir()] == ["config.toml"]

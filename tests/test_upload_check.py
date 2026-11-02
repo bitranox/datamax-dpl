@@ -29,12 +29,15 @@ from datamax_dpl.application.upload_check import (
 )
 from datamax_dpl.application.use_cases import AnswerWait, BatchResult, record_renders, render_batch, render_label
 from datamax_dpl.application.verify import verify_print
-from datamax_dpl.composition import build_production
+from datamax_dpl.composition import build_production, build_testing
 from datamax_dpl.domain.camera import CameraKind, CameraSettings, CapturedImage
 from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, MediaType, MemoryKind, Severity
 from datamax_dpl.domain.errors import ConfigurationError, LabelRejectedError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.held_images import HeldImages
 from datamax_dpl.domain.label import Image, Label, Qr, Text
+from datamax_dpl.domain.png import encode_png
+from datamax_dpl.domain.preview import preview_bitmap
+from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.render import RenderedRecord, RenderResult, build_jobs, build_record
 from datamax_dpl.domain.render_context import RenderOptions, drawn_image_name
@@ -1411,6 +1414,12 @@ def test_verify_checks_the_upload_and_draws_the_expected_picture_from_the_halved
     assert report.result.halved_elements == (0,)
     assert printer.data.count(FORMAT) == 1
     assert printer.queries[-1] == STATUS_REQUEST
+    profile = get_profile("allegro-2")
+    as_first_rendered = encode_png(preview_bitmap(label, profile, sent_as=_single(result).sent_as, options=ALLEGRO))
+    assert report.expected_png != as_first_rendered
+    assert report.expected_png == encode_png(
+        preview_bitmap(label, profile, sent_as=report.result.sent_as, options=ALLEGRO)
+    )
 
 
 # ======================== the model's image budget on a two-way print ========================
@@ -1806,3 +1815,44 @@ def test_send_checked_refuses_a_result_and_renders_that_disagree_before_sending(
     with pytest.raises(ConfigurationError, match=r"3 labels.*2 renders"):
         send_checked(link, result, job)
     assert printer.data == b""
+
+
+class _RecordingReadWaits(ModulePrinter):
+    """Keeps how long each directory read was given: the one seam that shows which wait governs it."""
+
+    def __init__(self, modules: ImageModules) -> None:
+        super().__init__(modules)
+        self.read_waits: list[float] = []
+
+    def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = 120.0) -> bytes:
+        self.read_waits.append(timeout)
+        return super().read_answer(request, timeout=timeout, idle=idle, total=total)
+
+
+@pytest.mark.os_agnostic
+def test_the_cli_upload_check_waits_stored_names_wait_not_status_wait(cli_runner: CliRunner, tmp_path: Path) -> None:
+    label = tmp_path / "label.json"
+    label.write_text(json.dumps({"elements": [LOGO.model_dump(mode="json", exclude_none=True)]}), encoding="utf-8")
+    printer = _RecordingReadWaits(ImageModules())
+
+    result = cli_runner.invoke(
+        cli_mod.cli,
+        [
+            "--set",
+            "printer.stored_names_wait=7",
+            "--set",
+            "printer.status_wait=9",
+            "--json",
+            "print",
+            str(label),
+            "--model",
+            "allegro-2",
+            "--printer",
+            URI,
+        ],
+        obj=lambda: build_testing(printer=printer),
+    )
+
+    assert result.exit_code == 0, result.output
+    assert printer.read_waits
+    assert all(5.0 < wait <= 7.0 for wait in printer.read_waits), printer.read_waits

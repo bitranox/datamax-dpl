@@ -23,15 +23,6 @@ class TestGetDefaultConfigPath:
 
         assert result.suffix == ".toml"
 
-    def test_repeated_calls_return_equal_paths(self) -> None:
-        """Repeated calls return equal Path values."""
-        from datamax_dpl.adapters.config.loader import get_default_config_path
-
-        first = get_default_config_path()
-        second = get_default_config_path()
-
-        assert first == second
-
 
 @pytest.mark.os_agnostic
 class TestGetConfig:

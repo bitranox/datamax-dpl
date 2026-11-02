@@ -268,3 +268,13 @@ def test_explain_names_a_zero_image_magnification_instead_of_failing_on_it() -> 
     explanation = explain(data.replace(b"1Y11000", b"1Y00000"))
     assert "image, magnified 0x0" in [command.meaning for command in explanation.commands]
     assert explanation.problems == ()
+
+
+@pytest.mark.os_agnostic
+def test_explain_reads_a_metric_two_dimensional_barcode_in_its_units() -> None:
+    explanation = explain(b"\x02m\x02L\r1W1c44000100010033HELLO\rE\r")
+    meanings = " ".join(command.meaning for command in explanation.commands)
+    assert "metric" in meanings
+    assert "datamatrix" in meanings
+    assert explanation.label is not None
+    assert explanation.label.unit is Unit.MM

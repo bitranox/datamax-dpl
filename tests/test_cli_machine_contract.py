@@ -18,9 +18,13 @@ import pytest
 from lib_layered_config import Config, ConfigError
 
 from datamax_dpl import __init__conf__
+from datamax_dpl.adapters.cli.context import CLIContext
+from datamax_dpl.adapters.cli.envelope import CommandName, OutputMode
 from datamax_dpl.adapters.cli.main import main
+from datamax_dpl.adapters.cli.runner import CommandResult, run_command
 from datamax_dpl.adapters.config.display import display_config
-from datamax_dpl.composition import AppServices, build_testing
+from datamax_dpl.composition import AppServices, build_production, build_testing
+from datamax_dpl.domain.errors import LabelRejectedError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -450,3 +454,34 @@ def test_an_answer_that_cannot_be_written_is_a_failure_with_one_line(
     assert code == 2
     assert err.count("could not write the output") == 1
     assert "OSError" not in err
+
+
+@pytest.mark.usefixtures("no_ambient_configuration")
+def test_config_deploy_refuses_a_permission_setting_with_exit_78(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("DATAMAX_DPL___LIB_LAYERED_CONFIG__DEFAULT_PERMISSIONS__USER_FILE", "400")
+    code = main(["--json", "config-deploy", "--target", "user"], services_factory=build_production)
+    document = json.loads(capsys.readouterr().out)
+    assert code == 78
+    assert document["error"] == "DeployPermissionsError"
+    assert "user_file" in document["message"]
+
+
+@pytest.mark.os_agnostic
+def test_a_label_rejected_inside_a_command_is_the_answer_no_not_a_failure(capsys: pytest.CaptureFixture[str]) -> None:
+    """A use case refuses a label with error findings by raising: exit 1 says so, with a command's envelope."""
+
+    def body(cli_ctx: CLIContext) -> CommandResult:
+        raise LabelRejectedError("label has errors; nothing was printed")
+
+    state = CLIContext(
+        traceback=False,
+        config=Config({}, {}),
+        services=build_testing(),
+        mode=OutputMode.of(as_json=True, as_json_bare=False),
+    )
+    with pytest.raises(click.exceptions.Exit) as caught:
+        run_command(click.Context(click.Command("print"), obj=state), command=CommandName.PRINT, body=body)
+    assert caught.value.exit_code == 1
+    assert json.loads(capsys.readouterr().out)["error"] == "LabelRejectedError"

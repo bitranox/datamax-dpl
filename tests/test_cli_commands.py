@@ -31,6 +31,7 @@ from datamax_dpl.domain.preview import preview_bitmap
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.render import render
 from datamax_dpl.domain.render_context import RenderOptions
+from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -730,3 +731,14 @@ def test_memory_keeps_the_raw_text_of_a_listing_past_the_manuals_limits(cli_runn
     assert result.exit_code == 0, result.output
     directory = envelope(result)["data"]["directories"][0]
     assert (directory["parsed"], directory["raw"]) == (False, answer.decode("ascii"))
+
+
+@pytest.mark.os_agnostic
+def test_memory_closes_its_channel_when_a_later_directory_fails(cli_runner: CliRunner) -> None:
+    """Only the first answer is waited on; the second kind fails on an open channel that must not leak."""
+    printer = RecordingPrinter(answers={MEMORY_DIRECTORY_REQUESTS[MemoryKind.FONT]: DIRECTORY})
+    result = run(cli_runner, ["--json", "memory", "--kind", "all", "--printer", PRINTER], factory(printer))
+    assert result.exit_code == 2, result.output
+    assert printer.queries[0] == MEMORY_DIRECTORY_REQUESTS[MemoryKind.FONT]
+    assert len(printer.queries) > 1
+    assert printer.closed

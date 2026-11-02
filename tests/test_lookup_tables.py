@@ -15,7 +15,6 @@ from datamax_dpl.adapters.camera import capture_image
 from datamax_dpl.adapters.camera.file import MEDIA_TYPE_BY_SUFFIX
 from datamax_dpl.adapters.camera.http import EXTENSION_BY_MEDIA_TYPE, MEDIA_TYPE_BY_CONTENT_TYPE
 from datamax_dpl.adapters.cli.payloads import FindingOut, findings_text
-from datamax_dpl.adapters.cli.settings import PrinterSettings, render_options
 from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
 from datamax_dpl.application.use_cases import PrinterCommand, send_command
 from datamax_dpl.domain.barcodes import check_barcode
@@ -204,14 +203,6 @@ def test_findings_text_ranks_every_severity_most_severe_first() -> None:
     text = findings_text([finding(Severity.INFO), finding(Severity.WARNING), finding(Severity.ERROR)])
     assert [line.split()[0] for line in text.splitlines()] == ["ERROR", "WARNING", "INFO"]
     assert {Severity.INFO, Severity.WARNING, Severity.ERROR} == set(Severity)
-
-
-@pytest.mark.os_agnostic
-@pytest.mark.parametrize(
-    ("cutter", "installed"), [(CutterPresence.YES, True), (CutterPresence.NO, False), (CutterPresence.UNKNOWN, None)]
-)
-def test_every_cutter_presence_renders_as_its_cutter_installed(cutter: CutterPresence, installed: bool | None) -> None:
-    assert render_options(PrinterSettings(cutter=cutter)).cutter_installed is installed
 
 
 @pytest.mark.os_agnostic

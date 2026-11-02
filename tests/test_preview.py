@@ -12,7 +12,7 @@ import time
 import pytest
 
 from datamax_dpl.domain.decoder import explain
-from datamax_dpl.domain.enums import Attribute, Rotation, Unit
+from datamax_dpl.domain.enums import Attribute, FillPattern, Rotation, Unit
 from datamax_dpl.domain.geometry import DotPoint
 from datamax_dpl.domain.label import Barcode, Box, Element, Image, Label, Line, ScalableText, Text
 from datamax_dpl.domain.preview import canvas_for, mask_area, preview_bitmap, text_box
@@ -528,3 +528,15 @@ def test_a_mask_for_an_element_that_is_neither_text_nor_barcode_is_refused() -> 
     label = dots_label(MASKED_TEXT, CROSSING)
     with pytest.raises(ValueError, match="element 1 is not a text field or barcode"):
         preview_bitmap(label, get_profile("allegro-2"), masks={1: stripes(3, 2)})
+
+
+@pytest.mark.os_agnostic
+def test_a_box_fill_blackens_its_inside_where_an_empty_box_leaves_it_white() -> None:
+    """The middle of a thin-walled box: only a fill can reach it."""
+    dots_per_mm = get_profile("dmx-600").dpi / 25.4
+    middle = (round(20 * dots_per_mm), round(15 * dots_per_mm))
+    empty = Box(x=10, y=10, width=20, height=10, thickness=0.25)
+    empty_drawn = drawn(mm_label(empty), model="dmx-600")
+    filled_drawn = drawn(mm_label(empty.model_copy(update={"fill": FillPattern.SOLID})), model="dmx-600")
+    assert middle not in empty_drawn
+    assert middle in filled_drawn

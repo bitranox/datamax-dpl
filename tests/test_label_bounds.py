@@ -13,7 +13,8 @@ from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.calibration import across_label, along_label, calibration_labels
 from datamax_dpl.domain.enums import FillPattern, PrinterStop
-from datamax_dpl.domain.label import MAX_LENGTH, Box, Label
+from datamax_dpl.domain.label import MAX_LENGTH, Box, Image, Label, Text
+from datamax_dpl.domain.render import build_job
 from datamax_dpl.domain.render_context import RenderOptions
 
 if TYPE_CHECKING:
@@ -143,13 +144,17 @@ def test_the_calibration_labels_refuse_a_hostile_size_at_once(number: float) -> 
         calibration_labels(width=number, height=55, title="T")
 
 
+#: Never reached: every size below is refused before anything opens.
+_PRINTER = "tcp://192.0.2.60:9100"
+
+
 @pytest.mark.os_agnostic
 def test_calibrate_print_keeps_the_bound_for_each_size(cli_runner: CliRunner) -> None:
     for option, value in (("--width", "inf"), ("--width", "1e308"), ("--height", "inf"), ("--height", "nan")):
         other = ["--height", "55"] if option == "--width" else ["--width", "100"]
         result = cli_runner.invoke(
             cli_mod.cli,
-            ["--json-bare", "calibrate", "print", option, value, *other, "--axis", "across", "--printer", "-"],
+            ["--json-bare", "calibrate", "print", option, value, *other, "--axis", "across", "--printer", _PRINTER],
             obj=build_testing,
         )
         assert result.exit_code == 2, result.output
@@ -368,3 +373,28 @@ def test_a_coded_field_still_takes_its_code_from_json(template: str, code: int) 
 def test_a_coded_field_takes_the_enum_member_a_library_caller_passes() -> None:
     box = Box(x=0, y=0, width=9, height=9, thickness=1, fill=FillPattern.SHADE_6)
     assert box.fill is FillPattern.SHADE_6
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("bitmap", "message"),
+    [(["#", "##"], "same, non-zero length"), ([""], "same, non-zero length"), (["#x"], "may only contain")],
+)
+def test_a_malformed_bitmap_is_refused(bitmap: list[str], message: str) -> None:
+    with pytest.raises(ValidationError, match=message):
+        Image(x=1, y=1, name="A", bitmap=bitmap)
+
+
+@pytest.mark.os_agnostic
+def test_font_9_needs_points_and_no_other_font_takes_them() -> None:
+    with pytest.raises(ValidationError, match="needs 'points'"):
+        Text(x=1, y=1, text="A", font=9)
+    with pytest.raises(ValidationError, match="apply to font 9 only"):
+        Text(x=1, y=1, text="A", font=2, points=8)
+
+
+@pytest.mark.os_agnostic
+def test_a_mirrored_label_sends_its_mirror_command_on_a_model_that_has_it() -> None:
+    result = build_job(Label(mirror=True, elements=[Text(x=1, y=1, text="A")]), RenderOptions(model="dmx-800"))
+    assert result.ok
+    assert b"\rM\r" in result.data

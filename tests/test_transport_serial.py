@@ -15,17 +15,22 @@ from typing import TYPE_CHECKING
 import pytest
 import serial
 
+from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.transport import open_printer
 from datamax_dpl.adapters.transport.serial import SerialTransport
 from datamax_dpl.adapters.transport.tcp import MAX_ANSWER_BYTES, MAX_IDLE_ANSWER_BYTES
 from datamax_dpl.adapters.transport.uri import SerialUri
 from datamax_dpl.application.use_cases import MEMORY_REPORT_LINES, detect_printer
+from datamax_dpl.composition import build_production
 from datamax_dpl.domain.errors import AnswerNotEndedError, PrinterProtocolError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.status import is_status_line
 from datamax_dpl.domain.timing import SEND_CHUNK_BYTES, TransportTuning
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
+    from pathlib import Path
+
+    from click.testing import CliRunner
 
 LOOP = SerialUri(path="loop://")
 JOIN_SECONDS = 5.0
@@ -685,3 +690,30 @@ def test_a_pty_lone_xon_does_not_start_the_idle_clock(pty_printer: PtyPrinter) -
         thread.start()
         assert printer.read_answer(b"\x02WG", timeout=3.0, idle=0.3) == b"\x11" + DIRECTORY
         thread.join(JOIN_SECONDS)
+
+
+@pytest.mark.os_posix
+@pytest.mark.skipif(sys.platform == "win32", reason="os.openpty is POSIX only")
+@pytest.mark.usefixtures("no_ambient_configuration")
+def test_the_cli_prints_a_label_to_a_serial_uri(pty_printer: PtyPrinter, cli_runner: CliRunner, tmp_path: Path) -> None:
+    """The whole route: the URI is parsed, the port opened at its baud, and the job arrives byte for byte."""
+    label = tmp_path / "label.json"
+    label.write_text('{"elements": [{"type": "text", "x": 5, "y": 5, "text": "Hi"}]}', encoding="utf-8")
+    job = tmp_path / "job.dpl"
+    rendered = cli_runner.invoke(
+        cli_mod.cli, ["render", str(label), "--model", "allegro-2", "-o", str(job)], obj=build_production
+    )
+    assert rendered.exit_code == 0, rendered.output
+    expected = job.read_bytes()
+    reader = threading.Thread(
+        target=pty_printer.read, args=(len(expected),), kwargs={"deadline": time.monotonic() + JOIN_SECONDS}
+    )
+    reader.start()
+    result = cli_runner.invoke(
+        cli_mod.cli,
+        ["--json", "print", str(label), "--model", "allegro-2", "--printer", f"serial://{pty_printer.path}?baud=9600"],
+        obj=build_production,
+    )
+    reader.join(JOIN_SECONDS)
+    assert result.exit_code == 0, result.output
+    assert bytes(pty_printer.received) == expected

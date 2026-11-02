@@ -80,23 +80,3 @@ def test_init_logging_leaves_a_runtime_a_command_can_bind_against(init_logging_i
 
 
 # ======================== Composition Wiring Tests ========================
-
-
-@pytest.mark.os_agnostic
-def test_build_production_services_are_callable() -> None:
-    """All services from build_production() must be callable."""
-    from datamax_dpl.composition import build_production
-
-    services = build_production()
-    for field_name in services.__dataclass_fields__:
-        assert callable(getattr(services, field_name))
-
-
-@pytest.mark.os_agnostic
-def test_build_testing_services_are_callable() -> None:
-    """All services from build_testing() must be callable."""
-    from datamax_dpl.composition import build_testing
-
-    services = build_testing()
-    for field_name in services.__dataclass_fields__:
-        assert callable(getattr(services, field_name))

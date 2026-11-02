@@ -37,7 +37,7 @@ def _redact_query(rest: str) -> str:
     query, hash_mark, fragment = tail.partition("#")
     if not mark:
         return rest
-    pairs = []
+    pairs: list[str] = []
     for pair in query.split("&"):
         name, equals, value = pair.partition("=")
         secret = equals and value and any(word in name.lower() for word in _SECRET_QUERY_WORDS)
