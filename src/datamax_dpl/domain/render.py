@@ -37,6 +37,7 @@ from .job import (
     held_after,
     image_downloads,
     retry_clear,
+    retry_clear_may_go,
     stops_at_tear_off,
     system_prefix,
 )
@@ -94,6 +95,10 @@ class RenderResult(BaseModel):
             whatever the clear keys say.
         retry_clear_empties: True when ``retry_clear`` empties the whole module (``<STX>q``), so
             nothing the printer held there survives it.
+        retry_clear_may_go: True where a clear may go before an upload again (``<STX>q`` to the
+            model's built-in RAM, the Prodigy's ``<STX>R``), whatever the job downloads:
+            ``retry_clear`` is empty on the Prodigy for a job that downloads nothing, while a clear
+            still may go there.
 
     Example:
         >>> from datamax_dpl.domain.label import Label, Text
@@ -121,6 +126,7 @@ class RenderResult(BaseModel):
     upload_end: int = 0
     retry_clear: bytes = b""
     retry_clear_empties: bool = False
+    retry_clear_may_go: bool = False
 
     @property
     def sent_as(self) -> SentAs:
@@ -759,6 +765,7 @@ def _build(
         upload_end=len(upload),
         retry_clear=b"".join(retry_clear(ctx)),
         retry_clear_empties=ctx.clears_module,
+        retry_clear_may_go=retry_clear_may_go(ctx),
     )
     return RenderedRecord(result=result, held_after=held_after(ctx))
 

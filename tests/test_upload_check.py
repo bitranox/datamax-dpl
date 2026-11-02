@@ -876,6 +876,32 @@ def test_the_plain_prodigys_halving_round_places_a_halved_name_its_last_read_lis
 
 
 @pytest.mark.os_agnostic
+def test_a_prodigy_label_left_with_nothing_to_download_still_counts_as_one_a_clear_may_go_to() -> None:
+    """Record 1's round 3 places the halved LOGO module B holds, after its round-2 read got no answer.
+
+    Rendered so, it downloads nothing, so it has no name to remove; a clear still may go to that
+    module, so it leaves the next record no name that may be held, and the next record makes no
+    read before its round 1.
+    """
+    label = Label(elements=[LOGO])
+    after_only = PRODIGY_NO_KEYS.model_copy(update={"clear_graphics_after_label": True})
+    [halved] = build_record(label, after_only, halve=True).result.downloads
+    held = HeldImages(listed=frozenset({halved}))
+    records = [{"n": "1"}, {"n": "2"}]
+    modules = ImageModules(held=[("B", halved, 128)], lose={0, 1}, silent={1})
+    renders = render_batch(label, records, after_only, held=held).results
+    job = CheckedJob(renders=record_renders(label, records, after_only), check=_check(), held=held)
+
+    sent = _print_batch(modules, renders, job)
+
+    assert modules.downloaded_held == []
+    assert modules.placed_missing == []
+    assert [record.halved_elements for record in sent.results] == [(0,), ()]
+    # Record 1's two reads, record 2's one after its round 1.
+    assert modules.requests == 3
+
+
+@pytest.mark.os_agnostic
 def test_the_plain_prodigys_halving_round_downloads_again_a_qr_code_its_removes_took_out() -> None:
     """Rounds 1 and 2 lose LOGO and their reads list the QR Code, which the removes before round 3 take out.
 

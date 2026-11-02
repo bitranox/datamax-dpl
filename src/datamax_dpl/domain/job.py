@@ -792,6 +792,23 @@ def retry_clear(ctx: RenderContext) -> list[bytes]:
     return [_remove_image(name) for name in _removed_after(ctx)]
 
 
+def retry_clear_may_go(ctx: RenderContext) -> bool:
+    """Return True where a clear may go before the label's images are uploaded again.
+
+    :func:`retry_clear` gives what that clear sends, and the plain Prodigy's removes name only the
+    label's own downloads: rendered again with nothing to download, a label there sends no clear
+    while one still may go. This says what the module allows, whatever the label downloads.
+
+    Args:
+        ctx: The job's context.
+
+    Returns:
+        True for ``<STX>q`` to the model's built-in RAM or the Prodigy's ``<STX>R``; False on a
+        plug-in module or a model that can clear nothing.
+    """
+    return _clear_module_command(ctx) is not None or ctx.supports(Feature.REMOVE_IMAGE)
+
+
 def _removed_after(ctx: RenderContext) -> list[str]:
     """The names the Prodigy's clear after removes: each one the label's job downloads, and only those.
 
@@ -863,6 +880,7 @@ __all__ = [
     "held_after",
     "image_downloads",
     "retry_clear",
+    "retry_clear_may_go",
     "stops_at_tear_off",
     "system_prefix",
 ]

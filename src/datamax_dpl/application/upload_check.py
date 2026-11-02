@@ -384,7 +384,7 @@ class _Record:
         passes with a read that got no answer when its last round downloaded nothing.
         """
         held = self._rendered_after if self._known is None else self._as_read(self._known)
-        if self.result.retry_clear:
+        if self.result.retry_clear_may_go:
             return _PassedOn(held=held)
         return _PassedOn(held=held, maybe_held=FrozenMapping({name: self._sent[name] for name in self._unsure}))
 
@@ -461,7 +461,7 @@ class _Record:
         A name a read listed is held: downloading it again would print nothing (one Allegro 2,
         2026-11-01), so the label is rendered again leaving it out.
         """
-        if self.result.retry_clear or self._known is None:
+        if self.result.retry_clear_may_go or self._known is None:
             return None
         return self._as_read(self._known)
 
@@ -474,7 +474,7 @@ class _Record:
         """
         if self.result.retry_clear_empties:
             return EMPTY_MODULE
-        if self.result.retry_clear and self._known is not None:
+        if self.result.retry_clear_may_go and self._known is not None:
             return self._as_read(self._known - frozenset(self.result.downloads))
         return self._uncleared()
 
@@ -484,7 +484,7 @@ class _Record:
         A name sent since the last read that answered may have arrived; downloading it again, with
         no clear to empty the module first, would print nothing (one Allegro 2, 2026-11-01).
         """
-        if self.result.retry_clear:
+        if self.result.retry_clear_may_go:
             return ()
         return tuple(name for name in result.downloads if name in self._unsure)
 
