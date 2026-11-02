@@ -103,7 +103,7 @@ def fill_label(label: Label, record: Mapping[str, str]) -> Label:
     # ahead of a field that filling made too long, whichever element comes first. The label
     # models set revalidate_instances, which is what makes this model_validate re-check the copy.
     elements = [_fill_element(element, record) for element in label.elements]
-    return Label.model_validate(label.model_copy(update=_ElementsUpdate(elements=elements)))
+    return Label.model_validate(label.model_copy(update=_ElementsUpdate(elements=elements))).marked_filled()
 
 
 def label_placeholders(label: Label) -> list[str]:

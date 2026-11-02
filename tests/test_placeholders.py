@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import copy
+import pickle
+
 import pytest
 from pydantic import ValidationError
 
+from datamax_dpl.domain.enums import FindingCode
 from datamax_dpl.domain.label import Barcode, Label, Text
 from datamax_dpl.domain.placeholders import MissingFieldError, fill_label, fill_text, label_placeholders
+from datamax_dpl.domain.render import build_job, render
 
 TEMPLATE = Label.model_validate(
     {
@@ -78,3 +83,33 @@ def test_filling_leaves_the_template_unchanged() -> None:
     fill_label(TEMPLATE, {"lot": "A7", "qty": "12", "sku": "SKU-1"})
     text = TEMPLATE.elements[0]
     assert isinstance(text, Text) and text.text == "Lot {lot} - {qty} pcs"
+
+
+_ESCAPED = Label(elements=[Text(x=1, y=1, text="price {{EUR}} {n}")])
+
+
+@pytest.mark.os_agnostic
+def test_a_filled_label_rendered_alone_does_not_read_its_literal_braces_as_placeholders() -> None:
+    """The documented route: fill_label, then render or build_job. Its {{ }} braces are literal text."""
+    filled = fill_label(_ESCAPED, {"n": "3"})
+    assert [f.code for f in build_job(filled).findings if f.code is FindingCode.PLACEHOLDERS_UNFILLED] == []
+    assert [f.code for f in render(filled).findings if f.code is FindingCode.PLACEHOLDERS_UNFILLED] == []
+
+
+@pytest.mark.os_agnostic
+def test_an_unfilled_label_still_warns_about_its_placeholders() -> None:
+    """The control: the same label before filling names what lacks data."""
+    assert FindingCode.PLACEHOLDERS_UNFILLED in [f.code for f in build_job(_ESCAPED).findings]
+
+
+@pytest.mark.os_agnostic
+def test_a_filled_label_stays_filled_through_a_copy_a_pickle_and_a_second_fill() -> None:
+    """The state travels with the label, so no later step can forget it; a JSON document is a new label."""
+    filled = fill_label(_ESCAPED, {"n": "3"})
+    assert filled.filled
+    assert filled.model_copy().filled
+    assert copy.deepcopy(filled).filled
+    assert pickle.loads(pickle.dumps(filled)).filled
+    assert fill_label(filled, {"EUR": "x"}).filled
+    assert not _ESCAPED.filled
+    assert not Label.model_validate(filled.model_dump()).filled

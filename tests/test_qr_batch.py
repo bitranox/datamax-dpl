@@ -111,7 +111,7 @@ def test_the_printed_command_sends_each_record_with_its_own_code(
 
     assert result.exit_code == 0, result.output
     options = RenderOptions(model="allegro-2")
-    jobs = [build_job(_literal_label(summary, row), options, filled=True) for row in _rows(summary)]
+    jobs = [build_job(_literal_label(summary, row), options) for row in _rows(summary)]
     assert bytes(server.received).replace(MEMORY_DIRECTORY_REQUESTS[MemoryKind.GRAPHIC], b"") == b"".join(
         job.data for job in jobs
     )

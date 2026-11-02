@@ -397,9 +397,9 @@ def job_context(label: Label, options: RenderOptions | None = None) -> RenderCon
     return _context(label, options or RenderOptions(), halve=False, held=HeldImages())
 
 
-def _check_label_level(label: Label, ctx: RenderContext, *, filled: bool) -> None:
+def _check_label_level(label: Label, ctx: RenderContext) -> None:
     # A filled record's remaining braces are literal text that came from {{ }}, not placeholders.
-    unfilled = [] if filled else label_placeholders(label)
+    unfilled = [] if label.filled else label_placeholders(label)
     if unfilled:
         ctx.findings.warn(FindingCode.PLACEHOLDERS_UNFILLED, f"placeholders without data: {', '.join(unfilled)}")
     # Nominal on purpose: this compares the label with the printhead, not what one printer prints.
@@ -556,10 +556,10 @@ class _Job:
         return sum(download.data_bytes for download in self.ctx.sent_downloads)
 
 
-def _encode(label: Label, options: RenderOptions, *, filled: bool, halve: bool, held: HeldImages) -> _Job:
+def _encode(label: Label, options: RenderOptions, *, halve: bool, held: HeldImages) -> _Job:
     """Encode everything up to the format header, halving the job's images when ``halve``."""
     ctx = _context(label, options, halve=halve, held=held)
-    _check_label_level(label, ctx, filled=filled)
+    _check_label_level(label, ctx)
     _check_qr_dot_size(label, ctx)
     prefix = system_prefix(label, ctx)
     body = _encode_elements(label.elements, ctx, emulate_transparency(label, ctx))
@@ -597,7 +597,7 @@ def _model_budget(options: RenderOptions) -> ImageBudget | None:
     )
 
 
-def _fit_budget(label: Label, options: RenderOptions, *, filled: bool, job: _Job, budget: ImageBudget) -> _Job:
+def _fit_budget(label: Label, options: RenderOptions, *, job: _Job, budget: ImageBudget) -> _Job:
     """Fit a job past its image memory budget: refuse it under strict, else halve its images once.
 
     Halving happens once: a job still past the budget afterwards is refused, not halved again.
@@ -606,7 +606,7 @@ def _fit_budget(label: Label, options: RenderOptions, *, filled: bool, job: _Job
     if not job.ctx.findings.degrading:
         job.ctx.findings.refuse(FindingCode.IMAGE_MEMORY_EXCEEDED, over)
         return job
-    halved = _encode(label, options, filled=filled, halve=True, held=job.ctx.held_images)
+    halved = _encode(label, options, halve=True, held=job.ctx.held_images)
     elements = sorted(set(halved.ctx.halved_elements))
     if elements:
         halved.ctx.findings.deviate(
@@ -627,7 +627,7 @@ def _fit_budget(label: Label, options: RenderOptions, *, filled: bool, job: _Job
 
 
 def build_job(
-    label: Label, options: RenderOptions | None = None, *, filled: bool = False, held: HeldImages | None = None
+    label: Label, options: RenderOptions | None = None, *, held: HeldImages | None = None
 ) -> RenderResult:
     """Render ``label`` for ``options.model`` and report every finding; never raises for a finding.
 
@@ -637,21 +637,19 @@ def build_job(
     Args:
         label: The label.
         options: How to render; None renders for ``generic``.
-        filled: True for a label whose placeholders data records filled.
         held: The image names the printer holds in the job's module; None when nobody asked it.
             Only a label no clear precedes uses them.
 
     Raises:
         UnknownModelError: ``options.model`` names no profile.
     """
-    return _build(label, options or RenderOptions(), filled=filled, held=held or HeldImages()).result
+    return _build(label, options or RenderOptions(), held=held or HeldImages()).result
 
 
 def build_jobs(
     labels: Iterable[Label],
     options: RenderOptions | None = None,
     *,
-    filled: bool = False,
     held: HeldImages | None = None,
 ) -> tuple[RenderResult, ...]:
     """Render each label of a batch in turn, as :func:`build_job` does, carrying what the printer holds.
@@ -662,7 +660,6 @@ def build_jobs(
     Args:
         labels: The labels, in the order they are sent.
         options: How to render; None renders for ``generic``.
-        filled: True for labels whose placeholders data records filled.
         held: The image names the printer holds before the first label; None when nobody asked it.
 
     Raises:
@@ -680,19 +677,19 @@ def build_jobs(
     state = held or HeldImages()
     results: list[RenderResult] = []
     for label in labels:
-        record = _build(label, options, filled=filled, held=state)
+        record = _build(label, options, held=state)
         results.append(record.result)
         state = record.held_after
     return tuple(results)
 
 
-def _halved(label: Label, options: RenderOptions, *, filled: bool, held: HeldImages) -> _Job:
+def _halved(label: Label, options: RenderOptions, *, held: HeldImages) -> _Job:
     """Encode the job with its images halved, as the budget would, for a printer that did not store them whole.
 
     No budget is weighed: the caller found that the printer's module did not take the images at
     full size, which says more than a count of dot data can.
     """
-    halved = _encode(label, options, filled=filled, halve=True, held=held)
+    halved = _encode(label, options, halve=True, held=held)
     elements = sorted(set(halved.ctx.halved_elements))
     if elements:
         halved.ctx.findings.deviate(
@@ -726,19 +723,19 @@ def _note_skipped_budget(job: _Job, options: RenderOptions) -> None:
 
 
 def _build(
-    label: Label, options: RenderOptions, *, filled: bool, held: HeldImages, halve: bool = False
+    label: Label, options: RenderOptions, *, held: HeldImages, halve: bool = False
 ) -> RenderedRecord:
     """Render ``label`` and return its result with what the printer holds after its job.
 
     ``halve`` sends every image that can be halved at half resolution whatever the budget says.
     """
     if halve:
-        job = _halved(label, options, filled=filled, held=held)
+        job = _halved(label, options, held=held)
     else:
-        job = _encode(label, options, filled=filled, halve=False, held=held)
+        job = _encode(label, options, halve=False, held=held)
         budget = _image_budget(options)
         if budget is not None and job.image_bytes > budget.limit:
-            job = _fit_budget(label, options, filled=filled, job=job, budget=budget)
+            job = _fit_budget(label, options, job=job, budget=budget)
         elif budget is None:
             _note_skipped_budget(job, options)
     ctx = job.ctx
@@ -774,7 +771,6 @@ def build_record(
     label: Label,
     options: RenderOptions | None = None,
     *,
-    filled: bool = False,
     held: HeldImages | None = None,
     halve: bool = False,
 ) -> RenderedRecord:
@@ -787,7 +783,6 @@ def build_record(
     Args:
         label: The label.
         options: How to render; None renders for ``generic``.
-        filled: True for a label whose placeholders data records filled.
         held: The image names the printer holds before this label; None when nobody asked it.
         halve: Send every image that can be halved (every one but a QR Code) at half resolution
             and double magnification, with ``image_halved``, whatever the image memory budget
@@ -807,7 +802,7 @@ def build_record(
         >>> full.halved_elements, halved.halved_elements, full.downloads == halved.downloads
         ((), (0,), False)
     """
-    return _build(label, options or RenderOptions(), filled=filled, held=held or HeldImages(), halve=halve)
+    return _build(label, options or RenderOptions(), held=held or HeldImages(), halve=halve)
 
 
 def held_after_read(result: RenderResult, after: HeldImages, listed: frozenset[str]) -> HeldImages:

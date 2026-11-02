@@ -140,9 +140,7 @@ def render_batch(
         pydantic.ValidationError: A filled value breaks a field limit.
     """
     batch_label = _batch_label(label)
-    results = build_jobs(
-        (fill_label(batch_label.per_record, record) for record in records), options, filled=True, held=held
-    )
+    results = build_jobs((fill_label(batch_label.per_record, record) for record in records), options, held=held)
     if batch_label.cut is None:
         return BatchResult(data=b"".join(result.data for result in results), results=results)
     cuts = batch_cuts(len(results), cut=batch_label.cut, options=options)
@@ -216,14 +214,14 @@ def record_renders(
         pydantic.ValidationError: A filled value breaks a field limit.
     """
     if records is None:
-        return (_render_of(label, options, filled=False),)
+        return (_render_of(label, options),)
     per_record = _batch_label(label).per_record
-    return tuple(_render_of(fill_label(per_record, record), options, filled=True) for record in records)
+    return tuple(_render_of(fill_label(per_record, record), options) for record in records)
 
 
-def _render_of(label: Label, options: RenderOptions, *, filled: bool) -> RecordRender:
+def _render_of(label: Label, options: RenderOptions) -> RecordRender:
     def render(held: HeldImages, *, halve: bool) -> RenderedRecord:
-        return build_record(label, options, filled=filled, held=held, halve=halve)
+        return build_record(label, options, held=held, halve=halve)
 
     return render
 

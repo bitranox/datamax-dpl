@@ -16,7 +16,16 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    TypeAdapter,
+    ValidationError,
+    model_validator,
+)
 
 from .enums import (
     Attribute,
@@ -433,6 +442,19 @@ class Label(_Frozen):
     pause_each_label: bool = False
     count_by: int | None = Field(default=None, ge=1, le=99)
     plain_zero: bool = Field(default=False, description="Print 0 without the slash in fonts 0-8 and barcodes.")
+    # Not a field: no label document can claim it, only filling sets it.
+    _filled: bool = PrivateAttr(default=False)
+
+    @property
+    def filled(self) -> bool:
+        """True for a label data records filled: a brace left in its text is literal, from ``{{ }}``."""
+        return self._filled
+
+    def marked_filled(self) -> Label:
+        """Return a copy that reports :attr:`filled`, for the step that filled its placeholders."""
+        copied = self.model_copy()
+        copied._filled = True
+        return copied
 
 
 __all__ = [

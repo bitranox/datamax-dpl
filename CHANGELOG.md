@@ -271,6 +271,8 @@ All notable changes to this project are documented here. The format follows
   type); `adapters.camera.http.EXTENSION_BY_CONTENT_TYPE`;
   `ImageBudget.source` (`ImageBudget.model`);
   `adapters.cli.commands.printer.ALL_KINDS` (`KindChoice.ALL`).
+- Library: `build_job(filled=)`, `build_jobs(filled=)` and
+  `build_record(filled=)`; a label from `fill_label` carries it.
 
 ### Fixed
 
@@ -324,6 +326,9 @@ All notable changes to this project are documented here. The format follows
   ...`) rather than `no printer given`.
 - The sdist carries `tests/fixtures`, `scripts` and the root `conftest.py`:
   its test suite could not run from an unpacked sdist (43 failed, 49 errors).
+- `fill_label` then `render` or `build_job` on a label using the `{{ }}`
+  escape no longer warns `placeholders_unfilled` about the literal braces: the
+  label carries that it was filled (`Label.filled`).
 
 ## [0.4.0] - 2026-10-30
 
