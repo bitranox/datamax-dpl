@@ -701,10 +701,8 @@ def test_a_name_no_round_sent_is_reported_held_whichever_read_lists_it(silent: s
 
 
 @pytest.mark.os_agnostic
-def test_a_record_in_error_once_rendered_from_the_names_read_again_in_round_2_is_refused_with_nothing_of_it_sent() -> (
-    None
-):
-    """Record 2's held names are in error, and only the names read again in its round 2 list ICON: it is refused there."""
+def test_a_record_in_error_once_rendered_from_round_2_s_read_again_is_refused_with_nothing_of_it_sent() -> None:
+    """Record 2's held names are in error, and only the names read again in its round 2 list ICON: refused there."""
     held_in_error = PLUG_IN_TWO_WAY.model_copy(update={"held_image_severity": Severity.ERROR})
     job = _icon_from_another_program(held_in_error, silent={0, 1, 2})
     printer = ModulePrinter(job.modules)
