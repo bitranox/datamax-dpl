@@ -108,7 +108,6 @@ def test_stdin_past_the_input_cap_is_refused_with_an_envelope(cli_runner: CliRun
     [
         {"height": 100000, "elements": [{"type": "text", "x": 5, "y": 5, "text": "A"}]},
         {"width": 100000, "elements": [{"type": "text", "x": 5, "y": 5, "text": "A"}]},
-        {"height": 1e9, "elements": [{"type": "text", "x": 5, "y": 5, "text": "A"}]},
         {"elements": [{"type": "text", "x": 5, "y": 100000, "text": "A"}]},
     ],
 )

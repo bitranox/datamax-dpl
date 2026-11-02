@@ -17,7 +17,8 @@ what happens on which model.
 
 ## Units and coordinates
 
-Every length is a number in the label's `unit`:
+Every length is a finite number in the label's `unit`, at most 100000; past that the label is
+refused naming the field:
 
 | `unit`         | Meaning                                 |
 |----------------|-----------------------------------------|

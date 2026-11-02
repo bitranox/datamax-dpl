@@ -29,7 +29,7 @@ from .geometry import Size
 from .held_images import HeldImages
 from .image_budget import HALVING_FACTOR, halve, halved_magnification, image_data_bytes
 from .image_records import CR, MAX_WIDTH, download_command
-from .label import StopPosition
+from .label import Positive, StopPosition
 from .profiles import Feature, ParsedFirmware
 from .raster import Bitmap
 from .records import MAX_IMAGE_MAGNIFICATION, Magnification
@@ -200,20 +200,24 @@ class RenderOptions(BaseModel):
     options: frozenset[HardwareOption] = Field(default_factory=frozenset[HardwareOption])
     # A real printer is a few percent off; a factor outside this range is a typo or an
     # inverted measurement (nominal / printed), which would double the error instead.
-    scale_across: float | None = Field(default=None, ge=MIN_SCALE, le=MAX_SCALE)
-    scale_along: float | None = Field(default=None, ge=MIN_SCALE, le=MAX_SCALE)
-    offset_across: float | None = Field(default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
-    offset_along: float | None = Field(default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
+    scale_across: float | None = Field(default=None, ge=MIN_SCALE, le=MAX_SCALE, allow_inf_nan=False)
+    scale_along: float | None = Field(default=None, ge=MIN_SCALE, le=MAX_SCALE, allow_inf_nan=False)
+    offset_across: float | None = Field(default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM, allow_inf_nan=False)
+    offset_along: float | None = Field(default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM, allow_inf_nan=False)
     stop_position_mm: StopPosition | None = None
-    cutter_stop_position_mm: float | None = Field(default=None, gt=0)
+    cutter_stop_position_mm: Positive | None = None
     image_memory_bytes: int | None = Field(default=None, gt=0)
     model_image_budget: bool = True
     image_module: ImageModule | None = None
     max_format_rows: int | None = Field(default=None, gt=0)
     send_settings: frozenset[PrinterSetting] | None = None
     media: MediaSensor | None = None
-    start_of_print_mm: float | None = Field(default=None, ge=MIN_START_OF_PRINT_MM, le=MAX_SYSTEM_DISTANCE_MM)
-    max_label_length_mm: float | None = Field(default=None, ge=MIN_MAX_LABEL_LENGTH_MM, le=MAX_SYSTEM_DISTANCE_MM)
+    start_of_print_mm: float | None = Field(
+        default=None, ge=MIN_START_OF_PRINT_MM, le=MAX_SYSTEM_DISTANCE_MM, allow_inf_nan=False
+    )
+    max_label_length_mm: float | None = Field(
+        default=None, ge=MIN_MAX_LABEL_LENGTH_MM, le=MAX_SYSTEM_DISTANCE_MM, allow_inf_nan=False
+    )
     feed_rate: SpeedCode | None = None
     label_present: bool | None = None
     clear_graphics_before_label: bool = True

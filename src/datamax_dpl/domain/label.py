@@ -53,9 +53,14 @@ MAX_QR_DATA = 4296
 MAX_QUIET_ZONE = 10
 #: The font number that selects CG Triumvirate point sizes (and downloaded fonts).
 FONT_9 = 9
+#: Largest length a label may write, in its own unit. A sanity limit, so no settings key: a value
+#: this large means nothing on any printer (100 m, or 2.5 km in inches), and refusing here keeps a
+#: number such as 1e308 away from the arithmetic that turns it into infinity and from every size
+#: worked out from it. A length that passes can still be past what a model prints; findings say so.
+MAX_LENGTH = 100_000.0
 
-NonNegative = Annotated[float, Field(ge=0)]
-Positive = Annotated[float, Field(gt=0)]
+NonNegative = Annotated[float, Field(ge=0, le=MAX_LENGTH, allow_inf_nan=False)]
+Positive = Annotated[float, Field(gt=0, le=MAX_LENGTH, allow_inf_nan=False)]
 Multiplier = Annotated[int, Field(ge=1, le=MAX_MULTIPLIER)]
 
 # The field takes the one member as a Literal rather than the enum class, so the JSON schema
@@ -185,8 +190,8 @@ class ScalableText(_Placed):
     type: Literal["scalable_text"] = "scalable_text"
     text: str = Field(min_length=1, max_length=MAX_FIELD_DATA)
     font_id: str = Field(default="S00", pattern=r"^S[0-9A-Za-z]{2}$")
-    height_points: float = Field(ge=4, le=999)
-    width_points: float | None = Field(default=None, ge=4, le=999)
+    height_points: float = Field(ge=4, le=999, allow_inf_nan=False)
+    width_points: float | None = Field(default=None, ge=4, le=999, allow_inf_nan=False)
     attribute: Attribute | None = None
 
 
@@ -462,6 +467,7 @@ __all__ = [
     "MAX_FIELD_DATA",
     "MAX_FORMAT_NAME",
     "MAX_IMAGE_NAME",
+    "MAX_LENGTH",
     "MAX_MULTIPLIER",
     "MAX_PDF417_DATA",
     "MAX_QR_DATA",

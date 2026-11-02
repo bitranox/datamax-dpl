@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from datamax_dpl.domain.charset import CAPITALS_ONLY_FONTS, encode_for_bitmapped_font
 from datamax_dpl.domain.enums import FindingCode
-from datamax_dpl.domain.label import Box, Element, Label, Line, Text
+from datamax_dpl.domain.label import MAX_LENGTH, Box, Element, Label, Line, Text
 from datamax_dpl.domain.preview import widest_cell_mm
 from datamax_dpl.domain.render import build_job
 from datamax_dpl.domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
@@ -111,7 +111,8 @@ def across_label(*, width: float, height: float, title: str) -> Label:
         The label, in mm.
 
     Raises:
-        ValueError: The width is under 24 mm, the height under 30 mm, or the text does not fit.
+        ValueError: The width is under 24 mm, the height under 30 mm, a size is not a number or past
+            :data:`~datamax_dpl.domain.label.MAX_LENGTH`, or the text does not fit.
 
     Example:
         >>> label = across_label(width=100, height=55, title="LAGER")
@@ -164,8 +165,8 @@ def along_label(*, width: float, length: float = ALONG_LENGTH_MM, title: str) ->
         The label, in mm.
 
     Raises:
-        ValueError: The width is under 20 mm, the length is not between 20 and 200 mm, or the
-            text does not fit.
+        ValueError: The width is under 20 mm or past :data:`~datamax_dpl.domain.label.MAX_LENGTH`,
+            the length is not between 20 and 200 mm, a size is not a number, or the text does not fit.
 
     Example:
         >>> along_label(width=100, length=60, title="LAGER").height
@@ -215,7 +216,8 @@ def longest_along_length(*, width: float, title: str, options: RenderOptions, be
         180.0
     """
     step = _ALONG_STEP_MM
-    length = min(ALONG_LENGTH_MM, (math.ceil(below / step) - 1) * step)
+    # Capped before the ceil, which has no integer to give for an infinite length.
+    length = (math.ceil(min(below, ALONG_LENGTH_MM + step) / step) - 1) * step
     while length >= MIN_LABEL_MM:
         result = build_job(along_label(width=width, length=length, title=title), options)
         if all(finding.code is not FindingCode.FORMAT_PAST_MAX_LENGTH for finding in result.findings):
@@ -358,8 +360,17 @@ def offset_from_borders(current: float, *, low: float, high: float) -> float:
 
 
 def _require_min(dimension: _Dimension, value: float, *, minimum: float = MIN_LABEL_MM) -> None:
+    """Refuse a size too small to calibrate on, or one no label could have.
+
+    Runs first in every builder: the ticks and the text are worked out from the size, so a size of
+    1e308 would hang there, and NaN compares False with both bounds, so it is asked for by name.
+    """
+    if math.isnan(value):
+        raise ValueError(f"{dimension.value} is not a number")
     if value < minimum:
         raise ValueError(f"{dimension.value} {value:g} mm is under {minimum:g} mm, too small to calibrate on")
+    if value > MAX_LENGTH:
+        raise ValueError(f"{dimension.value} {value:g} mm is over {MAX_LENGTH:g} mm, the longest a label takes")
 
 
 def _across_ticks(*, left: float, right: float, y: float) -> list[Line]:

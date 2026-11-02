@@ -20,7 +20,20 @@ from datamax_dpl.domain.enums import (
     Unit,
 )
 from datamax_dpl.domain.errors import LabelRejectedError
-from datamax_dpl.domain.label import Barcode, Box, Circle, DotSize, Element, Image, Label, Line, Point, Polygon, Text
+from datamax_dpl.domain.label import (
+    MAX_LENGTH,
+    Barcode,
+    Box,
+    Circle,
+    DotSize,
+    Element,
+    Image,
+    Label,
+    Line,
+    Point,
+    Polygon,
+    Text,
+)
 from datamax_dpl.domain.overlap import printed_dots
 from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.render import RenderResult, build_job, effective_calibration, job_context, render
@@ -793,7 +806,7 @@ def test_a_stop_position_of_printer_is_held_as_the_member_and_written_as_the_wor
 def test_the_label_schema_accepts_printer_as_a_stop_position() -> None:
     choices = Label.model_json_schema()["properties"]["stop_position"]["anyOf"]
     assert {"const": "printer", "type": "string"} in choices
-    assert {"exclusiveMinimum": 0, "type": "number"} in choices
+    assert {"exclusiveMinimum": 0, "maximum": MAX_LENGTH, "type": "number"} in choices
 
 
 @pytest.mark.os_agnostic

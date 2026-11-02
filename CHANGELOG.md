@@ -284,6 +284,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A length in a label is refused naming its field when it is not finite or
+  past 100000 in the label's unit (`domain.label.MAX_LENGTH`), so `x=1e308`,
+  `"inf"` and `y=2**63` no longer escape from `build_job` and `render` as
+  `OverflowError` or a NaN `ValueError`, and `height="inf"` no longer passes
+  `validate`. `calibrate print --width` and `--height` and the calibration
+  label builders refuse the same sizes before working anything out from them.
 - `status` and `verify` skip a whole line that is not a status answer
   before the eight `Y`/`N` flags arrive. Through a print server a status
   request can be answered first by a line the printer still owed an earlier
