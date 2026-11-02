@@ -119,15 +119,20 @@ def write_envelope(document: BaseModel, *, mode: OutputMode) -> None:
     sys.stdout.flush()
 
 
+def _said(exc: BaseException) -> str:
+    """The exception's message, or its class where it has none (a bare ``MemoryError()``)."""
+    return str(exc) or type(exc).__name__
+
+
 def write_error_envelope(exc: BaseException, *, command: CommandName | None, mode: OutputMode) -> None:
     """Write the error envelope of ``exc`` in machine mode; human mode writes nothing."""
     if mode.machine:
-        write_envelope(ErrorEnvelope(command=command, error=type(exc).__name__, message=str(exc)), mode=mode)
+        write_envelope(ErrorEnvelope(command=command, error=type(exc).__name__, message=_said(exc)), mode=mode)
 
 
 def report_failure(exc: BaseException, *, command: CommandName, mode: OutputMode) -> None:
     """Report a failure: an error envelope on stdout in machine mode, one line on stderr always."""
-    sys.stderr.write(f"Error: {exc}\n")
+    sys.stderr.write(f"Error: {_said(exc)}\n")
     write_error_envelope(exc, command=command, mode=mode)
 
 

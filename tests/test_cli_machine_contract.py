@@ -10,6 +10,7 @@ import dataclasses
 import json
 from typing import TYPE_CHECKING, Any
 
+import click
 import pytest
 from lib_layered_config import Config, ConfigError
 
@@ -269,3 +270,73 @@ def test_a_failed_config_generate_examples_keeps_exit_1_with_an_error_envelope(
     assert code == 1
     document = json.loads(out)
     assert (document["ok"], document["command"]) == (False, "config-generate-examples")
+
+
+# ======================== An unexpected failure ========================
+
+UNEXPECTED = [OverflowError("cannot convert float infinity to integer"), MemoryError(), IndexError("x"), TypeError("y")]
+
+
+def _calibrate_set(*flags: str) -> list[str]:
+    return [*flags, "calibrate", "set", "--top", "2", "--bottom", "2"]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("error", UNEXPECTED, ids=lambda error: type(error).__name__)
+def test_an_unexpected_failure_is_an_error_envelope_and_exit_2(
+    error: Exception, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Exit 1 documents a refusal; a caller must not read a crash as one, or find no JSON to parse."""
+    code, out, err = _run(_calibrate_set("--json-bare"), capsys, set_printer_values=_raising(error))
+    assert code == 2, err
+    document = json.loads(out)
+    assert document["ok"] is False
+    assert document["command"] == "calibrate set"
+    assert document["error"] == type(error).__name__
+    assert document["message"]
+    assert "Traceback" not in err
+
+
+@pytest.mark.os_agnostic
+def test_an_unexpected_failure_says_what_it_was_in_human_mode(capsys: pytest.CaptureFixture[str]) -> None:
+    code, out, err = _run(_calibrate_set(), capsys, set_printer_values=_raising(MemoryError()))
+    assert code == 2
+    assert out == ""
+    assert err.strip() == "Error: MemoryError"
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.usefixtures("managed_traceback_state")
+@pytest.mark.parametrize("flags", [("--traceback",), ("--traceback", "--json-bare")], ids=["human", "json"])
+def test_traceback_still_shows_where_an_unexpected_failure_came_from(
+    flags: tuple[str, ...], capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, out, err = _run(_calibrate_set(*flags), capsys, set_printer_values=_raising(OverflowError("boom")))
+    assert code == 2
+    assert "Traceback" in err
+    assert "boom" in err
+    if "--json-bare" in flags:
+        assert json.loads(out)["error"] == "OverflowError"
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("raised", "expected"),
+    [(click.exceptions.Exit(7), 7), (click.UsageError("bad option"), 2)],
+    ids=["exit", "usage"],
+)
+def test_clicks_own_control_flow_is_not_an_unexpected_failure(
+    raised: Exception, expected: int, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Both reach click as they do without the net, or a command could not exit with its own code."""
+    code, out, _err = _run(_calibrate_set(), capsys, set_printer_values=_raising(raised))
+    assert code == expected
+    assert out == ""
+
+
+@pytest.mark.os_agnostic
+def test_ctrl_c_is_not_an_unexpected_failure(capsys: pytest.CaptureFixture[str]) -> None:
+    """click turns it into Abort, a RuntimeError, which must not read as a crash with an envelope."""
+    code, out, _err = _run(_calibrate_set("--json-bare"), capsys, set_printer_values=_raising(KeyboardInterrupt()))
+    assert code != 2
+    assert out == ""

@@ -1,9 +1,10 @@
 """Run a command body and turn its outcome into stdout, stderr and an exit code.
 
 Every label and printer command hands :func:`run_command` a body returning a
-:class:`CommandResult`. Expected failures become an error envelope (machine mode) or one stderr
-line, with exit 1 for a refusal and 2 for anything that kept the command from running; the human
-text of a success goes to stdout, the envelope replaces it in machine mode.
+:class:`CommandResult`. Any failure becomes an error envelope (machine mode) and one stderr line,
+with exit 1 for a refusal and 2 for anything that kept the command from running, a failure nobody
+foresaw included: a caller reads exit 1 as "the answer is no" and parses stdout whatever happened.
+The human text of a success goes to stdout, the envelope replaces it in machine mode.
 """
 
 from __future__ import annotations
@@ -11,12 +12,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+import click
+import lib_cli_exit_tools
 from pydantic import BaseModel, ValidationError
 
 from ...domain.errors import CameraError, ConfigurationError, LabelRejectedError, TransportError
 from ...domain.placeholders import MissingFieldError
 from ...domain.profiles import UnknownModelError
 from . import safe_console
+from .constants import TRACEBACK_VERBOSE_LIMIT
 from .context import CLIContext, get_cli_context
 from .envelope import CommandName, Envelope, Outcome, report_failure, write_envelope
 from .label_io import LabelInputError, validation_lines
@@ -24,13 +28,13 @@ from .label_io import LabelInputError, validation_lines
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    import rich_click as click
+    import rich_click
 
 #: Failures that mean "the answer is no": the input was understood and refused.
 REFUSALS: tuple[type[BaseException], ...] = (LabelRejectedError,)
-#: Failures that kept the command from running.
+#: Failures foreseen as keeping the command from running: their message says all there is, so
+#: ``--traceback`` adds nothing to them. Anything else exits the same way, with a traceback on request.
 ERRORS: tuple[type[BaseException], ...] = (
-    LabelInputError,
     ConfigurationError,
     TransportError,
     CameraError,
@@ -38,6 +42,12 @@ ERRORS: tuple[type[BaseException], ...] = (
     MissingFieldError,
     ValueError,
     OSError,
+)
+#: How click itself ends or refuses a command: not failures of the command's work.
+_CLICK_CONTROL: tuple[type[BaseException], ...] = (
+    click.ClickException,
+    click.exceptions.Exit,
+    click.exceptions.Abort,
 )
 
 
@@ -62,10 +72,12 @@ def _fail(exc: BaseException, *, command: CommandName, cli_ctx: CLIContext) -> O
     if isinstance(exc, ValidationError):
         exc = LabelInputError(validation_lines(exc))
     report_failure(exc, command=command, mode=cli_ctx.mode)
+    if cli_ctx.traceback and not isinstance(exc, (*REFUSALS, *ERRORS)):
+        lib_cli_exit_tools.print_exception_message(trace_back=True, length_limit=TRACEBACK_VERBOSE_LIMIT)
     return Outcome.REFUSED if isinstance(exc, REFUSALS) else Outcome.ERROR
 
 
-def run_command(ctx: click.Context, *, command: CommandName, body: Callable[[CLIContext], CommandResult]) -> None:
+def run_command(ctx: rich_click.Context, *, command: CommandName, body: Callable[[CLIContext], CommandResult]) -> None:
     """Run ``body`` and exit with its outcome.
 
     Raises:
@@ -74,9 +86,9 @@ def run_command(ctx: click.Context, *, command: CommandName, body: Callable[[CLI
     cli_ctx = get_cli_context(ctx)
     try:
         result = body(cli_ctx)
+    except _CLICK_CONTROL:
+        raise
     except Exception as exc:
-        if not isinstance(exc, (*REFUSALS, *ERRORS, ValidationError)):
-            raise
         ctx.exit(_fail(exc, command=command, cli_ctx=cli_ctx))
         return
     if cli_ctx.mode.machine:

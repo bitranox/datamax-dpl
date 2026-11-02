@@ -284,6 +284,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Any failure of a label or printer command now exits 2 with an error envelope
+  under `--json`/`--json-bare`, and `--traceback` shows where it came from. A
+  failure the code did not foresee used to exit 1, which documents a refusal,
+  with nothing on stdout to parse.
 - A graphic drawn as an image is refused before any bitmap is made for it when
   it could not be sent: wider than one image row (`image_too_wide`, now worded
   `element 3 (polygon) would be 2100 dots wide`, with no image name) or taller
