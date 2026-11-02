@@ -265,6 +265,9 @@ All notable changes to this project are documented here. The format follows
 - A library caller of `verify_print` with no camera is told
   `CameraSettings.kind is none`, not a config section it may not have; the CLI
   still names `[camera] kind`.
+- The module-level tables `FONT_BYTES`, `SYMBOL_SET_CODECS`, `MODEL_PROFILES`
+  and `PROFILES` are read-only `Mapping`s: a caller that wrote to one changed
+  it for the whole process.
 
 ### Removed
 

@@ -13,8 +13,10 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from .frozen_mapping import FrozenMapping
+
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
 #: Bitmapped fonts index code page 437; the byte values below are positions in it.
 BITMAPPED_CODEC = "cp437"
@@ -52,41 +54,45 @@ _FONT_9_SET = (
 )
 
 #: Font number to the code page 437 byte values it can print.
-FONT_BYTES: dict[int, frozenset[int]] = {
-    0: _span(32, 127),
-    1: _FONT_1_2_SET,
-    2: _FONT_1_2_SET,
-    3: _CAPITALS_SET,
-    4: _CAPITALS_SET,
-    5: _CAPITALS_SET,
-    6: _CAPITALS_SET,
-    7: _span(32, 126),
-    8: frozenset({32, 60, 62, 67, 69, 78, 83, 84, 88, 90}) | _span(48, 57),
-    9: _FONT_9_SET,
-}
+FONT_BYTES: Mapping[int, frozenset[int]] = FrozenMapping(
+    {
+        0: _span(32, 127),
+        1: _FONT_1_2_SET,
+        2: _FONT_1_2_SET,
+        3: _CAPITALS_SET,
+        4: _CAPITALS_SET,
+        5: _CAPITALS_SET,
+        6: _CAPITALS_SET,
+        7: _span(32, 126),
+        8: frozenset({32, 60, 62, 67, 69, 78, 83, 84, 88, 90}) | _span(48, 57),
+        9: _FONT_9_SET,
+    }
+)
 #: Fonts that print capitals only, so a lower-case letter is printed as its capital.
 CAPITALS_ONLY_FONTS = frozenset({3, 4, 5, 6})
 
 #: DPL symbol set id to the Python codec that encodes it byte for byte. Only sets whose layout a
 #: standard-library codec reproduces exactly are listed; any other id is refused rather than
 #: guessed, because a near-miss codec prints wrong glyphs without any error.
-SYMBOL_SET_CODECS: dict[str, str] = {
-    "PC": "cp437",
-    "PM": "cp850",
-    "PE": "cp852",
-    "PV": "cp775",
-    "E1": "latin-1",
-    "E2": "iso8859-2",
-    # The manual calls E5 "ISO 8859/5 Latin 5". Latin 5 (Turkish) is ISO 8859-9; ISO 8859-5 is
-    # Cyrillic and is not Latin 5, so the name, not the part number, decides the codec.
-    "E5": "iso8859-9",
-    "W1": "cp1252",
-    "WE": "cp1250",
-    "WR": "cp1251",
-    "WG": "cp1253",
-    "WT": "cp1254",
-    "US": "ascii",
-}
+SYMBOL_SET_CODECS: Mapping[str, str] = FrozenMapping(
+    {
+        "PC": "cp437",
+        "PM": "cp850",
+        "PE": "cp852",
+        "PV": "cp775",
+        "E1": "latin-1",
+        "E2": "iso8859-2",
+        # The manual calls E5 "ISO 8859/5 Latin 5". Latin 5 (Turkish) is ISO 8859-9; ISO 8859-5 is
+        # Cyrillic and is not Latin 5, so the name, not the part number, decides the codec.
+        "E5": "iso8859-9",
+        "W1": "cp1252",
+        "WE": "cp1250",
+        "WR": "cp1251",
+        "WG": "cp1253",
+        "WT": "cp1254",
+        "US": "ascii",
+    }
+)
 
 
 class EncodedText(BaseModel, frozen=True, extra="forbid", ser_json_bytes="base64", val_json_bytes="base64"):

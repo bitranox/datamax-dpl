@@ -1029,7 +1029,7 @@ def _build(row: _Row) -> PrinterProfile:
     )
 
 
-MODEL_PROFILES: dict[str, PrinterProfile] = {row.id: _build(row) for row in _ROWS}
+MODEL_PROFILES: Mapping[str, PrinterProfile] = FrozenMapping({row.id: _build(row) for row in _ROWS})
 
 
 _T = TypeVar("_T")
@@ -1107,7 +1107,9 @@ def _permissive() -> PrinterProfile:
     )
 
 
-PROFILES: dict[str, PrinterProfile] = {"generic": _generic(), "permissive": _permissive(), **MODEL_PROFILES}
+PROFILES: Mapping[str, PrinterProfile] = FrozenMapping(
+    {"generic": _generic(), "permissive": _permissive(), **MODEL_PROFILES}
+)
 
 
 class UnknownModelError(LookupError):

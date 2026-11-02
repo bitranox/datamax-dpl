@@ -78,7 +78,8 @@ cut off part way says to power-cycle the printer, which may be waiting for the r
 - `{name}` placeholders take values from `--data` (CSV header names, a JSON array of objects or
   JSON lines; UTF-8, a BOM is fine), one label per record. `{{` and `}}` are literal braces.
 - Fonts 0-8 are fixed bitmaps scaled by `width_multiplier`/`height_multiplier`; 3-6 print
-  capitals only. Font 9 needs `points`. Umlauts work in fonts 1, 2 and 9, capital umlauts and sharp s also in 3-6; the euro sign in none.
+  capitals only. Font 9 needs `points`. Umlauts work in fonts 1, 2 and 9, capital umlauts and
+  sharp s also in 3-6; the euro sign in none.
 - Element types: `text`, `scalable_text`, `line`, `box`, `circle`, `polygon`, `barcode`, `image`,
   `qr`. An `image` takes `magnification` 1-9 (printer dots per image dot).
 - `{"type": "qr", "x": 3, "y": 3, "data": "{url}", "error": "M", "module_dots": 3, "quiet_zone": 4}`

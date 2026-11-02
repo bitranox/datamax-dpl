@@ -31,10 +31,12 @@ from datamax_dpl.domain.errors import (
     TransportError,
     UnsupportedOperationError,
 )
+from datamax_dpl.domain.frozen_mapping import FrozenMapping
 from datamax_dpl.domain.status import XOFF, XON, show_answer
 from datamax_dpl.domain.timing import MAX_TIMEOUT_SECONDS, check_timeout
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from types import TracebackType
 
 #: The URI forms :func:`parse_printer_uri` accepts, quoted in every refusal.
@@ -58,8 +60,8 @@ _HOST_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?")
 _BAUD = re.compile(r"[0-9]{1,7}")
 _WINDOWS_DRIVE = re.compile(r"/[A-Za-z]:[/\\]")
 _FLAGS = {"0": False, "1": True}
-_BYTESIZES: dict[str, Literal[7, 8]] = {"7": 7, "8": 8}
-_STOPBITS: dict[str, Literal[1, 2]] = {"1": 1, "2": 2}
+_BYTESIZES: Mapping[str, Literal[7, 8]] = FrozenMapping({"7": 7, "8": 8})
+_STOPBITS: Mapping[str, Literal[1, 2]] = FrozenMapping({"1": 1, "2": 2})
 _T = TypeVar("_T")
 _Closing = TypeVar("_Closing", bound="ClosingTransport")
 
@@ -571,7 +573,7 @@ def _baud(text: str) -> int:
     return int(text)
 
 
-def _choice(text: str, choices: dict[str, _T], *, setting: _SerialSetting) -> _T:
+def _choice(text: str, choices: Mapping[str, _T], *, setting: _SerialSetting) -> _T:
     """Return ``choices[text]`` or refuse with the allowed spellings of ``setting``."""
     if text not in choices:
         raise ValueError(f"{setting.value} must be one of {'/'.join(choices)}, got {text!r}")
