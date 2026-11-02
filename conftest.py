@@ -14,8 +14,31 @@ from typing import TYPE_CHECKING
 import pytest
 from layer_roots import SYSTEM_LAYER_ROOT_VARIABLES, USER_LAYER_ROOT_VARIABLES
 
+from datamax_dpl.adapters.config import loader as config_loader
+
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
+
+
+def _clear_config_cache() -> None:
+    """Clear the loader's cache; a test that replaced ``get_config`` has no ``cache_clear`` to call."""
+    clear = getattr(config_loader.get_config, "cache_clear", None)
+    if clear is not None:
+        clear()
+
+
+@pytest.fixture(autouse=True)
+def fresh_configuration() -> Iterator[None]:
+    """Start and end every test with no configuration cached.
+
+    One test's ``DATAMAX_DPL___`` variable would otherwise stay cached for whichever test runs next
+    with the same arguments, so results would depend on the order: a shuffled run sent a byte
+    comparison test the image module another test had set.
+    """
+    _clear_config_cache()
+    yield
+    _clear_config_cache()
 
 
 @pytest.fixture(autouse=True)

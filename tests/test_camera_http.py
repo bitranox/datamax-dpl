@@ -417,7 +417,12 @@ def test_a_camera_dripping_what_http_client_reads_inside_one_call_is_cut_off(
 def test_an_image_with_no_length_cut_off_by_the_deadline_is_not_stored(tmp_path: Path) -> None:
     """Such a body simply ends when its socket does, so an end here must not read as a whole image."""
     answer = _OK_HEAD + b"Connection: close\r\n\r\n" + TINY_PNG[:10]
-    with _RawCamera(answer, then_close=False) as raw, pytest.raises(CameraError, match=r"within 1 s"):
+    # The socket timeout and the deadline are both 1 s here, so on a loaded machine either may fire
+    # first; what matters is that nothing is stored, and the dripping tests pin the deadline's message.
+    with (
+        _RawCamera(answer, then_close=False) as raw,
+        pytest.raises(CameraError, match=r"within 1 s|before it was complete"),
+    ):
         capture_with_http(CameraSettings(kind=CameraKind.HTTP, url=raw.url, timeout=1.0), stem=tmp_path / "s")
     assert list(tmp_path.iterdir()) == []
 

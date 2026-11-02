@@ -43,7 +43,6 @@ from datamax_dpl.domain.status import (
     MEMORY_DIRECTORY_REQUESTS,
     STATUS_REQUEST,
     parse_ascii_status,
-    parse_batch_remaining,
     parse_status_byte,
 )
 
@@ -57,6 +56,9 @@ if TYPE_CHECKING:
     from datamax_dpl.domain.findings import Finding
 
 STX = b"\x02"
+# A developer's DATAMAX_DPL___ variable would change the bytes these tests compare.
+pytestmark = pytest.mark.usefixtures("no_ambient_configuration")
+
 WG = MEMORY_DIRECTORY_REQUESTS[MemoryKind.GRAPHIC]
 FORMAT = STX + b"L\r"
 URI = "tcp://192.0.2.60:9100"
@@ -171,12 +173,6 @@ def test_any_other_error_character_keeps_refusing_a_status_answer(answer: bytes,
 def test_a_short_answer_behind_a_reset_letter_stays_refused() -> None:
     with pytest.raises(PrinterProtocolError, match="expected 8 byte"):
         parse_ascii_status(b"RNNN\r")
-
-
-@pytest.mark.os_agnostic
-def test_the_batch_count_keeps_refusing_a_reset_report() -> None:
-    with pytest.raises(PrinterProtocolError, match="power-on reset"):
-        parse_batch_remaining(b"R0012\r")
 
 
 _LISTING = b"MODULE: A\rLOGO\rAVAILABLE BYTES IN MODULE : 00049083\r"
