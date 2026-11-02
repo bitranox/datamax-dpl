@@ -292,6 +292,10 @@ All notable changes to this project are documented here. The format follows
 - A `counter` `fill` takes printable ASCII only: a `<CR>` split the counter
   record, `<SOH>` and `<STX>` went out raw, and a euro sign raised
   `UnicodeEncodeError`.
+- `config` shows a password in the `[camera] url`
+  (`http://USER:PASSWORD@HOST/...`) as `***REDACTED***`, in human and JSON
+  output and for `--section camera` and `--section camera.url`; it printed the
+  URL as written. The route and the redaction are in `CONFIG.md`.
 
 ## [0.4.0] - 2026-10-30
 

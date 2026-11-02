@@ -307,6 +307,24 @@ def apply_overrides(config: Config, raw_overrides: tuple[str, ...]) -> Config:
     return Config(merged_as_dict, provenance, NotSensitiveKeys.of(NOT_SENSITIVE))
 
 
+def with_data(config: Config, data: Mapping[str, object]) -> Config:
+    """A Config holding ``data`` with the provenance ``config`` records for the same keys.
+
+    Args:
+        config: The Config the values came from.
+        data: The values to hold, which may differ from ``config``'s without changing their source.
+
+    Returns:
+        A new Config carrying the declaration of what is not sensitive.
+
+    Example:
+        >>> cfg = Config({"s": {"k": 1}}, {"s.k": {"layer": "user", "path": None, "key": "s.k"}})
+        >>> with_data(cfg, {"s": {"k": 2}}).origin("s.k")["layer"]
+        'user'
+    """
+    return Config(data, _provenance_naming_the_cli(config, data, frozenset()), NotSensitiveKeys.of(NOT_SENSITIVE))
+
+
 __all__ = [
     "CLI_LAYER",
     "CoercedValue",
@@ -316,4 +334,5 @@ __all__ = [
     "coerce_value",
     "nest_overrides",
     "parse_override",
+    "with_data",
 ]

@@ -683,16 +683,16 @@ The `[camera]` section (shipped in `config.d/60-camera.toml`) names the camera `
 `verify` photograph labels with. `kind = "none"` (the default) means no camera; `capture` and
 `verify` then stop with exit 2.
 
-| Key              | Type            | Default  | Environment variable                   | Meaning                                                                                                    |
-|------------------|-----------------|----------|----------------------------------------|------------------------------------------------------------------------------------------------------------|
-| `kind`           | string          | `"none"` | `DATAMAX_DPL___CAMERA__KIND`           | `none`, `command` (run a program), `http` (fetch a snapshot URL) or `file` (newest image in a folder).     |
-| `command`        | list of strings | `[]`     | `DATAMAX_DPL___CAMERA__COMMAND`        | argv of the capture program for `command`; `{output}` is replaced by the image path. No shell is involved. |
-| `url`            | string          | `""`     | `DATAMAX_DPL___CAMERA__URL`            | Snapshot URL for `http`; the response body is the image.                                                   |
-| `user`           | string          | `""`     | `DATAMAX_DPL___CAMERA__USER`           | HTTP basic auth user for `http`.                                                                           |
-| `password`       | string          | `""`     | `DATAMAX_DPL___CAMERA__PASSWORD`       | HTTP basic auth password for `http`; shown as `***REDACTED***` by `config`.                                |
-| `directory`      | string          | `""`     | `DATAMAX_DPL___CAMERA__DIRECTORY`      | Folder watched for `file`; the newest image written after the print started is taken.                      |
-| `settle_seconds` | float, >= 0     | `1.0`    | `DATAMAX_DPL___CAMERA__SETTLE_SECONDS` | Wait after the printer reports it is done, so the label has stopped moving.                                |
-| `timeout`        | float, > 0      | `20.0`   | `DATAMAX_DPL___CAMERA__TIMEOUT`        | Seconds for one capture.                                                                                   |
+| Key              | Type            | Default  | Environment variable                   | Meaning                                                                                                                                                                             |
+|------------------|-----------------|----------|----------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `kind`           | string          | `"none"` | `DATAMAX_DPL___CAMERA__KIND`           | `none`, `command` (run a program), `http` (fetch a snapshot URL) or `file` (newest image in a folder).                                                                              |
+| `command`        | list of strings | `[]`     | `DATAMAX_DPL___CAMERA__COMMAND`        | argv of the capture program for `command`; `{output}` is replaced by the image path. No shell is involved.                                                                          |
+| `url`            | string          | `""`     | `DATAMAX_DPL___CAMERA__URL`            | Snapshot URL for `http`; the response body is the image. A password in it (`http://USER:PASSWORD@HOST/...`) is used when `user` is unset and shown as `***REDACTED***` by `config`. |
+| `user`           | string          | `""`     | `DATAMAX_DPL___CAMERA__USER`           | HTTP basic auth user for `http`.                                                                                                                                                    |
+| `password`       | string          | `""`     | `DATAMAX_DPL___CAMERA__PASSWORD`       | HTTP basic auth password for `http`; shown as `***REDACTED***` by `config`.                                                                                                         |
+| `directory`      | string          | `""`     | `DATAMAX_DPL___CAMERA__DIRECTORY`      | Folder watched for `file`; the newest image written after the print started is taken.                                                                                               |
+| `settle_seconds` | float, >= 0     | `1.0`    | `DATAMAX_DPL___CAMERA__SETTLE_SECONDS` | Wait after the printer reports it is done, so the label has stopped moving.                                                                                                         |
+| `timeout`        | float, > 0      | `20.0`   | `DATAMAX_DPL___CAMERA__TIMEOUT`        | Seconds for one capture.                                                                                                                                                            |
 
 A USB webcam through `fswebcam`, as a user configuration file
 `~/.config/datamax-dpl/config.d/999-myconfig.toml`:

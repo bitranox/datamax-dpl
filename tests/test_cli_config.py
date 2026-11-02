@@ -11,6 +11,7 @@ import pytest
 
 from datamax_dpl.adapters import cli as cli_mod
 from datamax_dpl.adapters.config import loader as config_mod
+from datamax_dpl.adapters.config.display import redact_url_password
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping
@@ -884,3 +885,90 @@ def test_when_the_user_config_file_is_unreadable_a_config_reading_command_exits_
     assert str(unreadable_user_config) in result.output
     assert "Permission denied" in result.output
     assert "Traceback" not in result.output
+
+
+# ======================== A password in the camera URL ========================
+
+_CAMERA_URL = "http://operator:urlPASS@192.0.2.9:8080/snap.jpg?x=1"
+_CAMERA_URL_SHOWN = "http://operator:***REDACTED***@192.0.2.9:8080/snap.jpg?x=1"
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["config"],
+        ["config", "--section", "camera"],
+        ["config", "--section", "camera.url"],
+        ["config", "--format", "json"],
+        ["config", "--format", "json", "--section", "camera"],
+        ["config", "--format", "json", "--section", "camera.url"],
+    ],
+)
+def test_config_redacts_the_password_in_the_camera_url(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    args: list[str],
+) -> None:
+    """A password in the URL is shown as camera.password is, in every view of the setting."""
+    factory = config_cli_context({"camera": {"url": _CAMERA_URL}})
+
+    result: Result = cli_runner.invoke(cli_mod.cli, args, obj=factory)
+
+    assert result.exit_code == 0
+    assert "urlPASS" not in result.output
+    assert _CAMERA_URL_SHOWN in result.output
+
+
+@pytest.mark.os_agnostic
+def test_a_set_camera_url_is_redacted_and_keeps_its_provenance(
+    cli_runner: CliRunner,
+    production_factory: Callable[[], Any],
+) -> None:
+    """Redacting the value does not change which layer the display says it came from."""
+    result: Result = cli_runner.invoke(
+        cli_mod.cli, ["--set", f"camera.url={_CAMERA_URL}", "config", "--section", "camera"], obj=production_factory
+    )
+
+    assert result.exit_code == 0
+    assert "urlPASS" not in result.output
+    assert "layer:cli" in result.output
+
+
+@pytest.mark.os_agnostic
+def test_debug_logging_does_not_carry_the_password_in_the_camera_url(
+    cli_runner: CliRunner,
+    production_factory: Callable[[], Any],
+) -> None:
+    """Neither stream of a verbose run holds it, so a pasted log is as safe as pasted config output."""
+    result: Result = cli_runner.invoke(
+        cli_mod.cli,
+        ["--set", "lib_log_rich.console_level=DEBUG", "--set", f"camera.url={_CAMERA_URL}", "config"],
+        obj=production_factory,
+    )
+
+    assert result.exit_code == 0
+    assert "urlPASS" not in result.stdout
+    assert "urlPASS" not in result.stderr
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("url", "shown"),
+    [
+        ("", ""),
+        ("http://192.0.2.9/snap.jpg", "http://192.0.2.9/snap.jpg"),
+        ("http://operator@192.0.2.9/snap.jpg", "http://operator@192.0.2.9/snap.jpg"),
+        ("http://operator:@192.0.2.9/", "http://operator:@192.0.2.9/"),
+        ("http://192.0.2.9:80/a:b@c", "http://192.0.2.9:80/a:b@c"),
+        ("http://192.0.2.9/?a=b:c@d", "http://192.0.2.9/?a=b:c@d"),
+        ("http://u:p@ss:w@192.0.2.9/", "http://u:***REDACTED***@192.0.2.9/"),
+        ("http://u:p%40ss@[2001:db8::1]:80/x", "http://u:***REDACTED***@[2001:db8::1]:80/x"),
+        ("http://u:p@[not-closed/x", "http://u:***REDACTED***@[not-closed/x"),
+        ("not a url at all", "not a url at all"),
+        ("//u:p@192.0.2.9/", "//u:***REDACTED***@192.0.2.9/"),
+    ],
+)
+def test_the_url_mask_changes_only_the_password(url: str, shown: str) -> None:
+    """The mask finds the password where the HTTP camera finds it and leaves every other part alone."""
+    assert redact_url_password(url) == shown

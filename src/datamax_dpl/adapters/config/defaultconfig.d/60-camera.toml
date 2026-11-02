@@ -37,7 +37,7 @@ kind = "none"
 command = []
 
 # Purpose: Snapshot URL for kind = "http"
-# Type: string
+# Type: string (a password in it, http://USER:PASSWORD@HOST/..., is redacted in 'config' output)
 # Default: ""
 # Environment Variable: DATAMAX_DPL___CAMERA__URL=http://192.0.2.70/snapshot.jpg
 url = ""
