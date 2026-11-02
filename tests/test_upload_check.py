@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import pytest
 from printer_server import ImageModules, ModulePrinter, module_printer, module_printer_closing
@@ -637,6 +637,67 @@ def test_a_record_in_error_once_rendered_from_the_names_read_first_is_refused_wi
         "it prints nothing; the label prints the stored image); nothing of it was sent"
     )
     assert [f.code for f in caught.value.findings] == [FindingCode.IMAGE_UPLOAD_RENDER_REFUSED]
+
+
+class _IconFromAnotherProgram(NamedTuple):
+    """Two records on a module holding record 1's halved name and an ICON no record of the batch sent."""
+
+    modules: ImageModules
+    renders: tuple[RenderResult, RenderResult]
+    job: CheckedJob
+    logo: str
+    icon: str
+
+
+def _icon_from_another_program(second: RenderOptions, *, silent: set[int]) -> _IconFromAnotherProgram:
+    """Record 1 sends LOGO full size, its reads get no answer, and it places the halved LOGO the module holds.
+
+    Record 2 downloads LOGO and ICON. ``silent`` decides which read first answers it: the names
+    read before its round 1, or those read again in its round 2. Only record 2 has ``second``:
+    with the batch's one severity at error, record 1's own held name stops the batch first.
+    """
+    first_label, second_label = Label(elements=[LOGO]), Label(elements=[LOGO, ICON])
+    [halved] = build_record(first_label, PLUG_IN_TWO_WAY, halve=True).result.downloads
+    logo, icon = render_label(second_label, PLUG_IN_TWO_WAY).downloads
+    held = HeldImages(listed=frozenset({halved}))
+    one = build_record(first_label, PLUG_IN_TWO_WAY, held=held)
+    return _IconFromAnotherProgram(
+        modules=ImageModules(held=[("B", halved, 128), ("B", icon, 512)], silent=silent),
+        renders=(one.result, build_record(second_label, second, held=one.held_after).result),
+        job=CheckedJob(
+            renders=(*record_renders(first_label, None, PLUG_IN_TWO_WAY), *record_renders(second_label, None, second)),
+            check=_check(),
+            held=held,
+        ),
+        logo=logo,
+        icon=icon,
+    )
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("silent", [{0, 1}, {0, 1, 2}], ids=["read-first", "read-again-in-round-2"])
+def test_a_name_no_round_sent_is_reported_held_whichever_read_lists_it(silent: set[int]) -> None:
+    """ICON was never sent by the batch, though record 2's render meant to until a read listed it.
+
+    So it is a name the printer holds that the label did not send: left out with ``image_name_held``.
+    LOGO, which record 1 sent, is left out with no finding: the job sent that very picture itself.
+    """
+    job = _icon_from_another_program(PLUG_IN_TWO_WAY, silent=silent)
+
+    sent = _print_batch(job.modules, job.renders, job.job)
+
+    second = sent.results[1]
+    assert [(f.element, f.severity) for f in second.findings if f.code is FindingCode.IMAGE_NAME_HELD] == [
+        (1, Severity.WARNING)
+    ]
+    assert job.icon in _message(second, FindingCode.IMAGE_NAME_HELD)
+    assert second.downloads == ()
+    rest = second.data[second.upload_end :]
+    assert job.logo.encode("ascii") in rest
+    assert job.icon.encode("ascii") in rest
+    assert job.modules.downloads == [job.logo]
+    assert job.modules.downloaded_held == []
+    assert job.modules.placed_missing == []
 
 
 @pytest.mark.os_agnostic

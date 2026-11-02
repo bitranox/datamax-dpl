@@ -357,11 +357,14 @@ class _Record:
 
         The one way a read's listing becomes what the printer holds: for an upload again where no
         clear went (no clear after the label either, then) and for the next label of a batch.
-        A name a round sent keeps the picture it sent: the render's own command for that name is
-        only what the label meant to download, which a round left out may never have sent.
+        A name a round sent keeps the picture it sent. The render's own commands are only what the
+        label meant to download, which a round left out never sent: a name only those give, once
+        listed, is one the printer held without this batch, not one the batch sent, so a label
+        rendered from the result reports it (``image_name_held``) instead of leaving it out silently.
         """
-        after = replace(self._rendered_after, sent={**self._rendered_after.sent, **self._sent})
-        return held_after_read(self.result, after, known)
+        rendered = self._rendered_after
+        carried = {name: command for name, command in rendered.sent.items() if name in self.held.sent}
+        return held_after_read(self.result, replace(rendered, sent={**carried, **self._sent}), known)
 
     def _held_before(self, known: frozenset[str]) -> HeldImages:
         """What the module held before the label once a read listed ``known``, each name sent before with its picture.
