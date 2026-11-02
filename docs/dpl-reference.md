@@ -190,7 +190,8 @@ link the upload check of `print` and `verify` catches that before the format goe
 may go it clears and uploads again, where none may go it uploads only the images the directory did
 not list (a name the module holds is never downloaded again, by that label or a later one of a
 `--data` batch; after a read with no answer it uploads none of the same names again, only halved
-images under new names), and it refuses the label rather than print it without the image. Only an `image` element without a `bitmap` that no element of the
+images under new names, and a later label of the batch that would first reads the names once
+more, placing at full size what the module then lists), and it refuses the label rather than print it without the image. Only an `image` element without a `bitmap` that no element of the
 label downloads names a printer image by its own `name`.
 
 Measured on an Allegro 2 (firmware CA02 03.04), not stated in the manual: the printer draws the

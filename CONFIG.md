@@ -523,7 +523,8 @@ does) and leave out the download of each name it holds; the label then prints th
 a one-way link cannot answer, so a file, stdout or a device file is not opened to ask; `C` is the
 default module, whose real letter a directory does not show; the printer did not answer within
 `stored_names_wait`; its answer did not list the job's module, which an answer cut short looks
-like) every image is downloaded and `image_names_unread` says so. A name the printer
+like; it answered `No Modules Available`, which the manual reads as a corrupt or worn-out module,
+not as an empty one) every image is downloaded and `image_names_unread` says so. A name the printer
 lists only in another letter case is another name: one Allegro 2 kept a name as it was sent and
 printed no image for a format naming it in another case. In a `--data` batch a name an earlier
 label downloaded is not downloaded again, and a different picture whose content name an earlier
@@ -545,14 +546,21 @@ sent, and the module is cleared again where allowed. Where no clear may go, each
 only the images the last read did not list: a name the module holds is never downloaded again,
 which would print nothing. Where that read got no answer, any name it followed may have arrived, so
 round 2, which would send the same names, is skipped, and round 3 runs only where halving gives
-every download a new name (a QR Code keeps its name); else the label is refused. Each label of a
-`--data` batch is checked on its own and tells the next one what its last read that answered
-listed (an empty module where a `<STX>q` follows the label), so no label downloads a name an
-earlier one stored. A name sent after a read with no answer, where no clear may go, may be held
-too: a later label that would download it again skips its first upload as round 2 is skipped and
-goes on with round 3. A label that, rendered again
-for a round or with what the labels before it left, has an error finding (too little image memory
-left, say) is refused there, before anything more of it goes out, and the batch stops. A one-way
+every download a new name (a QR Code keeps its name); else the label is refused. A round that,
+rendered again, has nothing left to download (every image it places is one the module holds)
+sends no upload and makes no read. Each label of a `--data` batch is checked on its own and tells
+the next one what its last read that answered listed, with every clear sent after that read
+applied, a round's clear as well as the clear after the label: an empty module after a `<STX>q`,
+the listing without the label's own names after the plain Prodigy's removes. So no label
+downloads a name an earlier one stored, and none places a name a clear took out, which would
+print without that image. A name sent after a read with no answer, where no clear may go, may be
+held too: a later label that would download it again first reads the names once more. With an
+answer it is rendered again from that listing (a listed image prints at full size, and a label
+left with nothing to download goes out with no further check) and its rounds go on as usual;
+with no answer it skips its first upload as round 2 is skipped and goes on with round 3. A label
+that, rendered again for a round, from the names read before its round 1, or with what the labels
+before it left, has an error finding (too little image memory left, say) is refused there,
+before anything more of it goes out, and the batch stops. A one-way
 link (a file, stdout, a device file) cannot read the directory and sends the job at once, as
 `render` writes it. A job that downloads into module `C` is refused on a two-way link before
 anything is sent (`image_module_unlisted`): the directory never lists the default module by that
@@ -576,8 +584,16 @@ connection, its read) + W for the connection of the clear after the refusal: 3 +
 = 183 s with the defaults, 3 + 2 x `upload_check_rounds` x W in general, and W more where the
 names are read before the job (the clear keys off). Where no clear may go (a plug-in module),
 round 2 is skipped after a read with no answer and the refusal sends nothing: W for the names
-read before the job + 3 + W + 2 W = 123 s. A batch can wait that long for each label it gets
-through, and the time the job's bytes take to go out comes on top.
+read before the job + 3 + W + 2 W = 123 s. A later label of a batch starts on the channel the
+label before it left open: W for round 1's read + 2 W for round 3 = 90 s. One that reads the
+names once more before its round 1 (it would download a name sent before a read with no answer,
+which happens only where no clear may go) adds that read, at most one W: with no answer there,
+round 1 is left out and it waits W + 2 W = 90 s, as above; with the answer arriving just before
+W runs out, it waits W + W for round 1's read + 2 W for round 3 = 4 x 30 = 120 s. On built-in
+RAM no label reads first. These figures count a read that answers as keeping its channel; a
+print server that closes it after the answer adds the new connection, up to W more. A batch can
+wait that long for each label it gets through, and the time the job's bytes take to go out comes
+on top.
 
 `max_format_rows` ships unset too. The Allegro 2 cuts a long format off; its model limit is 1648
 dot rows, about 201 mm at its default `scale_along`, the lowest row any test format was cut at on
