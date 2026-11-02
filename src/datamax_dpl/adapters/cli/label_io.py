@@ -102,9 +102,9 @@ def load_label(source: str) -> Label:
     return parse_label(read_input(source), source=source)
 
 
-def _as_record(row: object, *, source: str, number: int) -> dict[str, str]:
+def _as_record(row: object, *, where: str) -> dict[str, str]:
     if not isinstance(row, dict):
-        raise LabelInputError(f"{source} record {number} is not an object")
+        raise LabelInputError(f"{where} is not an object")
     mapping = cast("dict[object, object]", row)
     return {str(key): "" if value is None else str(value) for key, value in mapping.items()}
 
@@ -128,7 +128,7 @@ def _records_from_json_lines(data: bytes, source: str) -> Iterator[dict[str, str
             parsed: object = orjson.loads(raw)
         except orjson.JSONDecodeError as exc:
             raise LabelInputError(f"{source} line {number} is not JSON: {exc}") from None
-        yield _as_record(parsed, source=source, number=number)
+        yield _as_record(parsed, where=f"{source} line {number}")
 
 
 def _records_from_csv(data: bytes, source: str) -> Iterator[dict[str, str]]:
@@ -190,8 +190,8 @@ class Records:
             return _records_from_csv(self._data, self._source)
         if self._rows is None:
             return _records_from_json_lines(self._data, self._source)
-        rows = enumerate(self._rows, start=1)
-        return (_as_record(row, source=self._source, number=number) for number, row in rows)
+        # Counted from 0, as a finding's record is; a JSON line goes by its line in the file instead.
+        return (_as_record(row, where=f"{self._source} record {number}") for number, row in enumerate(self._rows))
 
     def __len__(self) -> int:
         """How many records were checked: all of them, unless the limit stopped it (see ``__init__``)."""

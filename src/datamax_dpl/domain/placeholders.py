@@ -8,7 +8,10 @@ A record is a flat mapping of field names to strings (one CSV row, one JSON obje
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, TypedDict, cast
+
+from pydantic import ValidationError
+from pydantic_core import InitErrorDetails, PydanticCustomError
 
 from ._invariants import require_update_fields
 from .errors import DatamaxDplError
@@ -16,6 +19,8 @@ from .label import MAX_FIELD_DATA, MAX_PDF417_DATA, MAX_QR_DATA, Barcode, Elemen
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+    from typing_extensions import LiteralString
 
 _TOKEN = re.compile(r"\{\{|\}\}|\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
@@ -44,7 +49,21 @@ require_update_fields(_ElementsUpdate, Label)
 
 
 class MissingFieldError(DatamaxDplError, LookupError):
-    """A placeholder names a field the data record does not have."""
+    """A placeholder names a field the data record does not have.
+
+    Attributes:
+        field: The field's name.
+    """
+
+    field: str = ""
+
+
+def _missing(name: str, *, record: int | None = None) -> MissingFieldError:
+    """The error for field ``name``, naming the record where the caller knows which it is."""
+    where = "data record" if record is None else f"data record {record}"
+    error = MissingFieldError(f"{where} has no field {name!r}")
+    error.field = name
+    return error
 
 
 def placeholders_in(text: str) -> list[str]:
@@ -99,8 +118,7 @@ def _token_value(match: re.Match[str], record: Mapping[str, str]) -> str:
     if name is None:
         return match[0][0]
     if name not in record:
-        msg = f"data record has no field {name!r}"
-        raise MissingFieldError(msg)
+        raise _missing(name)
     return str(record[name])
 
 
@@ -140,6 +158,38 @@ def fill_label(label: Label, record: Mapping[str, str]) -> Label:
     return Label.model_validate(label.model_copy(update=_ElementsUpdate(elements=elements))).marked_filled()
 
 
+def _numbered(error: ValidationError, record: int) -> ValidationError:
+    """The same validation failure with the record's number leading each error's location."""
+    # The custom error keeps each one's type and its message as written; the built-in types would
+    # need their context back in each one's own shape, for the same text.
+    details = [
+        InitErrorDetails(
+            type=PydanticCustomError(cast("LiteralString", found["type"]), cast("LiteralString", found["msg"])),
+            loc=(f"data record {record}", *found["loc"]),
+            input=found["input"],
+        )
+        for found in error.errors(include_url=False, include_context=False)
+    ]
+    return ValidationError.from_exception_data(error.title, details)
+
+
+def fill_record(label: Label, record: Mapping[str, str], *, number: int) -> Label:
+    """Fill ``label`` as :func:`fill_label` does, for record ``number`` of a batch, counted from 0.
+
+    One bad row in a large file is what a reader must be able to find, so a failure names it.
+
+    Raises:
+        MissingFieldError: A placeholder has no value in ``record``; the message names ``number``.
+        pydantic.ValidationError: A filled field breaks a limit; each location starts with ``number``.
+    """
+    try:
+        return fill_label(label, record)
+    except MissingFieldError as exc:
+        raise _missing(exc.field, record=number) from None
+    except ValidationError as exc:
+        raise _numbered(exc, number) from None
+
+
 def label_placeholders(label: Label) -> list[str]:
     """Return every distinct placeholder name the label uses, in first-seen order."""
     names: list[str] = []
@@ -154,4 +204,4 @@ def label_placeholders(label: Label) -> list[str]:
     return names
 
 
-__all__ = ["MissingFieldError", "fill_label", "fill_text", "label_placeholders", "placeholders_in"]
+__all__ = ["MissingFieldError", "fill_label", "fill_record", "fill_text", "label_placeholders", "placeholders_in"]

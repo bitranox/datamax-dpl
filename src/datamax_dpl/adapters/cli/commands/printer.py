@@ -33,7 +33,7 @@ from ....domain.enums import FindingCode, ImageModule, MemoryKind, Severity, Sta
 from ....domain.errors import CameraError, PreviewTooLongError
 from ....domain.held_images import HeldImages
 from ....domain.memory import NO_MODULES_MEANING, MemoryDirectory
-from ....domain.placeholders import fill_label
+from ....domain.placeholders import fill_record
 from ....domain.preview import canvas_for, check_preview_length
 from ....domain.profiles import get_profile
 from ....domain.render import RenderResult
@@ -549,7 +549,7 @@ def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | 
         settings = resolve_settings(cli_ctx, PrinterOverrides(model=model))
         label = load_label(label_source)
         if data is not None:
-            label = fill_label(label, next(iter(load_records(data))))
+            label = fill_record(label, next(iter(load_records(data))), number=0)
         profile = get_profile(settings.model)
         options = render_options(settings)
         limit = _preview_limit(cli_ctx)

@@ -382,7 +382,9 @@ datamax-dpl --json validate examples/product-label.json --model allegro --policy
 The real answer is indented one value per line; each finding is shown on one line here. A `--data`
 batch keeps the first findings and image names (`[printer] max_reported_findings`,
 `max_reported_downloads`, 1000 each); `findings_total`, `findings_by_code` and `downloads_total`
-count all of them, and `report_note` says what was cut and which key shows more. When the
+count all of them, and `report_note` says what was cut and which key shows more. A record number
+counts from 0, in a finding's `record` and in every message (`data record 7`); only a JSON line's own
+parse error goes by its line in the file. When the
 command cannot run at all, the envelope carries `error` (the exception type) and `message`
 instead of `data`.
 

@@ -48,7 +48,7 @@ from ..domain.findings import Finding
 from ..domain.held_images import DEFAULT_MODULE_UNREAD, HeldImages, held_images_from
 from ..domain.label import Cut, Label
 from ..domain.memory import MemoryDirectory, parse_module_directory
-from ..domain.placeholders import fill_label
+from ..domain.placeholders import fill_record
 from ..domain.render import RenderedRecord, RenderResult, build_job, build_record, iter_jobs
 from ..domain.reset_label import calibration_job
 from ..domain.status import (
@@ -232,9 +232,9 @@ def _entries(
     lasts: list[bool] = []
 
     def labels() -> Iterator[Label]:
-        for record, last in _with_last(records):
+        for number, (record, last) in enumerate(_with_last(records)):
             lasts.append(last)
-            yield fill_label(batch_label.per_record, record)
+            yield fill_record(batch_label.per_record, record, number=number)
 
     for number, result in enumerate(iter_jobs(labels(), options, held=held), start=1):
         yield BatchEntry(result=result, cut_after=plan.follows(number, last=lasts.pop()))
@@ -405,7 +405,10 @@ class BatchReport:
         """How to render each label for a checked send (``CheckedJob.renders``), one at a time."""
         job = self._job()
         per_record = _batch_label(job.label).per_record
-        return (_RecordFillRender(label=per_record, record=record, options=job.options) for record in job.records)
+        return (
+            _RecordFillRender(label=per_record, record=record, number=number, options=job.options)
+            for number, record in enumerate(job.records)
+        )
 
     def cuts(self) -> Iterator[bool]:
         """For each record in turn, whether a batch cut follows it."""
@@ -625,9 +628,12 @@ def record_renders(
     if records is None:
         return (_LabelRender(label=label, options=options),)
     per_record = _batch_label(label).per_record
-    for record in records:
-        fill_label(per_record, record)
-    return tuple(_RecordFillRender(label=per_record, record=record, options=options) for record in records)
+    for number, record in enumerate(records):
+        fill_record(per_record, record, number=number)
+    return tuple(
+        _RecordFillRender(label=per_record, record=record, number=number, options=options)
+        for number, record in enumerate(records)
+    )
 
 
 @dataclass(frozen=True)
@@ -652,15 +658,19 @@ class _RecordFillRender:
 
     label: Label
     record: Mapping[str, str]
+    number: int
     options: RenderOptions
+
+    def _filled(self) -> Label:
+        return fill_record(self.label, self.record, number=self.number)
 
     def __call__(self, held: HeldImages, *, halve: bool) -> RenderedRecord:
         """Fill the label and render it for what the printer holds, its images halved when ``halve``."""
-        return build_record(fill_label(self.label, self.record), self.options, held=held, halve=halve)
+        return build_record(self._filled(), self.options, held=held, halve=halve)
 
     def calibration(self, text: str) -> RenderResult:
         """Fill the label and render the calibration label for it."""
-        return calibration_job(fill_label(self.label, self.record), self.options, text=text)
+        return calibration_job(self._filled(), self.options, text=text)
 
 
 def _unread_module(result: RenderResult | BatchResult | BatchReport) -> ImageModule | None:
