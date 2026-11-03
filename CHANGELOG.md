@@ -6,32 +6,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Removed
-
-- The camera verification, which was never tested with a real camera: the `verify` and `capture` commands, the camera
-  adapters (`command`, `http`, `file`) and the `[camera]` settings with their `config.d/60-camera.toml`, which
-  `config-deploy` no longer writes.
-- `[printer]` and `[printers.<name>]` keys `verify_poll_interval` and `one_way_settle` (and their
-  `DATAMAX_DPL___PRINTER__...` variables), which only `verify` read. A configuration that still sets one is refused
-  naming the key; delete it.
-- A leftover `[camera]` section, a deployed `config.d/60-camera.toml` or a `DATAMAX_DPL___CAMERA__...` variable is
-  ignored and can be deleted. `config` no longer masks a password or token inside a leftover `camera.url`; only a key
-  named like a secret, such as `camera.password`, stays redacted.
-- Library: `datamax_dpl.CameraError` and `datamax_dpl.MediaType` (also `domain.errors.CameraError` and
-  `domain.enums.MediaType`); `application.verify` (`verify_print`, `VerifyReport`, `IdleWait`, `check_idle_wait`,
-  `wait_idle`, `POLL_SECONDS`, `ONE_WAY_SETTLE_SECONDS`); `domain.camera` (`CameraSettings`, `CameraKind`,
-  `CapturedImage`, `OUTPUT_PLACEHOLDER`, `refuse_boolean`); `adapters.camera` (`capture_image`, `require_camera`,
-  `capture_with_command`, `capture_with_http`, `capture_from_directory`, `CAPTURE_STAMP_FORMAT`, and in its submodules
-  `MEDIA_TYPE_BY_SUFFIX`, `MEDIA_TYPE_BY_CONTENT_TYPE`, `EXTENSION_BY_MEDIA_TYPE`, `MAX_IMAGE_BYTES`, `StoredImage`,
-  `DEFAULT_EXTENSION`, `STDERR_TAIL_CHARS`, `MTIME_GRACE_SECONDS`, `POLL_INTERVAL_SECONDS`);
-  `adapters.memory.FakeCamera` (and `adapters.memory.camera` with `JPEG_SIGNATURE`, `PNG_SIGNATURE`, `TINY_PNG`);
-  `application.ports.CaptureImage`, `AppServices.capture_image` and the `camera` argument of `build_testing`;
-  `adapters.cli.settings.camera_settings`; `adapters.config.sections.CAMERA_SECTION` and `ConfigSection.CAMERA`;
-  `adapters.config.display.redact_url_secrets`; `adapters.config.overrides.with_data`;
-  `domain.timing.TimeoutName.POLL_INTERVAL`; `PrinterSettings.verify_poll_interval` and
-  `PrinterSettings.one_way_settle`.
-
-## [0.5.0] - 2026-11-03
+## [0.6.0] - 2026-11-03
 
 ### Added
 
@@ -89,17 +64,17 @@ All notable changes to this project are documented here. The format follows
   `Support` and `UndescribedBit`. `CalibrationKey.scale` and `.offset` take an `Axis` or its value.
 - `docs/label-spec.md` lists the QR Code sizes and how they scanned on an Allegro 2.
 - A calibration label after a printer reset. Before the first label of a
-  two-way `print`, `print --data`, `verify` or `print_checked`, the job reads
-  `<SOH>A` once within `[printer] reset_check_wait` (default 3 s); no answer
-  means nothing. On `R` or `T` in front of the answer, with `[printer]
-  calibrate_after_reset` (default true), one label goes first: the job's
-  printer settings and size, `[printer] calibration_label_text` (default
+  two-way `print`, `print --data` or `print_checked`, the job reads `<SOH>A`
+  once within `[printer] reset_check_wait` (default 3 s); no answer means
+  nothing. On `R` or `T` in front of the answer, with
+  `[printer] calibrate_after_reset` (default true), one label goes first: the
+  job's printer settings and size, `[printer] calibration_label_text` (default
   `Printer Reset - Calibration Feed`) in the middle (`printer_reset_calibrated`,
   info). With the key off the reset is only reported
   (`printer_reset_not_calibrated`). A `status` or `memory` run before the job
   takes the report, and a one-way link cannot see a reset; CONFIG.md has the
   detail. Library: `ResetCheck`, `CheckedJob.reset` (None asks nothing),
-  `RecordRender.calibration`. `verify --json` now carries `findings`.
+  `RecordRender.calibration`.
 - `print_checked(job, checked, endpoint=PrinterEndpoint(uri=..., timeout=...,
   open_printer=...))`, `CheckedJob`, `UploadCheck`, `AnswerWait`, `PrinterEndpoint`,
   `record_renders`, `PrinterTransport`, `TransportTuning`, `HeldImages`,
@@ -128,7 +103,7 @@ All notable changes to this project are documented here. The format follows
   records in a 2 MB file took 96 s and 4.3 GB.
 - `DatamaxDplError`, exported from the package root, is the base of every exception the package raises;
   `UnknownModelError`, `MissingFieldError`, `QrDataTooLongError` and `PreviewTooLongError` have `LookupError` or
-  `ValueError` as a second base. `AnswerNotEndedError`, `CameraError`, `InvalidLoggingConfigError`,
+  `ValueError` as a second base. `AnswerNotEndedError`, `InvalidLoggingConfigError`,
   `PrinterProtocolError`, `UnsupportedOperationError` and `UploadRefusedError` can now be imported from the root as
   well. The README states the contract.
 - `[printer] status_wait` (default 30 s, at most 2147483 s) and `status_retry_interval` (0.25 s), also per named
@@ -142,9 +117,9 @@ All notable changes to this project are documented here. The format follows
   quotes the last failure and names `status_wait` and `--timeout`. `TransportError.unanswered` marks the failures that
   may be retried, and `TransportError.reason` is the message without the transport's advice;
   `application.use_cases.AnswerWait` carries the wait for library callers.
-- Upload check on a two-way link: `print` and `verify` send each label that
-  downloads an image in two parts on one connection, its settings, clear and
-  downloads first, then its format, cut and clear after only once the
+- Upload check on a two-way link: `print` sends each label that downloads an
+  image in two parts on one connection, its settings, clear and downloads
+  first, then its format, cut and clear after only once the
   printer's graphic directory (`<STX>W`) lists every name the label
   downloaded. A download into a full module is lost with no error, and how
   much of a module an image takes depends on its content, so no count made
@@ -166,8 +141,8 @@ All notable changes to this project are documented here. The format follows
   (`image_module_unlisted`, error): no directory lists the default module by
   that letter. A one-way link (a file, stdout, a device file) and
   `render`/`validate` never check. As the check reads what the printer stored,
-  `print` and `verify` on a two-way link leave the model's image memory budget
-  out and send images at full size (`image_budget_skipped`, info, says when
+  `print` on a two-way link leaves the model's image memory budget out and
+  sends images at full size (`image_budget_skipped`, info, says when
   the budget would have halved them); a value set in `image_memory_bytes`
   still applies. The longest a label waits before `image_upload_refused`, with
   W for `stored_names_wait` and R for `reset_check_wait`, is
@@ -188,8 +163,8 @@ All notable changes to this project are documented here. The format follows
   upload check runs before `image_upload_refused`. 1 uploads and reads once, 2
   adds the clear and the second upload, 3 the halved upload.
 - `[printer] stored_names_wait` (default 30 s, more than 0, at most 2147483
-  s): how long `print` and `verify` keep trying for each read of the printer's
-  stored image names, before each label's downloads no clear precedes and in
+  s): how long `print` keeps trying for each read of the printer's stored
+  image names, before each label's downloads no clear precedes and in
   every round of the upload check, pausing `status_retry_interval` between two connections (a refused connect
   within one opening is retried by `refused_connect_wait` and
   `refused_connect_retry_interval`). The
@@ -197,10 +172,10 @@ All notable changes to this project are documented here. The format follows
   answer comes on top. `--timeout` leaves it.
 - `[printer] held_image_severity` (`info`, `warning` or `error`, default
   `warning`). Where no clear precedes a label's downloads (a module that is
-  not the model's built-in RAM, a model that can clear nothing), `print` and
-  `verify` read the printer's stored graphic names right before each such
-  label's downloads, on the job's own connection, and leave out the download
-  of each name it holds (`image_name_held`); where the names cannot be read a
+  not the model's built-in RAM, a model that can clear nothing), `print` reads
+  the printer's stored graphic names right before each such label's
+  downloads, on the job's own connection, and leaves out the download of each
+  name it holds (`image_name_held`); where the names cannot be read a
   single label downloads every image (`image_names_unread`). Nothing is kept
   from one label of a batch to the next: the printer may have been reset, or
   another program may have printed, in between, so a label whose image an
@@ -230,12 +205,6 @@ All notable changes to this project are documented here. The format follows
   largest piece of a job one write over tcp or serial takes. `timeout` bounds
   each piece, so it means the printer took no data for that long; 0.4.0 wrote
   64 KiB pieces over tcp and the whole job in one write over serial.
-- `[printer] verify_poll_interval` (default 0.5 s, more than 0, at most
-  2147483 s): seconds between a busy answer and the next status poll while
-  `verify` waits for the printer to finish its job; fixed at 0.5 s in 0.4.0.
-- `[printer] one_way_settle` (default 5 s, 0 to 2147483 s): seconds `verify`
-  waits after sending, instead of polling, on a channel that cannot read
-  status (a file, a device file); fixed at 5 s in 0.4.0.
 - Every `[printer]` key this release adds is read from a `[printers.<name>]` section and its environment variables as
   well. A bad value is refused naming its key, `printer.<key>: ...` or `printers.<name>.<key>: ...` (for example
   `printer.upload_check_rounds: Input should be less than or equal to 3`), with exit 2, by every command that reads
@@ -246,8 +215,7 @@ All notable changes to this project are documented here. The format follows
   `CounterSign` and `ValidationErrorType`, `domain.profiles.CalibrationKey`
   and `CalibrationDefaults.value(key)`, `BatchResult.joined(results, *,
   batch_findings=(), cut_after=())`, and `adapters.config.sections`
-  (`ConfigSection`, `SectionPath`, `printer_section`, `PRINTER_SECTION`,
-  `CAMERA_SECTION`).
+  (`ConfigSection`, `SectionPath`, `printer_section`, `PRINTER_SECTION`).
 - Library: the enums `ImageModule` (`A` to `E`) and `PrinterStop` (its one
   member `printer`, which `Label.stop_position` and
   `RenderOptions.stop_position_mm` hold after validation) import from
@@ -261,10 +229,9 @@ All notable changes to this project are documented here. The format follows
   `preview_text_approximated` (info) when the label has text and Pillow is
   not installed, else none.
 - `[preview] max_length_mm` (default 2000.0, above 0, at most 100000): `preview` refuses a label whose picture would
-  be longer than this either way, exit 2, before drawing it, and `verify` before printing it; `render_preview_png`
-  takes `max_length_mm` and raises `PreviewTooLongError`, exported from `datamax_dpl`, and `check_preview_length`
-  raises `ValueError` for a limit that is not a finite length. A height of 100000 mm took 118 s and 1.47 GB, and 1e9
-  raised `MemoryError`.
+  be longer than this either way, exit 2, before drawing it; `render_preview_png` takes `max_length_mm` and raises
+  `PreviewTooLongError`, exported from `datamax_dpl`, and `check_preview_length` raises `ValueError` for a limit that
+  is not a finite length. A height of 100000 mm took 118 s and 1.47 GB, and 1e9 raised `MemoryError`.
 - `UnknownModelError`, `MissingFieldError`, `ConfigurationError` and
   `PrinterTimeoutError` can be imported from `datamax_dpl`.
 
@@ -287,11 +254,10 @@ All notable changes to this project are documented here. The format follows
   `datamax-dpl memory` list the content names. An image a 0.4.0 job left on a module no clear empties is not
   recognised by its old name and is downloaded once more: it costs module memory, never a wrong picture. On a nearly
   full module that is never cleared that download can be lost with no error, and the label then prints without the
-  image; on a two-way link the upload check of `print` and `verify` catches that before the format goes out.
+  image; on a two-way link the upload check of `print` catches that before the format goes out.
 - The `allegro-2` model's tear-off `stop_position` is 66.8 mm, sent as `<STX>f263`; 0.4.0 used 67.4 mm (`<STX>f265`).
-- `--timeout` on `status`, `memory` and `verify` is now the whole wait for the printer, retries included, in place of
-  `status_wait`; before, it bounded one connect and one answer wait. `verify` waits `status_wait` (30 s) in all for
-  the printer to finish its job, where 0.4.0 waited `timeout` (10 s). Without `wait`, `query_status` and
+- `--timeout` on `status` and `memory` is now the whole wait for the printer, retries included, in place of
+  `status_wait`; before, it bounded one connect and one answer wait. Without `wait`, `query_status` and
   `read_memory_directory` keep trying for the endpoint's timeout in all.
 - A QR Code with text outside ASCII now holds UTF-8. Before, segno chose Latin-1 or Shift JIS X 0213 with no marker
   and the reader guessed: the zxing-cpp decoder read a degree sign as a half-width katakana and a run of `ä` as CJK
@@ -308,9 +274,9 @@ All notable changes to this project are documented here. The format follows
   `status --json` shows it as a field with exit 0, `memory --json` per
   directory, and the human output names it. The other error characters still
   refuse, and `<SOH>E` keeps refusing a reset report.
-- A number in the `[printer]`, `[printers.<name>]`, `[camera]` or `[preview]`
-  section refuses a boolean (`printer.timeout: needs a number, got true`),
-  which used to read as 1 or 0: `timeout = true` was a 1 second timeout, and
+- A number in the `[printer]`, `[printers.<name>]` or `[preview]` section
+  refuses a boolean (`printer.timeout: needs a number, got true`), which used
+  to read as 1 or 0: `timeout = true` was a 1 second timeout, and
   `offset_along = false` beat the model's own default. Numeric text stays
   accepted, because `.env` delivers `1.50` as text. `label_width` and
   `label_height` now stop at 100000 too.
@@ -323,8 +289,8 @@ All notable changes to this project are documented here. The format follows
   refused with `needs a whole number`. An integer for a length
   stays fine. `{name}` placeholders fill text and `data` only, so `--data` is
   not affected.
-- A key the `[printer]`, `[printers.<name>]`, `[camera]` or `[preview]` section does not declare is now refused naming
-  it, a `name` key included (`printer.timout: Extra inputs are not permitted`, exit 2), and so is a section that is no
+- A key the `[printer]`, `[printers.<name>]` or `[preview]` section does not declare is now refused naming it, a
+  `name` key included (`printer.timout: Extra inputs are not permitted`, exit 2), and so is a section that is no
   table (`printer = 5`). Both were dropped silently, so a typo left the setting at its default. A named printer's
   section is checked when that printer is chosen.
 - A printer that refuses every connection, or that cannot be connected to in
@@ -388,8 +354,8 @@ All notable changes to this project are documented here. The format follows
 - Library: read-only mappings in place of dicts. `PrinterProfile.features` is
   a `FrozenMapping` (assigning raises `TypeError`, and `dataclasses.asdict`
   keeps it a `FrozenMapping`); `domain.enums.SPEED_IPS`,
-  `domain.symbology.SYMBOLOGY_CODES` and `SYMBOLOGY_BY_IDENTIFIER` and
-  `adapters.camera.file.MEDIA_TYPE_BY_SUFFIX` are read-only.
+  `domain.symbology.SYMBOLOGY_CODES` and `SYMBOLOGY_BY_IDENTIFIER` are
+  read-only.
 - Library: `domain.memory.MemoryModule` holds the module letter in `letter`
   (the constructor takes `letter=`, and still `module=`), and
   `MemoryModule.module` is a read-only property, an `ImageModule` or None for
@@ -413,11 +379,6 @@ All notable changes to this project are documented here. The format follows
   `application.ports.SetPrinterValues` and
   `adapters.config.user_edit.write_printer_values` and
   `set_user_printer_values` take are keyed by `CalibrationKey`.
-- Library: `adapters.camera.capture_with_http`, `capture_with_command` and
-  `capture_from_directory` return `adapters.camera.stored.StoredImage`
-  (`path`, `media_type`), not a `Path`; `adapters.camera.http` has
-  `MEDIA_TYPE_BY_CONTENT_TYPE` and `EXTENSION_BY_MEDIA_TYPE` in place of
-  `EXTENSION_BY_CONTENT_TYPE`.
 - Library: named records in place of tuples in the adapters:
   `adapters.config.overrides.nest_overrides` returns `NestedOverrides`
   (`tree`, `keys`); `adapters.cli.config_load.load_config` returns, and
@@ -428,20 +389,13 @@ All notable changes to this project are documented here. The format follows
   `timeout`). The CLI's command helpers take typed values: `PrinterOverrides`
   for `resolve_settings` and `labels.build`, `CommandName` for `run_command`
   and `report_failure`.
-- A library caller of `verify_print` with no camera is told
-  `CameraSettings.kind is none`, not a config section it may not have; the CLI
-  still names `[camera] kind`.
 - The module-level tables `FONT_BYTES`, `SYMBOL_SET_CODECS`, `MODEL_PROFILES`
   and `PROFILES` are read-only `Mapping`s: a caller that wrote to one changed
   it for the whole process.
 - Library: `send_bytes`, `print_result`, `send_command`, `query_status`, `read_memory_directory` and `detect_printer`
-  in `application.use_cases`, and `verify_print` and `wait_idle` in `application.verify`, take the printer as one
-  value, `endpoint=PrinterEndpoint(uri=..., timeout=..., open_printer=...)` (exported from `datamax_dpl`), in place of
-  their `uri`, `timeout` and `open_printer` keywords; `wait_idle` takes an `IdleWait` in place of `timeout`, `sleep`
-  and `clock`.
-- Library: `verify_print` takes the model from `options` and has lost its `profile` and `clock` parameters: a profile
-  for another model drew the wrong expected picture. A `checked` job that is not exactly one label is refused with
-  `ConfigurationError` before anything is printed.
+  in `application.use_cases` take the printer as one value,
+  `endpoint=PrinterEndpoint(uri=..., timeout=..., open_printer=...)` (exported from `datamax_dpl`), in place of their
+  `uri`, `timeout` and `open_printer` keywords.
 - Library: `render_preview_png`, `domain.preview.preview_bitmap` and `canvas_for` take the job's `RenderOptions` as
   `options=` (refusing options for another model), so a configured scale or offset reaches the picture;
   `preview_bitmap` takes `masks`. `domain.preview.Canvas` holds the geometry, and `Canvas.dots(value)` became
@@ -480,20 +434,15 @@ All notable changes to this project are documented here. The format follows
   readable job on Windows, where the stream turns each newline into two characters.
 - `explain` lists what is wrong in words (`record cut short`, `setting not understood`), not as a Python class name.
 - `docs/label-spec.md` states its limits for filled values per kind, and names the one example `validate` refuses.
-- `config` shows secrets in the `[camera] url` as `***REDACTED***`, in human and JSON output and for `--section
-  camera` and `--section camera.url`: the password (`http://USER:PASSWORD@HOST/...`), a lone user name, and the value
-  of a query or fragment parameter whose name holds `pass`, `pwd`, `secret`, `token`, `key`, `auth`, `sig`, `cred` or
-  `session`, after `;` or with a percent-encoded name too. It printed the URL as written. A token in the path still
-  shows. The route and the redaction are in `CONFIG.md`.
 - `device:` and `file:` printers keep to `timeout` on POSIX: a stalled device or a FIFO nobody reads hung for ever,
   and so did a device whose write keeps returning 0. Each piece of a job waits under `select`, and a FIFO with no
   reader is refused at once. A write that fails says how much of the job went out. On Windows, and on `-` everywhere,
   no timeout applies to a write.
-- `print`, `verify` and `render -o -` now say why in human mode: errors on a refusal, warnings and errors on success,
-  on stderr where the job owns stdout. Before, a refusal printed `REFUSED` with no reason, and `render -o -` nothing.
-- Control characters from a label file, a printer or a camera no longer reach the terminal raw: C0, DEL and C1 print
-  as `\xNN`, line separators and bidi controls as `\uNNNN`, in the error line and every human view (a `memory` name,
-  an unknown label key, a reason phrase). The error line also escapes newline and tab, so that a label key or a file
+- `print` and `render -o -` now say why in human mode: errors on a refusal, warnings and errors on success, on stderr
+  where the job owns stdout. Before, a refusal printed `REFUSED` with no reason, and `render -o -` nothing.
+- Control characters from a label file or a printer no longer reach the terminal raw: C0, DEL and C1 print as
+  `\xNN`, line separators and bidi controls as `\uNNNN`, in the error line and every human view (a `memory` name, an
+  unknown label key, a reason phrase). The error line also escapes newline and tab, so that a label key or a file
   name cannot forge a line after it; so do the `config` command's own error lines (a `--section` name, a
   problem loading the configuration).
 - A refused `render` with no `-o` answers with no job: the envelope's `dpl` and `dpl_base64` are null.
@@ -501,7 +450,6 @@ All notable changes to this project are documented here. The format follows
   and `data record 7` first in a `ValidationError`'s location. A JSON line still goes by its line in the file.
 - A printer that keeps sending no longer holds up a request: what is dropped before one stops at 1 MiB.
 - `LabelRejectedError` from `print_result` carries the job's error findings; it carried none.
-- A camera URL whose path is not ASCII gives `CameraError` instead of `UnicodeEncodeError`.
 - `preview` refuses more fields than the model's format takes, as `render` does, before it letters any, and letters
   only what lands on the canvas: 399 text fields of 255 characters at 24 times the size took more than 6.7 GB and 281
   s, and now take about a second. `render_preview_png` names the field limit under `Raises`.
@@ -546,21 +494,14 @@ All notable changes to this project are documented here. The format follows
   `--destination` or `--section` no longer prints logging stacks.
 - `calibrate set` reads a config file that starts with a byte order mark, and
   a file it cannot read or write is a `ConfigurationError` naming that file.
-- The HTTP camera's `timeout` holds for the whole capture: dripped headers or
-  chunk sizes ran past it without bound, and it now shuts the socket at the
-  deadline (a TLS handshake is still bound per receive only). A body shorter
-  than its `Content-Length` is refused; it was stored and reported as a good
-  photo. A malformed camera URL and a NUL in a camera command's argument are
-  `CameraError`s, and an interrupt sent to this process alone ends the camera
-  program too.
 - Ctrl-C exits 130 with one line on stderr and, under `--json`, an error envelope naming the command; for a command
-  that sends (`print`, `verify`, `calibrate print`, `reset`, `cancel`, `pause`, `feed`, `cut`) the line says part of a
+  that sends (`print`, `calibrate print`, `reset`, `cancel`, `pause`, `feed`, `cut`) the line says part of a
   job may already have been sent. It exited 1, which reads as a refusal with nothing printed. Ctrl-Break on Windows
   does the same; it ended the process at once with no message. An interrupted `--data` batch writes no job, on every
   route, also where a library swallows the Ctrl-C while a record is filled.
 - The printer URI `-` keeps standard output to the job: `--json` and
-  `--json-bare` refuse it on `print`, `verify`, `calibrate print` and the
-  single printer commands, as `render -o -` does, and the human text goes to
+  `--json-bare` refuse it on `print`, `calibrate print` and the single
+  printer commands, as `render -o -` does, and the human text goes to
   stderr. A malformed printer URI is a `ConfigurationError` on the command
   line too (it was a plain `ValueError` there). `preview -o -` is refused; it
   wrote a file named `-`.
@@ -571,9 +512,6 @@ All notable changes to this project are documented here. The format follows
   minute and ended in `MemoryError`.
 - `explain` reports a record whose width or height byte is no multiplier as a
   problem; a byte such as `0xDF` raised `TypeError` out of it.
-- A camera that answers with anything but a usable image no longer leaves its
-  socket to the garbage collector; `capture_with_http` closes the response on
-  every route.
 - `check_timeout` (and so `open_printer`) refuses a timeout too large for a
   float with its documented `ValueError`; `10**400` escaped as
   `OverflowError`.
@@ -584,10 +522,8 @@ All notable changes to this project are documented here. The format follows
   before the file is touched.
 - A host name with an empty or over-long label (`tcp://a..b:9100`, a
   64-character label, more than 253 characters in all) is refused with
-  `ConfigurationError` when the printer is opened, and a camera URL nothing
-  can connect to (`http://exa mple/`, `http://a..b/x`) raises `CameraError`,
-  exit 2. They escaped as `UnicodeEncodeError` and `http.client.InvalidURL`,
-  the second at exit 1.
+  `ConfigurationError` when the printer is opened, exit 2. It escaped as
+  `UnicodeEncodeError`.
 - Any failure of a label or printer command now exits 2 with an error envelope
   under `--json`/`--json-bare`, and `--traceback` shows where it came from. A
   failure the code did not foresee used to exit 1, which documents a refusal,
@@ -605,8 +541,8 @@ All notable changes to this project are documented here. The format follows
   `OverflowError` or a NaN `ValueError`, and `height="inf"` no longer passes
   `validate`. `calibrate print --width` and `--height` and the calibration
   label builders refuse the same sizes before working anything out from them.
-- `status` and `verify` skip a whole line that is not a status answer
-  before the eight `Y`/`N` flags arrive. Through a print server a status
+- `status` skips a whole line that is not a status answer before the eight
+  `Y`/`N` flags arrive. Through a print server a status
   request can be answered first by a line the printer still owed an earlier
   memory query (`MODULE: A`, `AVAILABLE BYTES IN MODULE : 00048631`), which
   made `status` fail to parse; junk on the status line itself is still
@@ -656,11 +592,7 @@ All notable changes to this project are documented here. The format follows
 - A reader that goes away (`datamax-dpl schema | head -1`) is a quiet exit with code 141 at any output size, `render
   -o -` and `print --printer -` included, with no "SystemExit: 1" line and no "Exception ignored" at exit; a command
   that failed keeps its own exit code.
-- `[camera] timeout` and `[camera] settle_seconds` above 2147483 seconds are
-  refused naming the key, where they gave an `OverflowError` with no envelope;
-  `[printer] timeout` past that bound names its key too.
-- The `file` camera refuses an image over 50 MiB, as the `http` camera does; a
-  symlink in the folder is followed and counts by its target.
+- `[printer] timeout` above 2147483 seconds is refused naming the key.
 - A `file:`, `serial:` or `device:` URI holding `%00`, `%0A`, `%0D` or `%09`
   is refused as a control character: `%00` gave "embedded null character" and
   `%0A` created a file with a newline in its name.
@@ -670,22 +602,38 @@ All notable changes to this project are documented here. The format follows
   count passes the limit, with no full encoding first: 258334 elements cost 8
   s and 381 MB before the refusal. Its message says `at least N fields`, and
   its findings stop at that element.
-- The `command` camera drops the program's stdout and keeps only the end of
-  its stderr, where it held both in memory; a helper the program left running
-  no longer holds a finished capture open until the timeout. On a timeout on
-  Windows it ends the whole process tree with `taskkill /T /F`.
 - `calibrate set` writes the user configuration through a temporary file and a
   rename, keeping its mode and following a symlink, so a crash mid-write loses
   no other setting; a file it creates is owner-only.
 
 ### Removed
 
+- The camera verification, which was never tested with a real camera: the `verify` and `capture` commands, the camera
+  adapters (`command`, `http`, `file`) and the `[camera]` settings with their `config.d/60-camera.toml`, which
+  `config-deploy` no longer writes.
+- `[printer]` and `[printers.<name>]` keys `verify_poll_interval` and `one_way_settle` (and their
+  `DATAMAX_DPL___PRINTER__...` variables), which only `verify` read. A configuration that still sets one is refused
+  naming the key; delete it.
+- A leftover `[camera]` section, a deployed `config.d/60-camera.toml` or a `DATAMAX_DPL___CAMERA__...` variable is
+  ignored and can be deleted. `config` no longer masks a password or token inside a leftover `camera.url`; only a key
+  named like a secret, such as `camera.password`, stays redacted.
+- Library: `datamax_dpl.CameraError` and `datamax_dpl.MediaType` (also `domain.errors.CameraError` and
+  `domain.enums.MediaType`); `application.verify` (`verify_print`, `VerifyReport`, `IdleWait`, `check_idle_wait`,
+  `wait_idle`, `POLL_SECONDS`, `ONE_WAY_SETTLE_SECONDS`); `domain.camera` (`CameraSettings`, `CameraKind`,
+  `CapturedImage`, `OUTPUT_PLACEHOLDER`, `refuse_boolean`); `adapters.camera` (`capture_image`, `require_camera`,
+  `capture_with_command`, `capture_with_http`, `capture_from_directory`, `CAPTURE_STAMP_FORMAT`, and in its submodules
+  `MEDIA_TYPE_BY_SUFFIX`, `MEDIA_TYPE_BY_CONTENT_TYPE`, `EXTENSION_BY_MEDIA_TYPE`, `MAX_IMAGE_BYTES`, `StoredImage`,
+  `DEFAULT_EXTENSION`, `STDERR_TAIL_CHARS`, `MTIME_GRACE_SECONDS`, `POLL_INTERVAL_SECONDS`);
+  `adapters.memory.FakeCamera` (and `adapters.memory.camera` with `JPEG_SIGNATURE`, `PNG_SIGNATURE`, `TINY_PNG`);
+  `application.ports.CaptureImage`, `AppServices.capture_image` and the `camera` argument of `build_testing`;
+  `adapters.cli.settings.camera_settings`; `adapters.config.sections.CAMERA_SECTION` and `ConfigSection.CAMERA`;
+  `adapters.config.display.redact_url_secrets`; `adapters.config.overrides.with_data`;
+  `domain.timing.TimeoutName.POLL_INTERVAL`; `PrinterSettings.verify_poll_interval` and
+  `PrinterSettings.one_way_settle`.
 - Library: `BatchResult.findings()` (each of `BatchResult.results` carries its
   `findings`); `cut_across_records` from `domain.batch` and
   `application.use_cases` (`domain.batch.batch_cuts` returns `BatchCuts` with
   the records a cut follows, and `BatchResult.joined` joins the jobs);
-  `adapters.camera.media_type_for` (`StoredImage.media_type` carries the
-  type); `adapters.camera.http.EXTENSION_BY_CONTENT_TYPE`;
   `ImageBudget.source` (`ImageBudget.model`);
   `adapters.cli.commands.printer.ALL_KINDS` (`KindChoice.ALL`).
 - Library: `build_job(filled=)`, `build_jobs(filled=)` and
