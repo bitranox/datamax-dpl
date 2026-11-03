@@ -11,6 +11,7 @@ would lose it), or one with another hard link (which would keep the old bytes).
 
 from __future__ import annotations
 
+import errno
 import itertools
 import os
 import stat
@@ -67,9 +68,24 @@ def _named_for(exc: OSError, target: str) -> OSError:
     return OSError(exc.errno, exc.strerror, target)
 
 
+def _has_extended_attributes(path: Path) -> bool:
+    """Whether ``path`` carries extended attributes, a POSIX ACL among them, that a new file would not.
+
+    Linux alone, the one platform whose ``os`` lists them; a file system that keeps none says so.
+    """
+    if sys.platform != "linux":
+        return False
+    try:
+        return bool(os.listxattr(path))
+    except OSError as exc:
+        # A file system that keeps none answers ENOTSUP; any other error leaves it unknown, so the
+        # target is written in place rather than replaced by a file that may lack them.
+        return exc.errno not in {errno.ENOTSUP, errno.EOPNOTSUPP}
+
+
 def _replaceable(path: Path, found: os.stat_result) -> bool:
     """Whether a new file could take the place of the file ``path`` with nobody the worse for it."""
-    if not os.access(path, os.W_OK) or found.st_nlink > 1:
+    if not os.access(path, os.W_OK) or found.st_nlink > 1 or _has_extended_attributes(path):
         return False
     # No effective user id to compare on Windows, where st_uid reads 0 for every file.
     if sys.platform == "win32":

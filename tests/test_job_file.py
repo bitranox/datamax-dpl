@@ -162,6 +162,25 @@ def test_a_hard_linked_target_keeps_its_other_name(cli_runner: CliRunner, tmp_pa
     assert target.stat().st_nlink == 2
 
 
+@pytest.mark.os_linux
+def test_a_target_with_extended_attributes_keeps_them(cli_runner: CliRunner, tmp_path: Path) -> None:
+    """A POSIX ACL is one: a file put in the target's place would have none of them."""
+    if sys.platform != "linux":
+        pytest.skip("Python lists extended attributes on Linux alone")
+    label, data = _files(tmp_path, _TEXT, "r0\n")
+    target = tmp_path / "job.dpl"
+    target.write_bytes(_BEFORE)
+    try:
+        os.setxattr(target, "user.datamax-dpl-test", b"kept")
+    except OSError as exc:
+        pytest.skip(f"this file system keeps no user extended attributes: {exc}")
+    inode = target.stat().st_ino
+    assert _render(cli_runner, label, data, target).exit_code == 0
+    assert target.read_bytes() != _BEFORE
+    assert target.stat().st_ino == inode
+    assert os.getxattr(target, "user.datamax-dpl-test") == b"kept"
+
+
 @pytest.mark.os_posix
 @pytest.mark.skipif(not _IS_ROOT, reason="only root can give a file to another user")
 def test_a_target_another_user_owns_stays_theirs(cli_runner: CliRunner, tmp_path: Path) -> None:

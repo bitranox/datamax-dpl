@@ -79,8 +79,8 @@ All notable changes to this project are documented here. The format follows
   downloads a label with a new image costs one more read before them (about 35 minutes per 1000).
   `render -o FILE` writes a file beside the target and replaces the target only when every record passed, and
   `render -o -` checks all of them, then streams. A target that would not stay what it was if replaced (a device, a
-  pipe, a directory taking no new file, a file another user owns or with another hard link) is written in place
-  after the check.
+  pipe, a directory taking no new file, a file another user owns, with another hard link, or on Linux with extended
+  attributes such as a POSIX ACL) is written in place after the check.
 - Library: `iter_batch` yields one `RenderResult` at a time, `check_batch` returns a `BatchReport` holding no job, and
   `print_checked` takes the report with `report.renders()`, building each label when its turn comes. `render_batch`
   stays as the way to hold a batch whole. `check_batch(spool=...)` keeps each record in a `JobSpool` as it is

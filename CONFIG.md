@@ -671,8 +671,10 @@ after its downloads, a reused logo included, about 1 s plus the printer's answer
 them (about 35 minutes per 1000), and a label whose images the printer already holds costs that read
 alone. A target that
 would not stay what it was is written in place: a device, a pipe, a directory that takes no new file, a
-file this user may not write (refused, as a single label's write is), one another user owns, or one with
-another hard link. A replaced file has a new inode. SIGTERM or SIGHUP end the process with no handler,
+file this user may not write (refused, as a single label's write is), one another user owns, one with
+another hard link, or on Linux one with extended attributes (a POSIX ACL among them), which a new file
+would not carry; elsewhere those are not read, and a replaced file loses them. A replaced file has a new
+inode. SIGTERM or SIGHUP end the process with no handler,
 so they leave the spool directory, or the `.NAME.PID.N.tmp` beside the target, behind, and the target as
 it was. `render`
 with no `-o` answers with the job itself and holds it, which `max_batch_job_bytes` bounds. That key
