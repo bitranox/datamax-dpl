@@ -414,7 +414,6 @@ class BatchReport:
         batch_findings: The findings about the batch as a whole; always kept.
         finding_counts: How many findings of each code there are in all.
         findings_total: How many findings there are in all.
-        unlisted_at: The first record that downloads into module C, None when no record does.
         plan: Where the batch cuts across its records.
     """
 
@@ -432,7 +431,6 @@ class BatchReport:
     batch_findings: tuple[Finding, ...]
     finding_counts: Mapping[FindingCode, int]
     findings_total: int
-    unlisted_at: int | None
     plan: CutPlan
 
     def _job(self) -> BatchJob:
@@ -548,7 +546,6 @@ class BatchTally:
         self._codes_kept: set[FindingCode] = set()
         self._counts: dict[FindingCode, int] = {}
         self._findings_total = 0
-        self._unlisted_at: int | None = None
         for finding in plan.findings:
             self._count(finding)
 
@@ -589,8 +586,6 @@ class BatchTally:
             self._keep(finding, record=record)
         self._downloads_total += len(result.downloads)
         self._downloads.extend(result.downloads[: self._limits.downloads - len(self._downloads)])
-        if self._unlisted_at is None and unlisted_download(result):
-            self._unlisted_at = record
 
     def report(self, job: BatchJob | None) -> BatchReport:
         """Return the report of what was added, ``job`` being how to render it again.
@@ -616,7 +611,6 @@ class BatchTally:
             batch_findings=self._plan.findings,
             finding_counts=dict(self._counts),
             findings_total=self._findings_total,
-            unlisted_at=self._unlisted_at,
             plan=self._plan,
         )
 

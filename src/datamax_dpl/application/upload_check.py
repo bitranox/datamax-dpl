@@ -936,8 +936,6 @@ def _send_report(link: Link, report: BatchReport, job: CheckedJob) -> CheckedSen
             shows once they have gone out.
     """
     tally = BatchTally(report.limits, plan=report.plan)
-    if report.unlisted_at is not None:
-        return CheckedSend(result=_refused_as_unlisted(report, tally), all_sent=False)
     renders = iter(job.renders)
     all_sent = _send_labels(link, job._replace(renders=renders), cuts=report.cuts(), sink=tally)
     if all_sent and (tally.records != report.records or next(renders, None) is not None):
@@ -948,14 +946,6 @@ def _send_report(link: Link, report: BatchReport, job: CheckedJob) -> CheckedSen
         for entry in islice(report.entries(), reached, None):
             tally.add(entry.result, cut=entry.cut_after)
     return CheckedSend(result=tally.report(report.job), all_sent=all_sent)
-
-
-def _refused_as_unlisted(report: BatchReport, tally: BatchTally) -> BatchReport:
-    """The report of a batch refused before anything went out, for the first record downloading into module C."""
-    for number, entry in enumerate(report.entries()):
-        unlisted = _unlisted_module(entry.result) if number == report.unlisted_at else None
-        tally.add(entry.result if unlisted is None else unlisted, cut=entry.cut_after)
-    return tally.report(report.job)
 
 
 @overload

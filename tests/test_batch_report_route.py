@@ -20,10 +20,11 @@ from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory.printer import open_recording_printer
 from datamax_dpl.application.use_cases import AnswerWait
 from datamax_dpl.composition import build_production
-from datamax_dpl.domain.enums import ImageModule
-from datamax_dpl.domain.label import Cut, Label, Qr, Text
+from datamax_dpl.domain.enums import Attribute, ImageModule
+from datamax_dpl.domain.label import Barcode, Box, Circle, Cut, Label, Qr, Text
 from datamax_dpl.domain.render import build_record
 from datamax_dpl.domain.render_context import RenderOptions
+from datamax_dpl.domain.symbology import Symbology
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -39,6 +40,7 @@ _ROWS = [{"a": "r0"}, {"a": "r1"}]
 #: Too long for a QR Code on this model, so the record renders with an error finding.
 _TOO_LONG = "A" * 4000
 _FORMAT = b"\x02L"
+_DOWNLOAD = b"\x02I"
 
 
 def _files(tmp_path: Path, label: Label, values: str) -> tuple[str, str]:
@@ -85,10 +87,11 @@ def test_print_data_downloads_no_name_the_printer_already_holds(
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize("rows", ["r0\n", "r0\nr1\nr2\n"], ids=["one-record", "three-records"])
 def test_print_data_into_module_c_sends_nothing_and_names_the_first_record(
-    cli_runner: CliRunner, tmp_path: Path, serve: Callable[..., PrinterServer]
+    cli_runner: CliRunner, tmp_path: Path, serve: Callable[..., PrinterServer], rows: str
 ) -> None:
-    label, data = _files(tmp_path, _QR, "r0\nr1\nr2\n")
+    label, data = _files(tmp_path, _QR, rows)
     server = serve(module_printer(ImageModules()), next_connection_within=0.1)
     sets = ("--set", "printer.image_module=C", "--set", "printer.stored_names_wait=0.3")
     result = _print(cli_runner, *sets, "print", label, "--data", data, "--model", "allegro-2", printer=server.address)
@@ -98,7 +101,47 @@ def test_print_data_into_module_c_sends_nothing_and_names_the_first_record(
     assert payload["bytes_sent"] == 0
     unlisted = [finding for finding in payload["findings"] if finding["code"] == "image_module_unlisted"]
     assert [finding["record"] for finding in unlisted] == [0]
+    assert _DOWNLOAD not in server.received
     assert _FORMAT not in server.received
+
+
+_BOX = Box(x=12, y=8, width=20, height=10, thickness=1)
+_CIRCLE = Circle(x=25, y=14, radius=6)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("label", "downloads"),
+    [
+        pytest.param(_QR, True, id="qr"),
+        pytest.param(
+            Label(elements=[Qr(x=5, y=5, data="{a}"), _BOX], attribute=Attribute.TRANSPARENT), True, id="qr-meets-box"
+        ),
+        pytest.param(
+            Label(elements=[Text(x=10, y=10, text="{a}"), _BOX], attribute=Attribute.TRANSPARENT),
+            False,
+            id="text-meets-box",
+        ),
+        pytest.param(
+            Label(
+                elements=[Barcode(x=10, y=10, symbology=Symbology.CODE128, data="{a}"), _CIRCLE],
+                attribute=Attribute.TRANSPARENT,
+            ),
+            True,  # the Allegro 2 has no circle command and downloads it as an image (circle_rasterized)
+            id="barcode-meets-circle",
+        ),
+    ],
+)
+def test_whether_a_record_downloads_is_the_same_for_every_record_of_a_batch(label: Label, *, downloads: bool) -> None:
+    """A batch into module C is refused before anything is sent only while its first label downloads too.
+
+    Each label is refused when it downloads into module C, just before it would go out, so a later
+    record downloading where the first did not would print the labels before it. A short and a long
+    value: the long one meets the shape the short one stays clear of.
+    """
+    report = check_batch(label, [{"a": "r"}, {"a": "R" * 60}, {"a": "r1"}], _ALLEGRO)
+    assert report.ok, report.findings
+    assert [bool(entry.result.downloads) for entry in report.entries()] == [downloads] * 3
 
 
 @pytest.mark.os_agnostic
