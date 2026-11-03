@@ -41,7 +41,7 @@ from datamax_dpl.domain.overlap import printed_dots
 from datamax_dpl.domain.placeholders import fill_label, label_placeholders
 from datamax_dpl.domain.preview import preview_bitmap
 from datamax_dpl.domain.profiles import get_profile, list_profiles
-from datamax_dpl.domain.qr import qr_bitmap
+from datamax_dpl.domain.qr import matrix_bitmap, qr_bitmap
 from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.records import Magnification, image_record
 from datamax_dpl.domain.render import RenderResult, build_job, job_context, render
@@ -799,3 +799,48 @@ def test_the_kept_symbol_is_the_one_the_job_sends() -> None:
     dots = printed_dots(element, ctx)
     assert dots is not None
     assert dots.bitmap.height == 2 * symbol.height
+
+
+# ======================== segno's matrix packed straight into a bitmap ========================
+
+
+def _bitmap_through_text(symbol: segno.QRCode) -> Bitmap:
+    """The oracle: how a symbol became a bitmap before, through one ``#``/``.`` text row per module row."""
+    return Bitmap.from_rows(["".join("#" if module else "." for module in row) for row in symbol.matrix])
+
+
+def _same_bitmap(left: Bitmap, right: Bitmap) -> bool:
+    return (left.width, left.height, left.rows()) == (right.width, right.height, right.rows())
+
+
+_LEVELS = ("L", "M", "Q", "H")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("version", range(1, 41))
+@pytest.mark.parametrize("data", ["1", "Gr" + chr(0xFC) + chr(0xDF) + "e"])
+def test_every_qr_version_packs_to_the_bitmap_its_text_rows_made(version: int, data: str) -> None:
+    """Widths 21 to 177 modules: a whole number of bytes or not, and every error level along the way."""
+    level = _LEVELS[version % len(_LEVELS)]
+    symbol = segno.make(data, version=version, error=level, boost_error=False, encoding="utf-8")
+    assert symbol.version == version
+    assert _same_bitmap(matrix_bitmap(symbol.matrix), _bitmap_through_text(symbol))
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("version", "level"),
+    [("M1", None), ("M2", "L"), ("M2", "M"), ("M3", "L"), ("M3", "M"), ("M4", "L"), ("M4", "M"), ("M4", "Q")],
+)
+def test_every_micro_qr_version_packs_to_the_bitmap_its_text_rows_made(version: str, level: str | None) -> None:
+    symbol = segno.make("12", version=version, error=level, boost_error=False)
+    assert symbol.version == version
+    assert _same_bitmap(matrix_bitmap(symbol.matrix), _bitmap_through_text(symbol))
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("error", list(QrError))
+@pytest.mark.parametrize(("data", "micro"), [("HELLO", False), ("1", True), ("x" * 300, False)])
+def test_qr_bitmap_is_the_packed_matrix(error: QrError, data: str, micro: bool) -> None:
+    symbol = segno.make(data, error=error.value, micro=None if micro else False, boost_error=False, encoding="utf-8")
+    assert _same_bitmap(qr_bitmap(data, error=error, micro=micro), _bitmap_through_text(symbol))
