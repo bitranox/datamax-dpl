@@ -72,7 +72,12 @@ def recorded_deploys() -> RecordedDeploys:
 
 
 def _decision(call: dict[str, Any]) -> tuple[Any, ...]:
-    return call["set_permissions"], call["dir_mode"], call["file_mode"], call["permission_overrides"]
+    return (
+        call["permissions"].set_permissions,
+        call["permissions"].dir_mode,
+        call["permissions"].file_mode,
+        call["permissions"].permission_overrides,
+    )
 
 
 # ======================== What the command hands to the deploy ========================
@@ -152,7 +157,7 @@ def test_a_set_of_the_section_reaches_the_deploy_unchanged_as_overrides(
     result = cli_runner.invoke(cli_mod.cli, [*set_args, "config-deploy", "--target", "user"], obj=factory)
 
     assert result.exit_code == 0, result.output
-    assert [call["permission_overrides"] for call in calls] == [expected]
+    assert [call["permissions"].permission_overrides for call in calls] == [expected]
 
 
 @pytest.mark.os_agnostic

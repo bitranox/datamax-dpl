@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, cast
 
 import click.exceptions as click_exceptions
@@ -32,6 +32,7 @@ from datamax_dpl import __init__conf__
 from datamax_dpl.adapters.config.display import config_view
 from datamax_dpl.adapters.config.loader import validate_profile
 from datamax_dpl.adapters.config.overrides import nest_overrides
+from datamax_dpl.application.ports import DeployPermissionRequest
 from datamax_dpl.domain.enums import DeployTarget, OutputFormat
 from datamax_dpl.domain.errors import ConfigurationError
 from datamax_dpl.domain.printable import one_line
@@ -362,9 +363,9 @@ def cli_config_deploy(
             targets=deploy_targets,
             force=force,
             profile=effective_profile,
-            set_permissions=set_permissions,
-            dir_mode=dir_mode,
-            file_mode=file_mode,
+            permissions=DeployPermissionRequest(
+                set_permissions=set_permissions, dir_mode=dir_mode, file_mode=file_mode
+            ),
         )
 
 
@@ -374,9 +375,7 @@ def _execute_deploy(
     targets: tuple[DeployTarget, ...],
     force: bool,
     profile: str | None,
-    set_permissions: bool | None,
-    dir_mode: int | None,
-    file_mode: int | None,
+    permissions: DeployPermissionRequest,
 ) -> None:
     """Execute configuration deployment with error handling.
 
@@ -390,32 +389,26 @@ def _execute_deploy(
         targets: Deployment target layers.
         force: Whether to overwrite existing files.
         profile: Optional profile name.
-        set_permissions: ``--permissions`` (True), ``--no-permissions`` (False), or neither
-            (None: the configured ``enabled`` decides).
-        dir_mode: Directory mode for every target; None leaves it to the configured setting.
-        file_mode: File mode for every target; None leaves it to the configured setting.
+        permissions: ``--permissions`` (True), ``--no-permissions`` (False), or neither (None:
+            the configured ``enabled`` decides), and ``--dir-mode`` and ``--file-mode`` for every
+            target (None leaves a mode to the configured setting); the ``--set`` values of
+            ``[lib_layered_config.default_permissions]`` are added here.
 
     Raises:
         click.exceptions.Exit: On a refused permission setting (78), a permission error or
             any other failure, raised through ``ctx.exit`` so ``main()`` returns the code
             instead of printing a bare ``SystemExit``.
     """
-    overrides = _permission_overrides(cli_ctx)
+    requested = replace(permissions, permission_overrides=_permission_overrides(cli_ctx))
     try:
         deployed_paths = cli_ctx.services.deploy_configuration(
-            targets=targets,
-            force=force,
-            profile=profile,
-            set_permissions=set_permissions,
-            dir_mode=dir_mode,
-            file_mode=file_mode,
-            permission_overrides=overrides,
+            targets=targets, force=force, profile=profile, permissions=requested
         )
         _log_deployment(deployed_paths, targets=targets, force=force, profile=profile)
         if cli_ctx.mode.machine:
             _answer_written(deployed_paths, command=CommandName.CONFIG_DEPLOY, mode=cli_ctx.mode)
         else:
-            _report_deployment_result(deployed_paths, profile, set_permissions, force=force)
+            _report_deployment_result(deployed_paths, profile, permissions.set_permissions, force=force)
     except DeployPermissionsError as exc:
         _refuse_permission_settings(exc, mode=cli_ctx.mode)
     except PermissionError as exc:

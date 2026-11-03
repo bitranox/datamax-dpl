@@ -9,11 +9,13 @@ from lib_layered_config.examples.deploy import DeployAction
 
 from datamax_dpl import __init__conf__
 from datamax_dpl.adapters.config.loader import get_default_config_path, validate_profile
+from datamax_dpl.application.ports import CONFIGURED_PERMISSIONS
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
     from pathlib import Path
 
+    from datamax_dpl.application.ports import DeployPermissionRequest
     from datamax_dpl.domain.enums import DeployTarget
 
 _DEPLOYED_ACTIONS = frozenset({DeployAction.CREATED, DeployAction.OVERWRITTEN})
@@ -24,10 +26,7 @@ def deploy_configuration(
     targets: Sequence[DeployTarget],
     force: bool = False,
     profile: str | None = None,
-    set_permissions: bool | None = None,
-    dir_mode: int | None = None,
-    file_mode: int | None = None,
-    permission_overrides: Mapping[str, object] | None = None,
+    permissions: DeployPermissionRequest = CONFIGURED_PERMISSIONS,
 ) -> list[Path]:
     r"""Deploy default configuration to specified target layers.
 
@@ -46,21 +45,17 @@ def deploy_configuration(
         profile: Optional profile name for environment isolation. When specified,
             configuration is deployed to profile-specific subdirectories
             (e.g., ~/.config/slug/profile/<name>/config.toml).
-        set_permissions: True sets Unix modes on the files and directories written, False
-            leaves them to the umask, None (default) lets lib_layered_config follow the
-            configured ``[lib_layered_config.default_permissions].enabled`` (on when unset).
-            Each mode not given explicitly comes from that section for the target's layer,
-            else the built-in one (755/644 for app/host, 700/600 for user). lib_layered_config
-            reads the section itself, from the bundled defaults, the app, host and user files
-            this call does not write, and the environment - never from ``.env``.
-        dir_mode: Directory mode for every target (octal integer, e.g., 0o750), overriding
-            the configured and built-in ones.
-        file_mode: File mode for every target (octal integer, e.g., 0o640), overriding
-            the configured and built-in ones.
-        permission_overrides: Runtime values for keys of
-            ``[lib_layered_config.default_permissions]`` by setting name
-            (``{"user_file": "0o640"}``), laid over lib_layered_config's own read of the
-            section and validated like configured values.
+        permissions: What to do with the modes of the files and directories written.
+            ``set_permissions`` True sets Unix modes, False leaves them to the umask, None
+            (default) lets lib_layered_config follow the configured
+            ``[lib_layered_config.default_permissions].enabled`` (on when unset). Each mode not
+            given explicitly (``dir_mode``, ``file_mode``, octal integers such as 0o750) comes
+            from that section for the target's layer, else the built-in one (755/644 for
+            app/host, 700/600 for user). lib_layered_config reads the section itself, from the
+            bundled defaults, the app, host and user files this call does not write, and the
+            environment - never from ``.env``. ``permission_overrides`` holds runtime values for
+            keys of that section by setting name (``{"user_file": "0o640"}``), laid over
+            lib_layered_config's own read of it and validated like configured values.
 
     Returns:
         List of paths where configuration files were created or would be created.
@@ -69,7 +64,7 @@ def deploy_configuration(
     Raises:
         PermissionError: When deploying to app/host without sufficient privileges.
         ValueError: When invalid target names are provided.
-        DeployModeError: A mode is unsafe, or one was given with ``set_permissions=False``.
+        DeployModeError: A mode is unsafe, or one was given with ``set_permissions`` False.
         DeployPermissionsError: The permission settings cannot be read or are invalid, or a
             ``permission_overrides`` value is refused; nothing has been written.
 
@@ -111,10 +106,10 @@ def deploy_configuration(
         profile=profile,
         targets=target_strings,
         force=force,
-        set_permissions=set_permissions,
-        dir_mode=dir_mode,
-        file_mode=file_mode,
-        permission_overrides=permission_overrides,
+        set_permissions=permissions.set_permissions,
+        dir_mode=permissions.dir_mode,
+        file_mode=permissions.file_mode,
+        permission_overrides=permissions.permission_overrides,
     )
 
     # Extract paths where files were actually created or overwritten

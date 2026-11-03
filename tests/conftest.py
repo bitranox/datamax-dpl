@@ -24,8 +24,10 @@ from click.testing import CliRunner
 from lib_layered_config import Config
 from printer_server import JOIN_SECONDS, PrinterServer
 
+from datamax_dpl.application.ports import CONFIGURED_PERMISSIONS, DeployPermissionRequest
+
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Mapping
+    from collections.abc import Callable, Iterator
 
     from lib_layered_config.domain.config import SourceInfo
     from printer_server import Play, Serve
@@ -495,10 +497,7 @@ def inject_deploy_with_profile_capture(
             targets: Any,
             force: bool = False,
             profile: str | None = None,
-            set_permissions: bool | None = None,
-            dir_mode: int | None = None,
-            file_mode: int | None = None,
-            permission_overrides: Mapping[str, object] | None = None,
+            permissions: DeployPermissionRequest = CONFIGURED_PERMISSIONS,
         ) -> list[Path]:
             captured_profiles.append(profile)
             return [deployed_path]

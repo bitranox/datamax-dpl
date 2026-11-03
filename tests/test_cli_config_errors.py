@@ -186,7 +186,10 @@ def test_config_deploy_runs_whatever_its_options_when_the_config_did_not_load(
 
     assert result.exit_code == 0, result.output
     assert BROKEN_TOML not in result.stderr
-    assert [(call["set_permissions"], call["dir_mode"], call["file_mode"]) for call in calls] == [expected]
+    assert [
+        (call["permissions"].set_permissions, call["permissions"].dir_mode, call["permissions"].file_mode)
+        for call in calls
+    ] == [expected]
 
 
 def _refusing_deploy(error: DeployPermissionsError) -> Callable[[], AppServices]:

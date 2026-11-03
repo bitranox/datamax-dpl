@@ -7,9 +7,10 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from datamax_dpl.adapters import cli as cli_mod
+from datamax_dpl.application.ports import CONFIGURED_PERMISSIONS, DeployPermissionRequest
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable
     from pathlib import Path
 
     from click.testing import CliRunner, Result
@@ -41,10 +42,7 @@ def test_when_config_deploy_has_permission_error_it_exits_with_code_13(
         targets: Any,
         force: bool = False,
         profile: str | None = None,
-        set_permissions: bool | None = None,
-        dir_mode: int | None = None,
-        file_mode: int | None = None,
-        permission_overrides: Mapping[str, object] | None = None,
+        permissions: DeployPermissionRequest = CONFIGURED_PERMISSIONS,
     ) -> list[Any]:
         raise PermissionError("Permission denied")
 
@@ -68,10 +66,7 @@ def test_when_config_deploy_has_generic_error_it_exits_with_code_1(
         targets: Any,
         force: bool = False,
         profile: str | None = None,
-        set_permissions: bool | None = None,
-        dir_mode: int | None = None,
-        file_mode: int | None = None,
-        permission_overrides: Mapping[str, object] | None = None,
+        permissions: DeployPermissionRequest = CONFIGURED_PERMISSIONS,
     ) -> list[Any]:
         raise OSError("Disk full")
 

@@ -4,7 +4,8 @@ Each Protocol class defines a ``__call__`` method whose signature exactly
 matches the corresponding adapter function.  Existing module-level functions
 satisfy these protocols automatically via structural subtyping (PEP 544).
 :class:`PrinterEndpoint` bundles the :class:`OpenPrinter` port with the URI
-and timeout it is always called with.
+and timeout it is always called with, :class:`DeployPermissionRequest` the
+permission values :class:`DeployConfiguration` hands to lib_layered_config.
 
 System Role:
     Sits between domain and adapters.  Infrastructure types (``Config``)
@@ -55,6 +56,37 @@ class GetDefaultConfigPath(Protocol):
     def __call__(self) -> Path: ...
 
 
+@dataclass(frozen=True)
+class DeployPermissionRequest:
+    """What a deploy is asked to do with the modes of the files it writes; None leaves a value to the configuration.
+
+    The four always travel together, from the command line to lib_layered_config's
+    ``deploy_config``, which takes each under the same name and reads the configured
+    ``[lib_layered_config.default_permissions]`` for whatever is left None.
+
+    Attributes:
+        set_permissions: True sets modes, False leaves them to the umask, None follows the
+            configured ``enabled`` (on when unset).
+        dir_mode: Directory mode for every target, over the configured and built-in ones.
+        file_mode: File mode for every target, over the configured and built-in ones.
+        permission_overrides: Runtime values for keys of ``[lib_layered_config.default_permissions]``
+            by setting name (``{"user_file": "0o640"}``), laid over the configured ones.
+
+    Example:
+        >>> DeployPermissionRequest(dir_mode=0o750).set_permissions is None
+        True
+    """
+
+    set_permissions: bool | None = None
+    dir_mode: int | None = None
+    file_mode: int | None = None
+    permission_overrides: Mapping[str, object] | None = None
+
+
+#: A deploy that asks nothing of the modes: the configuration decides them all.
+CONFIGURED_PERMISSIONS = DeployPermissionRequest()
+
+
 class DeployConfiguration(Protocol):
     """Deploy default configuration to specified target layers."""
 
@@ -64,10 +96,7 @@ class DeployConfiguration(Protocol):
         targets: Sequence[DeployTarget],
         force: bool = ...,
         profile: str | None = ...,
-        set_permissions: bool | None = ...,
-        dir_mode: int | None = ...,
-        file_mode: int | None = ...,
-        permission_overrides: Mapping[str, object] | None = ...,
+        permissions: DeployPermissionRequest = ...,
     ) -> list[Path]: ...
 
 
@@ -275,10 +304,12 @@ class Clock(Protocol):
 
 
 __all__ = [
+    "CONFIGURED_PERMISSIONS",
     "CaptureImage",
     "CheckLoggingConfig",
     "Clock",
     "DeployConfiguration",
+    "DeployPermissionRequest",
     "DisplayConfig",
     "GetConfig",
     "GetDefaultConfigPath",

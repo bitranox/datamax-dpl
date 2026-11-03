@@ -172,7 +172,7 @@ def test_a_safe_dir_mode_reaches_the_deploy(
     result = _deploy(cli_runner, factory, "--dir-mode", mode)
 
     assert result.exit_code == 0, result.output
-    assert [call["dir_mode"] for call in calls] == [expected]
+    assert [call["permissions"].dir_mode for call in calls] == [expected]
 
 
 @pytest.mark.os_agnostic
@@ -188,4 +188,4 @@ def test_a_safe_file_mode_reaches_the_deploy(
     result = _deploy(cli_runner, factory, "--file-mode", mode)
 
     assert result.exit_code == 0, result.output
-    assert [call["file_mode"] for call in calls] == [expected]
+    assert [call["permissions"].file_mode for call in calls] == [expected]

@@ -13,11 +13,13 @@ from typing import TYPE_CHECKING
 
 from lib_layered_config import Config
 
+from ...application.ports import CONFIGURED_PERMISSIONS
 from ...domain.enums import DeployTarget, OutputFormat
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from ...application.ports import DeployPermissionRequest
     from ...domain.profiles import CalibrationKey
 
 
@@ -41,10 +43,7 @@ def deploy_configuration_in_memory(
     targets: Sequence[DeployTarget],
     force: bool = False,
     profile: str | None = None,
-    set_permissions: bool | None = None,
-    dir_mode: int | None = None,
-    file_mode: int | None = None,
-    permission_overrides: Mapping[str, object] | None = None,
+    permissions: DeployPermissionRequest = CONFIGURED_PERMISSIONS,
 ) -> list[Path]:
     """Simulate deployment -- no filesystem changes, returns empty list."""
     return []

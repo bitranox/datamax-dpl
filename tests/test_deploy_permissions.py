@@ -17,6 +17,7 @@ import pytest
 from datamax_dpl import __init__conf__
 from datamax_dpl.adapters import cli as cli_mod
 from datamax_dpl.adapters.config.deploy import deploy_configuration
+from datamax_dpl.application.ports import CONFIGURED_PERMISSIONS, DeployPermissionRequest
 from datamax_dpl.composition import build_production
 from datamax_dpl.domain.enums import DeployTarget
 
@@ -71,20 +72,17 @@ def inject_deploy_with_permission_capture(
             targets: Any,
             force: bool = False,
             profile: str | None = None,
-            set_permissions: bool | None = None,
-            dir_mode: int | None = None,
-            file_mode: int | None = None,
-            permission_overrides: Mapping[str, object] | None = None,
+            permissions: DeployPermissionRequest = CONFIGURED_PERMISSIONS,
         ) -> list[Path]:
             captured.append(
                 CapturedDeployArgs(
                     targets=targets,
                     force=force,
                     profile=profile,
-                    set_permissions=set_permissions,
-                    dir_mode=dir_mode,
-                    file_mode=file_mode,
-                    permission_overrides=permission_overrides,
+                    set_permissions=permissions.set_permissions,
+                    dir_mode=permissions.dir_mode,
+                    file_mode=permissions.file_mode,
+                    permission_overrides=permissions.permission_overrides,
                 )
             )
             return [deployed_path]
@@ -324,7 +322,7 @@ def test_a_deploy_without_permissions_leaves_the_modes_to_the_umask(
     """False keeps the umask's modes; None, the default, takes the library's owner-only ones."""
     previous = os.umask(0o022)
     try:
-        deploy_configuration(targets=[DeployTarget.USER], set_permissions=False)
+        deploy_configuration(targets=[DeployTarget.USER], permissions=DeployPermissionRequest(set_permissions=False))
         assert _modes(user_layer) == (0o755, 0o644)
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "default"))
         deploy_configuration(targets=[DeployTarget.USER])
@@ -337,7 +335,10 @@ def test_a_deploy_without_permissions_leaves_the_modes_to_the_umask(
 def test_a_deploy_applies_its_permission_overrides(user_layer: Path) -> None:
     previous = os.umask(0o022)
     try:
-        deploy_configuration(targets=[DeployTarget.USER], permission_overrides={"user_file": "0o640"})
+        deploy_configuration(
+            targets=[DeployTarget.USER],
+            permissions=DeployPermissionRequest(permission_overrides={"user_file": "0o640"}),
+        )
     finally:
         os.umask(previous)
     assert _modes(user_layer)[1] == 0o640
@@ -345,5 +346,7 @@ def test_a_deploy_applies_its_permission_overrides(user_layer: Path) -> None:
 
 @_LINUX_ONLY
 def test_a_deploy_applies_its_directory_and_file_modes(user_layer: Path) -> None:
-    deploy_configuration(targets=[DeployTarget.USER], dir_mode=0o750, file_mode=0o640)
+    deploy_configuration(
+        targets=[DeployTarget.USER], permissions=DeployPermissionRequest(dir_mode=0o750, file_mode=0o640)
+    )
     assert _modes(user_layer) == (0o750, 0o640)
