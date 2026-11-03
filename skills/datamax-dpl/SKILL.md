@@ -338,12 +338,16 @@ before them, and no clear after the label before that reaches the module, gets t
 `-o`. `send(data)` writes the job as it is: it does not check what the printer stored, so an image
 download a full module lost gives a label with that image missing, and no error. On a channel that
 can read answers (tcp, serial), `print_checked(job, CheckedJob(renders=record_renders(label, None,
-options), check=UploadCheck(wait=AnswerWait(seconds=30))), uri=uri, timeout=10,
-open_printer=open_printer)` is the route `print` takes: it reads the printer's directory before a
-label's downloads where no clear precedes them and after any downloads it sends, and raises
-`UploadRefusedError` before a format would print without its image. It also reads the status once
-first: on a reported reset one calibration label goes out before the job, and
-`CheckedJob(reset=None)` asks nothing.
+options), check=UploadCheck(wait=AnswerWait(seconds=30))), endpoint=PrinterEndpoint(uri=uri,
+timeout=10, open_printer=open_printer))` is the route `print` takes (`PrinterEndpoint` takes the
+URI, timeout and opener together): it reads the printer's directory before a label's downloads where
+no clear precedes them and after any downloads it sends, and raises `UploadRefusedError` before a
+format would print without its image. It also reads the status once first: on a reported reset one
+calibration label goes out before the job, and `CheckedJob(reset=None)` asks nothing. Every name in
+that call, `UploadRefusedError` and `TransportError` import from `datamax_dpl`; `record_renders`
+takes the records as its second argument (`None` for a single label), and `print_checked` returns a
+`CheckedPrint` (`help(datamax_dpl.print_checked)`). `UploadRefusedError` is not a `TransportError`:
+catch both.
 
 The element types are the classes `Text`, `ScalableText`, `Barcode`, `Qr`, `Line`, `Box`, `Circle`,
 `Polygon` and `Image`, with `Cut`, `Counter`, `Pdf417Options` and `DataMatrixOptions` for their
