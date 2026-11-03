@@ -65,7 +65,11 @@ def test_the_undescribed_switch_bits_are_named_records() -> None:
             "dmx-430",
             "software switches (<STX>V) not sent: DMX 430 has no known bit layout (manual p.42)",
         ),
-        ("allegro-2", "software switches (<STX>V) not sent: whether the cutter is installed is unknown"),
+        (
+            "allegro-2",
+            "software switches (<STX>V) not sent: whether the cutter is installed is unknown"
+            " (set RenderOptions.cutter_installed)",
+        ),
     ],
 )
 def test_the_reason_the_switches_are_not_sent_reads_as_before(model: str, message: str) -> None:
@@ -79,8 +83,9 @@ def test_each_setting_without_a_known_value_is_named_with_the_key_that_sets_it()
     findings = build_job(_HI, RenderOptions(model="generic")).findings
 
     assert [f.message for f in findings if f.code is FindingCode.PRINTER_SETTINGS_UNKNOWN] == [
-        "not sent, Any model (common subset) has no known value: start of print (set start_of_print_mm), "
-        "maximum label length (set max_label_length_mm), feed rate (set feed_rate); the printer keeps its own"
+        "not sent, Any model (common subset) has no known value: start of print (set RenderOptions.start_of_print_mm), "
+        "maximum label length (set RenderOptions.max_label_length_mm), feed rate (set RenderOptions.feed_rate); "
+        "the printer keeps its own"
     ]
 
 

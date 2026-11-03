@@ -528,6 +528,22 @@ class CutterPresence(str, Enum):
     UNKNOWN = "unknown"
 
 
+class LabelPresence(str, Enum):
+    """Whether a printer's label-present sensor is on, as the configuration states it.
+
+    It sets the label-present bit of ``<STX>V`` on a model that has one; while unknown, no
+    ``<STX>V`` goes to such a model, since a guessed bit would switch the sensor on or off.
+
+    Example:
+        >>> LabelPresence("unknown") is LabelPresence.UNKNOWN
+        True
+    """
+
+    YES = "yes"
+    NO = "no"
+    UNKNOWN = "unknown"
+
+
 class HardwareOption(str, Enum):
     """An installed hardware option a feature can depend on.
 
@@ -625,6 +641,7 @@ __all__ = [
     "FindingCode",
     "HardwareOption",
     "ImageModule",
+    "LabelPresence",
     "MediaSensor",
     "MediaType",
     "MemoryKind",

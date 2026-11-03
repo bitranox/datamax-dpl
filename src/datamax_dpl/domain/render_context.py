@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -67,6 +67,11 @@ MIN_START_OF_PRINT_MM = hundredths_to_mm(50)
 MIN_MAX_LABEL_LENGTH_MM = hundredths_to_mm(500)
 #: Largest distance the four digits of ``<STX>O`` and ``<STX>M`` hold in inch mode, 9999/100 in.
 MAX_SYSTEM_DISTANCE_MM = hundredths_to_mm(MAX_FIELD_VALUE)
+#: A start of print in mm, as ``<STX>O`` takes it: the one bound of the render option and of the
+#: settings key that sets it, so the two cannot drift. Lax here; the render option adds strictness.
+StartOfPrintMm = Annotated[float, Field(ge=MIN_START_OF_PRINT_MM, le=MAX_SYSTEM_DISTANCE_MM, allow_inf_nan=False)]
+#: A maximum label length in mm, as ``<STX>M`` takes it, shared the same way.
+MaxLabelLengthMm = Annotated[float, Field(ge=MIN_MAX_LABEL_LENGTH_MM, le=MAX_SYSTEM_DISTANCE_MM, allow_inf_nan=False)]
 #: First character of the printer name of every image a job downloads: a label ``image`` with a
 #: bitmap, a raster fallback, a QR Code, a merged transparency group.
 DRAWN_IMAGE_PREFIX = "D"
@@ -239,12 +244,10 @@ class RenderOptions(BaseModel):
     max_format_rows: int | None = Field(default=None, gt=0, strict=True)
     send_settings: frozenset[PrinterSetting] | None = None
     media: MediaSensor | None = None
-    start_of_print_mm: float | None = Field(
-        default=None, ge=MIN_START_OF_PRINT_MM, le=MAX_SYSTEM_DISTANCE_MM, strict=True, allow_inf_nan=False
-    )
-    max_label_length_mm: float | None = Field(
-        default=None, ge=MIN_MAX_LABEL_LENGTH_MM, le=MAX_SYSTEM_DISTANCE_MM, strict=True, allow_inf_nan=False
-    )
+    # A library caller passes numbers, so text and booleans are refused here; the settings key of
+    # the same bound reads numeric text, as every key does.
+    start_of_print_mm: Annotated[StartOfPrintMm, Field(strict=True)] | None = None
+    max_label_length_mm: Annotated[MaxLabelLengthMm, Field(strict=True)] | None = None
     feed_rate: SpeedCode | None = None
     label_present: bool | None = Field(default=None, strict=True)
     clear_graphics_before_label: bool = Field(default=True, strict=True)
@@ -1015,10 +1018,12 @@ __all__ = [
     "OPTION_NAME",
     "ImageDownload",
     "ImageEdge",
+    "MaxLabelLengthMm",
     "PlacedImage",
     "PrinterState",
     "RenderContext",
     "RenderOptions",
+    "StartOfPrintMm",
     "clear_may_go",
     "drawn_image_name",
     "option_name",

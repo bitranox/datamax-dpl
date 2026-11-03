@@ -29,8 +29,12 @@ from ...domain.enums import (
     FallbackPolicy,
     HardwareOption,
     ImageModule,
+    LabelPresence,
+    MediaSensor,
+    PrinterSetting,
     PrinterStop,
     Severity,
+    SpeedCode,
     ValidationErrorType,
 )
 from ...domain.errors import ConfigurationError
@@ -38,7 +42,7 @@ from ...domain.job import MAX_STOP_POSITION_MM
 from ...domain.label import MAX_LENGTH, stop_position_or_printer
 from ...domain.preview import DEFAULT_PREVIEW_MAX_LENGTH_MM
 from ...domain.profiles import Firmware, ParsedFirmware
-from ...domain.render_context import OPTION_NAME, RenderOptions
+from ...domain.render_context import OPTION_NAME, MaxLabelLengthMm, RenderOptions, StartOfPrintMm
 from ...domain.reset_label import (
     CALIBRATE_AFTER_RESET,
     CALIBRATION_LABEL_TEXT,
@@ -174,6 +178,16 @@ class PrinterSettings(BaseModel):
     max_format_rows: int | None = Field(default=None, gt=0)
     # A label no clear precedes: a download left out for a held name, or names that could not be read.
     held_image_severity: Severity = Severity.WARNING
+    # The persistent printer settings each label's job sets, under the render options' names and
+    # with their bounds. None takes the model's default (for send_settings: every setting), so a
+    # job with none of them set sends what it sent before they were keys; a label's own media wins.
+    send_settings: frozenset[PrinterSetting] | None = None
+    media: MediaSensor | None = None
+    start_of_print_mm: StartOfPrintMm | None = None
+    max_label_length_mm: MaxLabelLengthMm | None = None
+    feed_rate: SpeedCode | None = None
+    # yes/no/unknown like cutter: while unknown, a model with a label-present bit gets no <STX>V.
+    label_present: LabelPresence = LabelPresence.UNKNOWN
     name: str = ""
     label_width: float | None = Field(default=None, gt=0, le=MAX_LENGTH)
     label_height: float | None = Field(default=None, gt=0, le=MAX_LENGTH)
@@ -200,6 +214,8 @@ class PrinterSettings(BaseModel):
         "cutter_stop_position",
         "image_memory_bytes",
         "max_format_rows",
+        "start_of_print_mm",
+        "max_label_length_mm",
         "label_width",
         "label_height",
         mode="before",
@@ -424,6 +440,13 @@ _CUTTER: Mapping[CutterPresence, bool | None] = MappingProxyType(
         CutterPresence.UNKNOWN: None,
     }
 )
+_LABEL_PRESENT: Mapping[LabelPresence, bool | None] = MappingProxyType(
+    {
+        LabelPresence.YES: True,
+        LabelPresence.NO: False,
+        LabelPresence.UNKNOWN: None,
+    }
+)
 
 
 def render_options(settings: PrinterSettings, *, model_image_budget: bool = True) -> RenderOptions:
@@ -456,6 +479,12 @@ def render_options(settings: PrinterSettings, *, model_image_budget: bool = True
         clear_graphics_after_label=settings.clear_graphics_after,
         max_format_rows=settings.max_format_rows,
         held_image_severity=settings.held_image_severity,
+        send_settings=settings.send_settings,
+        media=settings.media,
+        start_of_print_mm=settings.start_of_print_mm,
+        max_label_length_mm=settings.max_label_length_mm,
+        feed_rate=settings.feed_rate,
+        label_present=_LABEL_PRESENT[settings.label_present],
         model_image_budget=model_image_budget,
     )
 
@@ -481,6 +510,12 @@ OPTION_KEYS: Mapping[str, str] = MappingProxyType(
         "clear_graphics_after_label": "clear_graphics_after",
         "max_format_rows": "max_format_rows",
         "held_image_severity": "held_image_severity",
+        "send_settings": "send_settings",
+        "media": "media",
+        "start_of_print_mm": "start_of_print_mm",
+        "max_label_length_mm": "max_label_length_mm",
+        "feed_rate": "feed_rate",
+        "label_present": "label_present",
     }
 )
 

@@ -119,6 +119,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `[printer]` and `[printers.<name>]` keys for the printer state each job sets, under the names and bounds
+  `RenderOptions` gives them: `send_settings` (list, unset sends every setting), `media`, `start_of_print_mm`
+  (12.7 to 2539.746 mm), `max_label_length_mm` (127 to 2539.746 mm), `feed_rate` (a speed letter) and
+  `label_present` (`yes`, `no` or `unknown`, default `unknown`). Unset, each takes the model's default, so a job's
+  bytes stay as they were; a label's own `media` wins. They were refused as undeclared keys, while
+  `printer_settings_unknown` told the reader to set them. That finding, `software_switches_not_sent`,
+  `max_label_length_too_short`, `feed_rate_out_of_range` and `label_setting_not_sent` now name the option
+  (`RenderOptions.<field>`), and on the command line the key of the printer section in use.
 - The package root exports every type an exported signature or field names, so a caller can import what it
   annotates: `Axis`, `CalibrationDefaults`, `CalibrationKey`, `CheckedPrint`, `Clock`, `DecodedCommand`, `Feature`,
   `Firmware`, `ModelFamily`, `OpenPrinter`, `RecordRender`, `Sleep`, `SoftwareSwitchBits`, `Source`, `SpeedRange`,

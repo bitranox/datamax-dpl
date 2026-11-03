@@ -391,6 +391,70 @@ options = []
 # Environment Variable: DATAMAX_DPL___PRINTER__MAX_FORMAT_ROWS=1700
 # max_format_rows = 1648
 
+# The printer state each label's job sets before its format. Another program or
+# the front panel may have changed any of it, so the job sends what it relies on.
+# The keys below ship unset (commented out): unset means the model's default, and
+# a label's own media and stop_position win over them.
+
+# Purpose: Which persistent printer settings each job sends: "media" (<STX>c,
+#          then e or r where the model can choose its sensor), "stop" (<STX>f,
+#          <STX>Kf), "start_of_print" (<STX>O), "max_label_length" (<STX>M),
+#          "feed_rate" (<STX>S), "software_switches" (<STX>V). A setting left
+#          out keeps whatever the printer holds; a label's own media or stop it
+#          leaves out is reported (label_setting_not_sent). [] sends none.
+# Type: list of strings, each one of the six above
+# Default: unset (every one)
+# Environment Variable: DATAMAX_DPL___PRINTER__SEND_SETTINGS='["media", "stop"]'
+# send_settings = ["media", "stop", "start_of_print", "max_label_length", "feed_rate", "software_switches"]
+
+# Purpose: Media sensor a job sets when the label names none: gap (<STX>e),
+#          reflective (<STX>r) or continuous (<STX>c with the label's
+#          continuous_length or height). The label's own media wins. A model
+#          that cannot choose its sensor keeps its own and reports it (info).
+# Type: string, "gap", "reflective" or "continuous"
+# Default: unset (as the label says, else as the printer holds it)
+# Environment Variable: DATAMAX_DPL___PRINTER__MEDIA=gap
+# media = "gap"
+
+# Purpose: Start of print in mm, sent as <STX>O exactly as set (no scale or
+#          offset). Unset takes the model's default from the manual (p.31):
+#          55.88 mm on most models, 63.5 on the Prodigy, 27.94 on the Prodigy
+#          Plus and Titan 6200; the Prodigy Max (a DIP switch decides), generic
+#          and permissive have none and send none (printer_settings_unknown).
+# Type: float, 12.7 to 2539.746 (mm; 50/100 to 9999/100 inch, the DPL limits)
+# Default: unset (the model's default)
+# Environment Variable: DATAMAX_DPL___PRINTER__START_OF_PRINT_MM=55.88
+# start_of_print_mm = 55.88
+
+# Purpose: How far the printer searches for the next label edge, in mm, sent as
+#          <STX>M. The manual asks for at least 5 inches (p.30): less is refused.
+#          A gap or reflective label not at least 2.54 mm shorter gets no <STX>M
+#          (max_label_length_too_short). Unset takes the model's default.
+# Type: float, 127 to 2539.746 (mm; 500/100 to 9999/100 inch)
+# Default: unset (304.8 or 406.4 by model; none on generic and permissive)
+# Environment Variable: DATAMAX_DPL___PRINTER__MAX_LABEL_LENGTH_MM=304.8
+# max_label_length_mm = 304.8
+
+# Purpose: Speed the feed button feeds at, sent as <STX>S. A letter outside the
+#          model's slew range sends the model's default instead
+#          (feed_rate_out_of_range, info). Unset takes the model's slew default
+#          (manual Appendix M).
+# Type: string, one speed letter "A" (1 in/s) to "S" (10 in/s)
+# Default: unset (the model's slew default)
+# Environment Variable: DATAMAX_DPL___PRINTER__FEED_RATE=C
+# feed_rate = "C"
+
+# Purpose: Whether the label-present sensor is on. With cutter it sets the bits
+#          of the software switches (<STX>V), which override the printer's own
+#          until it is switched off. While cutter, or this on a model with a
+#          label-present bit, is unknown, no <STX>V is sent
+#          (software_switches_not_sent, info): a guessed bit would switch an
+#          option off. The Allegro and Allegro 2 have no such bit.
+# Type: string, "yes", "no" or "unknown"
+# Default: "unknown"
+# Environment Variable: DATAMAX_DPL___PRINTER__LABEL_PRESENT=no
+# label_present = "unknown"
+
 # ------------------------------------------------------------------------------
 # Named printers - one section per printer, chosen with --printer NAME
 # ------------------------------------------------------------------------------

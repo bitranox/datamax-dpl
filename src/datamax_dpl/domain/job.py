@@ -18,6 +18,7 @@ from .enums import FindingCode, MediaSensor, PrinterSetting, PrinterStop, SpeedC
 from .label import DotSize, ScalableText
 from .profiles import Feature, SpeedRange
 from .records import STX, line
+from .render_context import option_name
 from .transparency import emulates_transparency
 from .units import MM_PER_INCH, Axis, DplUnit, hundredths_to_mm, to_inches
 
@@ -134,7 +135,7 @@ def _max_label_length(label: Label, ctx: RenderContext) -> list[bytes]:
     if state.media is MediaSensor.CONTINUOUS or height is None or round(height + MAX_LABEL_LENGTH_MARGIN_MM, 3) < sent:
         return [_system(f"M{hundredths:04d}")]
     source = (
-        "configured max_label_length_mm"
+        f"configured {option_name('max_label_length_mm')}"
         if PrinterSetting.MAX_LABEL_LENGTH in state.configured
         else f"the {ctx.profile.name} model default"
     )
@@ -168,8 +169,8 @@ def _feed_rate(ctx: RenderContext) -> list[bytes]:
     fallback = "no feed rate sent" if default is None else f"feed rate {default.value} sent"
     ctx.findings.info(
         FindingCode.FEED_RATE_OUT_OF_RANGE,
-        f"feed rate {wanted.value} is outside {allowed.low.value}-{allowed.high.value} on {ctx.profile.name}; "
-        f"{fallback}",
+        f"feed rate {wanted.value} ({option_name('feed_rate')}) is outside "
+        f"{allowed.low.value}-{allowed.high.value} on {ctx.profile.name}; {fallback}",
     )
     return sent
 
@@ -197,13 +198,15 @@ def _switch_value(ctx: RenderContext) -> _SwitchValue:
         undescribed = ", ".join(f"bit {bit.bit} {bit.option}" for bit in bits.undescribed)
         return _SwitchValue(None, f"{ctx.profile.name} has bits no setting describes ({undescribed})")
     if ctx.cutter_installed is None:
-        return _SwitchValue(None, "whether the cutter is installed is unknown")
+        return _SwitchValue(None, f"whether the cutter is installed is unknown (set {option_name('cutter_installed')})")
     value = int(ctx.cutter_installed) << bits.cutter
     if bits.label_present is None:
         return _SwitchValue(value)
     present = ctx.printer_state.label_present
     if present is None:
-        return _SwitchValue(None, "whether the label-present sensor is on is unknown")
+        return _SwitchValue(
+            None, f"whether the label-present sensor is on is unknown (set {option_name('label_present')})"
+        )
     return _SwitchValue(value | int(present) << bits.label_present)
 
 
@@ -226,7 +229,8 @@ class _ValuedSetting:
     Attributes:
         setting: The setting.
         what: Its name in the finding.
-        key: The ``[printer]`` key that sets it.
+        key: The render option that sets it, which a caller of the command line reads with the
+            settings key of the printer section in use added (``with_setting_keys``).
         value: The value the job would send; None where the model has no known default.
     """
 
@@ -239,11 +243,16 @@ class _ValuedSetting:
 def _valued_settings(state: PrinterState) -> tuple[_ValuedSetting, ...]:
     """The settings whose value can be unknown for a model, each with its value in ``state``."""
     return (
-        _ValuedSetting(PrinterSetting.START_OF_PRINT, "start of print", "start_of_print_mm", state.start_of_print_mm),
         _ValuedSetting(
-            PrinterSetting.MAX_LABEL_LENGTH, "maximum label length", "max_label_length_mm", state.max_label_length_mm
+            PrinterSetting.START_OF_PRINT, "start of print", option_name("start_of_print_mm"), state.start_of_print_mm
         ),
-        _ValuedSetting(PrinterSetting.FEED_RATE, "feed rate", "feed_rate", state.feed_rate),
+        _ValuedSetting(
+            PrinterSetting.MAX_LABEL_LENGTH,
+            "maximum label length",
+            option_name("max_label_length_mm"),
+            state.max_label_length_mm,
+        ),
+        _ValuedSetting(PrinterSetting.FEED_RATE, "feed rate", option_name("feed_rate"), state.feed_rate),
     )
 
 
@@ -280,7 +289,7 @@ def _report_label_settings_left_out(label: Label, ctx: RenderContext) -> None:
         if value is not None and not _sends(setting, ctx):
             ctx.findings.info(
                 FindingCode.LABEL_SETTING_NOT_SENT,
-                f"the label's {name} {value} is not sent: send_settings leaves out {setting.value}",
+                f"the label's {name} {value} is not sent: {option_name('send_settings')} leaves out {setting.value}",
             )
 
 

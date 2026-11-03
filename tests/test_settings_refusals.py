@@ -140,6 +140,8 @@ PRINTER_NUMBERS = [
     "cutter_stop_position",
     "image_memory_bytes",
     "max_format_rows",
+    "start_of_print_mm",
+    "max_label_length_mm",
     "label_width",
     "label_height",
 ]
