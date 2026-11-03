@@ -30,9 +30,15 @@ long it was given (`no complete answer within 0.5 s`): raise `--timeout` (second
 while a print server is busy with an earlier job and then say how long they waited (`no answer in
 30.0 s (4 attempts)`), and `verify` waits as long for the printer to finish its job (`printer still
 busy after 30.0 s`): raise `status_wait`, or pass `--timeout`, which is their whole wait.
-Before a job no clear precedes, `print` and `verify` may first spend up to `[printer]
-stored_names_wait` (30 s), plus the 1 s of silence that ends the answer, reading the printer's
-stored image names; `--timeout` leaves that wait.
+Before each label whose downloads no clear precedes, `print` and `verify` may first spend up to
+`[printer] stored_names_wait` (30 s), plus the 1 s of silence that ends the answer, reading the
+printer's stored image names; `--timeout` leaves that wait. Nothing about them is kept from one
+label to the next: the printer may have been reset, or another program may have printed. So a
+`--data` batch whose labels download images with no clear before them is refused
+(`batch_image_names_unread`) where no printer can be read before each label: `render`, `validate`
+with no tcp or serial printer named, and `print` to a `file:`, stdout or a device. Clear the
+module before each label, or send to a two-way printer; a single label on those routes only says
+its names were not read (`image_names_unread`).
 A job is sent in `[printer] send_chunk_bytes` pieces (1024) and the timeout bounds each one; a job
 cut off part way says to power-cycle the printer, which may be waiting for the rest.
 
@@ -43,9 +49,11 @@ cut off part way says to power-cycle the printer, which may be waiting for the r
    (with `--data` every record is checked). Read EVERY finding in `data.findings` (`code`,
    `severity`, `message`, `element`, `record`, `fallback`): `error` will not print; `warning` with
    `fallback` says what prints instead; `info` notes an assumption. Fix and repeat. A batch keeps
-   the first 1000 findings and always its first error: `data.findings_total` and
-   `data.findings_by_code` count all of them, and `data.report_note` says what was cut and which key
-   (`[printer] max_reported_findings`) shows more.
+   the first 1000 findings, past those the first finding of each code not yet kept, and always its
+   first error: `data.findings_total` and `data.findings_by_code` count all of them, and
+   `data.report_note` says what was cut and which key (`[printer] max_reported_findings`) keeps
+   more. A `record` counts the data records from 0 (a CSV header is no record), as `data record 7`
+   in a message does; only an error reading a JSON Lines file names its line in the file, from 1.
 3. `datamax-dpl preview label.json -o preview.png --model MODEL [--data rows.csv]` and LOOK at
    the PNG. It shows the FIRST record only, so also preview a one-row data file holding the
    longest values. There is no automatic text wrapping or shrinking: long text runs off the edge.
@@ -138,12 +146,15 @@ cut off part way says to power-cycle the printer, which may be waiting for the r
   once every downloaded name is listed. Else round 2 clears (`q` on built-in RAM, the Prodigy's `R`,
   never a plug-in module) and uploads again (with no clear, only the names the directory did not
   list; after a read with no answer it reads the names again first and uploads none of the same
-  names unless that read answers), round 3 uploads halved (`image_upload_retried`); still missing,
+  names unless that read answers), round 3 uploads halved (`image_upload_retried`). With no clear
+  before a label, its names are read right before its downloads and only those not listed go; if
+  that read gets no answer the job's first label uploads every image (`image_names_unread`), and a
+  later label skips round 1 and uploads nothing until round 2's read answers. Still missing,
   the label is refused and nothing more is sent (`image_upload_refused`), as when it is in error
   once rendered again for a round (`image_upload_render_refused`). `[printer] upload_check_rounds`
   (1-3, default 3). An `image_module` of `C` (no directory lists it) is refused before anything is sent
   (`image_module_unlisted`); set the real letter (A on the Allegro 2) or use a one-way link.
-- Printer reset (`print`, `verify`, two-way link): before the first label the job reads `<SOH>A` once within `reset_check_wait` (3 s; no answer means nothing). On `R` or `T` in front of the answer (`reset_reported`) one calibration label goes first, because one Allegro 2 printed the first label after a power cycle about 12 mm shifted: the job's printer settings and size, `calibration_label_text` in the middle (`printer_reset_calibrated`: one extra label came out). `calibrate_after_reset = false` only reports it (`printer_reset_not_calibrated`). Two limits: a `status` or `memory` run before the job takes the report, so that job's first label can be shifted; a one-way link cannot see a reset.
+- Printer reset (`print`, `verify`, two-way link): before the first label the job reads `<SOH>A` once within `reset_check_wait` (3 s; no answer means nothing), after that label's names read where one goes, whose answer can carry the report itself. On `R` or `T` in front of the answer (`reset_reported`) one calibration label goes first, because one Allegro 2 printed the first label after a power cycle about 12 mm shifted: the job's printer settings and size, `calibration_label_text` in the middle (`printer_reset_calibrated`: one extra label came out). `calibrate_after_reset = false` only reports it (`printer_reset_not_calibrated`). Two limits: a `status` or `memory` run before the job takes the report, so that job's first label can be shifted; a one-way link cannot see a reset.
 - Every downloaded image goes under its content name (`D` + 7 characters from `0-9 A-Z a-z`, from
   its hash; letter case counts, measured kept and matched exactly on an Allegro 2 CA02 03.04 only),
   never the `image` element's `name`; only an `image` without `bitmap` that no element of the label
@@ -275,24 +286,41 @@ Settings live in a layered config: `datamax-dpl config` shows the merged result,
 `[camera]` sections.
 
 `render` raises `LabelRejectedError` on an error finding; `build_job` returns the result with
-`.findings` instead. `render_batch(label, records, options)` does the `--data` case and never
-raises on an error finding: it returns a `BatchResult`, so check `.ok`. It holds every label: pass
+`.findings` instead. `render_batch(label, records, options)` does the `--data` case and never raises
+on an error finding: it returns a `BatchResult`, so check `.ok`. It holds every label: pass
 `max_job_bytes=` to bound its job (past it, `BatchTooLargeError`). For a large batch use
 `iter_batch(label, records, options)`, which takes a generator and yields one `RenderResult` at a
 time (the job's bytes in `.data`, the verdict in `.ok`: a record in error is yielded too, so check
 each before writing it), or `check_batch(label, records, options)`, which returns a `BatchReport`
-holding no job and needs records it can read again (a generator raises `ValueError`). Pass that report with `CheckedJob(renders=report.renders(), ...)` to
-`print_checked`, or write `report.record_jobs()`. Memory does not grow with the records; each record
-is rendered once to check and again to send, so such a batch takes up to about twice as long.
-`[printer] max_batch_job_bytes` (1 GiB) applies only to `render --data` with no `-o`.
-`send(data)` writes the job as it is: it does not check what the printer stored, so an image
-download a full module lost gives a label with that image missing, and no error. On a channel that
-can read answers (tcp, serial), `print_checked(job, CheckedJob(renders=record_renders(label, None,
-options), check=UploadCheck(wait=AnswerWait(seconds=30))),
-uri=uri, timeout=10, open_printer=open_printer)` is the route `print` takes: it reads the printer's
-directory after each label's downloads and raises `UploadRefusedError` before a format would print
-without its image. It also reads the status once first: on a reported reset one calibration label
-goes out before the job, and `CheckedJob(reset=None)` asks nothing.
+holding no job and needs records it can read again (a generator raises `ValueError`, spool or
+not). Check the
+report's `.ok` before anything goes out, then pass it with `CheckedJob(renders=report.renders(),
+...)` to `print_checked`, or write `report.record_jobs()`. The report has `records`, `job_bytes`,
+`findings` (`ReportedFinding` pairs of `record` and `finding`), `downloads` and their totals;
+`limits=ReportLimits(findings=..., downloads=...)` says how much of those it keeps. Without a spool
+(below) the send reads the records again, so they must read the same: a record now in error raises
+`LabelRejectedError` when its turn comes (a missing field `MissingFieldError`, a broken field limit
+pydantic's `ValidationError`), another number of records `ConfigurationError`, each after the
+records before it went out; a record that changed and still renders goes out as it now reads. Memory
+does not grow with the records. Time does: each record is rendered once to check and once more to
+send, unless `check_batch(..., spool=)` gets a `JobSpool` (any object with `add`, `seal` and
+`entries`; the package ships none for library use) to keep each checked record in, which the send
+reads back instead of the records (`print` and `render -o` keep theirs in a temp file); a label is
+rendered again only for what the printer answers. On a two-way link each label with a new image costs a directory read after its downloads,
+and with no clear before them one more before, each about 1 s plus the printer's answer: about 17
+minutes per 1000 distinct codes, or 33 with no clear. Pass `check_batch(...,
+read_names_at_send=True)` for a batch `print_checked` sends to a two-way printer: without it a
+record that downloads images with no clear before them gets the error finding
+`batch_image_names_unread`, so the report is not `.ok` and nothing is sent. `[printer]
+max_batch_job_bytes` (64 MiB) applies only to `render --data` with no `-o`. `send(data)` writes the
+job as it is: it does not check what the printer stored, so an image download a full module lost
+gives a label with that image missing, and no error. On a channel that can read answers (tcp,
+serial), `print_checked(job, CheckedJob(renders=record_renders(label, None, options),
+check=UploadCheck(wait=AnswerWait(seconds=30))), uri=uri, timeout=10, open_printer=open_printer)` is
+the route `print` takes: it reads the printer's directory before a label's downloads where no clear
+precedes them and after each label's downloads, and raises `UploadRefusedError` before a format
+would print without its image. It also reads the status once first: on a reported reset one
+calibration label goes out before the job, and `CheckedJob(reset=None)` asks nothing.
 
 The element types are the classes `Text`, `ScalableText`, `Barcode`, `Qr`, `Line`, `Box`, `Circle`,
 `Polygon` and `Image`, with `Cut`, `Counter`, `Pdf417Options` and `DataMatrixOptions` for their

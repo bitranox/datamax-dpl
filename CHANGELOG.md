@@ -72,8 +72,9 @@ All notable changes to this project are documented here. The format follows
   `print_checked` takes the report with `report.renders()`, building each label when its turn comes. `render_batch`
   stays as the way to hold a batch whole. `check_batch(spool=...)` keeps each record in a `JobSpool` as it is
   checked, and the report sends from it; `JobSpool` (the protocol with `add`, `seal` and `entries`) imports from
-  `datamax_dpl`. Records that come back different on the second read are refused when their
-  turn comes: `LabelRejectedError` for one gone bad, `ConfigurationError` for another number.
+  `datamax_dpl`. Without a spool the send reads the records again: one now in error is refused when its turn comes
+  (`LabelRejectedError`), as is another number of records (`ConfigurationError`); one that changed and still renders
+  goes out as it now reads.
 - `[printer] max_reported_findings` and `max_reported_downloads` (default 1000 each): a batch's answer keeps that many
   findings and image names in full, past that the first finding of each code, and always its first error. The JSON
   envelope gains `findings_total`, `findings_by_code`, `downloads_total` and `report_note`, which names the key when
