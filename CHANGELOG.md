@@ -94,6 +94,8 @@ All notable changes to this project are documented here. The format follows
 - `[printer] max_batch_job_bytes` (default 64 MiB): `render --data` with no `-o`, the one command that holds the whole
   job, stops with exit 2 and `BatchTooLargeError` naming the key and `-o FILE`, before the memory goes. `render_batch` takes
   `max_job_bytes`, no limit when it is left out: a library caller rendering records it did not write sets one.
+- A `--json` envelope goes to stdout in 64 KiB pieces, so `render --data` with no `-o` holds about 8 times its job
+  while it answers (224 MB resident for a 27 MB job; written whole, the same envelope took 357 MB).
 - `BatchResult.data` is joined when it is first read, so `print_result` holds one copy of the job. It is no longer a
   model field: build a `BatchResult` from `results`, and its JSON holds the jobs in `results` only.
   `BatchResult.job_bytes` gives the size without joining.

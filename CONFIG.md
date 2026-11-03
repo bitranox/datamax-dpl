@@ -674,9 +674,9 @@ another hard link. A replaced file has a new inode. SIGTERM or SIGHUP end the pr
 so they leave the spool directory, or the `.NAME.PID.N.tmp` beside the target, behind, and the target as
 it was. `render`
 with no `-o` answers with the job itself and holds it, which `max_batch_job_bytes` bounds. That key
-bounds the job, not the memory: while it answers, the process holds about 5 times the job in human mode
-and about 11 times with `--json` (a 33 MB job: 213 MB and 421 MB resident, measured), so about 700 MB at
-the default 64 MiB. A larger job belongs in `-o FILE`, which holds none of it.
+bounds the job, not the memory: while it answers, the process holds about 7 times the job in human mode
+and about 8 times with `--json` (a 27 MB job: 181 MB and 224 MB resident, measured on Linux), so about
+550 MB at the default 64 MiB. A larger job belongs in `-o FILE`, which holds none of it.
 
 The data file is read whole, up to 16 MiB. CSV rows and JSON lines are then parsed when each one's turn
 comes, while a JSON array is parsed whole and held, which takes up to about 35 times its size: a large batch

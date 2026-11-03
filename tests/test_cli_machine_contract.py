@@ -6,7 +6,9 @@ through ``main()`` as a console script does.
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
+import io
 import json
 import os
 import subprocess
@@ -18,10 +20,17 @@ import click
 import lib_log_rich.runtime
 import pytest
 from lib_layered_config import Config, ConfigError
+from pydantic import BaseModel
 
 from datamax_dpl import __init__conf__
 from datamax_dpl.adapters.cli.context import CLIContext
-from datamax_dpl.adapters.cli.envelope import CommandName, OutputMode
+from datamax_dpl.adapters.cli.envelope import (
+    CommandName,
+    Envelope,
+    OutputMode,
+    forget_started_envelope,
+    write_envelope,
+)
 from datamax_dpl.adapters.cli.main import main
 from datamax_dpl.adapters.cli.runner import CommandResult, run_command
 from datamax_dpl.adapters.config.display import display_config
@@ -571,3 +580,36 @@ def test_a_label_rejected_inside_a_command_is_the_answer_no_not_a_failure(capsys
         run_command(click.Context(click.Command("print"), obj=state), command=CommandName.PRINT, body=body)
     assert caught.value.exit_code == 1
     assert json.loads(capsys.readouterr().out)["error"] == "LabelRejectedError"
+
+
+class _LargestWrite(io.StringIO):
+    """A stdout that remembers the most text one write handed it: what every layer below copies."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.largest = 0
+
+    def write(self, text: str, /) -> int:
+        self.largest = max(self.largest, len(text))
+        return super().write(text)
+
+
+class _Big(BaseModel):
+    dpl: str
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("bare", [False, True])
+def test_a_large_envelope_goes_to_stdout_in_pieces(bare: bool) -> None:
+    """A whole batch's job in one write cost several times its size again in the stream's own copies."""
+    job = "<STX>L<CR>" * 100_000
+    stream = _LargestWrite()
+    envelope = Envelope[BaseModel](ok=True, command=CommandName.RENDER, data=_Big(dpl=job), skipped=[])
+    try:
+        with contextlib.redirect_stdout(stream):
+            write_envelope(envelope, mode=OutputMode.of(as_json=not bare, as_json_bare=bare))
+    finally:
+        forget_started_envelope()
+    assert json.loads(stream.getvalue())["data"]["dpl"] == job
+    assert stream.getvalue().endswith("\n")
+    assert stream.largest <= 64 * 1024, stream.largest

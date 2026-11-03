@@ -136,6 +136,12 @@ def envelope_started() -> bool:
     return _Started.envelope
 
 
+#: Characters handed to stdout at a time. Each layer below copies what it is handed (the encode
+#: check, a text stream's newline translation, its encoder), so an envelope carrying a whole batch's
+#: job written at once cost several times its size on top of the text, one copy more on Windows.
+_ENVELOPE_PIECE_CHARS = 64 * 1024
+
+
 def write_envelope(document: BaseModel, *, mode: OutputMode) -> None:
     """Write ``document`` to stdout, encode-safe for consoles that cannot show every character.
 
@@ -148,7 +154,9 @@ def write_envelope(document: BaseModel, *, mode: OutputMode) -> None:
     dumped = json.dumps(document.model_dump(mode="json"), indent=mode.indent, separators=separators, ensure_ascii=False)
     text = _LONE_SURROGATE.sub(lambda found: f"\\u{ord(found[0]):04x}", dumped)
     _Started.envelope = True
-    sys.stdout.write(safe_console.encode_safe(text, sys.stdout.encoding) + "\n")
+    for start in range(0, len(text), _ENVELOPE_PIECE_CHARS):
+        sys.stdout.write(safe_console.encode_safe(text[start : start + _ENVELOPE_PIECE_CHARS], sys.stdout.encoding))
+    sys.stdout.write("\n")
     sys.stdout.flush()
 
 
