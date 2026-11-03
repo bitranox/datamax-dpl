@@ -34,6 +34,7 @@ from .. import safe_console
 from ..config_load import load_config
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
+from ..payloads import SentTo
 from ..runner import CommandResult, run_command
 from ..settings import PrinterOverrides, check_printer_values, printer_settings, render_options, require_uri
 from ..typed_click import option
@@ -244,7 +245,7 @@ def _refused_print(
         fits = _longest_fit(built.labels[Axis.ALONG], settings=settings, options=options, below=built.along_length)
         hint = _length_hint(fits)
     payload = _print_payload(
-        settings, printed, printer=settings.uri, bytes_sent=0, along_length_that_fits=fits, hint=hint
+        settings, printed, sent=SentTo(printer=settings.uri, bytes_sent=0), along_length_that_fits=fits, hint=hint
     )
     human = "REFUSED: nothing sent" if hint is None else f"REFUSED: nothing sent\n{hint}"
     return CommandResult(ok=False, payload=payload, human=human)
@@ -265,7 +266,7 @@ def _send_print(
     if printed.along_length_mm is not None:
         measured_against = _set_default_along_length(cli_ctx, printer, width=width)
         hint = _set_hint(bar=printed.along_length_mm, measured_against=measured_against)
-    payload = _print_payload(settings, printed, printer=uri, bytes_sent=report.bytes_sent, hint=hint)
+    payload = _print_payload(settings, printed, sent=SentTo(printer=uri, bytes_sent=report.bytes_sent), hint=hint)
     human = [f"sent {', '.join(printed.axes)} to {uri}"]
     if payload.along_length_mm is not None:
         human.append(payload.hint or f"along bar {payload.along_length_mm:g} mm")
@@ -346,15 +347,14 @@ def _print_payload(
     settings: PrinterSettings,
     printed: _Printed,
     *,
-    printer: str,
-    bytes_sent: int,
+    sent: SentTo,
     along_length_that_fits: float | None = None,
     hint: str | None = None,
 ) -> CalibratePrintPayload:
     """The payload: the values the labels printed with, every finding, and what was sent where."""
     calibration = printed.calibration
     return CalibratePrintPayload(
-        printer=printer,
+        printer=sent.printer,
         name=settings.name,
         model=settings.model,
         labels=list(printed.axes),
@@ -362,7 +362,7 @@ def _print_payload(
         scale_along=calibration.scale_along,
         offset_across=calibration.offset_across,
         offset_along=calibration.offset_along,
-        bytes_sent=bytes_sent,
+        bytes_sent=sent.bytes_sent,
         findings=[finding for result in printed.results for finding in result.findings],
         along_length_mm=printed.along_length_mm,
         along_length_that_fits=along_length_that_fits,
