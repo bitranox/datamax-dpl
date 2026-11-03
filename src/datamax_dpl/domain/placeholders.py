@@ -148,6 +148,12 @@ def fill_label(label: Label, record: Mapping[str, str]) -> Label:
     Raises:
         MissingFieldError: A placeholder has no value in ``record``.
         pydantic.ValidationError: A filled field breaks the label model's limits.
+
+    Examples:
+        >>> from datamax_dpl import Label, Text
+        >>> filled = fill_label(Label(elements=[Text(x=1, y=1, text="ART {art}")]), {"art": "4711"})
+        >>> filled.elements[0].text
+        'ART 4711'
     """
     # Every element is filled before anything is validated, so a missing field is reported
     # ahead of a field that filling made too long, whichever element comes first. The label

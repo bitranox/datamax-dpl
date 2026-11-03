@@ -184,6 +184,13 @@ def render_batch(
         MissingFieldError: A record lacks a field a placeholder names.
         UnknownModelError: ``options.model`` names no profile.
         pydantic.ValidationError: A filled value breaks a field limit.
+
+    Examples:
+        >>> from datamax_dpl import Label, RenderOptions, Text
+        >>> label = Label(elements=[Text(x=1, y=1, text="{art}")])
+        >>> batch = render_batch(label, [{"art": "1"}, {"art": "2"}], RenderOptions(model="dmx-600"))
+        >>> batch.ok, len(batch.results)
+        (True, 2)
     """
     plan = _plan_of(_batch_label(label), options)
     results: list[RenderResult] = []
@@ -809,6 +816,13 @@ def check_batch(
         pydantic.ValidationError: A filled value breaks a field limit.
         OSError: ``spool`` could not keep a record of a batch that passed (a full disk). One that
             fails on a refused batch is not raised: the refusal is the answer, and nothing is sent.
+
+    Examples:
+        >>> from datamax_dpl import Label, RenderOptions, Text
+        >>> label = Label(elements=[Text(x=1, y=1, text="{art}")])
+        >>> report = check_batch(label, [{"art": "1"}, {"art": "2"}], RenderOptions(model="dmx-600"))
+        >>> report.ok, report.records
+        (True, 2)
     """
     # Asked of the type: calling iter() on a re-iterable would be one read of its source before the check.
     if spool is None and isinstance(records, Iterator):
@@ -967,6 +981,12 @@ def record_renders(
     Raises:
         MissingFieldError: A record lacks a field a placeholder names.
         pydantic.ValidationError: A filled value breaks a field limit.
+
+    Examples:
+        >>> from datamax_dpl import Label, RenderOptions, Text
+        >>> label = Label(elements=[Text(x=1, y=1, text="{art}")])
+        >>> len(record_renders(label, [{"art": "1"}, {"art": "2"}], RenderOptions(model="dmx-600")))
+        2
     """
     if records is None:
         return (_LabelRender(label=label, options=options),)

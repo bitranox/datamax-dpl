@@ -1098,6 +1098,23 @@ def print_checked(
         TransportError: The printer could not be reached or written.
         ValueError: A value of ``job.check`` is not usable; nothing was sent.
         pydantic.ValidationError: A report's record, read again, breaks a field limit.
+
+    Examples:
+        >>> from datamax_dpl import AnswerWait, CheckedJob, Label, RenderOptions, Text, UploadCheck
+        >>> from datamax_dpl import build_job, record_renders
+        >>> from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
+        >>> label, options = Label(elements=[Text(x=1, y=1, text="HELLO")]), RenderOptions(model="dmx-600")
+        >>> check = UploadCheck(wait=AnswerWait(seconds=1))
+        >>> printer = RecordingPrinter()
+        >>> sent = print_checked(
+        ...     build_job(label, options),
+        ...     CheckedJob(renders=record_renders(label, None, options), check=check),
+        ...     uri="tcp://192.0.2.1:9100",
+        ...     timeout=5.0,
+        ...     open_printer=open_recording_printer(printer),
+        ... )
+        >>> sent.result.ok, b"HELLO" in b"".join(printer.sent)
+        (True, True)
     """
     if not result.ok:
         msg = "label has errors; nothing was sent"

@@ -56,6 +56,26 @@ def test_a_public_function_documents_what_it_takes_returns_and_raises(name: str,
     assert all(section in (getattr(datamax_dpl, name).__doc__ or "") for section in sections)
 
 
+#: The Google-style heading, either spelling the package uses.
+_EXAMPLE_HEADING = re.compile(r"^Examples?:$", re.MULTILINE)
+
+
+def _exported_functions() -> list[str]:
+    return [name for name in datamax_dpl.__all__ if inspect.isfunction(getattr(datamax_dpl, name))]
+
+
+@pytest.mark.os_agnostic
+def test_every_exported_function_shows_an_example_the_doctests_run() -> None:
+    """A heading alone would pass a section with nothing in it: each shows a ``>>>`` line, which doctest runs."""
+    functions = _exported_functions()
+    assert len(functions) >= 20
+    missing = [
+        name for name in functions if not _EXAMPLE_HEADING.search(inspect.getdoc(getattr(datamax_dpl, name)) or "")
+    ]
+    no_run = [name for name in functions if ">>> " not in (inspect.getdoc(getattr(datamax_dpl, name)) or "")]
+    assert (missing, no_run) == ([], [])
+
+
 @pytest.mark.os_agnostic
 def test_the_preview_functions_document_what_they_take_return_and_raise() -> None:
     assert all(s in (render_preview_png.__doc__ or "") for s in ["Args:", "Returns:", "UnknownModelError"])

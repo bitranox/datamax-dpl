@@ -184,6 +184,12 @@ def render_preview_png(
             group once).
         UnknownModelError: ``options.model`` names no profile.
         ValueError: ``options`` are for another model than ``profile``.
+
+    Examples:
+        >>> from datamax_dpl import Label, Text, get_profile
+        >>> png = render_preview_png(Label(elements=[Text(x=1, y=1, text="HELLO")]), get_profile("dmx-600"))
+        >>> png[1:4]
+        b'PNG'
     """
     check_preview_length(canvas_for(label, profile, options=options), max_length_mm=max_length_mm)
     check_preview_fields(label, profile, sent_as=sent_as)

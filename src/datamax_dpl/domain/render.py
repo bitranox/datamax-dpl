@@ -651,6 +651,12 @@ def build_job(label: Label, options: RenderOptions | None = None, *, held: HeldI
 
     Raises:
         UnknownModelError: ``options.model`` names no profile.
+
+    Examples:
+        >>> from datamax_dpl import Label, RenderOptions, Text
+        >>> result = build_job(Label(elements=[Text(x=1, y=1, text="HELLO")]), RenderOptions(model="dmx-600"))
+        >>> result.ok, b"HELLO" in result.data
+        (True, True)
     """
     return _encoded_result(label, options or RenderOptions(), held=held or HeldImages())
 
