@@ -34,6 +34,7 @@ from datamax_dpl.adapters.config.loader import validate_profile
 from datamax_dpl.adapters.config.overrides import nest_overrides
 from datamax_dpl.domain.enums import DeployTarget, OutputFormat
 from datamax_dpl.domain.errors import ConfigurationError
+from datamax_dpl.domain.printable import one_line
 
 from .. import safe_console
 from ..config_load import check_logging, fail_config_load, load_config, require_config
@@ -131,7 +132,7 @@ def cli_config(ctx: click.Context, output_format: str, section: str | None, prof
                     resolved.config, output_format=fmt, section=section, profile=effective_profile
                 )
         except ValueError as exc:
-            safe_console.echo(f"\nError: {exc}", err=True)
+            safe_console.echo(f"\nError: {one_line(error_text(exc))}", err=True)
             write_error_envelope(exc, command=CommandName.CONFIG, mode=cli_ctx.mode)
             ctx.exit(ExitCode.INVALID_ARGUMENT)
 
@@ -495,7 +496,7 @@ def _refuse_permission_settings(exc: DeployPermissionsError, *, mode: OutputMode
     """
     logger.error("Refused permission settings", extra={"problems": [str(problem) for problem in exc.problems]})
     for problem in exc.problems:
-        safe_console.echo(f"Error: {problem}", err=True)
+        safe_console.echo(f"Error: {one_line(str(problem))}", err=True)
     if exc.hint is not None:
         safe_console.echo(_DEPLOY_ANYWAY_HINT, err=True)
     if mode.machine:

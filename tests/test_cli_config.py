@@ -13,6 +13,7 @@ import pytest
 from datamax_dpl.adapters import cli as cli_mod
 from datamax_dpl.adapters.config import loader as config_mod
 from datamax_dpl.adapters.config.display import redact_url_secrets
+from datamax_dpl.adapters.cli.config_load import report_load_failure
 from datamax_dpl.composition import build_production
 
 if TYPE_CHECKING:
@@ -937,3 +938,25 @@ def test_debug_logging_does_not_carry_the_password_in_the_camera_url(
 def test_the_url_mask_changes_only_the_secrets(url: str, shown: str) -> None:
     """The mask finds the password where the HTTP camera finds it and leaves every other part alone."""
     assert redact_url_secrets(url) == shown
+
+
+#: A line a newline in the user's own text would start, read as the program's own.
+_FORGED = "OK: fine"
+
+
+@pytest.mark.os_agnostic
+def test_a_newline_in_the_section_name_stays_on_the_error_line(
+    cli_runner: CliRunner,
+    production_factory: Callable[[], Any],
+) -> None:
+    result: Result = cli_runner.invoke(cli_mod.cli, ["config", "--section", f"zz\n{_FORGED}"], obj=production_factory)
+    assert result.exit_code != 0
+    lines = result.stderr.splitlines()
+    assert [line for line in lines if line.startswith(_FORGED)] == []
+    assert any(line.startswith("Error: ") and "zz\\x0aOK: fine" in line for line in lines), result.stderr
+
+
+@pytest.mark.os_agnostic
+def test_a_newline_in_a_load_problem_stays_on_its_error_line(capsys: pytest.CaptureFixture[str]) -> None:
+    report_load_failure(ValueError(f"bad key 'a\n{_FORGED}'"), show_traceback=False)
+    assert capsys.readouterr().err.splitlines() == ["Error: bad key 'a\\x0aOK: fine'"]

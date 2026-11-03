@@ -46,7 +46,8 @@ All notable changes to this project are documented here. The format follows
 - Control characters from a label file, a printer or a camera no longer reach the terminal raw: C0, DEL and C1 print
   as `\xNN`, line separators and bidi controls as `\uNNNN`, in the error line and every human view (a `memory` name,
   an unknown label key, a reason phrase). The error line also escapes newline and tab, so that a label key or a file
-  name cannot forge a line after it.
+  name cannot forge a line after it; so do the `config` command's own error lines (a `--section` name, a
+  problem loading the configuration).
 - A refused `render` with no `-o` answers with no job: the envelope's `dpl` and `dpl_base64` are null.
 - A Ctrl-C landing where a library swallows it, while a record is filled, still ends a `--data` batch with exit 130 and
   no job written, on every route and on the last record too; one a library turns into its own error (writing a
