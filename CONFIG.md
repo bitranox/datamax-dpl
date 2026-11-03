@@ -681,7 +681,8 @@ it was. `render`
 with no `-o` answers with the job itself and holds it, which `max_batch_job_bytes` bounds. That key
 bounds the job, not the memory: while it answers, the process holds about 7 times the job in human mode
 and about 8 times with `--json` (a 27 MB job: 181 MB and 224 MB resident, measured on Linux), so about
-550 MB at the default 64 MiB. A larger job belongs in `-o FILE`, which holds none of it.
+550 MB at the default 64 MiB. On Windows `--json` holds about 2 jobs more (measured with a 2 MB job), so
+about 10 times, about 670 MB at the default. A larger job belongs in `-o FILE`, which holds none of it.
 
 The data file is read whole, up to 16 MiB. CSV rows and JSON lines are then parsed when each one's turn
 comes, while a JSON array is parsed whole and held, which takes up to about 35 times its size: a large batch

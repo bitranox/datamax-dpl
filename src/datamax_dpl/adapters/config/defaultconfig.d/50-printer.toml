@@ -169,7 +169,7 @@ timeout = 10.0
 #          rendering the rest; 'render -o FILE', 'validate' and 'print' hold no
 #          job. It bounds the job, not the memory: the process holds about 7 times
 #          this in human mode and about 8 times with --json (about 550 MB at the
-#          default). 100000 records of a one-field label come to 6-7 MB.
+#          default; on Windows about 10 times, about 670 MB). 100000 records of a one-field label come to 6-7 MB.
 # Type: integer, greater than 0, at most 1099511627776 (bytes)
 # Default: 67108864
 # Environment Variable: DATAMAX_DPL___PRINTER__MAX_BATCH_JOB_BYTES=268435456
