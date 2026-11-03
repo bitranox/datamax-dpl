@@ -68,8 +68,8 @@ All notable changes to this project are documented here. The format follows
   the records. A 399-field label with 8000 records took 2.9 GB in `print`, and now takes 59 MB. Every record is still
   checked before any byte goes out, so a batch with a bad record is refused as before, and each record is rendered
   once for it: `print`, `render -o -` and an in-place `render -o` keep each checked record, with its values, in a
-  spool file in the system's temp directory, readable by this user alone and removed however the command ends
-  (SIGTERM and SIGHUP leave it), and send from it, never reading the records again. Per record the spool holds the
+  spool file in the system's temp directory, readable by this user alone (on Windows from Python 3.12.4) and removed
+  however the command ends (SIGTERM and SIGHUP leave it), and send from it, never reading the records again. Per record the spool holds the
   job, the values and about 0.5 KB besides; of the findings only those the answer keeps in full, the rest as counts. A
   spool that fills the disk ends a batch that passed with an error naming it; a batch with a bad record is still
   refused for that record. A label is rendered again only for what the printer answers: its names read, round

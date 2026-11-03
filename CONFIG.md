@@ -658,7 +658,9 @@ reading the records again. The spool costs disk: per record its job, the record'
 0.5 KB of what the send reads besides, and of its findings only those the answer keeps in full (at most
 `max_reported_findings` over the whole batch, plus the first of each code), the rest as counts. It sits
 in a directory of its own (`datamax-dpl-spool-*`) in the system's temp directory (`TMPDIR`, `TEMP` or
-`TMP`) that only this user may enter, the file readable by this user alone; where that directory is a
+`TMP`) that only this user may enter, the file readable by this user alone (on Windows from Python
+3.12.4; an earlier Windows Python leaves the directory the temp directory's own access, which a shared
+temp directory such as `C:\Windows\Temp` opens to other users); where that directory is a
 RAM disk (tmpfs), the spool takes memory, so point `TMPDIR` at a disk for a large batch. The command
 removes it however it ends, Ctrl-C and a full disk included; a full disk ends a batch that passed with
 an error naming the spool, while a batch with a bad record is still refused for it. A label is rendered again only where its bytes depend on what the printer answers: from the

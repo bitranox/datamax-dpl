@@ -8,10 +8,15 @@ its job, the record's values, and about 400 bytes of what the send reads besides
 fields as JSON), plus the text of each finding the batch's report keeps in full, which is at most
 the report's limit over the whole batch; the other findings are kept as counts by code.
 
-The file sits in a directory of its own in the system's temp directory, which only this user may
-enter (``mkdtemp``), and is created for this user alone. Both are removed when the spool closes,
-on every way out of the ``with`` block a Python exception takes, Ctrl-C included. SIGTERM and SIGHUP
-end the process with no handler, which leaves the directory (``datamax-dpl-spool-*``) behind.
+The file sits in a directory of its own in the system's temp directory, made by ``mkdtemp`` with
+mode 0o700, and is created with mode 0o600. On POSIX only this user may enter the directory and read
+the file. On Windows the modes give no access control: Python from 3.12.4 gives the directory an
+ACL for this user alone (CVE-2024-4030), while an earlier Windows Python (3.10.11, the last 3.10
+installer) leaves it the temp directory's inherited ACL. A user's own ``%TEMP%`` is that user's
+alone anyway; a shared one (``C:\\Windows\\Temp``) then lets other users read it. Both are removed
+when the spool closes, on every way out of the ``with`` block a Python exception takes, Ctrl-C
+included. SIGTERM and SIGHUP end the process with no handler, which leaves the directory
+(``datamax-dpl-spool-*``) behind.
 """
 
 from __future__ import annotations

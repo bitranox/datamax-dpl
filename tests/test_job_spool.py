@@ -505,7 +505,10 @@ def test_a_spool_that_cannot_be_removed_names_itself_and_never_hides_why_the_blo
 
 
 @pytest.mark.os_posix
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes; Windows gives the temp dir its user's ACL")
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX modes; on Windows the ACL decides, owner-only from Python 3.12.4, inherited before (accepted)",
+)
 def test_the_spool_is_readable_by_its_user_alone() -> None:
     with FileJobSpool() as spool:
         spool.add(_entry("one", cut=False))
