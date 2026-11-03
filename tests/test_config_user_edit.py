@@ -19,6 +19,9 @@ from datamax_dpl.domain.profiles import CalibrationKey
 if TYPE_CHECKING:
     from pathlib import Path
 
+#: Root reads a file whatever its mode. Spelled so that a type check for Windows narrows past geteuid.
+_IS_ROOT = sys.platform != "win32" and os.geteuid() == 0
+
 _COMMENTED = """\
 # my printers
 [printer]
@@ -195,7 +198,7 @@ def test_a_file_with_a_byte_order_mark_is_read_as_every_loader_reads_it(tmp_path
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows ignores the POSIX read bit, so the file stays readable")
-@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root reads a file whatever its mode")
+@pytest.mark.skipif(_IS_ROOT, reason="root reads a file whatever its mode")
 def test_a_file_that_cannot_be_read_is_named_once_with_its_reason(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     path.write_text("[printer]\n", encoding="utf-8")
