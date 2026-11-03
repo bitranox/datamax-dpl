@@ -174,8 +174,8 @@ def test_every_exception_the_package_defines_shares_the_base() -> None:
 
 @pytest.mark.os_agnostic
 def test_every_exception_a_library_caller_can_meet_is_exported() -> None:
-    """The label input and spool errors are the CLI's own: no function of the library surface raises them."""
-    exported = set(_package_exceptions()) - {"LabelInputError", "SpoolWriteError"}
+    """The label input, JSON array and spool errors are the CLI's own: no library function raises them."""
+    exported = set(_package_exceptions()) - {"LabelInputError", "MalformedArrayError", "SpoolWriteError"}
     assert exported <= set(datamax_dpl.__all__)
 
 

@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING
 
 import orjson
 
+from ...domain.errors import DatamaxDplError
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -39,8 +41,12 @@ _OPENERS = frozenset(b"[{")
 _CLOSERS = frozenset(b"]}")
 
 
-class MalformedArrayError(ValueError):
-    """The bytes are not one JSON array: something between, around or inside its elements is not JSON."""
+class MalformedArrayError(DatamaxDplError, ValueError):
+    """The bytes are not one JSON array: something between, around or inside its elements is not JSON.
+
+    The CLI's own, as :class:`~.label_io.LabelInputError` is: the records reader asks for it and
+    reads such a file as JSON lines instead, so no caller meets it.
+    """
 
 
 def _token(data: bytes, position: int) -> int:
