@@ -346,14 +346,13 @@ def _present_distance_is_a_stop(ctx: RenderContext) -> bool:
     return not ctx.supports(Feature.PRESENT_DISTANCE) and ctx.supports(Feature.STOP_POSITION)
 
 
-def _has_present_distance(label: Label, ctx: RenderContext) -> bool:
-    """Return True when the job sends a present distance: the label's own, or a configured one."""
-    return label.present_distance is not None or ctx.configured.present_distance_mm is not None
-
-
 def _label_sets_stop(label: Label, ctx: RenderContext) -> bool:
-    """Return True when the label stops itself: its ``stop_position``, or a present distance sent as one."""
-    return label.stop_position is not None or (_has_present_distance(label, ctx) and _present_distance_is_a_stop(ctx))
+    """Return True when the label stops itself: its ``stop_position``, or its present distance sent as one.
+
+    Only the label's own present distance counts: a configured one goes out only as ``<STX>Kf``
+    (see :func:`_present_hundredths`), so it never takes the place of a stop.
+    """
+    return label.stop_position is not None or (label.present_distance is not None and _present_distance_is_a_stop(ctx))
 
 
 def stops_at_tear_off(label: Label, ctx: RenderContext) -> bool:
@@ -433,14 +432,37 @@ def _present_commands(label: Label, ctx: RenderContext) -> list[bytes]:
 
 
 def _present_hundredths(label: Label, ctx: RenderContext) -> _Wanted[int] | None:
-    """Return the present distance the job sends in 1/100 in: the label's, else the configured mm."""
+    """Return the present distance the job sends in 1/100 in: the label's, else the configured mm.
+
+    A configured one goes out only on a model with ``<STX>Kf``. Elsewhere a present distance can
+    only be sent as the stop position, which would override the label's own stop and the cutter
+    stop with a value set for every job, so it is not sent and an info finding names the keys that
+    set that stop (user decision 2026-11-03).
+    """
     if label.present_distance is not None:
         return _Wanted(ctx.inch_hundredths(label.present_distance, axis=Axis.ALONG), "")
     configured = ctx.configured.present_distance_mm
     if configured is None:
         return None
+    if not ctx.supports(Feature.PRESENT_DISTANCE):
+        _report_configured_present_distance(configured, ctx)
+        return None
     hundredths = ctx.configured_inch_hundredths(configured, axis=Axis.ALONG)
     return _Wanted(hundredths, f" ({option_name('present_distance_mm')})")
+
+
+def _report_configured_present_distance(configured: float, ctx: RenderContext) -> None:
+    """Say that a configured present distance was not sent, and on a model with a stop, what sets it."""
+    message = (
+        f"configured present distance {configured:g} mm ({option_name('present_distance_mm')}) not sent: "
+        f"{ctx.requirement(Feature.PRESENT_DISTANCE)}"
+    )
+    if ctx.supports(Feature.STOP_POSITION):
+        message += (
+            f"; the label stops where {option_name('stop_position_mm')} says, or "
+            f"{option_name('cutter_stop_position_mm')} for a label that cuts"
+        )
+    ctx.findings.info(FindingCode.CONFIGURED_PRESENT_DISTANCE_UNSUPPORTED, message)
 
 
 def _present_distance(wanted: _Wanted[int], ctx: RenderContext) -> list[bytes]:

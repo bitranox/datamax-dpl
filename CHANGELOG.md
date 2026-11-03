@@ -31,9 +31,12 @@ All notable changes to this project are documented here. The format follows
   in mm whatever the label's unit). The label's own value wins; unset, as shipped, sends nothing, so the printer
   keeps its own and every job is as before. A set key meets the label value's range checks and findings, which
   name the key. The calibration label after a reset and the `calibrate print` labels take no column or row
-  offset. Library: `RenderOptions.heat`, `print_speed`, `slew_speed`, `backup_speed`, `column_offset_mm`,
-  `row_offset_mm`, `present_distance_mm`; `ConfiguredLabelState` and `resolved_label_state` in
-  `datamax_dpl.domain.render_context`, and `RenderContext` takes `configured=`.
+  offset. A configured `present_distance` goes out only on a model with `<STX>Kf`: on the others it would be
+  sent as the stop position and override the label's own stop and the cutter stop, so it is not sent and the info
+  `configured_present_distance_unsupported` names `stop_position` and `cutter_stop_position` instead (a label's own
+  `present_distance` still goes out as `<STX>f` there). Library: `RenderOptions.heat`, `print_speed`,
+  `slew_speed`, `backup_speed`, `column_offset_mm`, `row_offset_mm`, `present_distance_mm`; `ConfiguredLabelState`
+  and `resolved_label_state` in `datamax_dpl.domain.render_context`, and `RenderContext` takes `configured=`.
 - `[printer] max_polygon_points` (also in `[printers.<name>]`, default 60, at most 10000): the most points one
   polygon may have. The limit left the label schema, which now takes up to 10000; at the default a 61-point polygon
   is refused on reading exactly as before (exit 2, the same message), now naming the key that allows more. Library:

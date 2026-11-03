@@ -582,9 +582,10 @@ options = []
 # row_offset = 2.5
 
 # Purpose: Present distance (<STX>Kf) in mm for a label that sets none: how far
-#          a printed label is fed out for removal. A model without it sends it
-#          as the stop position or ignores it (present_distance_unsupported);
-#          more than 9999/100 in is refused (present_distance_too_large).
+#          a printed label is fed out for removal. Sent only on a model with
+#          <STX>Kf; elsewhere it is not sent (configured_present_distance_unsupported,
+#          info), so set stop_position or cutter_stop_position there. More
+#          than 9999/100 in is refused (present_distance_too_large).
 # Type: float, greater than 0, at most 100000 (mm)
 # Default: unset (the printer's own)
 # Environment Variable: DATAMAX_DPL___PRINTER__PRESENT_DISTANCE=10

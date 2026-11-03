@@ -28,7 +28,7 @@ from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.enums import FindingCode, Severity, SpeedCode, Unit
 from datamax_dpl.domain.errors import ConfigurationError
 from datamax_dpl.domain.label import Label, Text
-from datamax_dpl.domain.profiles import get_profile
+from datamax_dpl.domain.profiles import PROFILES, Feature, get_profile
 from datamax_dpl.domain.render import RenderResult, build_job
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.reset_label import calibration_job
@@ -225,7 +225,6 @@ def test_a_value_in_the_label_wins_over_the_configured_one(key: str, label_value
         ("prodigy", "heat", 25, FindingCode.HEAT_OUT_OF_RANGE),
         ("allegro-2", "print_speed", "K", FindingCode.SPEED_OUT_OF_RANGE),
         ("prodigy", "backup_speed", "C", FindingCode.SPEED_UNSUPPORTED),
-        ("allegro-2", "present_distance", 6.0, FindingCode.PRESENT_DISTANCE_UNSUPPORTED),
         (MODEL, "present_distance", 3000.0, FindingCode.PRESENT_DISTANCE_TOO_LARGE),
         (MODEL, "column_offset", 2000.0, FindingCode.DISTANCE_TOO_LARGE),
     ],
@@ -266,16 +265,111 @@ def test_a_finding_about_a_configured_value_names_its_option_and_the_cli_names_i
     assert "[printers.lager] heat" in message
 
 
+#: Every model with a stop position but no present-distance command, read from the profiles so a
+#: new model joins the cases by itself; the 11 shipped ones include the Allegro 2.
+STOP_ONLY_MODELS = sorted(
+    name
+    for name in PROFILES
+    if get_profile(name).features[Feature.STOP_POSITION].available
+    and not get_profile(name).features[Feature.PRESENT_DISTANCE].available
+)
+#: Every model with neither command.
+NO_STOP_MODELS = sorted(name for name in PROFILES if not get_profile(name).features[Feature.STOP_POSITION].available)
+
+#: A label for each way the stop is decided: the configured tear-off stop (or the model's), the
+#: label's own stop, the label keeping the printer's stop, and the cutter stop of a cutting label.
+STOP_CASES: dict[str, dict[str, object]] = {
+    "tear_off": {},
+    "label_stop": {"stop_position": 10},
+    "printer_stop": {"stop_position": "printer"},
+    "cutting": {"cut": {}},
+}
+#: The configured stops the present distance must leave alone.
+STOPS = {"model": "", "stop_position": 30.0, "cutter_stop_position": 5.0, "cutter": "yes"}
+
+
+def _stop_case(case: str) -> Label:
+    return Label.model_validate({**PLAIN.model_dump(mode="json", exclude_none=True), **STOP_CASES[case]})
+
+
 @pytest.mark.os_agnostic
-def test_a_configured_present_distance_sent_as_a_stop_replaces_the_configured_stop() -> None:
-    """On a model that sends a present distance as a stop position, one stop command goes out, not two."""
-    options = _options({"printer": {"model": "allegro-2", "present_distance": 6.0, "stop_position": 30.0}})
+def test_the_stop_only_and_no_stop_model_lists_hold_what_the_profiles_say() -> None:
+    assert "allegro-2" in STOP_ONLY_MODELS
+    assert len(STOP_ONLY_MODELS) == 11
+    assert set(NO_STOP_MODELS) == {"generic", "prodigy", "prodigy-152"}
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("model", STOP_ONLY_MODELS + NO_STOP_MODELS)
+@pytest.mark.parametrize("case", sorted(STOP_CASES))
+def test_a_configured_present_distance_is_not_sent_on_a_model_without_kf(model: str, case: str) -> None:
+    """User decision 2026-11-03: there it sends nothing, so every stop stays what it was without it."""
+    label = _stop_case(case)
+    stops = {**STOPS, "model": model}
+
+    configured = build_job(label, _options({"printer": {**stops, "present_distance": 6.0}}))
+    without = build_job(label, _options({"printer": stops}))
+
+    assert configured.data == without.data
+    [finding] = [f for f in configured.findings if f.code is FindingCode.CONFIGURED_PRESENT_DISTANCE_UNSUPPORTED]
+    assert finding.severity is Severity.INFO
+    assert FindingCode.PRESENT_DISTANCE_UNSUPPORTED not in _codes(configured)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("model", STOP_ONLY_MODELS + NO_STOP_MODELS)
+def test_a_configured_present_distance_there_still_prints_under_strict(model: str) -> None:
+    options = _options({"printer": {"model": model, "present_distance": 6.0, "policy": "strict"}})
+
+    result = build_job(PLAIN, options)
+
+    assert result.ok
+    assert FindingCode.CONFIGURED_PRESENT_DISTANCE_UNSUPPORTED in _codes(result)
+
+
+@pytest.mark.os_agnostic
+def test_on_a_stop_only_model_the_finding_names_the_keys_that_set_the_stop(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    configured = build_job(PLAIN, _options({"printer": {"model": "allegro-2", "present_distance": 6.0}}))
+    [finding] = [f for f in configured.findings if f.code is FindingCode.CONFIGURED_PRESENT_DISTANCE_UNSUPPORTED]
+    path = tmp_path / "label.json"
+    path.write_text(PLAIN.model_dump_json(), encoding="utf-8")
+
+    result = _cli(
+        cli_runner,
+        "--set",
+        "printers.lager.present_distance=6",
+        "render",
+        str(path),
+        "--model",
+        "allegro-2",
+        "--printer",
+        "lager",
+    )
+
+    for option in ("present_distance_mm", "stop_position_mm", "cutter_stop_position_mm"):
+        assert f"RenderOptions.{option}" in finding.message
+    [message] = [
+        f["message"]
+        for f in json.loads(result.stdout)["data"]["findings"]
+        if f["code"] == "configured_present_distance_unsupported"
+    ]
+    for key in ("present_distance", "stop_position", "cutter_stop_position"):
+        assert f"[printers.lager] {key}" in message
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("model", ["allegro-2", "dmx-400"])
+def test_a_label_s_own_present_distance_still_goes_out_as_a_stop_there(model: str) -> None:
+    """The label asked for it, so it stays a deviation sent as <STX>f, configured stop or not."""
     labelled = PLAIN.model_copy(update={"present_distance": 6.0})
 
-    job = build_job(PLAIN, options).data
+    result = build_job(labelled, _options({"printer": {"model": model, "present_distance": 9.0}}))
 
-    assert job.count(b"\x02f") == 1
-    assert job == build_job(labelled, RenderOptions(model="allegro-2", stop_position_mm=30.0)).data
+    assert result.data == build_job(labelled, RenderOptions(model=model)).data
+    assert FindingCode.PRESENT_DISTANCE_UNSUPPORTED in _codes(result)
+    assert FindingCode.CONFIGURED_PRESENT_DISTANCE_UNSUPPORTED not in _codes(result)
 
 
 @pytest.mark.os_agnostic

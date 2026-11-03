@@ -308,6 +308,7 @@ class FindingCode(str, Enum):
     BATCH_IMAGE_NAMES_UNREAD = "batch_image_names_unread"
     CHARACTERS_UNMAPPABLE = "characters_unmappable"
     CHECK_DIGIT_ADDED = "check_digit_added"
+    CONFIGURED_PRESENT_DISTANCE_UNSUPPORTED = "configured_present_distance_unsupported"
     CONFIGURED_SENSOR_SELECT_UNSUPPORTED = "configured_sensor_select_unsupported"
     CONFIGURED_STOP_POSITION_UNSUPPORTED = "configured_stop_position_unsupported"
     CONTINUOUS_LENGTH_MISSING = "continuous_length_missing"

@@ -220,7 +220,8 @@ The stop position (`<STX>f`) comes from the first of these that applies:
 1. the label's `stop_position` (corrected by `scale_along`), even in a job that cuts;
 2. on a model with `<STX>f` but no `<STX>Kf`: the label's `present_distance`
    (`present_distance_unsupported`); with `stop_position` also set, both go out as `<STX>f`,
-   present distance second (which one the printer keeps is unverified);
+   present distance second (which one the printer keeps is unverified). A configured
+   `present_distance` is never a stop: it is not sent there at all (below);
 3. `[printer] cutter_stop_position` for a label with `cut`, else `[printer] stop_position` (mm, at
    most 253.746), both sent unscaled; unset `stop_position` takes the model default, which only
    allegro-2 has (66.8 mm, `<STX>f263`);
@@ -267,7 +268,10 @@ the model's default from the manual; a library caller sets the same fields in `R
   when the label sets them (at the top level of its JSON, beside `quantity`) or the same-named key
   in `[printers.<name>]` or `[printer]` does (lengths in mm whatever the label's unit); the label's
   own value wins and passes the same range checks. Unset, nothing is sent and the printer keeps its
-  own value.
+  own value. A configured `present_distance` goes out only on a model with `<STX>Kf`; elsewhere it
+  is not sent (`configured_present_distance_unsupported`, info, on every label; prints under
+  `strict` too), so it never replaces the label's stop or the cutter stop: set `stop_position` or
+  `cutter_stop_position` there.
 
 ## Reading a DPL file, and the printer's own controls
 
