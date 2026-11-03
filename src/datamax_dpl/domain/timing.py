@@ -14,6 +14,9 @@ from pydantic import BaseModel, Field
 
 #: Largest timeout every platform accepts: Windows stores a socket timeout as 2**31-1 ms.
 MAX_TIMEOUT_SECONDS = 2147483.0
+#: Default of ``[printer] timeout``: seconds for one transport operation (a connect, a write of one
+#: piece of a job, the first byte of an answer).
+TIMEOUT_SECONDS = 10.0
 #: Longest an answer read until silence (``PrinterTransport.read_answer``) may take, from the
 #: request to the silence that ends it. Without it a device sending one byte just inside every
 #: ``idle`` would keep the read going until the size bound, for days. Sized on the slowest link, a
@@ -126,6 +129,7 @@ __all__ = [
     "REFUSED_CONNECT_RETRY_INTERVAL_SECONDS",
     "REFUSED_CONNECT_WAIT_SECONDS",
     "SEND_CHUNK_BYTES",
+    "TIMEOUT_SECONDS",
     "TimeoutName",
     "TransportTuning",
     "check_timeout",

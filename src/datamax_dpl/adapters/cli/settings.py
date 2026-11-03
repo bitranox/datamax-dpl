@@ -54,6 +54,7 @@ from ...domain.timing import (
     REFUSED_CONNECT_RETRY_INTERVAL_SECONDS,
     REFUSED_CONNECT_WAIT_SECONDS,
     SEND_CHUNK_BYTES,
+    TIMEOUT_SECONDS,
     TransportTuning,
 )
 from ...domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
@@ -139,7 +140,7 @@ class PrinterSettings(BaseModel):
     firmware: ParsedFirmware = None
     uri: str = ""
     policy: FallbackPolicy = FallbackPolicy.DEGRADE
-    timeout: float = Field(default=10.0, gt=0, le=MAX_TIMEOUT_SECONDS)
+    timeout: float = Field(default=TIMEOUT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
     # How long status and memory keep trying for the first answer while a print server is still
     # busy with an earlier job, and the pause between two of their connections.
     # Bounded above too, so an infinite or oversized value is refused naming its key here rather
