@@ -101,6 +101,9 @@ _FORMAT_NAMES = {
     "T": "field terminator",
     "U": "replaceable field",
     "G": "to global register",
+    # The recalled format's fields live in the printer, not in this job, so the label rebuilt
+    # from the job lacks them; the command itself is read whole.
+    "r": "recall stored format",
 }
 
 
@@ -278,6 +281,10 @@ def _format_line(text: bytes, state: _State) -> None:
         _add(state, CommandKind.COUNTER, text, _counter(text, state))
     elif first in _FORMAT_NAMES:
         _add(state, CommandKind.FORMAT, text, _format_setting(first, text, state))
+    elif not text:
+        # The manual gives no meaning to an empty line inside a format, so it is not read as harmless.
+        state.problems.append("empty line in the format: no format command starts it")
+        _add(state, CommandKind.FORMAT, text, "empty line")
     else:
         # A line no format command starts could do anything to the label, so the job is not read whole.
         state.problems.append(f"{readable(text)}: format command not understood")

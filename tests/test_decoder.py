@@ -360,6 +360,7 @@ def test_no_command_of_a_rendered_job_is_explained_as_a_bare_letter(options: Ren
         (b"\x02L\r1911A1000100010x\rZZZ\rE\r", "ZZZ: format command not understood"),
         (b"\x02L\rgarbage!!\rE\r", "garbage!!: format command not understood"),
         (b"\x02L\r1911\rE\r", "1911: record shorter than its 15-character header"),
+        (b"\x02L\r\rE\r", "empty line in the format: no format command starts it"),
     ],
     ids=repr,
 )
@@ -367,6 +368,15 @@ def test_a_format_line_that_is_no_known_command_is_a_problem(job: bytes, problem
     result = explain(job)
     assert result.problems == (problem,)
     assert result.commands[-1].kind is CommandKind.END
+
+
+@pytest.mark.os_agnostic
+def test_recalling_a_stored_format_is_a_known_command_not_a_problem() -> None:
+    result = explain(b"\x02L\rrLAB1\rE\r")
+    assert result.problems == ()
+    recall = result.commands[-2]
+    assert recall.kind is CommandKind.FORMAT
+    assert recall.meaning.startswith("recall stored format")
 
 
 @pytest.mark.os_agnostic
