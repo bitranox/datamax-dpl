@@ -16,31 +16,34 @@ uvx datamax-dpl --help   # or the main branch: uvx --from git+https://github.com
 ```
 
 Global options (`--json` / `--json-bare`, `--set SECTION.KEY=VALUE`, `--profile`, `--env-file`,
-`--traceback`) go BEFORE the command; every other option goes after it. Machine-readable output: `datamax-dpl --json validate label.json`. stdout is then one envelope
-`{"ok", "command", "data", "skipped"}`; errors are `{"ok": false, "command", "error", "message"}`
-(`command` null when none was named). Exit codes: 0 done, 1 refused (an error finding), 2 could not
-run (a usage error, bad JSON, unknown model, printer unreachable or silent, broken config), 130
-interrupted (Ctrl-C; for a command that sends, part of a job may already have gone), 141 the reader
-of the output went away. `status` also exits 1 when the printer reports a problem, `explain` when
-it could not read part of the job, and `detect` when no model fits;
-`config` and `config-deploy` also use 13 (no permission), 22 (no such `--section`), 78 (config does
-not load or permissions refused), and `config-deploy` and `config-generate-examples` 1. A printer that does not answer in time says how
-long it was given (`no complete answer within 0.5 s`): raise `--timeout` (seconds) or
-`[printer] timeout`. `status` and `memory` instead keep trying for `[printer] status_wait` (30 s)
-while a print server is busy with an earlier job and then say how long they waited (`no answer in
-30.0 s (4 attempts)`), and `verify` waits as long for the printer to finish its job (`printer still
-busy after 30.0 s`): raise `status_wait`, or pass `--timeout`, which is their whole wait.
-Before each label whose downloads no clear precedes, `print` and `verify` may first spend up to
+`--traceback`) go BEFORE the command; every other option goes after it. Machine-readable output:
+`datamax-dpl --json validate label.json`. stdout is then one envelope `{"ok", "command", "data",
+"skipped"}`; errors are `{"ok": false, "command", "error", "message"}` (`command` null when none was
+named). Exit codes: 0 done, 1 refused (an error finding), 2 could not run (a usage error, bad JSON,
+unknown model, printer unreachable or silent, broken config), 130 interrupted (Ctrl-C; for a command
+that sends, part of a job may already have gone), 141 the reader of the output went away. `status`
+also exits 1 when the printer reports a problem, `explain` when it could not read part of the job,
+and `detect` when no model fits; `config` and `config-deploy` also use 13 (no permission), 22 (no
+such `--section`), 78 (config does not load or permissions refused), and `config-deploy` and
+`config-generate-examples` 1. A printer that does not answer in time says how long it was given (`no
+complete answer within 0.5 s`): raise `--timeout` (seconds) or `[printer] timeout`. `status` and
+`memory` instead keep trying for `[printer] status_wait` (30 s) while a print server is busy with an
+earlier job and then say how long they waited (`no answer in 30.0 s (4 attempts)`), and `verify`
+waits as long for the printer to finish its job (`printer still busy after 30.0 s`): raise
+`status_wait`, or pass `--timeout`, which is their whole wait. Before each label whose downloads no
+clear precedes, and after any downloads a label sends, `print` and `verify` may spend up to
 `[printer] stored_names_wait` (30 s), plus the 1 s of silence that ends the answer, reading the
 printer's stored image names; `--timeout` leaves that wait. Nothing about them is kept from one
 label to the next: the printer may have been reset, or another program may have printed. So a
-`--data` batch whose labels download images with no clear before them is refused
-(`batch_image_names_unread`) where no printer can be read before each label: `render`, `validate`
-with no tcp or serial printer named, and `print` to a `file:`, stdout or a device. Clear the
-module before each label, or send to a two-way printer; a single label on those routes only says
-its names were not read (`image_names_unread`).
-A job is sent in `[printer] send_chunk_bytes` pieces (1024) and the timeout bounds each one; a job
-cut off part way says to power-cycle the printer, which may be waiting for the rest.
+`--data` batch whose labels download images with no clear before them is refused from its second
+record on (`batch_image_names_unread`) where no printer can be read before each label: `render`,
+`validate` with no tcp or serial printer named, and `print` to a `file:`, stdout or a device. Turn
+`[printer] clear_graphics_before` on (it clears only the model's built-in RAM module, so leave
+`image_module` unset or name that module; the plain Prodigy removes each name it downloads instead),
+or send to a two-way printer; a single label on those routes, and a batch's first record, only says
+its names were not read (`image_names_unread`, a warning unless `[printer] held_image_severity`
+raises it). A job is sent in `[printer] send_chunk_bytes` pieces (1024) and the timeout bounds each
+one; a job cut off part way says to power-cycle the printer, which may be waiting for the rest.
 
 ## The loop - labels cost money, so do every step
 
@@ -139,7 +142,7 @@ cut off part way says to power-cycle the printer, which may be waiting for the r
   halving, any job past it under `strict`, a halved image at `magnification` 5 or more. On a
   two-way `print`/`verify` the model's budget is left out (the upload check decides,
   `image_budget_skipped`); a configured `image_memory_bytes` still applies.
-- Image module: downloads go to the model's built-in module (`image_module` in `capabilities`); a Prodigy/Prodigy Plus has none and refuses them (`image_module_unknown`) until `[printer] image_module` (A-E) names the module fitted.
+- Image module: downloads go to the model's built-in module (`image_module` in `capabilities`); a Prodigy/Prodigy Plus has none and refuses them (`image_module_unknown`) until `[printer] image_module` (A-E) names the module fitted. The module is cleared before and after each label's downloads (`[printer] clear_graphics_before` and `clear_graphics_after`, both `true`; the library's `RenderOptions.clear_graphics_before_label` and `clear_graphics_after_label`); the clear (`<STX>q`) goes only to the model's built-in RAM module, never to a plug-in one, whatever the keys say, and the plain Prodigy removes each name a label downloads instead.
 - Upload check (`print`, `verify`, two-way link): a download into a full module is lost silently,
   so a label's downloads go first, the printer's directory (`<STX>W`) is read within
   `stored_names_wait` (plus the 1 s of silence that ends the answer), and its format follows only
@@ -292,8 +295,8 @@ on an error finding: it returns a `BatchResult`, so check `.ok`. It holds every 
 `iter_batch(label, records, options)`, which takes a generator and yields one `RenderResult` at a
 time (the job's bytes in `.data`, the verdict in `.ok`: a record in error is yielded too, so check
 each before writing it), or `check_batch(label, records, options)`, which returns a `BatchReport`
-holding no job and needs records it can read again (a generator raises `ValueError`, spool or
-not). Check the
+holding no job and needs records it can read again (a generator raises `ValueError`), unless
+`spool=` is given (below): with a spool it reads the records once and takes a generator. Check the
 report's `.ok` before anything goes out, then pass it with `CheckedJob(renders=report.renders(),
 ...)` to `print_checked`, or write `report.record_jobs()`. The report has `records`, `job_bytes`,
 `findings` (`ReportedFinding` pairs of `record` and `finding`), `downloads` and their totals;
@@ -304,23 +307,26 @@ pydantic's `ValidationError`), another number of records `ConfigurationError`, e
 records before it went out; a record that changed and still renders goes out as it now reads. Memory
 does not grow with the records. Time does: each record is rendered once to check and once more to
 send, unless `check_batch(..., spool=)` gets a `JobSpool` (any object with `add`, `seal` and
-`entries`; the package ships none for library use) to keep each checked record in, which the send
-reads back instead of the records (`print` and `render -o` keep theirs in a temp file); a label is
-rendered again only for what the printer answers. On a two-way link each label with a new image costs a directory read after its downloads,
-and with no clear before them one more before, each about 1 s plus the printer's answer: about 17
-minutes per 1000 distinct codes, or 33 with no clear. Pass `check_batch(...,
-read_names_at_send=True)` for a batch `print_checked` sends to a two-way printer: without it a
-record that downloads images with no clear before them gets the error finding
-`batch_image_names_unread`, so the report is not `.ok` and nothing is sent. `[printer]
-max_batch_job_bytes` (64 MiB) applies only to `render --data` with no `-o`. `send(data)` writes the
-job as it is: it does not check what the printer stored, so an image download a full module lost
-gives a label with that image missing, and no error. On a channel that can read answers (tcp,
-serial), `print_checked(job, CheckedJob(renders=record_renders(label, None, options),
-check=UploadCheck(wait=AnswerWait(seconds=30))), uri=uri, timeout=10, open_printer=open_printer)` is
-the route `print` takes: it reads the printer's directory before a label's downloads where no clear
-precedes them and after each label's downloads, and raises `UploadRefusedError` before a format
-would print without its image. It also reads the status once first: on a reported reset one
-calibration label goes out before the job, and `CheckedJob(reset=None)` asks nothing.
+`entries`: `help(datamax_dpl.JobSpool)`; the package ships none for library use) to keep each
+checked record in, with its values: the send reads it back and never reads the records again
+(`print` and `render -o` keep theirs in a file in the system temp directory: per record its job's
+bytes and its values, plus about 0.6 KB); a label is rendered again, from the values kept, only for
+what the printer answers. On a two-way link each label with an image costs a directory read, a
+reused logo included, about 1 s plus the printer's answer: about 17 minutes per 1000 labels; with no
+clear before the downloads, a label that downloads a new image costs a second one (about 35 minutes
+per 1000 in all). Pass `check_batch(..., read_names_at_send=True)` for a batch `print_checked` sends
+to a two-way printer: without it each record after the first that downloads images with no clear
+before them gets the error finding `batch_image_names_unread`, so the report is not `.ok` and
+nothing is sent. `[printer] max_batch_job_bytes` (64 MiB) applies only to `render --data` with no
+`-o`. `send(data)` writes the job as it is: it does not check what the printer stored, so an image
+download a full module lost gives a label with that image missing, and no error. On a channel that
+can read answers (tcp, serial), `print_checked(job, CheckedJob(renders=record_renders(label, None,
+options), check=UploadCheck(wait=AnswerWait(seconds=30))), uri=uri, timeout=10,
+open_printer=open_printer)` is the route `print` takes: it reads the printer's directory before a
+label's downloads where no clear precedes them and after any downloads it sends, and raises
+`UploadRefusedError` before a format would print without its image. It also reads the status once
+first: on a reported reset one calibration label goes out before the job, and
+`CheckedJob(reset=None)` asks nothing.
 
 The element types are the classes `Text`, `ScalableText`, `Barcode`, `Qr`, `Line`, `Box`, `Circle`,
 `Polygon` and `Image`, with `Cut`, `Counter`, `Pdf417Options` and `DataMatrixOptions` for their
