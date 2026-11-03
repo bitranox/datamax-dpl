@@ -27,6 +27,10 @@ itself (versions 1 to 40, error levels L, M, Q and H) and sends it as a download
 prints on all 18 models; the Prodigy and Prodigy Plus need `image_module` set first. On an
 Allegro 2 a phone read the printed codes fine up to version 20 at 4 dots per module.
 
+**Custom fonts on demand.** Text prints in the printers' own fonts today. Your own fonts can be
+added on demand, for example drawn as graphics the same way as QR codes. If you are interested,
+contact us by opening an issue at <https://github.com/bitranox/datamax-dpl/issues>.
+
 It is a Python library and a command line tool. Every command can answer with a JSON envelope
 and meaningful exit codes, so scripts and LLM agents can drive it.
 
