@@ -449,3 +449,44 @@ def test_the_library_sets_inch_unit_dots_on_the_render_options() -> None:
 def test_inch_unit_dots_out_of_range_is_refused_naming_it(value: object, reason: str) -> None:
     with pytest.raises(ConfigurationError, match=rf"^printer\.inch_unit_dots: .*{reason}"):
         _settings({"printer": {"inch_unit_dots": value}})
+
+
+# ======================== max_polygon_points: the most vertices one polygon takes ========================
+
+
+def _polygon(points: int) -> dict[str, Any]:
+    vertices = [{"x": index % 50, "y": (index * 7) % 40} for index in range(points)]
+    return {"width": 100, "height": 60, "elements": [{"type": "polygon", "points": vertices}]}
+
+
+def _polygon_file(tmp_path: Path, points: int) -> str:
+    path = tmp_path / f"polygon-{points}.json"
+    path.write_text(json.dumps(_polygon(points)), encoding="utf-8")
+    return str(path)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("command", ["render", "validate", "preview"])
+def test_a_polygon_of_61_points_is_refused_at_load_with_exit_2_naming_the_points(
+    cli_runner: CliRunner, tmp_path: Path, command: str
+) -> None:
+    """Pins the refusal 60 points gave as a schema limit: the same error, exit code and message."""
+    output = ["-o", str(tmp_path / "p.png")] if command == "preview" else []
+    source = _polygon_file(tmp_path, 61)
+
+    result = _cli(cli_runner, None, command, source, "--model", "allegro-2", *output)
+
+    assert result.exit_code == 2, result.output
+    envelope = json.loads(result.stdout)
+    assert envelope["error"] == "LabelInputError"
+    assert envelope["message"].startswith(
+        f"{source} is not a valid label: elements.0.polygon.points: List should have at most 60 items after "
+        "validation, not 61"
+    )
+
+
+@pytest.mark.os_agnostic
+def test_a_polygon_of_60_points_passes(cli_runner: CliRunner, tmp_path: Path) -> None:
+    result = _cli(cli_runner, None, "validate", _polygon_file(tmp_path, 60), "--model", "allegro-2")
+
+    assert result.exit_code == 0, result.output
