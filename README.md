@@ -75,7 +75,7 @@ datamax-dpl validate examples/product-label.json --model dmx-600
 
 ```text
 OK: model dmx-600, 1 label(s), 5 field(s), 178 bytes
-INFO    software_switches_not_sent: software switches (<STX>V) not sent: whether the cutter is installed is unknown
+INFO    software_switches_not_sent: software switches (<STX>V) not sent: whether the cutter is installed is unknown (set RenderOptions.cutter_installed; [printer] cutter)
 INFO    check_digit_added [element 3]: the printer adds check digit 1
 INFO    cutter_assumed: cut commands assume the printer's cutter is installed and enabled
 ```
@@ -130,7 +130,7 @@ for finding in result.findings:
 result without raising. For data records use `render_batch(label, records, options)`, which holds
 every label. For a large batch `iter_batch(label, records, options)` yields one `RenderResult` at a
 time and reads one record ahead, and `check_batch(label, records, options)` goes over all of them and
-returns a `BatchReport` holding no job. Check `report.ok` before anything goes out: then `renders()` goes
+returns a `BatchReport` holding no job bytes. Check `report.ok` before anything goes out: then `renders()` goes
 to `print_checked` and `record_jobs()` yields the job's pieces, memory not growing with the records. The
 report has `records`, `job_bytes`, `findings` (`ReportedFinding` pairs of `record` and `finding`), `downloads`
 and their totals; `limits=ReportLimits(findings=..., downloads=...)` says how much of those it keeps, and
@@ -146,6 +146,21 @@ already holds costs that read alone. To send
 bytes open a transport with `open_printer(uri, timeout=10)` and call `send(data)` on it. `explain(data)`
 reads DPL bytes back, as the command `datamax-dpl explain job.dpl` does. All of these are imported
 from `datamax_dpl`.
+
+The rest of the commands have library forms too, imported from `datamax_dpl` as well:
+
+- `fill_label(label, record)` returns a copy of the label with its `{name}` placeholders filled from
+  one record, as each record of a batch is.
+- `get_profile("dmx-600")` returns a model's `PrinterProfile` (its limits, features, image module
+  and measured `CalibrationDefaults`), and `list_profiles()` every profile, `generic` and
+  `permissive` first, as `datamax-dpl capabilities` and `models` show them.
+- `render_preview_png(label, get_profile(model), options=options)` returns the PNG `preview`
+  draws, lettered with Pillow when `pillow_available()` (the `preview` extra), cell blocks
+  otherwise; `preview_findings(label)` says what that picture cannot show.
+- `calibration_labels(width=100, height=55, title="lager")` builds the two labels `calibrate
+  print` sends (`CalibrationLabels` with `across` and `along`); `across_label`, `along_label`,
+  `across_frame_width` (the frame length to measure, `ACROSS_INSET_MM` in from each edge) and
+  `ALONG_LENGTH_MM` (200) are the parts it uses.
 
 `send(data)` writes the job as it is: it does not check what the printer stored, so an image
 download a full module lost gives a label with that image missing, and no error. On a channel that
@@ -241,6 +256,10 @@ while connecting, or closed before answering) is tried again on a new one, and a
 until the wait ends, never asked twice. `verify` waits as long in all for the printer to finish
 its job. `--timeout` sets that whole wait instead. A printer that refuses every connection, such
 as one asked on a mistyped port, therefore takes the whole wait to report.
+Within one connection's opening a refused tcp connect is tried again every `[printer]
+refused_connect_retry_interval` seconds (0.25) for up to `refused_connect_wait` seconds (3, never
+longer than `--timeout`): a print server refuses the next connection for a moment after it closed
+one.
 A job goes out in pieces of `[printer] send_chunk_bytes` (default 1024, at most 65536), and
 `--timeout` bounds each piece, not the whole job: it fires when one piece is not taken in time. A
 piece needs its size over the line's speed, about 1.07 s for 1024 bytes at 9600 baud (about 960
@@ -347,8 +366,8 @@ and a configured stop is not sent either (the info `configured_stop_position_uns
 job still prints, under `strict` too). A `"printer"` stop, in the label or the configuration, asks
 for exactly what these models do and reports nothing. A stop past 999/100 inch is refused
 (`stop_position_too_large`). `render` and `print` name the model's stop position in
-`model_defaults_applied` only when the job sends it. Keys, bounds and the note for configurations
-deployed by 0.3.0 are in [CONFIG.md](CONFIG.md).
+`model_defaults_applied` only when the job sends it. Keys, bounds and the note for a deployed
+configuration that still sets the calibration keys explicitly are in [CONFIG.md](CONFIG.md).
 
 ## JSON output for scripts and LLMs
 
@@ -373,7 +392,7 @@ datamax-dpl --json validate examples/product-label.json --model allegro --policy
     "downloads_total": 1,
     "findings": [
       {"code": "inch_units", "severity": "info", "message": "Allegro formats take inches; millimetres are rounded to 1/100 in", "element": null, "fallback": null, "record": null},
-      {"code": "software_switches_not_sent", "severity": "info", "message": "software switches (<STX>V) not sent: whether the cutter is installed is unknown", "element": null, "fallback": null, "record": null},
+      {"code": "software_switches_not_sent", "severity": "info", "message": "software switches (<STX>V) not sent: whether the cutter is installed is unknown (set RenderOptions.cutter_installed; [printer] cutter)", "element": null, "fallback": null, "record": null},
       {"code": "check_digit_added", "severity": "info", "message": "the printer adds check digit 1", "element": 3, "fallback": null, "record": null},
       {"code": "circle_rasterized", "severity": "error", "message": "circle cannot be drawn natively: circles: Allegro does not have it", "element": 4, "fallback": "drawn as downloaded image DtLbYG5m (81x81 dots)", "record": null},
       {"code": "cutter_assumed", "severity": "info", "message": "cut commands assume the printer's cutter is installed and enabled", "element": null, "fallback": null, "record": null}
@@ -479,9 +498,16 @@ datamax-dpl. Inside Claude Code:
 ## Configuration
 
 Defaults for the printer (model, firmware, URI, policy, timeout, cutter, options, scale factors,
-label size), named printers and the camera live in a layered configuration: bundled defaults,
-system, host and user files, `.env`, environment variables and `--set`. [CONFIG.md](CONFIG.md)
-explains every key.
+label size, the waits and retries of a printer exchange, `refused_connect_wait` and
+`refused_connect_retry_interval` among them, and the printer state keys `send_settings`, `media`,
+`start_of_print_mm`, `max_label_length_mm`, `feed_rate` and `label_present`), named printers and the
+camera live in a layered configuration: bundled defaults, system, host and user files, `.env`,
+environment variables and `--set`. [CONFIG.md](CONFIG.md) explains every key.
+
+Every label's job sets the persistent printer state it relies on before its format (media sensor,
+start of print, maximum label length, feed rate, software switches, stop position), since another
+program or the front panel may have changed it; [The printer state each job
+sets](CONFIG.md#the-printer-state-each-job-sets) lists what goes out and the keys that change it.
 
 ## Development
 
