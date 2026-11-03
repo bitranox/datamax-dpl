@@ -123,7 +123,7 @@ result = render(label, RenderOptions(model="dmx-600"))
 # b'\x02n\x02c0000\x02O0220\x02M1600\x02SO\x02qE\x02L\rm\r131100002000030ART. 4711\r1F0012000300030400638133393\rQ0001\rE\r\x02qE'
 print(result.data)
 for finding in result.findings:
-    print(finding.severity.value, finding.code, finding.message)
+    print(finding.severity.value, finding.code.value, finding.message)
 ```
 
 `render` raises `LabelRejectedError` when a finding is an error; `build_job` returns the same
