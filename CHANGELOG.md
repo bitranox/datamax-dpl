@@ -14,6 +14,11 @@ All notable changes to this project are documented here. The format follows
   `calibrate print`, `reset`, `cancel`, `pause`, `feed`, `cut`), and during the logging shutdown it no longer prints a
   traceback after the answer.
 - A failure over a full disk says so once.
+- An error naming a file shows the path as it was typed: on Windows every backslash in it read doubled
+  (`C:\\Users\\...`), as Python's `repr` spells it. The envelope and the `Error:` line now say the reason and the
+  path, and a second path after `->`.
+- Human output reaches the console in pieces of 64 KiB: `render --data` with no `-o` held one more copy of its
+  readable job on Windows, where the stream turns each newline into two characters.
 - `explain` lists what is wrong in words (`record cut short`, `setting not understood`), not as a Python class name.
 - A `[printer] calibration_label_text` or a `ResetCheck(text=...)` that is not text, a value that was not UTF-8, is
   refused up front and not when a printer reports a reset.
