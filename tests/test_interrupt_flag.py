@@ -16,19 +16,24 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+from printer_server import ImageModules, ModulePrinter
 
 from datamax_dpl.adapters.cli.job_spool import FileJobSpool
 from datamax_dpl.adapters.cli.label_io import Records
 from datamax_dpl.adapters.cli.main import main
 from datamax_dpl.adapters.memory import RecordingPrinter
 from datamax_dpl.composition import AppServices, build_testing
+from datamax_dpl.domain.timing import DEFAULT_TRANSPORT_TUNING, TransportTuning
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
+    from datamax_dpl.application.ports import PrinterTransport
     from datamax_dpl.application.use_cases import BatchEntry
 
 _INTERRUPTED_EXIT = 130
+#: Where a label's format begins: <STX>L.
+_FORMAT_START = b"\x02L"
 
 
 def _swallow_an_interrupt() -> None:
@@ -208,22 +213,166 @@ def test_a_ctrl_c_a_library_turned_into_its_own_error_still_ends_with_130(
     assert printer.sent == []
 
 
-#: The functions that render a job; each CLI call of one must come through check_loaded.
-_RENDERERS = frozenset({"check_batch", "render_label", "render_batch", "iter_batch"})
-#: Where the CLI may call one directly, and why no byte of a job can follow it there.
+class _LosingAtTheSend(FileJobSpool):
+    """A real spool that loses a Ctrl-C while the send reads record ``at`` back to render it again.
+
+    The check pass looked for the note for the last time before the send began, so only what the
+    send itself passes can stop the records after this one.
+    """
+
+    def __init__(self, *, at: int) -> None:
+        super().__init__()
+        self._at = at
+
+    def entries(self) -> Iterator[BatchEntry]:
+        for number, entry in enumerate(super().entries()):
+            if number == self._at:
+                _swallow_an_interrupt()
+            yield entry
+
+
+def _image_batch(tmp_path: Path, *, records: int) -> tuple[str, str]:
+    """A label whose image goes to module B, which no clear empties: each label renders again at send."""
+    label = tmp_path / "label.json"
+    bitmap = ["#." * 8] * 16
+    elements = [
+        {"type": "image", "x": 1, "y": 1, "name": "LOGO", "bitmap": bitmap},
+        {"type": "text", "x": 10, "y": 40, "text": "{a}"},
+    ]
+    label.write_text(json.dumps({"elements": elements}), encoding="utf-8")
+    data = tmp_path / "data.csv"
+    data.write_bytes(b"a\n" + b"".join(b"r%d\n" % number for number in range(records)))
+    return str(label), str(data)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("at", [2, 6])
+def test_a_ctrl_c_lost_while_the_send_renders_a_record_again_stops_at_that_record(
+    at: int, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    label, data = _image_batch(tmp_path, records=8)
+    printer = ModulePrinter(ImageModules())
+
+    def services() -> AppServices:
+        return dataclasses.replace(build_testing(printer=printer), open_spool=lambda: _LosingAtTheSend(at=at))
+
+    code = main(
+        [
+            *("--set", "printer.image_module=B", "print", label, "--data", data),
+            *("--model", "dmx-600", "--printer", "tcp://192.0.2.60:9100"),
+        ],
+        services_factory=services,
+    )
+    assert code == _INTERRUPTED_EXIT, capsys.readouterr().err
+    assert b"".join(printer.sent).count(_FORMAT_START) == at
+
+
+def _opening_after_a_loss(printer: RecordingPrinter) -> Callable[[], AppServices]:
+    """Services whose opener loses a Ctrl-C as it opens: the label renders after, and then goes nowhere."""
+
+    def services() -> AppServices:
+        base = build_testing(printer=printer)
+        inner = base.open_printer
+
+        def losing(uri: str, *, timeout: float, tuning: TransportTuning = DEFAULT_TRANSPORT_TUNING) -> PrinterTransport:
+            _swallow_an_interrupt()
+            return inner(uri, timeout=timeout, tuning=tuning)
+
+        return dataclasses.replace(base, open_printer=losing)
+
+    return services
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("uri", ["tcp://192.0.2.60:9100", "file:{out}"], ids=["two-way", "one-way"])
+def test_a_ctrl_c_lost_before_a_single_label_goes_sends_nothing(
+    uri: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    label = tmp_path / "label.json"
+    label.write_text(json.dumps({"elements": [{"type": "text", "x": 1, "y": 1, "text": "HELLO"}]}), encoding="utf-8")
+    printer = RecordingPrinter()
+    target = uri.format(out=tmp_path / "job.dpl")
+    arguments = ["print", str(label), "--model", "dmx-600", "--printer", target]
+    code = main(arguments, services_factory=_opening_after_a_loss(printer))
+    assert code == _INTERRUPTED_EXIT, capsys.readouterr().err
+    assert printer.sent == []
+
+
+@pytest.mark.os_agnostic
+def test_a_ctrl_c_lost_before_the_calibration_labels_go_sends_nothing(capsys: pytest.CaptureFixture[str]) -> None:
+    printer = RecordingPrinter()
+    code = main(
+        [
+            *("calibrate", "print", "--model", "allegro-2", "--printer", "tcp://192.0.2.60:9100"),
+            *("--width", "100", "--height", "55"),
+        ],
+        services_factory=_opening_after_a_loss(printer),
+    )
+    assert code == _INTERRUPTED_EXIT, capsys.readouterr().err
+    assert printer.sent == []
+
+
+_SRC = Path(__file__).resolve().parents[1] / "src" / "datamax_dpl"
+_CLI = _SRC / "adapters" / "cli"
+#: The application's functions that render a job; the domain's are each export returning a RenderResult,
+#: so a renderer added there is in the scan without a line here.
+_APPLICATION_RENDERERS = frozenset({"check_batch", "render_label", "render_batch", "iter_batch", "record_renders"})
+_SENDS_THROUGH_THE_CHANNEL = "it sends only through printer_opener's channel, which raises a noted Ctrl-C first"
+#: Where the CLI may render directly, and why no byte of a job can follow a lost Ctrl-C there.
 _DIRECT_RENDERS = {
-    ("labels.py", "check_loaded"): "the one gate: it raises a noted Ctrl-C before it returns",
+    ("labels.py", "check_loaded"): "the one gate for files and stdout: it raises a noted Ctrl-C before it returns",
     ("printer.py", "cli_preview.body"): "preview renders only for how the job sends its fields, and writes a picture",
+    ("printer.py", "_print_body"): _SENDS_THROUGH_THE_CHANNEL,
+    ("printer.py", "cli_verify.body"): _SENDS_THROUGH_THE_CHANNEL,
+    ("calibrate.py", "cli_calibrate_print.body"): _SENDS_THROUGH_THE_CHANNEL,
 }
+#: The names through which a CLI module could reach a printer opener that is not interrupt-checked.
+_OPENERS = frozenset({"open_printer", "tuned_open_printer", "bind_tuning", "open_recording_printer"})
 
 
-class _RenderCalls(ast.NodeVisitor):
-    """Each render call with the function around it, named with the functions it is nested in."""
+def _job_builders(path: Path) -> frozenset[str]:
+    """The functions a domain module exports whose return names a ``RenderResult``: the ones that make a job."""
+    body = ast.parse(path.read_text(encoding="utf-8")).body
+    exported: set[str] = set()
+    for node in body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets):
+            exported.update(ast.literal_eval(node.value))
+    return frozenset(
+        node.name
+        for node in body
+        if isinstance(node, ast.FunctionDef)
+        and node.name in exported
+        and node.returns is not None
+        and "RenderResult" in ast.unparse(node.returns)
+    )
 
-    def __init__(self, module: str) -> None:
+
+def _renderers() -> frozenset[str]:
+    domain = _job_builders(_SRC / "domain" / "render.py") | _job_builders(_SRC / "domain" / "reset_label.py")
+    return domain | _APPLICATION_RENDERERS
+
+
+def _called_name(node: ast.Call) -> str | None:
+    """The name a call calls, whether bare (``render(...)``) or an attribute (``use_cases.render(...)``)."""
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr
+    return None
+
+
+class _Sites(ast.NodeVisitor):
+    """Each render call and each reach for an opener, with the functions around it."""
+
+    def __init__(self, module: str, renderers: frozenset[str]) -> None:
         self.module = module
+        self.renderers = renderers
         self.functions: list[str] = []
-        self.found: set[tuple[str, str]] = set()
+        self.renders: set[tuple[str, str]] = set()
+        self.openers: set[tuple[str, str]] = set()
+
+    def _here(self) -> tuple[str, str]:
+        return (self.module, ".".join(self.functions))
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self.functions.append(node.name)
@@ -231,21 +380,45 @@ class _RenderCalls(ast.NodeVisitor):
         self.functions.pop()
 
     def visit_Call(self, node: ast.Call) -> None:
-        if isinstance(node.func, ast.Name) and node.func.id in _RENDERERS:
-            self.found.add((self.module, ".".join(self.functions)))
+        if _called_name(node) in self.renderers:
+            self.renders.add(self._here())
         self.generic_visit(node)
 
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if node.attr in _OPENERS:
+            self.openers.add(self._here())
+        self.generic_visit(node)
 
-def _render_calls(path: Path) -> set[tuple[str, str]]:
-    calls = _RenderCalls(path.name)
-    calls.visit(ast.parse(path.read_text(encoding="utf-8")))
-    return calls.found
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if any(alias.name in _OPENERS for alias in node.names):
+            self.openers.add(self._here())
+
+
+def _cli_sites() -> list[_Sites]:
+    renderers = _renderers()
+    found: list[_Sites] = []
+    for path in sorted(_CLI.rglob("*.py")):
+        sites = _Sites(path.name, renderers)
+        sites.visit(ast.parse(path.read_text(encoding="utf-8")))
+        found.append(sites)
+    return found
 
 
 @pytest.mark.os_agnostic
-def test_every_cli_render_of_a_job_goes_through_the_gate() -> None:
-    """A new route that renders a job beside check_loaded would send what a lost Ctrl-C should have stopped."""
-    cli = Path(__file__).resolve().parents[1] / "src" / "datamax_dpl" / "adapters" / "cli"
-    found = {site for path in sorted(cli.rglob("*.py")) for site in _render_calls(path)}
+def test_every_cli_render_of_a_job_goes_through_a_gate() -> None:
+    """A new route that renders a job beside the gates would send what a lost Ctrl-C should have stopped."""
+    assert {"build_job", "render", "iter_jobs", "build_record", "calibration_job"} <= _renderers()
+    found = {site for sites in _cli_sites() for site in sites.renders}
     assert found, "the scan found no render call at all: it is not looking where the CLI renders"
     assert found <= set(_DIRECT_RENDERS), sorted(found - set(_DIRECT_RENDERS))
+
+
+@pytest.mark.os_agnostic
+def test_every_cli_printer_channel_comes_from_the_interrupt_checked_opener() -> None:
+    """A route that opened a printer any other way would send past a Ctrl-C lost in its render."""
+    found = {site for sites in _cli_sites() for site in sites.openers}
+    assert found == {("model_options.py", "printer_opener")}, sorted(found)
+    tree = ast.parse((_CLI / "commands" / "model_options.py").read_text(encoding="utf-8"))
+    opener = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "printer_opener")
+    returned = [n.value for n in ast.walk(opener) if isinstance(n, ast.Return)]
+    assert [isinstance(r, ast.Call) and _called_name(r) for r in returned] == ["interrupt_checked"]

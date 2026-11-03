@@ -12,6 +12,7 @@ from ....domain.errors import ConfigurationError
 from ....domain.profiles import Firmware, parse_firmware
 from ...config.sections import PRINTER_SECTION, printer_section
 from ...transport.uri import STDOUT_URI, PrinterUri, parse_printer_uri
+from ..interrupt import interrupt_checked
 from ..settings import PrinterOverrides, PrinterSettings, printer_settings, require_uri, transport_tuning
 from ..typed_click import option
 
@@ -163,8 +164,12 @@ def parsed_printer_uri(settings: PrinterSettings) -> PrinterUri:
 
 
 def printer_opener(cli_ctx: CLIContext, settings: PrinterSettings) -> OpenPrinter:
-    """The printer opener for ``settings``: the composition's, with their transport tuning bound."""
-    return cli_ctx.services.tuned_open_printer(transport_tuning(settings))
+    """The printer opener for ``settings``: the composition's, with their transport tuning bound.
+
+    Every route the CLI sends or asks by takes its channel from here, so each byte first looks for
+    a Ctrl-C lost in whatever rendered before it (:func:`~..interrupt.interrupt_checked`).
+    """
+    return interrupt_checked(cli_ctx.services.tuned_open_printer(transport_tuning(settings)))
 
 
 def hardware_options(values: Iterable[str]) -> frozenset[HardwareOption]:
