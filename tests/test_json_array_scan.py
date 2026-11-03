@@ -72,3 +72,30 @@ def test_the_scan_refuses_the_nesting_orjson_refuses(levels: int, opener: bytes,
     inner = levels - 1
     data = b"[" + opener * inner + b"1" + closer * inner + b"]"
     assert _scanned(data) == _whole_parse(data)
+
+
+#: One more escape than one bounded match takes, and enough for several matches in a row.
+_PAST_ONE_MATCH = [4095, 4096, 4097, 8192, 8193, 3 * 4096 + 1]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("escapes", _PAST_ONE_MATCH)
+@pytest.mark.parametrize(
+    ("escape", "tail"),
+    [
+        (b"\\\\", b'"}]'),
+        (b'\\"', b'"}]'),
+        (b"\\u00e4", b'"}]'),
+        (b"\\\\", b"}]"),
+        (b"\\\\", b'\\"}]'),
+        (b"\\\\", b"\\"),
+        (b'\\"', b""),
+        (b"\\\\", b'x"},{"b":"]"}]'),
+    ],
+)
+def test_a_string_past_one_match_s_escapes_reads_as_a_whole_parse_reads_it(
+    escapes: int, escape: bytes, tail: bytes
+) -> None:
+    """Terminated, unterminated, ending on a lone backslash, followed by more elements: as orjson says."""
+    data = b'[{"a":"' + escape * escapes + tail
+    assert _scanned(data) == _whole_parse(data)

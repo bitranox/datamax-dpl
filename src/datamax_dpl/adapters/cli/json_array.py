@@ -24,17 +24,29 @@ if TYPE_CHECKING:
 #: together (measured, orjson 3.13). The scan refuses the same, as a whole parse did.
 MAX_DEPTH = 1024
 
-#: What changes the scan's state at the array's own level: a whole string (each backslash taking the
-#: byte after it, so an escaped quote does not end it), a bracket, or the comma between elements. A
-#: quote matched alone opens a string that never ends. The string goes in one match, in C: walking
-#: it from Python was most of the scan's time.
-_OUTER = re.compile(rb'"[^"\\]*(?:\\.[^"\\]*)*"|[][{},"]', re.DOTALL)
+#: Most escapes one regular expression match takes inside a string. The engine keeps a backtracking
+#: mark for every repetition, about 120 bytes of resident memory that tracemalloc does not see, so
+#: an unbounded repeat over a string of millions of escapes took hundreds of MB. Past this many the
+#: string goes on in a loop from Python (:func:`_string_end`), each match bounded the same: about
+#: half a MB at most. A possessive or atomic group would keep no marks, but needs Python 3.11.
+_ESCAPES_PER_MATCH = 4096
+#: A string's content: plain bytes, and each backslash taking the byte after it, so an escaped
+#: quote does not end the string.
+_STRING_CONTENT = rb'[^"\\]*(?:\\.[^"\\]*){0,%d}' % _ESCAPES_PER_MATCH
+#: What changes the scan's state at the array's own level: a whole string, a bracket, or the comma
+#: between elements. The string goes in one match, in C: walking it from Python was most of the
+#: scan's time. A quote matched alone opens a string that does not end within one match: one that
+#: never ends, or one with more escapes than :data:`_ESCAPES_PER_MATCH`.
+_OUTER = re.compile(rb'"' + _STRING_CONTENT + rb'"|[][{},"]', re.DOTALL)
 #: The same inside an element, where a comma changes nothing.
-_INNER = re.compile(rb'"[^"\\]*(?:\\.[^"\\]*)*"|[][{}"]', re.DOTALL)
+_INNER = re.compile(rb'"' + _STRING_CONTENT + rb'"|[][{}"]', re.DOTALL)
+#: As much of a string's content as one bounded match takes.
+_STRING_RUN = re.compile(_STRING_CONTENT, re.DOTALL)
 #: Anything JSON does not take as whitespace between tokens: space, tab, line feed, carriage return (RFC 8259).
 _NOT_WHITESPACE = re.compile(rb"[^ \t\n\r]")
 
 _QUOTE = ord('"')
+_BACKSLASH = ord("\\")
 _COMMA = ord(",")
 _CLOSE_ARRAY = ord("]")
 _OPENERS = frozenset(b"[{")
@@ -66,6 +78,32 @@ def starts_an_array(data: bytes) -> bool:
     return data[first : first + 1] == b"["
 
 
+def _string_end(data: bytes, position: int) -> int:
+    """Where the string whose content starts at ``position`` ends, one past its closing quote.
+
+    Goes on match after bounded match, each taking up to :data:`_ESCAPES_PER_MATCH` escapes, so
+    the engine's memory stays bounded however many the string holds.
+
+    Raises:
+        MalformedArrayError: The string does not end: no closing quote, or its last byte is a
+            backslash with nothing left to escape.
+
+    Example:
+        >>> _string_end(b'"a\\\\"b"', 1)  # the escaped quote does not end it
+        6
+    """
+    while (run := _STRING_RUN.match(data, position)) is not None:
+        position = run.end()
+        if position == len(data):
+            break
+        if data[position] == _QUOTE:
+            return position + 1
+        # A backslash: the match stopped at its bound, unless nothing follows to escape.
+        if data[position] != _BACKSLASH or position + 1 == len(data):
+            break
+    raise MalformedArrayError("a string does not end")
+
+
 def _element_spans(data: bytes) -> Iterator[tuple[int, int]]:
     """Yield ``(start, end)`` of each top-level element of the array ``data`` holds, surrounding whitespace kept.
 
@@ -83,7 +121,7 @@ def _element_spans(data: bytes) -> Iterator[tuple[int, int]]:
         byte = data[at]
         if byte == _QUOTE:
             if position - at == 1:
-                raise MalformedArrayError("a string does not end")
+                position = _string_end(data, position)
         elif byte in _OPENERS:
             depth += 1
             if depth > MAX_DEPTH:

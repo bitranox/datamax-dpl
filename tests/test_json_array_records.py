@@ -6,6 +6,9 @@ and every message below comes from that reading, whatever reads the array.
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import tracemalloc
 from typing import TYPE_CHECKING
 
@@ -199,6 +202,41 @@ def test_reading_an_array_holds_none_of_its_records() -> None:
     few, many = _peak_of_records(5000), _peak_of_records(50000)
     assert many < _MOST_A_READ_HOLDS, (few, many)
     assert many < 2 * few + 16 * 1024, (few, many)
+
+
+_BASE_PYTHON: str = getattr(sys, "_base_executable", sys.executable)
+
+
+def _resident_rise(escapes: int) -> tuple[int, int]:
+    answer = subprocess.run(
+        [sys.executable, "-m", "escapes_peak_probe"],
+        executable=_BASE_PYTHON,
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path), "ESCAPES": str(escapes)},
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=300,
+    )
+    assert answer.returncode == 0, answer.stderr
+    size, rise = answer.stdout.split()
+    return int(size), int(rise)
+
+
+#: What reading may raise the resident peak by, in file sizes, plus the interpreter's own noise:
+#: the element's bytes once more and its parsed text. A backtracking mark per escape in the one
+#: string took about 120 bytes an escape: 242 MB for the 4 MB file measured here.
+_MOST_FILES_A_READ_RAISES = 2
+_RESIDENT_NOISE = 16 * 1024 * 1024
+
+
+@pytest.mark.os_posix
+@pytest.mark.skipif(sys.platform == "win32", reason="the resource module, which reads the resident peak, is POSIX-only")
+@pytest.mark.parametrize("escapes", [500_000, 2_000_000])
+def test_a_long_string_of_escapes_raises_the_resident_peak_by_no_more_than_its_bytes(escapes: int) -> None:
+    size, rise = _resident_rise(escapes)
+    assert rise < _MOST_FILES_A_READ_RAISES * size + _RESIDENT_NOISE, (size, rise)
 
 
 _TEXT = st.text(alphabet=st.characters(codec="utf-8"), max_size=12) | st.sampled_from(['"', "\\", "[", "]", "{", "}"])
