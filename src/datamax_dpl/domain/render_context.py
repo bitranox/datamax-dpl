@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import TYPE_CHECKING, Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -525,12 +526,14 @@ class ImageDownload:
             return f"image {self.name}"
         return f"image {self.label_name} (sent as {self.name})"
 
-    @property
+    @cached_property
     def data_bytes(self) -> int:
         """Bytes of dot data the printer stores for this image, read from the command's records.
 
         Counted from the encoded records rather than from the bitmap they came from, so the
-        figure is the one the bytes on the wire carry (see :func:`image_data_bytes`).
+        figure is the one the bytes on the wire carry (see :func:`image_data_bytes`). Decoding
+        them is the cost, and the budget check reads the figure more than once, so the first
+        read is kept: the command it comes from cannot change, the download being frozen.
         """
         return image_data_bytes(self.command.split(CR, 1)[1])
 

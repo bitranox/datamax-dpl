@@ -15,17 +15,17 @@ from lib_layered_config import Config
 
 from datamax_dpl.adapters import cli as cli_mod
 from datamax_dpl.adapters.cli.settings import PrinterOverrides, printer_settings, render_options
-from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, QrError, Severity
+from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, QrError, Severity
 from datamax_dpl.domain.errors import ConfigurationError
 from datamax_dpl.domain.image_budget import halve, image_data_bytes, magnify
-from datamax_dpl.domain.image_records import decode_image, encode_image
+from datamax_dpl.domain.image_records import decode_image, download_command, encode_image
 from datamax_dpl.domain.label import Label
 from datamax_dpl.domain.preview import SentAs, canvas_for, preview_bitmap
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.qr import qr_bitmap
 from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.render import RenderResult, build_job, effective_calibration
-from datamax_dpl.domain.render_context import RenderOptions, drawn_image_name
+from datamax_dpl.domain.render_context import ImageDownload, RenderOptions, drawn_image_name
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -133,6 +133,17 @@ def test_image_data_bytes_counts_the_dot_row_bytes_the_records_carry() -> None:
 @pytest.mark.os_agnostic
 def test_image_data_bytes_counts_the_rows_a_repeat_record_adds() -> None:
     assert image_data_bytes(b"800190\r0000FF02\rFFFF\r") == 3
+
+
+@pytest.mark.os_agnostic
+def test_a_download_decodes_its_records_once_however_often_its_bytes_are_read() -> None:
+    """The budget check reads the figure twice per download: the second read is the kept first one."""
+    bitmap = Bitmap.from_rows(USER_ROWS)
+    download = ImageDownload(name="D1", command=download_command("D1", bitmap, module=ImageModule.A), element=0)
+    assert "data_bytes" not in vars(download)
+    assert download.data_bytes == 1280
+    assert vars(download)["data_bytes"] == 1280
+    assert download.data_bytes == 1280
 
 
 @pytest.mark.os_agnostic
