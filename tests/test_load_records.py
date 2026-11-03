@@ -46,6 +46,9 @@ _REFUSED = [
     pytest.param("d.json", b"", "holds no data record", id="json-empty"),
     pytest.param("d.json", b"[]", "holds no data record", id="json-empty-array"),
     pytest.param("d.jsonl", b"\n\n", "holds no data record", id="json-lines-blank-only"),
+    # The skill tells users only a CSV file may start with a BOM; these pin the JSON half of that.
+    pytest.param("d.jsonl", _BOM + b'{"a":"r0"}\n', "line 1 is not JSON: UTF-8 byte order mark", id="json-lines-bom"),
+    pytest.param("d.json", _BOM + b'[{"a":"r0"}]', "line 1 is not JSON: UTF-8 byte order mark", id="json-array-bom"),
 ]
 
 
