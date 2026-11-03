@@ -12,6 +12,7 @@ import ast
 import dataclasses
 import json
 import signal
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -116,12 +117,25 @@ def test_a_handler_the_host_set_stays(tmp_path: Path) -> None:
         signal.signal(signal.SIGINT, before)
 
 
+#: The console keys: Ctrl-C everywhere, Ctrl-Break on Windows alone.
+_CONSOLE_KEYS = [
+    pytest.param("SIGINT", id="ctrl-c"),
+    pytest.param(
+        "SIGBREAK",
+        id="ctrl-break",
+        marks=pytest.mark.skipif(sys.platform != "win32", reason="SIGBREAK is a Windows console signal"),
+    ),
+]
+
+
 @pytest.mark.os_agnostic
-def test_the_handler_is_gone_after_the_run(tmp_path: Path) -> None:
+@pytest.mark.parametrize("key", _CONSOLE_KEYS)
+def test_the_handler_is_gone_after_the_run(key: str, tmp_path: Path) -> None:
+    signum = signal.Signals[key]
     label, data = _batch(tmp_path)
-    before = signal.getsignal(signal.SIGINT)
+    before = signal.getsignal(signum)
     assert main(["validate", label, "--data", data, "--model", "dmx-600"], services_factory=build_testing) == 0
-    assert signal.getsignal(signal.SIGINT) is before
+    assert signal.getsignal(signum) is before
 
 
 @pytest.mark.os_agnostic
@@ -422,3 +436,45 @@ def test_every_cli_printer_channel_comes_from_the_interrupt_checked_opener() -> 
     opener = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "printer_opener")
     returned = [n.value for n in ast.walk(opener) if isinstance(n, ast.Return)]
     assert [isinstance(r, ast.Call) and _called_name(r) for r in returned] == ["interrupt_checked"]
+
+
+class _KeyAtTheFirst(FileJobSpool):
+    """A real spool whose first record meets a console key: its handler runs in place, its raise goes on up."""
+
+    def __init__(self, *, signum: signal.Signals, directories: list[Path]) -> None:
+        super().__init__()
+        self._signum = signum
+        self._directories = directories
+
+    def add(self, entry: BatchEntry) -> None:
+        super().add(entry)
+        assert self.path is not None
+        self._directories.append(self.path.parent)
+        handler = signal.getsignal(self._signum)
+        # The system's default for a key ends the process with no finally run; only a handler is testable.
+        if callable(handler):
+            handler(self._signum, None)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("key", _CONSOLE_KEYS)
+def test_a_console_key_during_a_batch_ends_it_with_130_and_removes_the_spool(
+    key: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Ctrl-Break on Windows takes Ctrl-C's way out: before, the system ended the process and the spool stayed."""
+    label, data = _batch(tmp_path)
+    printer = RecordingPrinter()
+    directories: list[Path] = []
+
+    def services() -> AppServices:
+        spool = _KeyAtTheFirst(signum=signal.Signals[key], directories=directories)
+        return dataclasses.replace(build_testing(printer=printer), open_spool=lambda: spool)
+
+    code = main(
+        ["print", label, "--data", data, "--model", "dmx-600", "--printer", "tcp://192.0.2.60:9100"],
+        services_factory=services,
+    )
+    assert code == _INTERRUPTED_EXIT, capsys.readouterr().err
+    assert printer.sent == []
+    assert len(directories) == 1
+    assert not directories[0].exists()

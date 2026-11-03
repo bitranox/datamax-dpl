@@ -54,6 +54,8 @@ All notable changes to this project are documented here. The format follows
   label renders again for the send (a two-way batch whose images no clear empties, a single label, `calibrate
   print`) stops the job before its next byte goes out. A Ctrl-C after the envelope began adds no second envelope: stdout carries one, and exit 130 and the
   stderr line say the rest.
+- Ctrl-Break on Windows ends a command as Ctrl-C does: exit 130, and a `--data` batch's spool removed. It ended the
+  process at once and left the spool, with every record's values, in the temp directory.
 - `render -o -` and `print --printer -` exit 141 and say nothing when the reader of the job goes away, as the other
   commands do; they exited 2 or 120.
 - A record's own failure names its record, counted from 0 as a finding's `record` is: `data record 7 has no field 'v'`,
@@ -71,7 +73,7 @@ All notable changes to this project are documented here. The format follows
   checked before any byte goes out, so a batch with a bad record is refused as before, and each record is rendered
   once for it: `print`, `render -o -` and an in-place `render -o` keep each checked record, with its values, in a
   spool file in the system's temp directory, readable by this user alone (on Windows from Python 3.12.4) and removed
-  however the command ends (SIGTERM and SIGHUP leave it), and send from it, never reading the records again. Per record the spool holds the
+  however the command ends (SIGTERM, SIGHUP and closing a Windows console window leave it), and send from it, never reading the records again. Per record the spool holds the
   job, the values and about 0.5 KB besides; of the findings only those the answer keeps in full, the rest as counts. A
   spool that fills the disk ends a batch that passed with an error naming it; a batch with a bad record is still
   refused for that record. A label is rendered again only for what the printer answers: its names read, round

@@ -15,8 +15,8 @@ ACL for this user alone (CVE-2024-4030), while an earlier Windows Python (3.10.1
 installer) leaves it the temp directory's inherited ACL. A user's own ``%TEMP%`` is that user's
 alone anyway; a shared one (``C:\\Windows\\Temp``) then lets other users read it. Both are removed
 when the spool closes, on every way out of the ``with`` block a Python exception takes, Ctrl-C
-included. SIGTERM and SIGHUP end the process with no handler, which leaves the directory
-(``datamax-dpl-spool-*``) behind.
+included, and Ctrl-Break on Windows. SIGTERM and SIGHUP end the process with no handler, as closing
+the console window does on Windows, which leaves the directory (``datamax-dpl-spool-*``) behind.
 """
 
 from __future__ import annotations

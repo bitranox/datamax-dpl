@@ -15,6 +15,7 @@ is the one place every route that reaches a printer passes, whatever renders bef
 from __future__ import annotations
 
 import signal
+import sys
 import threading
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
@@ -24,8 +25,12 @@ from ...domain.timing import MAX_ANSWER_SECONDS
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
     from types import FrameType
+    from typing import TypeAlias
 
     from ...application.ports import OpenPrinter, PrinterTransport
+
+    #: What ``signal.signal`` takes and ``signal.getsignal`` gives.
+    _Handler: TypeAlias = Callable[[int, FrameType | None], object] | int | signal.Handlers | None
 
 
 class _Note:
@@ -50,9 +55,25 @@ def raise_if_interrupted() -> None:
         raise KeyboardInterrupt
 
 
+def console_interrupts() -> tuple[tuple[signal.Signals, _Handler], ...]:
+    """Each signal a console key sends, with the handler it has when nothing set one.
+
+    Windows sends SIGBREAK for Ctrl-Break, and Python leaves it to the system's default, which
+    ends the process at once: no ``finally`` runs, so a batch's spool would stay in the temp
+    directory with every record's values. Noted and raised as a Ctrl-C, it takes the same way out.
+
+    Examples:
+        >>> console_interrupts()[0] == (signal.SIGINT, signal.default_int_handler)
+        True
+    """
+    if sys.platform == "win32":
+        return ((signal.SIGINT, signal.default_int_handler), (signal.SIGBREAK, signal.SIG_DFL))
+    return ((signal.SIGINT, signal.default_int_handler),)
+
+
 @contextmanager
 def noting_interrupts() -> Generator[None, None, None]:
-    """Note each Ctrl-C for the length of one run of the command.
+    """Note each Ctrl-C (and on Windows each Ctrl-Break) for the length of one run of the command.
 
     A handler the host set, or ``SIG_IGN`` from a shell that started this in the background, stays:
     it is not ours to replace, and the raise it may make is not ours to find again. Only the main
@@ -60,14 +81,17 @@ def noting_interrupts() -> Generator[None, None, None]:
     """
     _Note.interrupted = False
     owned = threading.current_thread() is threading.main_thread()
-    if not owned or signal.getsignal(signal.SIGINT) is not signal.default_int_handler:
+    taken = [(signum, default) for signum, default in console_interrupts() if signal.getsignal(signum) is default]
+    if not owned or not taken:
         yield
         return
-    signal.signal(signal.SIGINT, _note_and_raise)
+    for signum, _default in taken:
+        signal.signal(signum, _note_and_raise)
     try:
         yield
     finally:
-        signal.signal(signal.SIGINT, signal.default_int_handler)
+        for signum, default in taken:
+            signal.signal(signum, default)
         _Note.interrupted = False
 
 
@@ -140,4 +164,4 @@ def interrupt_checked(open_printer: OpenPrinter) -> OpenPrinter:
     return _open
 
 
-__all__ = ["interrupt_checked", "noting_interrupts", "raise_if_interrupted"]
+__all__ = ["console_interrupts", "interrupt_checked", "noting_interrupts", "raise_if_interrupted"]
