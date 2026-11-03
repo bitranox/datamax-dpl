@@ -57,9 +57,11 @@ All notable changes to this project are documented here. The format follows
 ### Fixed
 
 - A JSON array `--data` file is read one element at a time, as CSV and JSON lines already were, so the peak memory
-  is the file's bytes plus one record. Up to 0.6.0 the array was parsed whole and held: 20000 two-field records
-  (1.9 MB) peaked at 68 MB resident and 40000 at 81 MB, now 60 MB and 63 MB, the same as the CSV. Records, their
-  order and every refusal of a malformed file read word for word as before.
+  is the file's bytes, one text copy of them and one record. Up to 0.6.0 the array was parsed whole and held: 20000
+  two-field records (1.9 MB) peaked at 68 MB resident and 40000 at 81 MB, now 61 MB and 65 MB, against 61 MB and
+  62 MB for the same records as CSV. Records, their order and every refusal of a malformed file read word for word
+  as before, except on Python 3.10 and 3.11 for an element nested about 995 levels deep or more: Python's own JSON
+  reader, which finds where each element ends, stops there, and the file is read as JSON lines and refused.
 - QR Code batches on a model whose format rows are limited (the Allegro family) take about 40 percent less time:
   each record encoded every QR Code twice, once for the job and once for the format length check, and now encodes
   it once (2000 records of a version 4 code: 8.1-8.2 s before, 4.6-5.0 s after, the same bytes). Nothing is kept

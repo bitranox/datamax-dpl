@@ -191,8 +191,9 @@ timeout = 10.0
 # Purpose: Largest label or data file any command reads (render, validate,
 #          print, preview, explain), in bytes; a larger one is refused (exit 2)
 #          before it is read whole, so a wrong path fails fast. Raising it
-#          raises the peak memory by the file's size: its bytes are held while
-#          its records are read, one record at a time in every format.
+#          raises the peak memory by the file's size, twice that for a JSON
+#          array: its bytes are held while its records are read, one record
+#          at a time in every format.
 # Type: integer, greater than 0, at most 1073741824 (bytes)
 # Default: 16777216
 # Environment Variable: DATAMAX_DPL___PRINTER__MAX_INPUT_BYTES=67108864

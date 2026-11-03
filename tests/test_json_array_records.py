@@ -16,6 +16,7 @@ import orjson
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from json_depth import READER_STOPS_SHORT_OF_ORJSON
 
 from datamax_dpl.adapters.cli.label_io import LabelInputError, Records, load_records
 
@@ -95,7 +96,18 @@ _REFUSED = [
         "line 1 is not JSON: depth limit exceeded: line 1 column 1026 (char 1025)",
         id="one-level-too-deep",
     ),
-    pytest.param(b"[" * 1024 + b"]" * 1024, "record 0 is not an object", id="deepest-taken"),
+    pytest.param(
+        b"[" * 1024 + b"]" * 1024,
+        # Read as one JSON line instead, whole, and refused for the same reason.
+        "line 1 is not an object" if READER_STOPS_SHORT_OF_ORJSON else "record 0 is not an object",
+        id="deepest-taken",
+    ),
+    pytest.param(
+        # Deeper than Python's own JSON reader goes on any version: it stops with a RecursionError.
+        b"[" * 100_000 + b"]" * 100_000,
+        "line 1 is not JSON: depth limit exceeded: line 1 column 1026 (char 1025)",
+        id="far-too-deep",
+    ),
     pytest.param(
         b'[{"a":"r0}]',
         "line 1 is not JSON: unexpected end of data: line 1 column 12 (char 11)",
@@ -177,30 +189,39 @@ def test_a_limit_still_counts_an_array_in_full() -> None:
     assert len(Records(data, _SOURCE, limit=3)) == 10
 
 
-def _array_of(rows: int) -> bytes:
-    return b"[" + b",".join(b'{"a":"r%d"}' % row for row in range(rows)) + b"]"
+def _array_of(rows: int, *, value: bytes = b"r%d") -> bytes:
+    return b"[" + b",".join(b'{"a":"' + value % row + b'"}' for row in range(rows)) + b"]"
 
 
-def _peak_of_records(rows: int) -> int:
-    data = _array_of(rows)
+def _peak_above_the_file(rows: int, *, value: bytes) -> int:
+    data = _array_of(rows, value=value)
     tracemalloc.start()
     try:
         # Counting at construction and one read after: a parser that built the list would hold every record.
         for _ in Records(data, _SOURCE):
             pass
-        return tracemalloc.get_traced_memory()[1]
+        return tracemalloc.get_traced_memory()[1] - len(data)
     finally:
         tracemalloc.stop()
 
 
-#: What reading an array may peak at above the bytes it holds, whatever its records: one record and
-#: the scan's own state, not the rows. A whole parse held 12 MB for the 50000 records measured here.
+#: What reading an array may peak at beyond its bytes and one text copy of them (the copy the
+#: element finder reads), whatever its records: one record and the walk's own state, not the rows.
+#: A whole parse held 12 MB for the 50000 records measured here.
 _MOST_A_READ_HOLDS = 256 * 1024
 
 
 @pytest.mark.os_agnostic
-def test_reading_an_array_holds_none_of_its_records() -> None:
-    few, many = _peak_of_records(5000), _peak_of_records(50000)
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(b"r%d", id="ascii"),
+        # One character past U+FFFF: a text read as UTF-8 would take four bytes for every character of the file.
+        pytest.param(chr(0x1F600).encode() + b"%d", id="past-u-ffff"),
+    ],
+)
+def test_reading_an_array_holds_none_of_its_records(value: bytes) -> None:
+    few, many = _peak_above_the_file(5000, value=value), _peak_above_the_file(50000, value=value)
     assert many < _MOST_A_READ_HOLDS, (few, many)
     assert many < 2 * few + 16 * 1024, (few, many)
 
@@ -226,9 +247,10 @@ def _resident_rise(escapes: int) -> tuple[int, int]:
 
 
 #: What reading may raise the resident peak by, in file sizes, plus the interpreter's own noise:
-#: the element's bytes once more and its parsed text. A backtracking mark per escape in the one
-#: string took about 120 bytes an escape: 242 MB for the 4 MB file measured here.
-_MOST_FILES_A_READ_RAISES = 2
+#: the file's text copy, the element's bytes once more and its parsed text, half a file here (2.5
+#: files measured). A backtracking mark per escape in the one string took about 120 bytes an
+#: escape: 242 MB for the 4 MB file measured here.
+_MOST_FILES_A_READ_RAISES = 3
 _RESIDENT_NOISE = 16 * 1024 * 1024
 
 

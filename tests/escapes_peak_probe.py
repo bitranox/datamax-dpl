@@ -2,7 +2,8 @@ r"""Read one JSON array record whose value is a run of escaped backslashes, in a
 
 A test runs this as a script and reads what it prints: the file's size and how far the resident
 peak rose while its records were read, in bytes. Only the resident figure shows the cost it looks
-for: the regular expression engine keeps its backtracking state in memory tracemalloc does not see.
+for: memory C code keeps outside Python's allocator, such as a regular expression's backtracking
+marks (about 120 bytes an escape in an unbounded repeat), which tracemalloc does not see.
 ``ESCAPES`` in the environment says how many ``\\`` pairs the value holds.
 """
 

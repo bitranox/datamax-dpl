@@ -1,4 +1,4 @@
-"""The scan that walks a JSON array element by element takes exactly the arrays orjson takes whole."""
+"""The walk over a JSON array element by element takes exactly the arrays orjson takes whole."""
 
 from __future__ import annotations
 
@@ -8,8 +8,9 @@ import orjson
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from json_depth import ORJSON_DEPTH, READER_STOPS_SHORT_OF_ORJSON
 
-from datamax_dpl.adapters.cli.json_array import MAX_DEPTH, MalformedArrayError, array_elements, starts_an_array
+from datamax_dpl.adapters.cli.json_array import MalformedArrayError, array_elements, starts_an_array
 
 _TEXT = st.text(alphabet=st.characters(codec="utf-8"), max_size=12) | st.sampled_from(['"', "\\", "[", "]", "{", "}"])
 _SCALARS = st.none() | st.booleans() | st.integers(-(10**6), 10**6) | _TEXT
@@ -66,20 +67,23 @@ def test_the_scan_takes_exactly_what_a_whole_parse_takes(
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("levels", [MAX_DEPTH - 1, MAX_DEPTH, MAX_DEPTH + 1])
+@pytest.mark.parametrize("levels", [ORJSON_DEPTH - 1, ORJSON_DEPTH, ORJSON_DEPTH + 1])
 @pytest.mark.parametrize(("opener", "closer"), [(b"[", b"]"), (b'{"k":', b"}")])
 def test_the_scan_refuses_the_nesting_orjson_refuses(levels: int, opener: bytes, closer: bytes) -> None:
     inner = levels - 1
     data = b"[" + opener * inner + b"1" + closer * inner + b"]"
-    assert _scanned(data) == _whole_parse(data)
+    takes = _whole_parse(data) is not None and not READER_STOPS_SHORT_OF_ORJSON
+    # Whether, not what: comparing two lists this deep with == recurses past 3.10's limit itself.
+    assert (_scanned(data) is not None) is takes
 
 
-#: One more escape than one bounded match takes, and enough for several matches in a row.
-_PAST_ONE_MATCH = [4095, 4096, 4097, 8192, 8193, 3 * 4096 + 1]
+#: Runs of escapes from short to long: a reader that walks a string escape by escape, or keeps state
+#: per escape, shows here.
+_ESCAPE_RUNS = [1, 4096, 4097, 100_000]
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("escapes", _PAST_ONE_MATCH)
+@pytest.mark.parametrize("escapes", _ESCAPE_RUNS)
 @pytest.mark.parametrize(
     ("escape", "tail"),
     [
@@ -93,16 +97,14 @@ _PAST_ONE_MATCH = [4095, 4096, 4097, 8192, 8193, 3 * 4096 + 1]
         (b"\\\\", b'x"},{"b":"]"}]'),
     ],
 )
-def test_a_string_past_one_match_s_escapes_reads_as_a_whole_parse_reads_it(
-    escapes: int, escape: bytes, tail: bytes
-) -> None:
+def test_a_long_run_of_escapes_reads_as_a_whole_parse_reads_it(escapes: int, escape: bytes, tail: bytes) -> None:
     """Terminated, unterminated, ending on a lone backslash, followed by more elements: as orjson says."""
     data = b'[{"a":"' + escape * escapes + tail
     assert _scanned(data) == _whole_parse(data)
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize(("levels", "parses"), [(MAX_DEPTH, True), (MAX_DEPTH + 1, False)])
+@pytest.mark.parametrize(("levels", "parses"), [(ORJSON_DEPTH, True), (ORJSON_DEPTH + 1, False)])
 def test_orjson_still_refuses_exactly_the_nesting_the_scan_refuses(levels: int, parses: bool) -> None:
-    """MAX_DEPTH mirrors orjson's own limit: an orjson that moves it turns this red, not a user's file."""
+    """The depth pins above assume orjson's own limit: an orjson that moves it turns this red, not a user's file."""
     assert (_whole_parse(b"[" * levels + b"]" * levels) is not None) is parses

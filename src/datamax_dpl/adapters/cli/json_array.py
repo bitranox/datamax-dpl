@@ -1,17 +1,17 @@
 """Walk a JSON array held as bytes one element at a time, so its records are never all parsed at once.
 
 ``orjson.loads`` of a whole array builds every element before the first is used: a JSON array data
-file then peaked at several times its size, where CSV and JSON lines stay at the file's bytes. The
-scan here finds where each top-level element ends, knowing only strings, their escapes and bracket
-depth, and hands that slice to orjson. orjson still judges every byte of every element; the scan
-judges only what lies between them (one comma, whitespace, the closing bracket and nothing after
-it), so it takes exactly the arrays a whole parse takes.
+file then peaked at several times its size, where CSV and JSON lines stay at the file's bytes.
+Python's own :meth:`json.JSONDecoder.raw_decode` finds where each top-level element ends, and
+orjson parses that slice, so each record is what a whole parse gives. The code here judges only
+what lies between the elements: whitespace, one comma, the closing bracket and nothing after it.
 """
 
 from __future__ import annotations
 
+import json
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import orjson
 
@@ -20,37 +20,13 @@ from ...domain.errors import DatamaxDplError
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-#: orjson's nesting limit, the outer array counted: it refuses a 1025th level of arrays and objects
-#: together (measured, orjson 3.13). The scan refuses the same, as a whole parse did.
-MAX_DEPTH = 1024
-
-#: Most escapes one regular expression match takes inside a string. The engine keeps a backtracking
-#: mark for every repetition, about 120 bytes of resident memory that tracemalloc does not see, so
-#: an unbounded repeat over a string of millions of escapes took hundreds of MB. Past this many the
-#: string goes on in a loop from Python (:func:`_string_end`), each match bounded the same: about
-#: half a MB at most. A possessive or atomic group would keep no marks, but needs Python 3.11.
-_ESCAPES_PER_MATCH = 4096
-#: A string's content: plain bytes, and each backslash taking the byte after it, so an escaped
-#: quote does not end the string.
-_STRING_CONTENT = rb'[^"\\]*(?:\\.[^"\\]*){0,%d}' % _ESCAPES_PER_MATCH
-#: What changes the scan's state at the array's own level: a whole string, a bracket, or the comma
-#: between elements. The string goes in one match, in C: walking it from Python was most of the
-#: scan's time. A quote matched alone opens a string that does not end within one match: one that
-#: never ends, or one with more escapes than :data:`_ESCAPES_PER_MATCH`.
-_OUTER = re.compile(rb'"' + _STRING_CONTENT + rb'"|[][{},"]', re.DOTALL)
-#: The same inside an element, where a comma changes nothing.
-_INNER = re.compile(rb'"' + _STRING_CONTENT + rb'"|[][{}"]', re.DOTALL)
-#: As much of a string's content as one bounded match takes.
-_STRING_RUN = re.compile(_STRING_CONTENT, re.DOTALL)
+#: Finds where an element ends; what it builds is dropped, orjson builds the record.
+_FINDER = json.JSONDecoder()
 #: Anything JSON does not take as whitespace between tokens: space, tab, line feed, carriage return (RFC 8259).
-_NOT_WHITESPACE = re.compile(rb"[^ \t\n\r]")
-
-_QUOTE = ord('"')
-_BACKSLASH = ord("\\")
-_COMMA = ord(",")
-_CLOSE_ARRAY = ord("]")
-_OPENERS = frozenset(b"[{")
-_CLOSERS = frozenset(b"]}")
+_NOT_WHITESPACE = re.compile(r"[^ \t\n\r]")
+#: The same over the bytes, so finding the first token copies nothing.
+_NOT_WHITESPACE_BYTE = re.compile(rb"[^ \t\n\r]")
+_OPEN_ARRAY = ord("[")
 
 
 class MalformedArrayError(DatamaxDplError, ValueError):
@@ -61,10 +37,10 @@ class MalformedArrayError(DatamaxDplError, ValueError):
     """
 
 
-def _token(data: bytes, position: int) -> int:
-    """Where the first byte at or after ``position`` that is not whitespace sits, or ``len(data)``."""
-    found = _NOT_WHITESPACE.search(data, position)
-    return len(data) if found is None else found.start()
+def _token(text: str, position: int) -> int:
+    """Where the first character at or after ``position`` that is not whitespace sits, or ``len(text)``."""
+    found = _NOT_WHITESPACE.search(text, position)
+    return len(text) if found is None else found.start()
 
 
 def starts_an_array(data: bytes) -> bool:
@@ -74,92 +50,58 @@ def starts_an_array(data: bytes) -> bool:
         >>> starts_an_array(b' \\n[1]'), starts_an_array(b'{"a": 1}')
         (True, False)
     """
-    first = _token(data, 0)
-    return data[first : first + 1] == b"["
+    first = _NOT_WHITESPACE_BYTE.search(data)
+    return first is not None and data[first.start()] == _OPEN_ARRAY
 
 
-def _string_end(data: bytes, position: int) -> int:
-    """Where the string whose content starts at ``position`` ends, one past its closing quote.
-
-    Goes on match after bounded match, each taking up to :data:`_ESCAPES_PER_MATCH` escapes, so
-    the engine's memory stays bounded however many the string holds.
+def _element_end(text: str, start: int) -> int:
+    """Where the element starting at ``start`` ends, as Python's own JSON reader finds it.
 
     Raises:
-        MalformedArrayError: The string does not end: no closing quote, or its last byte is a
-            backslash with nothing left to escape.
-
-    Example:
-        >>> _string_end(b'"a\\\\"b"', 1)  # the escaped quote does not end it
-        6
+        MalformedArrayError: No JSON value starts there, or it nests deeper than the reader goes.
     """
-    while (run := _STRING_RUN.match(data, position)) is not None:
-        position = run.end()
-        if position == len(data):
-            break
-        if data[position] == _QUOTE:
-            return position + 1
-        # A backslash: the match stopped at its bound, unless nothing follows to escape.
-        if data[position] != _BACKSLASH or position + 1 == len(data):
-            break
-    raise MalformedArrayError("a string does not end")
+    try:
+        return _FINDER.raw_decode(text, start)[1]
+    # ValueError: the reader's own JSONDecodeError, and an integer of more digits than Python
+    # converts, which orjson refuses too. RecursionError: nested past the reader's own limit, far
+    # past orjson's from Python 3.12, but about 995 levels on 3.10 and 3.11, short of orjson's 1024
+    # (sys.getrecursionlimit). Raising that limit here would change it for the whole process.
+    except (ValueError, RecursionError) as exc:
+        raise MalformedArrayError(str(exc)) from None
 
 
-def _element_spans(data: bytes) -> Iterator[tuple[int, int]]:
-    """Yield ``(start, end)`` of each top-level element of the array ``data`` holds, surrounding whitespace kept.
+def _parsed(data: bytes, start: int, end: int) -> object:
+    """The element ``data[start:end]`` as orjson parses it, inside an array of its own.
+
+    The array orjson parses it in stands for the one it came from: orjson then counts that level
+    too, and refuses exactly the nesting it refused in the whole file.
 
     Raises:
-        MalformedArrayError: ``data`` holds no array, the array does not end, nests deeper than
-            :data:`MAX_DEPTH`, ends with a comma, or something other than whitespace follows it.
+        MalformedArrayError: orjson refuses the element.
     """
-    opening = _token(data, 0)
-    if data[opening : opening + 1] != b"[":
-        raise MalformedArrayError("not an array")
-    start = position = opening + 1
-    depth, any_element = 1, False
-    while (found := (_OUTER if depth == 1 else _INNER).search(data, position)) is not None:
-        at, position = found.span()
-        byte = data[at]
-        if byte == _QUOTE:
-            if position - at == 1:
-                position = _string_end(data, position)
-        elif byte in _OPENERS:
-            depth += 1
-            if depth > MAX_DEPTH:
-                raise MalformedArrayError("nested too deep")
-        elif byte == _COMMA:
-            yield start, at
-            start, any_element = position, True
-        elif byte in _CLOSERS:
-            depth -= 1
-            if depth == 0:
-                yield from _last_span(data, start=start, at=at, any_element=any_element)
-                return
-    raise MalformedArrayError("the array does not end")
+    try:
+        wrapped = cast("list[object]", orjson.loads(b"".join((b"[", memoryview(data)[start:end], b"]"))))
+    except orjson.JSONDecodeError as exc:
+        raise MalformedArrayError(str(exc)) from None
+    return wrapped[0]
 
 
-def _last_span(data: bytes, *, start: int, at: int, any_element: bool) -> Iterator[tuple[int, int]]:
-    """The span before the array's closing byte at ``at``: none for ``[]``, after checking what follows.
+def _after_the_array(text: str, closing: int) -> None:
+    """Check only whitespace follows the array's closing bracket at ``closing``.
 
     Raises:
-        MalformedArrayError: The byte at ``at`` closes an object, a comma comes last, or more than
-            whitespace follows.
+        MalformedArrayError: More follows the array.
     """
-    if data[at] != _CLOSE_ARRAY:
-        raise MalformedArrayError("the array is closed as an object")
-    empty = _token(data, start) == at
-    if empty and any_element:
-        raise MalformedArrayError("a comma comes last")
-    if _token(data, at + 1) != len(data):
+    if _token(text, closing + 1) != len(text):
         raise MalformedArrayError("more follows the array")
-    if not empty:
-        yield start, at
 
 
 def array_elements(data: bytes) -> Iterator[object]:
     """Parse the elements of the JSON array ``data`` holds, one at a time, in order.
 
-    Only the element in hand is parsed and held. An element is yielded before what follows it is
-    checked, so a caller that must not act on a malformed array reads it to the end first.
+    Only the element in hand is parsed and held, beside one text copy of ``data``. An element is
+    yielded before what follows it is checked, so a caller that must not act on a malformed array
+    reads it to the end first.
 
     Raises:
         MalformedArrayError: ``data`` is not one JSON array; orjson would refuse it whole.
@@ -170,13 +112,32 @@ def array_elements(data: bytes) -> Iterator[object]:
         >>> list(array_elements(b"[1,]"))
         Traceback (most recent call last):
         ...
-        datamax_dpl.adapters.cli.json_array.MalformedArrayError: a comma comes last
+        datamax_dpl.adapters.cli.json_array.MalformedArrayError: Expecting value: line 1 column 4 (char 3)
     """
-    try:
-        for start, end in _element_spans(data):
-            yield orjson.loads(data[start:end])
-    except orjson.JSONDecodeError as exc:
-        raise MalformedArrayError(str(exc)) from None
+    # Latin-1 gives one character per byte: a position in the text is the same position in the
+    # bytes, and the text takes one byte per byte of the file. JSON's own syntax is ASCII, and a
+    # byte past 0x7F belongs inside a string, where the reader takes any character; orjson then
+    # judges the UTF-8 of each slice. Read as UTF-8 instead, one character past U+FFFF would make
+    # the whole text four bytes a character.
+    text = data.decode("latin-1")
+    opening = _token(text, 0)
+    if text[opening : opening + 1] != "[":
+        raise MalformedArrayError("not an array")
+    position = _token(text, opening + 1)
+    if text[position : position + 1] == "]":
+        _after_the_array(text, position)
+        return
+    while True:
+        end = _element_end(text, position)
+        yield _parsed(data, position, end)
+        position = _token(text, end)
+        follows = text[position : position + 1]
+        if follows == "]":
+            _after_the_array(text, position)
+            return
+        if follows != ",":
+            raise MalformedArrayError("a comma or the array's end is missing")
+        position = _token(text, position + 1)
 
 
-__all__ = ["MAX_DEPTH", "MalformedArrayError", "array_elements", "starts_an_array"]
+__all__ = ["MalformedArrayError", "array_elements", "starts_an_array"]
