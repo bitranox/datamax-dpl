@@ -234,9 +234,14 @@ sys.exit(main(sys.argv[1:], services_factory=build_production))
 """
 
 
-def _limited(args: list[str], *, tmp_path: Path) -> subprocess.CompletedProcess[str]:
-    """Run the CLI where a file stops growing at the limit, so a write fails as on a full disk."""
+def _limited(args: list[str], *, tmp_path: Path, temp: Path | None = None) -> subprocess.CompletedProcess[str]:
+    """Run the CLI where a file stops growing at the limit, so a write fails as on a full disk.
+
+    ``temp`` is the temp directory it is given, where a batch's spool goes; None keeps this one's.
+    """
     env = {**os.environ, "XDG_CONFIG_HOME": str(tmp_path), "HOME": str(tmp_path)}
+    if temp is not None:
+        env.update(TMPDIR=str(temp), TEMP=str(temp), TMP=str(temp))
     return run_cli_text(args, entry=("-c", _LIMITED.format(limit=_FILE_SIZE_LIMIT)), env=env)
 
 
@@ -256,6 +261,41 @@ def test_a_write_that_fails_leaves_the_target_and_names_it(tmp_path: Path) -> No
     assert _names(tmp_path) == ["data.csv", "job.dpl", "label.json"]
     assert str(target) in done.stderr
     assert ".tmp" not in done.stderr
+
+
+@pytest.mark.os_posix
+@pytest.mark.skipif(_NOT_POSIX, reason="RLIMIT_FSIZE is POSIX")
+@pytest.mark.parametrize(
+    "target", [pytest.param(("-o", "-"), id="render-stdout"), pytest.param(("--printer", "file:{out}"), id="print")]
+)
+def test_a_spool_that_fills_the_disk_is_removed_and_named(tmp_path: Path, target: tuple[str, str]) -> None:
+    temp = tmp_path / "temp"
+    temp.mkdir()
+    label, data = _files(tmp_path, _TEXT, _good_rows())
+    out = tmp_path / "job.dpl"
+    verb = "print" if target[0] == "--printer" else "render"
+    args = [verb, label, "--data", data, "--model", "dmx-600", target[0], target[1].format(out=out)]
+    done = _limited(args, tmp_path=tmp_path, temp=temp)
+    assert done.returncode == 2, done.stderr
+    assert "File too large, writing the batch's spool: " + str(temp) in done.stderr
+    assert _names(temp) == []
+    assert not out.exists()
+
+
+@pytest.mark.os_posix
+@pytest.mark.skipif(_NOT_POSIX, reason="RLIMIT_FSIZE is POSIX")
+def test_a_bad_record_outranks_a_spool_that_fills_the_disk(tmp_path: Path) -> None:
+    """The check goes on past the spool's failure, so a refused batch is told why, not that the disk filled."""
+    temp = tmp_path / "temp"
+    temp.mkdir()
+    label, data = _files(tmp_path, _QR, _good_rows() + f"{_TOO_LONG_FOR_A_QR_CODE}\n")
+    args = ["render", label, "--data", data, "--model", "allegro-2", "-o", "-"]
+    done = _limited(args, tmp_path=tmp_path, temp=temp)
+    assert done.returncode == 1, done.stderr
+    assert "qr_data_too_long" in done.stderr
+    assert "File too large" not in done.stderr
+    assert done.stdout == ""
+    assert _names(temp) == []
 
 
 @pytest.mark.os_posix

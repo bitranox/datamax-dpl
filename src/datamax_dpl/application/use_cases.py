@@ -654,26 +654,62 @@ def check_batch(
         UnknownModelError: ``options.model`` names no profile.
         ValueError: ``records`` can be read only once, or holds no record.
         pydantic.ValidationError: A filled value breaks a field limit.
+        OSError: ``spool`` could not keep a record of a batch that passed (a full disk). One that
+            fails on a refused batch is not raised: the refusal is the answer, and nothing is sent.
     """
     # Asked of the type: calling iter() on a re-iterable would be one read of its source before the check.
     if isinstance(records, Iterator):
         msg = "check_batch reads the records again, and a generator can be read only once; use iter_batch for one"
         raise ValueError(msg)
     tally = BatchTally(limits, plan=_plan_of(_batch_label(label), options))
+    keeping = _Keeping(spool)
     for entry in _entries(label, records, options, read_names_at_send=read_names_at_send):
         tally.add(entry.result, cut=entry.cut_after)
         if each is not None:
             each(entry)
         # A refused batch sends nothing, so nothing past its first error is worth the disk.
-        if spool is not None and tally.ok:
-            spool.add(entry)
-    if spool is not None:
-        spool.seal()
+        if tally.ok:
+            keeping.add(entry)
+    keeping.seal(ok=tally.ok)
     kept = spool if tally.ok else None
     job = BatchJob(
         label=label, records=records, options=options, read_names_at_send=read_names_at_send, limits=limits, spool=kept
     )
     return tally.report(job)
+
+
+class _Keeping:
+    """A check pass's spool, which stops at its first failure so that the check can still finish.
+
+    The verdict comes first: a batch with a bad record is refused whether or not its spool filled
+    the disk on the way, and only a batch that passed, which would have been sent, needs the spool.
+    """
+
+    def __init__(self, spool: JobSpool | None) -> None:
+        self._spool = spool
+        self._failed: OSError | None = None
+
+    def add(self, entry: BatchEntry) -> None:
+        if self._spool is None or self._failed is not None:
+            return
+        try:
+            self._spool.add(entry)
+        except OSError as exc:
+            self._failed = exc
+
+    def seal(self, *, ok: bool) -> None:
+        """Seal the spool, and raise its failure if the batch passed.
+
+        Raises:
+            OSError: The spool could not keep every record of a batch that passed.
+        """
+        if self._spool is not None and self._failed is None:
+            try:
+                self._spool.seal()
+            except OSError as exc:
+                self._failed = exc
+        if ok and self._failed is not None:
+            raise self._failed
 
 
 class _CutUpdate(TypedDict):

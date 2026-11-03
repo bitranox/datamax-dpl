@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, NamedTuple
 
 from .interrupt import raise_if_interrupted
+from .job_spool import SpoolWriteError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -214,10 +215,14 @@ def write_batch(
         The report. Nothing was written unless its ``ok`` is True.
 
     Raises:
+        SpoolWriteError: The spool a direct write is checked into could not be written; the
+            message names it, in the temp directory.
         OSError: The file could not be written; the message names ``output``.
     """
     try:
         return _route(output, check, open_spool=open_spool)
+    except SpoolWriteError:
+        raise
     except OSError as exc:
         raise _named_for(exc, output) from exc
 

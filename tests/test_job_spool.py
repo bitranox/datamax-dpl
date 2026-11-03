@@ -7,6 +7,8 @@ when the command ends, however it ends.
 
 from __future__ import annotations
 
+import errno
+import io
 import os
 import stat
 import sys
@@ -20,7 +22,7 @@ from printer_server import ImageModules, ModulePrinter
 
 from datamax_dpl import ReportLimits, check_batch, render_batch
 from datamax_dpl.adapters.cli.job_file import write_batch
-from datamax_dpl.adapters.cli.job_spool import FileJobSpool
+from datamax_dpl.adapters.cli.job_spool import FileJobSpool, SpoolWriteError
 from datamax_dpl.adapters.memory.printer import open_recording_printer
 from datamax_dpl.application.upload_check import CheckedJob, UploadCheck, print_checked
 from datamax_dpl.application.use_cases import AnswerWait, BatchEntry, BatchReport
@@ -30,6 +32,8 @@ from datamax_dpl.domain.render_context import RenderOptions
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from typing_extensions import Buffer
 
     from datamax_dpl.application.ports import JobSpool
 
@@ -48,6 +52,8 @@ _CLEARED_IMAGE = Label(elements=[Image(x=1, y=1, name="LOGO", bitmap=_PATTERN), 
 #: A QR Code of its record's value, with no clear before it: its bytes depend on the names read.
 _QR = Label(elements=[Qr(x=1, y=1, data="{a}"), Text(x=10, y=50, text="n")])
 _RECORDS = 5
+#: Data past what any QR Code holds: an error finding, which refuses the batch.
+_TOO_LONG_FOR_A_QR_CODE = "A" * 4000
 _FEW = ReportLimits(findings=1, downloads=1)
 _SMALL = 50
 _LARGE = 800
@@ -295,6 +301,119 @@ def test_the_spool_is_removed_when_ctrl_c_ends_its_block() -> None:
         raise KeyboardInterrupt
     assert path is not None
     assert not path.parent.exists()
+
+
+class _FullDisk(io.FileIO):
+    """A file that takes ``room`` bytes and then refuses each write, as a full disk does."""
+
+    def __init__(self, descriptor: int, room: int) -> None:
+        super().__init__(descriptor, "wb")
+        self._room = room
+
+    def write(self, data: Buffer, /) -> int:
+        size = len(memoryview(data))
+        if size > self._room:
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+        self._room -= size
+        return super().write(data)
+
+
+def _full_after(room: int) -> FileJobSpool:
+    """A real spool whose file fills at ``room`` bytes, behind the buffer a spool writes through.
+
+    The buffer keeps what would not go, as a real one does, so closing it flushes and fails again.
+    Its size is set: the default differs between Python versions, and the write must fail in an
+    add, before the check ends, not only when the spool is sealed.
+    """
+    return FileJobSpool(
+        open_writer=lambda descriptor: io.BufferedWriter(_FullDisk(descriptor, room), buffer_size=_BUFFER_BYTES)
+    )
+
+
+#: The buffer in front of the spool's file in these tests: past one record, short of a few.
+_BUFFER_BYTES = 2048
+#: Enough records that the buffer flushes, and fails, before the check ends.
+_PAST_THE_BUFFER = 64
+
+
+@pytest.mark.os_agnostic
+def test_a_spool_that_fills_the_disk_is_removed_and_names_itself() -> None:
+    records = [{"a": f"R{n}"} for n in range(_PAST_THE_BUFFER)]
+    spool = _full_after(1000)
+    path: Path | None = None
+    with pytest.raises(OSError, match="writing the batch's spool") as raised, spool:
+        try:
+            check_batch(_TEXT, records, _DMX, spool=spool)
+        finally:
+            path = spool.path
+    assert raised.value.errno == errno.ENOSPC
+    assert path is not None
+    assert raised.value.filename == str(path)
+    assert not path.parent.exists()
+
+
+@pytest.mark.os_agnostic
+def test_a_refused_batch_is_refused_although_its_spool_filled_the_disk() -> None:
+    """The check goes on past the spool's failure: a refusal says more than the disk, and nothing is sent anyway."""
+    records = [*({"a": f"R{n}"} for n in range(_PAST_THE_BUFFER)), {"a": _TOO_LONG_FOR_A_QR_CODE}]
+    with _full_after(1000) as spool:
+        report = check_batch(_QR, records, _ALLEGRO, spool=spool)
+    assert not report.ok
+    assert report.records == _PAST_THE_BUFFER + 1
+
+
+class _AddFails:
+    """A spool whose every add fails, as a library caller's own spool on a full disk would."""
+
+    def __init__(self) -> None:
+        self.sealed = False
+
+    def add(self, entry: BatchEntry) -> None:
+        del entry
+        raise OSError(errno.ENOSPC, "No space left on device", "spool")
+
+    def seal(self) -> None:
+        self.sealed = True
+
+    def entries(self) -> Iterator[BatchEntry]:
+        return iter(())
+
+
+@pytest.mark.os_agnostic
+def test_a_library_spool_that_fails_raises_for_a_batch_that_passed_and_not_for_one_refused() -> None:
+    with pytest.raises(OSError, match="No space left"):
+        check_batch(_TEXT, [{"a": "r0"}], _DMX, spool=_AddFails())
+    refused = check_batch(_QR, [{"a": "r0"}, {"a": _TOO_LONG_FOR_A_QR_CODE}], _ALLEGRO, spool=_AddFails())
+    assert not refused.ok
+
+
+def _spool_with_a_stray_file() -> tuple[FileJobSpool, Path]:
+    """A spool whose directory also holds a file of someone else's, so it cannot be removed."""
+    spool = FileJobSpool()
+    spool.add(_entry("one", cut=False))
+    assert spool.path is not None
+    stray = spool.path.parent / "stray"
+    stray.write_bytes(b"")
+    return spool, stray
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("in_flight", [True, False], ids=["exception-in-flight", "block-ended-plainly"])
+def test_a_spool_that_cannot_be_removed_names_itself_and_never_hides_why_the_block_ended(in_flight: bool) -> None:
+    spool, stray = _spool_with_a_stray_file()
+    try:
+        expected: type[BaseException] = KeyboardInterrupt if in_flight else SpoolWriteError
+        with pytest.raises(expected) as raised, spool:
+            if in_flight:
+                raise KeyboardInterrupt
+        assert not (stray.parent / "jobs").exists()
+        if not in_flight:
+            assert isinstance(raised.value, OSError)
+            assert raised.value.filename == str(stray.parent)
+            assert "removing the batch's spool" in str(raised.value)
+    finally:
+        stray.unlink()
+        stray.parent.rmdir()
 
 
 @pytest.mark.os_posix

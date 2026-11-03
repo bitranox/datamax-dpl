@@ -61,7 +61,8 @@ All notable changes to this project are documented here. The format follows
   checked before any byte goes out, so a batch with a bad record is refused as before, and each record is rendered
   once for it: `print`, `render -o -` and an in-place `render -o` keep each checked record in a spool file in the
   system's temp directory, readable by this user alone and removed however the command ends (SIGTERM and SIGHUP
-  leave it), and send from it. A label is rendered again only for what the printer answers: its names read, round
+  leave it), and send from it. A spool that fills the disk ends a batch that passed with an error naming it; a batch
+  with a bad record is still refused for that record. A label is rendered again only for what the printer answers: its names read, round
   2's clear, or halved images. 4000 records of a 399-field label took 34 s in `print` and `render -o -`, and now take
   17 s. On a two-way link each label with a new image costs its directory read, about 1 s plus the printer's answer.
   `render -o FILE` writes a file beside the target and replaces the target only when every record passed, and

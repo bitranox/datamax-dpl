@@ -25,7 +25,7 @@ from ...domain._invariants import require_update_fields
 from ...domain.render import RenderResult
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from types import TracebackType
 
 #: Each record's frame: its header's length, its job's length, whether a batch cut follows it.
@@ -46,6 +46,24 @@ class _DataUpdate(TypedDict):
 require_update_fields(_DataUpdate, RenderResult)
 
 
+class SpoolWriteError(OSError):
+    """The spool's file could not be written or removed: the message names it, in the temp directory.
+
+    Its own class, so that a caller naming the file it writes for the user leaves this one named.
+    """
+
+
+def _named(exc: OSError, path: Path, doing: str) -> SpoolWriteError:
+    """``exc`` as a :class:`SpoolWriteError` naming the spool's ``path`` and what failed there."""
+    reason = exc.strerror or type(exc).__name__
+    return SpoolWriteError(exc.errno, f"{reason}, {doing} the batch's spool", str(path))
+
+
+def _buffered(descriptor: int) -> BinaryIO:
+    """The descriptor as a buffered binary file, the writer a spool uses by default."""
+    return os.fdopen(descriptor, "wb")
+
+
 class FileJobSpool:
     """A :class:`~datamax_dpl.application.ports.JobSpool` in a file of its own, removed when it closes.
 
@@ -53,8 +71,13 @@ class FileJobSpool:
     Use it as a context manager: leaving the block closes every reader and removes the file.
     """
 
-    def __init__(self) -> None:
-        """Start empty, with no file yet."""
+    def __init__(self, *, open_writer: Callable[[int], BinaryIO] = _buffered) -> None:
+        """Start empty, with no file yet.
+
+        Args:
+            open_writer: Makes the writer from the file's descriptor; a test gives one that fails.
+        """
+        self._open_file = open_writer
         self._directory: Path | None = None
         self._writer: BinaryIO | None = None
         self._readers: set[BinaryIO] = set()
@@ -68,7 +91,7 @@ class FileJobSpool:
     def _open_writer(self) -> BinaryIO:
         self._directory = Path(tempfile.mkdtemp(prefix="datamax-dpl-spool-"))
         descriptor = os.open(self._directory / _FILE_NAME, _CREATE_FLAGS, _FILE_MODE)
-        self._writer = os.fdopen(descriptor, "wb")
+        self._writer = self._open_file(descriptor)
         return self._writer
 
     def add(self, entry: BatchEntry) -> None:
@@ -76,28 +99,52 @@ class FileJobSpool:
 
         Raises:
             RuntimeError: The spool was sealed.
-            OSError: The file could not be made or written (a full disk).
+            SpoolWriteError: The file could not be made or written (a full disk); nothing more can
+                be added then, and the spool takes no more disk than it has.
         """
         if self._sealed:
             msg = "the spool is sealed: no record may be added after the check pass"
             raise RuntimeError(msg)
-        writer = self._writer or self._open_writer()
         result = entry.result
         header = result.model_copy(update=_DataUpdate(data=b"")).model_dump_json().encode("utf-8")
-        writer.write(_FRAME.pack(len(header), len(result.data), entry.cut_after))
-        writer.write(header)
-        writer.write(result.data)
+        try:
+            writer = self._writer or self._open_writer()
+            writer.write(_FRAME.pack(len(header), len(result.data), entry.cut_after))
+            writer.write(header)
+            writer.write(result.data)
+        except OSError as exc:
+            self._sealed = True
+            # Closed now, its error dropped: it is the one being raised, flushed again. A writer
+            # left open would raise it once more when the spool closes, over a refusal that the
+            # check pass still owes its caller.
+            self._drop_writer()
+            raise _named(exc, self._where(), "writing") from exc
+
+    def _where(self) -> Path:
+        """The spool's file, or the temp directory where it was to be made."""
+        return self.path or Path(tempfile.gettempdir())
+
+    def _drop_writer(self) -> None:
+        writer, self._writer = self._writer, None
+        if writer is not None:
+            try:
+                writer.close()
+            except OSError:
+                return
 
     def seal(self) -> None:
         """Flush and close the file for writing; from now on it is only read.
 
         Raises:
-            OSError: The bytes still buffered could not be written.
+            SpoolWriteError: The bytes still buffered could not be written.
         """
         self._sealed = True
         writer, self._writer = self._writer, None
         if writer is not None:
-            writer.close()
+            try:
+                writer.close()
+            except OSError as exc:
+                raise _named(exc, self._where(), "writing") from exc
 
     def entries(self) -> Iterator[BatchEntry]:
         """Read the records back from the first, each call on a handle of its own.
@@ -127,21 +174,27 @@ class FileJobSpool:
             stream.close()
 
     def close(self) -> None:
-        """Close the file's handles and remove it and its directory.
+        """Close the file's handles and remove it and its directory, whatever closing a handle raised.
 
         Raises:
-            OSError: The file or its directory could not be removed; the message names it.
+            SpoolWriteError: A handle could not be closed (its last bytes would not go), or the file
+                or its directory could not be removed; the first of these, naming the file.
         """
+        failed: list[SpoolWriteError] = []
+        where = self._where()
         writer, self._writer = self._writer, None
-        if writer is not None:
-            writer.close()
-        for reader in tuple(self._readers):
-            reader.close()
+        handles = ([writer] if writer is not None else []) + list(self._readers)
         self._readers.clear()
+        failed.extend(_named(exc, where, "closing") for handle in handles if (exc := _close_error(handle)) is not None)
         directory, self._directory = self._directory, None
         if directory is not None:
-            (directory / _FILE_NAME).unlink(missing_ok=True)
-            directory.rmdir()
+            try:
+                (directory / _FILE_NAME).unlink(missing_ok=True)
+                directory.rmdir()
+            except OSError as exc:
+                failed.append(_named(exc, directory, "removing"))
+        if failed:
+            raise failed[0]
 
     def __enter__(self) -> FileJobSpool:
         """Return the spool."""
@@ -158,6 +211,15 @@ class FileJobSpool:
                 raise
 
 
+def _close_error(handle: BinaryIO) -> OSError | None:
+    """Close ``handle`` and return what that raised: the next handle is closed whatever this one did."""
+    try:
+        handle.close()
+    except OSError as exc:
+        return exc
+    return None
+
+
 def _exactly(stream: BinaryIO, size: int, start: bytes = b"") -> bytes:
     """Read ``size`` bytes in all, ``start`` being those already read.
 
@@ -170,4 +232,4 @@ def _exactly(stream: BinaryIO, size: int, start: bytes = b"") -> bytes:
     return data
 
 
-__all__ = ["FileJobSpool"]
+__all__ = ["FileJobSpool", "SpoolWriteError"]
