@@ -106,6 +106,13 @@ def test_from_rows_rejects_bad_rows(rows: list[str], message: str) -> None:
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize("row", ["#x", "1 0", "#.\n", "." * 799 + "2", chr(0xE4) + "#", "#" + chr(0x0661)])
+def test_a_row_with_any_other_character_is_refused_in_these_words(row: str) -> None:
+    with pytest.raises(ValueError, match=r"^bitmap rows may only contain 1, 0, # and \.$"):
+        Bitmap.from_rows(["#" * len(row), row])
+
+
+@pytest.mark.os_agnostic
 def test_rows_pack_msb_first_and_pad_white() -> None:
     """Pixel 0 is the most significant bit; the padding bits of the last byte are 0."""
     bitmap = Bitmap.from_rows(["#........#", ".........."])
