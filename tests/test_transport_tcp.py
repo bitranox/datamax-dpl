@@ -629,10 +629,14 @@ def test_a_refused_connection_is_a_transport_error() -> None:
 
 @pytest.mark.os_agnostic
 def test_a_connection_refused_for_the_whole_window_counts_every_connect_tried() -> None:
-    """Each refusal inside the retry window is one more connect, which a caller's attempt count includes."""
+    """Each refusal inside the retry window is one more connect, which a caller's attempt count includes.
+
+    The timeout leaves the whole 3 s window open: Windows takes about 2 s to report one refusal,
+    so a 1 s timeout ends its first connect as a timeout and nothing is retried.
+    """
     port = _port_no_other_test_takes()
     with pytest.raises(TransportError) as caught:
-        open_printer(f"tcp://127.0.0.1:{port}", timeout=1.0)
+        open_printer(f"tcp://127.0.0.1:{port}", timeout=10.0)
 
     assert caught.value.attempts >= 2
 
