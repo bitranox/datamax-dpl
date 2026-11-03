@@ -164,6 +164,10 @@ class PrinterSettings(BaseModel):
     # None is not module A: it takes the model's built-in module, E on a DMX 600/800 and none on a
     # Prodigy or Prodigy Plus, which refuses a job that downloads an image until this is set.
     image_module: ImageModule | None = None
+    # The clears around each label's image downloads; on by default, so that a job sets the module
+    # it relies on whatever another program left there. Off, a label reads or reports held names.
+    clear_graphics_before: bool = True
+    clear_graphics_after: bool = True
     # None is not "no limit": it takes the model's, which only the Allegro 2 has so far.
     max_format_rows: int | None = Field(default=None, gt=0)
     # A label no clear precedes: a download left out for a held name, or names that could not be read.
@@ -446,6 +450,8 @@ def render_options(settings: PrinterSettings, *, model_image_budget: bool = True
         cutter_stop_position_mm=settings.cutter_stop_position,
         image_memory_bytes=settings.image_memory_bytes,
         image_module=settings.image_module,
+        clear_graphics_before_label=settings.clear_graphics_before,
+        clear_graphics_after_label=settings.clear_graphics_after,
         max_format_rows=settings.max_format_rows,
         held_image_severity=settings.held_image_severity,
         model_image_budget=model_image_budget,

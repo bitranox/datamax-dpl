@@ -55,7 +55,9 @@ from ..domain.held_images import READ_AT_SEND, HeldImages, held_images_from
 from ..domain.label import Cut, Label
 from ..domain.memory import MemoryDirectory, parse_module_directory
 from ..domain.placeholders import fill_record
+from ..domain.profiles import get_profile
 from ..domain.render import RenderResult, build_job, build_record, iter_jobs
+from ..domain.render_context import CLEAR_BEFORE_KEYS
 from ..domain.reset_label import calibration_job
 from ..domain.status import (
     CANCEL,
@@ -292,11 +294,24 @@ def _refused_unread(result: RenderResult) -> RenderResult:
             f"the label downloads images into module {module} with no clear before them, and here no printer can "
             "be asked which names it holds before each label: an earlier label of the batch may leave a name this "
             "one downloads, and a download of a held name prints nothing. Send the batch to a two-way printer "
-            "(tcp or serial), which is read before each label, or clear the module before each label "
-            "(clear_graphics_before_label, with a module the model may clear)"
+            f"(tcp or serial), which is read before each label, or {_way_to_clear(result, result.image_module)}"
         ),
     )
     return result.model_copy(update=_FindingsUpdate(findings=(*result.findings, refusal)))
+
+
+def _way_to_clear(result: RenderResult, module: ImageModule) -> str:
+    """How ``module``, where the label's images go, gets the clear before each label that makes the names known."""
+    if result.retry_clear_may_go:
+        return f"turn on the clear before each label ({CLEAR_BEFORE_KEYS})"
+    built_in = get_profile(result.model).image_module
+    if built_in is not None and built_in != module:
+        return (
+            f"leave image_module unset, so the images go to module {built_in.value}, the model's built-in RAM, "
+            f"which the clear before each label ({CLEAR_BEFORE_KEYS}) empties; module {module.value} takes no "
+            "clear, as it may be flash"
+        )
+    return "use a model that can clear its image module: this one has no clear for it"
 
 
 class _DataAndFindingsUpdate(TypedDict):

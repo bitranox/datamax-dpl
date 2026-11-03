@@ -374,7 +374,8 @@ info finding `image_must_be_stored` says so. A label that downloads `LOGO` there
 store anything under `LOGO`: a later label that names `LOGO` without a bitmap finds only an image
 another program stored under that name (the printer lists the job's own images by their content
 names, as `datamax-dpl memory` shows). Where the job clears the image module before the label
-(`<STX>q`, on the model's built-in RAM with `clear_graphics_before_label` on), the clear removes
+(`<STX>q`, on the model's built-in RAM with the `[printer]` key `clear_graphics_before` on, the
+render option `clear_graphics_before_label` in the library), the clear removes
 such a stored image, so the label is refused with `stored_image_cleared`.
 Where no clear runs before the downloads, the printer's stored names decide instead: a printer
 that already holds a name prints nothing for a second download of it, so `print` and `verify`

@@ -328,6 +328,26 @@ options = []
 # Environment Variable: DATAMAX_DPL___PRINTER__IMAGE_MODULE=B
 # image_module = "A"
 
+# Purpose: Clear the image module before each label's downloads: <STX>q to the
+#          model's built-in RAM, the plain Prodigy's <STX>R for each name the
+#          label downloads; a plug-in module is never cleared. false keeps what
+#          the printer stores: a label may then place an image without a bitmap,
+#          and a download of a name the printer holds is left out
+#          (image_name_held), so 'print' and 'verify' read the names before each
+#          such label, and a --data batch with no printer to read is refused
+#          (batch_image_names_unread).
+# Type: boolean
+# Default: true
+# Environment Variable: DATAMAX_DPL___PRINTER__CLEAR_GRAPHICS_BEFORE=false
+# clear_graphics_before = true
+
+# Purpose: Clear the image module again after each label, the same way, so the
+#          next job finds it empty.
+# Type: boolean
+# Default: true
+# Environment Variable: DATAMAX_DPL___PRINTER__CLEAR_GRAPHICS_AFTER=false
+# clear_graphics_after = true
+
 # Purpose: Severity of the findings of a label whose image downloads no clear
 #          precedes (a module that is not the model's built-in RAM, a model that
 #          can clear nothing). 'print' and 'verify' then read the printer's stored

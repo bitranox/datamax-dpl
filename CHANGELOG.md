@@ -209,7 +209,15 @@ All notable changes to this project are documented here. The format follows
   device file. `validate --data` with a tcp or serial printer named is not
   refused. Library: `render_batch`, `iter_batch` and `check_batch` take
   `read_names_at_send` (True where a two-way sender reads the names before
-  each label).
+  each label). Its message names the ways out: a tcp or serial printer, the
+  clear before each label, or on a plug-in module, which takes no clear,
+  leaving `image_module` unset.
+- `[printer] clear_graphics_before` and `clear_graphics_after` (both `true`):
+  clear the image module before and after each label's downloads (`<STX>q` to
+  the model's built-in RAM, the plain Prodigy's `<STX>R` for each name it
+  downloads; a plug-in module is never cleared). `false` keeps what the
+  printer stores. `RenderOptions.clear_graphics_before_label` and
+  `clear_graphics_after_label` carry them.
 - `[printer] image_module` (`A` to `E`, unset by default): the memory module
   images are downloaded to. Unset takes the model's built-in module
   (`datamax-dpl capabilities MODEL` shows it): A on most models, E on the DMX
