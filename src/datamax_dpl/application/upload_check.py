@@ -649,14 +649,15 @@ class _Record:
     def _retried(self, message: str) -> None:
         self.findings.append(Finding(code=FindingCode.IMAGE_UPLOAD_RETRIED, severity=Severity.INFO, message=message))
 
-    def refuse(self, missing: tuple[str, ...], *, rounds: int, why_not: str = "") -> None:
-        """Refuse the label: name the missing images and the rounds tried, and clear again."""
-        if rounds:
-            tried = "1 round" if rounds == 1 else f"{rounds} rounds"
-            outcome = f"not stored after {tried} ({self._last_read})"
-            reason = f"; no further round: {why_not}" if why_not else ""
+    def refuse(self, missing: tuple[str, ...], *, rounds: _Rounds) -> None:
+        """Refuse the label: name the missing images, the rounds run and why each other did not, then clear."""
+        if rounds.ran:
+            outcome = f"not stored after {rounds.tried} ({self._last_read})"
+            reason = "".join(f"; {why}" for why in rounds.skipped_before_the_last)
+            later = rounds.skipped_after_the_last
+            reason += f"; no further round: {'; '.join(later)}" if later else ""
         else:
-            outcome, reason = "not sent", f": no round ran: {why_not}"
+            outcome, reason = "not sent", f": no round ran: {'; '.join(why for _, why in rounds.skipped)}"
         self.findings.append(
             Finding(
                 code=FindingCode.IMAGE_UPLOAD_REFUSED,
@@ -718,46 +719,85 @@ class _Refused:
         return cls(f"the label, rendered again {when}, has errors ({errors})")
 
 
+@dataclass(frozen=True)
+class _Rounds:
+    """The rounds of one label's check so far: the numbers of those that ran, and each one skipped with why.
+
+    Example:
+        >>> rounds = _Rounds(ran=(1, 3), skipped=((2, "round 2 skipped"),))
+        >>> rounds.tried, rounds.skipped_before_the_last, rounds.skipped_after_the_last
+        ('2 rounds, 1 and 3', ('round 2 skipped',), ())
+        >>> _Rounds(ran=(1, 2, 3)).tried, _Rounds(ran=(2,)).tried
+        ('3 rounds', 'round 2')
+    """
+
+    ran: tuple[int, ...] = ()
+    skipped: tuple[tuple[int, str], ...] = ()
+
+    def run(self, number: int) -> _Rounds:
+        """These rounds and round ``number``, which ran."""
+        return _Rounds(ran=(*self.ran, number), skipped=self.skipped)
+
+    def skip(self, number: int, reason: str) -> _Rounds:
+        """These rounds and round ``number``, skipped for ``reason``."""
+        return _Rounds(ran=self.ran, skipped=(*self.skipped, (number, reason)))
+
+    @property
+    def tried(self) -> str:
+        """How many rounds ran, naming them where they are not rounds 1 to N: a round skipped between them ran none."""
+        count = "1 round" if len(self.ran) == 1 else f"{len(self.ran)} rounds"
+        if self.ran == tuple(range(1, len(self.ran) + 1)):
+            return count
+        if len(self.ran) == 1:
+            return f"round {self.ran[0]}"
+        return f"{count}, {' and '.join(str(number) for number in self.ran)}"
+
+    @property
+    def skipped_before_the_last(self) -> tuple[str, ...]:
+        """Why each round skipped before the last one that ran did not run; a later round still did."""
+        last = max(self.ran, default=0)
+        return tuple(why for number, why in self.skipped if number < last)
+
+    @property
+    def skipped_after_the_last(self) -> tuple[str, ...]:
+        """Why each round after the last one that ran did not run: why no further round came."""
+        last = max(self.ran, default=0)
+        return tuple(why for number, why in self.skipped if number > last)
+
+
 def _check_label(record: _Record, before: _Skipped | _Refused | None) -> bool:
     """Run a label's rounds; return True when its images are listed and the rest may follow.
 
     ``before`` is what the read before the label's downloads (:meth:`_Record.read_before`) made of it.
     """
-    why_not: list[str] = []
     if isinstance(before, _Refused):
         record.refuse_rendered(before)
         return False
     if isinstance(before, _Skipped):
-        missing, rounds = tuple(dict.fromkeys(record.result.downloads)), 0
-        why_not.append(before.reason)
+        missing, rounds = tuple(dict.fromkeys(record.result.downloads)), _Rounds().skip(1, before.reason)
     else:
         # Rendered again from the names read before its downloads, a label may download nothing:
         # its upload then sends nothing and finds nothing missing.
-        missing, rounds = record.upload(), 1
+        missing, rounds = record.upload(), _Rounds().run(1)
     if missing and record.check.rounds >= CLEAR_ROUND:
         outcome = record.clear_and_upload()
         if isinstance(outcome, _Skipped):
-            why_not.append(outcome.reason)
+            rounds = rounds.skip(CLEAR_ROUND, outcome.reason)
         elif isinstance(outcome, _Refused):
             record.refuse_rendered(outcome)
             return False
         else:
-            missing, rounds = outcome, rounds + 1
+            missing, rounds = outcome, rounds.run(CLEAR_ROUND)
     if missing and record.check.rounds >= HALVING_ROUND:
         halving = record.halve_and_upload()
         if isinstance(halving, _Skipped):
-            why_not.append(halving.reason)
+            rounds = rounds.skip(HALVING_ROUND, halving.reason)
         else:
-            missing, rounds = halving, rounds + 1
+            missing, rounds = halving, rounds.run(HALVING_ROUND)
     if missing:
-        return _refused(record, missing, rounds=rounds, why_not=why_not)
+        record.refuse(missing, rounds=rounds)
+        return False
     return True
-
-
-def _refused(record: _Record, missing: tuple[str, ...], *, rounds: int, why_not: list[str]) -> bool:
-    """Refuse ``record`` after ``rounds`` rounds run, each reason a round did not run in ``why_not``."""
-    record.refuse(missing, rounds=rounds, why_not="; ".join(why_not))
-    return False
 
 
 def _unlisted_module(result: RenderResult) -> RenderResult | None:

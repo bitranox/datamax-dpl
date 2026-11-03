@@ -16,6 +16,10 @@ All notable changes to this project are documented here. The format follows
   passed as an `unknown format command` with exit 0.
 - A `name` key in `[printer]` or `[printers.<name>]` (`DATAMAX_DPL___PRINTER__NAME=xyz`) is refused like every
   undeclared key (`printer.name: Extra inputs are not permitted`); it was accepted and dropped silently.
+- `image_upload_refused` names the rounds that ran where one was skipped between them (`not stored after 2 rounds,
+  1 and 3`, `after round 2`), and gives a skipped round's reason as such; it said `after 2 rounds` and called the
+  skip of round 2 the reason for "no further round" although round 3 had run (a model that can clear nothing and
+  a printer that does not answer).
 - A serial port that cannot be opened, written or read is named once with its reason (`cannot open serial
   /dev/ttyS9: No such file or directory`): pyserial's own text repeated the path and its errno. On Windows a port
   that cannot be opened still reads as pyserial words it, which it builds from an error it never raises. A user configuration file a calibration cannot read, a configuration that cannot be loaded,

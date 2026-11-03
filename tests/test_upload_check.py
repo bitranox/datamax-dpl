@@ -1402,3 +1402,16 @@ def test_the_cli_upload_check_waits_stored_names_wait_not_status_wait(cli_runner
     assert result.exit_code == 0, result.output
     assert printer.read_waits
     assert all(5.0 < wait <= 7.0 for wait in printer.read_waits), printer.read_waits
+
+
+@pytest.mark.os_agnostic
+def test_a_refusal_after_a_skipped_round_names_the_rounds_that_ran() -> None:
+    """A silent printer on a model that can clear nothing: round 2 is skipped, rounds 1 and 3 run."""
+    printer, refused = _refused(ImageModules(answers=False), Label(elements=[LOGO]), RenderOptions(model="generic"))
+
+    assert FORMAT not in printer.data
+    message = _message(_single(refused.result), FindingCode.IMAGE_UPLOAD_REFUSED)
+    assert " not stored after 2 rounds, 1 and 3 (" in message
+    # Round 3 ran after round 2 was skipped, so that skip is no reason for "no further round".
+    assert "no further round" not in message
+    assert "; round 2 skipped, it would download again" in message
