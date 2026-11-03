@@ -117,6 +117,7 @@ def drawn_image_name(bitmap: Bitmap, *, salt: int = 0) -> str:
         digits.append(NAME_ALPHABET[digit])
     return DRAWN_IMAGE_PREFIX + "".join(reversed(digits))
 
+
 #: Where the clear before each label is set, for a message telling a reader to turn it on or off:
 #: the settings key of the command line, and the render option a library caller passes.
 CLEAR_BEFORE_KEYS = "[printer] clear_graphics_before; RenderOptions.clear_graphics_before_label"
