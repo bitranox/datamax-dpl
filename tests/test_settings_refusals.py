@@ -263,3 +263,24 @@ def test_a_batch_limit_takes_its_documented_largest_value_and_no_more(key: str, 
     assert getattr(_printer({key: largest}), key) == largest
     with pytest.raises(ConfigurationError, match=f"printer\\.{key}"):
         _printer({key: largest + 1})
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("name", "path"), [(None, "printer.name"), ("lager", "printers.lager.name")])
+def test_a_name_key_is_refused_like_every_undeclared_key(name: str | None, path: str) -> None:
+    """``name`` is the printer ``--printer`` chose, set by the command; a configured one was dropped silently."""
+    with pytest.raises(ConfigurationError) as caught:
+        _printer({"name": "xyz"}, name=name)
+    assert str(caught.value) == f"{path}: Extra inputs are not permitted"
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.usefixtures("no_ambient_configuration")
+def test_the_cli_refuses_a_name_set_in_the_environment_with_exit_2(cli_runner: CliRunner, tmp_path: Path) -> None:
+    label = tmp_path / "label.json"
+    label.write_text('{"elements": [{"type": "text", "x": 1, "y": 1, "text": "A"}]}', encoding="utf-8")
+    result = cli_runner.invoke(
+        cli_mod.cli, ["validate", str(label)], obj=build_production, env={"DATAMAX_DPL___PRINTER__NAME": "xyz"}
+    )
+    assert result.exit_code == 2, result.output
+    assert "printer.name: Extra inputs are not permitted" in result.stderr

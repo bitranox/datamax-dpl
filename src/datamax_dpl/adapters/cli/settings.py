@@ -281,6 +281,35 @@ def _section(config: Config, name: ConfigSection) -> Mapping[str, Any]:
     return _table(config.get(name.value, {}), path=name.value)
 
 
+#: Fields of :class:`PrinterSettings` the command sets, never a configuration: ``name`` is the
+#: printer ``--printer`` chose. Validation replaces a configured one, so it would be dropped silently.
+_SET_BY_THE_COMMAND = ("name",)
+
+
+def _configured(section: Mapping[str, Any], *, path: SectionPath) -> Mapping[str, Any]:
+    """Return ``section``, refusing a key the command sets the way an undeclared key is refused.
+
+    Raises:
+        ConfigurationError: The section sets ``name``; the message names the key.
+    """
+    for key in _SET_BY_THE_COMMAND:
+        if key in section:
+            raise ConfigurationError(f"{path.key_path(key)}: Extra inputs are not permitted")
+    return section
+
+
+def _printer_input(config: Config, name: str) -> dict[str, Any]:
+    """The ``[printer]`` keys with the ``[printers.<name>]`` ones over them, as the configuration sets them.
+
+    Raises:
+        ConfigurationError: A section is no table, the name is not configured, or a section sets a
+            key the command sets; the message names it.
+    """
+    printer = _configured(_section(config, ConfigSection.PRINTER), path=PRINTER_SECTION)
+    named = _configured(_named(config, name), path=printer_section(name))
+    return {**printer, **named}
+
+
 def _describe(exc: ValidationError, *, section: SectionPath) -> str:
     return "; ".join(
         f"{section.key_path('.'.join(str(p) for p in error['loc']))}: {_reason(error)}" for error in exc.errors()
@@ -304,9 +333,7 @@ def printer_settings(config: Config, overrides: PrinterOverrides) -> PrinterSett
     name = overrides.printer if overrides.printer and not is_printer_uri(overrides.printer) else ""
     section = printer_section(name)
     try:
-        base = PrinterSettings.model_validate(
-            {**_section(config, ConfigSection.PRINTER), **_named(config, name), "name": name}
-        )
+        base = PrinterSettings.model_validate({**_printer_input(config, name), "name": name})
     except ValidationError as exc:
         raise ConfigurationError(_describe(exc, section=section)) from None
     _warn_of_replaced_characters(base, section=section)
@@ -357,9 +384,7 @@ def check_printer_values(config: Config, *, printer: str, values: Mapping[Calibr
     """
     written = {key.value: value for key, value in values.items()}
     try:
-        PrinterSettings.model_validate(
-            {**_section(config, ConfigSection.PRINTER), **_named(config, printer), **written, "name": printer}
-        )
+        PrinterSettings.model_validate({**_printer_input(config, printer), **written, "name": printer})
     except ValidationError as exc:
         raise ConfigurationError(_describe(exc, section=printer_section(printer))) from None
 
