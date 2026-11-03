@@ -54,7 +54,7 @@ from .geometry import Size
 from .image_budget import magnify
 from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText, Text
 from .preview import STORED_IMAGE_DOTS, Canvas, PreviewGeometry, field_area
-from .qr import QrDataTooLongError, qr_bitmap
+from .qr import QrDataTooLongError, element_symbol
 from .raster import Bitmap
 from .raster_fallback import draw_graphic, frame_of
 from .render_context import MAX_FIELD_VALUE
@@ -260,7 +260,7 @@ def _qr_dots(element: Qr, ctx: RenderContext) -> PrintedDots | None:
     Placed by ``encode_qr``'s own :func:`~datamax_dpl.domain.encode_graphics.qr_symbol_position`.
     """
     try:
-        symbol = qr_bitmap(element.data, error=element.error)
+        symbol = element_symbol(element)
     except QrDataTooLongError:
         return None
     symbol_at = qr_symbol_position(

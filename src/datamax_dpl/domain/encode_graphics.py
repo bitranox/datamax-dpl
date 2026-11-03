@@ -9,7 +9,7 @@ from .encode_common import column_of, image_edge, last_column, row_of
 from .enums import FillPattern, FindingCode
 from .label import MAX_LENGTH, Box, Circle, Image, Line, Point, Polygon, Qr
 from .profiles import Feature
-from .qr import QrDataTooLongError, qr_bitmap
+from .qr import QrDataTooLongError, element_symbol
 from .raster import Bitmap
 from .raster_fallback import rasterize
 from .records import BoxRecord, RecordPosition, circle_record, image_record, line, line_record, polygon_record
@@ -240,7 +240,7 @@ def encode_qr(element: Qr, *, index: int, ctx: RenderContext) -> list[bytes]:
     for starting past the last column gets no second finding for its right edge.
     """
     try:
-        symbol = qr_bitmap(element.data, error=element.error)
+        symbol = element_symbol(element)
     except QrDataTooLongError as exc:
         ctx.findings.refuse(FindingCode.QR_DATA_TOO_LONG, str(exc), element=index)
         return []

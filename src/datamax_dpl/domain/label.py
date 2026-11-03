@@ -393,7 +393,9 @@ class Qr(_Frozen):
     Each module is ``module_dots`` printer dots square, so the whole area is
     ``(modules + 2 * quiet_zone) * module_dots`` dots wide and high; the module count follows from
     the data and the error level (21 for a short text at M). ``data`` may hold ``{name}``
-    placeholders. A QR Code cannot be rotated (DPL images print in rotation 1 only).
+    placeholders. A QR Code cannot be rotated (DPL images print in rotation 1 only). The symbol
+    is a full QR Code at the given level unless ``micro`` allows a Micro QR where the data fits or
+    ``boost_error`` lets the level rise where the version has room.
 
     Example:
         >>> Qr(x=5, y=5, data="https://example.com").module_dots
@@ -407,6 +409,12 @@ class Qr(_Frozen):
     error: QrError = QrError.M
     module_dots: int = Field(default=3, ge=1, le=MAX_IMAGE_MAGNIFICATION, strict=True)
     quiet_zone: int = Field(default=4, ge=0, le=MAX_QUIET_ZONE, strict=True)
+    micro: bool = Field(
+        default=False, strict=True, description="Allow a Micro QR where the data fits; many readers decode none."
+    )
+    boost_error: bool = Field(
+        default=False, strict=True, description="Let the error level rise where the version has room for it."
+    )
 
 
 Element = Annotated[

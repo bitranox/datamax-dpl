@@ -61,7 +61,7 @@ from .geometry import DotPoint, Rect, Size, Span
 from .image_budget import HALVING_FACTOR, halve, magnify
 from .label import FONT_9, Barcode, Box, Circle, Element, Image, Label, Line, Polygon, Qr, ScalableText, Text
 from .profiles import Feature, get_profile
-from .qr import QrDataTooLongError, qr_bitmap
+from .qr import QrDataTooLongError, element_symbol
 from .raster import Bitmap
 from .render_context import RenderOptions
 from .units import Axis, to_inches
@@ -585,7 +585,7 @@ def _blit_halved(layer: Bitmap, bitmap: Bitmap, canvas: Canvas) -> None:
 def _qr_symbol(element: Qr) -> Bitmap | None:
     """The QR Code's module matrix, or None when the data fits no version (the render refuses it)."""
     try:
-        return qr_bitmap(element.data, error=element.error)
+        return element_symbol(element)
     except QrDataTooLongError:
         return None
 

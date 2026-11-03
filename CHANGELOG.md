@@ -25,6 +25,10 @@ All notable changes to this project are documented here. The format follows
 - `[printer] inch_unit_dots` (also in `[printers.<name>]`, unset by default): the whole dots one 1/100 in prints
   as, for a firmware or a printer that rounds the unit differently from the measured Allegro 2 (2). Unset keeps the
   model's value, so every job is as before. Library: `RenderOptions.inch_unit_dots`.
+- The `qr` element takes `micro` and `boost_error` (both `false` by default, so every label prints as before):
+  `micro` allows a Micro QR where the data fits, `boost_error` raises the error level where the version has room.
+  The job, the preview and the overlap check draw the same symbol. Library: `Qr.micro`, `Qr.boost_error`,
+  `qr_bitmap(micro=, boost_error=)` and `element_symbol(qr)` in `datamax_dpl.domain.qr`.
 - `[printer] upload_check_rounds` takes `0`: `print` uploads a label's images and sends its format with no read
   after the upload and no retry, as on a one-way link (`UploadCheck(rounds=0)` in the library;
   `MIN_UPLOAD_CHECK_ROUNDS` is 0). A lost download then goes unseen, and an Allegro 2 prints such a format without

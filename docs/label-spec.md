@@ -418,19 +418,24 @@ would pass 9. Unverified on paper: halved images have not been printed yet.
 
 ### `qr`
 
-| Key           | Type                 | Default | Meaning                                                                          |
-|---------------|----------------------|---------|----------------------------------------------------------------------------------|
-| `x`, `y`      | number >= 0          | -       | Lower-left corner of the quiet zone. A QR Code cannot be rotated.                |
-| `data`        | string, 1-4296 chars | -       | The data; may contain `{name}` placeholders.                                     |
-| `error`       | `L`, `M`, `Q`, `H`   | `M`     | Error correction level: about 7, 15, 25 or 30 percent of the symbol may be lost. |
-| `module_dots` | integer 1-9          | 3       | Printer dots per module, across and along.                                       |
-| `quiet_zone`  | integer 0-10         | 4       | Modules of white space kept free on every side of the symbol.                    |
+| Key           | Type                 | Default | Meaning                                                                                                                                     |
+|---------------|----------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| `x`, `y`      | number >= 0          | -       | Lower-left corner of the quiet zone. A QR Code cannot be rotated.                                                                           |
+| `data`        | string, 1-4296 chars | -       | The data; may contain `{name}` placeholders.                                                                                                |
+| `error`       | `L`, `M`, `Q`, `H`   | `M`     | Error correction level: about 7, 15, 25 or 30 percent of the symbol may be lost.                                                            |
+| `module_dots` | integer 1-9          | 3       | Printer dots per module, across and along.                                                                                                  |
+| `quiet_zone`  | integer 0-10         | 4       | Modules of white space kept free on every side of the symbol.                                                                               |
+| `micro`       | boolean              | `false` | Allow a Micro QR (11 to 17 modules, level `L` to `Q`) where the data fits; a full QR Code otherwise. Many phone readers decode no Micro QR. |
+| `boost_error` | boolean              | `false` | Raise the error level as far as the chosen version still holds the data.                                                                    |
 
 No model in the manual has a QR Code record, so datamax-dpl draws the symbol itself and downloads
 it as an image before the label, one dot per module, then places it with an image record whose dot
 width and height are `module_dots`. The image name follows from its content
-([dpl-reference.md](dpl-reference.md), section 5). The symbol is always a full QR Code, never a
-Micro QR, and the error level is used as given, never raised.
+([dpl-reference.md](dpl-reference.md), section 5). By default the symbol is a full QR Code and
+the error level is used as given: `micro` lets a short text take the smaller Micro QR (`HELLO` at
+`M` is 13 modules instead of 21; level `H` and data past a Micro QR's size still give a full one),
+and `boost_error` raises the level where the version the data needs has room for it (`HELLO` at
+`L` prints as `H`). The preview, the overlap check and the job all draw the same symbol.
 
 The field is `(modules + 2 * quiet_zone) * module_dots` dots square; the module count follows from
 the data and the level (21 for a short text at `M`). The symbol starts `quiet_zone` modules in

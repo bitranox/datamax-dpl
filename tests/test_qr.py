@@ -37,13 +37,14 @@ from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.findings import FindingCollector
 from datamax_dpl.domain.image_records import decode_image, download_command
 from datamax_dpl.domain.label import Image, Label, Qr
+from datamax_dpl.domain.overlap import printed_dots
 from datamax_dpl.domain.placeholders import fill_label, label_placeholders
 from datamax_dpl.domain.preview import preview_bitmap
 from datamax_dpl.domain.profiles import get_profile, list_profiles
 from datamax_dpl.domain.qr import qr_bitmap
 from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.records import Magnification, image_record
-from datamax_dpl.domain.render import RenderResult, build_job, render
+from datamax_dpl.domain.render import RenderResult, build_job, job_context, render
 from datamax_dpl.domain.render_context import (
     NAME_ALPHABET,
     ImageDownload,
@@ -662,3 +663,83 @@ def test_explain_of_a_qr_job_shows_the_download_and_the_placement(cli_runner: Cl
     commands = envelope(run_cli(cli_runner, ["--json", "explain", str(job)]))["data"]["commands"]
     assert [c["meaning"] for c in commands if c["kind"] == "download"] == ["image download"]
     assert "image at magnification 4" in [c["meaning"] for c in commands]
+
+
+# ======================== micro and boost_error: segno's two switches, off by default ========================
+
+_ALLEGRO = RenderOptions(model="allegro-2")
+
+
+def _sent_symbol(qr: Qr) -> str:
+    """The name the job downloads the QR's symbol under: the drawn name of its content."""
+    [name] = build_job(Label(elements=[qr]), _ALLEGRO).downloads
+    return name
+
+
+@pytest.mark.os_agnostic
+def test_micro_and_boost_error_default_off_and_leave_the_job_as_it_was() -> None:
+    plain = Qr(x=5, y=5, data="HELLO", error=QrError.L)
+    explicit = Qr(x=5, y=5, data="HELLO", error=QrError.L, micro=False, boost_error=False)
+
+    assert (plain.micro, plain.boost_error) == (False, False)
+    assert build_job(Label(elements=[plain]), _ALLEGRO).data == build_job(Label(elements=[explicit]), _ALLEGRO).data
+    assert _sent_symbol(plain) == drawn_image_name(qr_bitmap("HELLO", error=QrError.L))
+
+
+@pytest.mark.os_agnostic
+def test_micro_makes_a_micro_qr_where_the_data_fits_and_a_full_one_where_it_does_not() -> None:
+    micro = qr_bitmap("HELLO", error=QrError.M, micro=True)
+    too_long = qr_bitmap("x" * 40, error=QrError.M, micro=True)
+    no_level_h = qr_bitmap("HELLO", error=QrError.H, micro=True)
+
+    assert (micro.width, too_long.width, no_level_h.width) == (13, 29, 21)
+    assert too_long.rows() == qr_bitmap("x" * 40, error=QrError.M).rows()
+    assert no_level_h.rows() == qr_bitmap("HELLO", error=QrError.H).rows()
+    assert _sent_symbol(Qr(x=5, y=5, data="HELLO", micro=True)) == drawn_image_name(micro)
+
+
+@pytest.mark.os_agnostic
+def test_boost_error_raises_the_level_where_the_version_has_room() -> None:
+    boosted = qr_bitmap("HELLO", error=QrError.L, boost_error=True)
+
+    assert boosted.rows() == qr_bitmap("HELLO", error=QrError.H).rows()
+    assert boosted.rows() != qr_bitmap("HELLO", error=QrError.L).rows()
+    assert _sent_symbol(Qr(x=5, y=5, data="HELLO", error=QrError.L, boost_error=True)) == drawn_image_name(boosted)
+
+
+@pytest.mark.os_agnostic
+def test_the_preview_draws_the_micro_symbol_the_job_sends() -> None:
+    """At one dot per module on the same label, the two pictures differ by the two symbols' dark modules."""
+
+    def dark(qr: Qr) -> int:
+        return preview_bitmap(Label(width=60, height=40, elements=[qr]), get_profile("allegro-2")).black_pixels()
+
+    micro = Qr(x=20, y=20, data="HELLO", micro=True, module_dots=1)
+    full = Qr(x=20, y=20, data="HELLO", module_dots=1)
+    full_dark = qr_bitmap("HELLO", error=QrError.M).black_pixels()
+    micro_dark = qr_bitmap("HELLO", error=QrError.M, micro=True).black_pixels()
+
+    assert full_dark != micro_dark
+    assert dark(full) - dark(micro) == full_dark - micro_dark
+
+
+@pytest.mark.os_agnostic
+def test_the_overlap_check_takes_the_micro_symbol_s_dots() -> None:
+    """The overlap check meets the dots the job prints, so a Micro QR takes part by its own modules."""
+    qr = Qr(x=20, y=20, data="HELLO", micro=True, module_dots=1)
+    label = Label(elements=[qr])
+    dots = printed_dots(qr, job_context(label, _ALLEGRO))
+
+    assert dots is not None
+    assert dots.bitmap.black_pixels() == qr_bitmap("HELLO", error=QrError.M, micro=True).black_pixels()
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("field", ["micro", "boost_error"])
+def test_micro_and_boost_error_take_a_json_boolean_only(field: str) -> None:
+    def qr(value: object) -> dict[str, object]:
+        return {"elements": [{"type": "qr", "x": 1, "y": 1, "data": "A", field: value}]}
+
+    with pytest.raises(ValidationError, match=field):
+        Label.model_validate(qr("yes"))
+    assert getattr(Label.model_validate(qr(True)).elements[0], field) is True
