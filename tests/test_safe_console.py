@@ -305,3 +305,38 @@ class TestTheRealCliSurvivesALegacyCodepage:
         )
         assert completed.returncode == 0, completed.stderr.decode("cp1252", "replace")
         assert b"UnicodeEncodeError" not in completed.stderr
+
+
+class _LargestWrite(io.TextIOWrapper):
+    """A text stream that remembers the longest string one write handed it."""
+
+    largest = 0
+
+    def write(self, s: str, /) -> int:
+        self.largest = max(self.largest, len(s))
+        return super().write(s)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("newline", ["", "\r\n"], ids=["as-is", "windows-translation"])
+def test_a_long_text_reaches_the_stream_in_pieces_and_whole(newline: str) -> None:
+    """Each layer under echo copies what it is handed, a Windows newline translation too: so in pieces."""
+    line = "<STX>L<CR>" + "x" * 90
+    text = "\n".join(f"{number:05d} {line}" for number in range(3000))
+    raw = io.BytesIO()
+    stream = _LargestWrite(raw, encoding="utf-8", errors="strict", newline=newline)
+    safe_console.echo(text, file=stream)
+    stream.flush()
+    assert stream.largest <= 64 * 1024 + 1
+    written = raw.getvalue().decode("utf-8")
+    assert written == (text + "\n").replace("\n", newline or "\n")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("nl", [True, False])
+def test_an_empty_text_writes_only_its_newline(nl: bool) -> None:
+    raw = io.BytesIO()
+    stream = _LargestWrite(raw, encoding="utf-8", errors="strict", newline="")
+    safe_console.echo("", file=stream, nl=nl)
+    stream.flush()
+    assert raw.getvalue() == (b"\n" if nl else b"")

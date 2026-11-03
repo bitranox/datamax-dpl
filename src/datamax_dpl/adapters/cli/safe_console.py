@@ -218,6 +218,10 @@ def encode_safe(text: str, encoding: str | None, errors: str | None = None) -> s
     return text
 
 
+#: Characters :func:`echo` hands down at a time: what each layer below copies, at most.
+_ECHO_PIECE_CHARS = 64 * 1024
+
+
 def echo(message: object = "", *, file: IO[Any] | None = None, err: bool = False, nl: bool = True) -> None:
     """Write `message` to the console, control characters made visible, degrading anything it cannot encode.
 
@@ -240,7 +244,14 @@ def echo(message: object = "", *, file: IO[Any] | None = None, err: bool = False
     """
     text = printable(message if isinstance(message, str) else str(message))
     errors = _stream_errors(_target_stream(file, err=err))
-    click.echo(encode_safe(text, _stream_encoding(file, err=err), errors), file=file, err=err, nl=nl)
+    encoding = _stream_encoding(file, err=err)
+    # In pieces: each layer below copies what it is handed (the encode check, click's colour strip,
+    # a text stream's newline translation, its encoder), so a whole batch's readable job written
+    # at once cost several times its size on top of the text, one copy more on Windows.
+    last = max(len(text) - 1, 0) // _ECHO_PIECE_CHARS
+    for number, start in enumerate(range(0, max(len(text), 1), _ECHO_PIECE_CHARS)):
+        piece = text[start : start + _ECHO_PIECE_CHARS]
+        click.echo(encode_safe(piece, encoding, errors), file=file, err=err, nl=nl and number == last)
 
 
 class _SafeWriter:
