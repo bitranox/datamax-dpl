@@ -129,7 +129,7 @@ def test_a_job_written_in_place_renders_each_record_once(tmp_path: Path) -> None
         checked.extend(records.reads)
         return report
 
-    assert write_batch(str(target), check).ok
+    assert write_batch(str(target), check, open_spool=FileJobSpool).ok
     assert min(checked) > 0
     assert records.reads == checked
     assert target.read_bytes() == render_batch(_TEXT, [{"a": f"R{n}"} for n in range(_RECORDS)], _DMX).data

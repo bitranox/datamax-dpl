@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple, overload
 
 import orjson
 import rich_click as click
@@ -24,8 +24,8 @@ from ...config.sections import printer_section
 from ...transport.uri import is_one_way, parse_printer_uri
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
+from ..interrupt import raise_if_interrupted
 from ..job_file import write_batch
-from ..job_spool import FileJobSpool
 from ..label_io import STDIN, LabelInputError, Records, load_label, load_records, read_input
 from ..payloads import RenderPayload, ShownJob, payload_findings_text, refused_text, render_payload, went_out_text
 from ..runner import CommandResult, run_command
@@ -34,9 +34,9 @@ from ..typed_click import argument, option
 from .model_options import command_overrides, printer_choice_decorator, render_options_decorator, resolve_settings
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
-    from ....application.ports import JobSpool
+    from ....application.ports import JobSpool, OpenJobSpool
     from ....application.use_cases import BatchEntry
     from ....domain.render import RenderResult
     from ....domain.render_context import RenderOptions
@@ -75,14 +75,35 @@ class JobRoute(NamedTuple):
             asked); a batch whose labels need them is then refused (``batch_image_names_unread``).
         spool: Where a batch keeps each record as it is checked, for the send to read back
             instead of rendering it again; None for a job that is not sent, or renders again.
+        each: Called with each record of a batch as it is checked, for a caller writing or
+            holding the job as it goes.
     """
 
     names: HeldImages | None = None
     spool: JobSpool | None = None
+    each: Callable[[BatchEntry], None] | None = None
 
 
 #: The route of a job checked and not sent: no printer asked, no spool.
 NOT_SENT = JobRoute()
+
+
+@overload
+def check_loaded(
+    label: Label, records: None, options: RenderOptions, settings: PrinterSettings, *, route: JobRoute = ...
+) -> RenderResult: ...
+
+
+@overload
+def check_loaded(
+    label: Label, records: Records, options: RenderOptions, settings: PrinterSettings, *, route: JobRoute = ...
+) -> BatchReport: ...
+
+
+@overload
+def check_loaded(
+    label: Label, records: Records | None, options: RenderOptions, settings: PrinterSettings, *, route: JobRoute = ...
+) -> RenderResult | BatchReport: ...
 
 
 def check_loaded(
@@ -96,7 +117,9 @@ def check_loaded(
     """Render an already loaded label, or go over its records one at a time keeping no job.
 
     A command that renders more than once, or needs the label itself as well as its rendering,
-    loads LABEL and its data once and calls this: stdin ('-') can be read only once.
+    loads LABEL and its data once and calls this: stdin ('-') can be read only once. Every command
+    that writes or sends a job checks it here first, so a Ctrl-C noted while it was checked ends the
+    command before any byte of the job goes out (see :mod:`..interrupt`).
 
     Args:
         label: The label to render.
@@ -108,13 +131,23 @@ def check_loaded(
 
     Returns:
         The single render, or the batch's report when ``records`` are given.
+
+    Raises:
+        KeyboardInterrupt: A Ctrl-C came while the job was checked, and its raise was lost.
     """
     names = route.names
     if records is None:
-        return render_label(label, options, held=names)
-    read_at_send = names is not None and names.read_at_send
-    limits = report_limits(settings)
-    return check_batch(label, records, options, read_names_at_send=read_at_send, limits=limits, spool=route.spool)
+        result: RenderResult | BatchReport = render_label(label, options, held=names)
+    else:
+        read_at_send = names is not None and names.read_at_send
+        limits = report_limits(settings)
+        result = check_batch(
+            label, records, options, read_names_at_send=read_at_send, limits=limits, each=route.each, spool=route.spool
+        )
+    # Records looks for a lost Ctrl-C at each record and at its end, and the last record is filled
+    # and kept after that end; a single label has no pass at all. Nothing has gone out yet here.
+    raise_if_interrupted()
+    return result
 
 
 def two_way_printer_named(settings: PrinterSettings) -> bool:
@@ -186,7 +219,7 @@ def _batch_held_whole(
         BatchTooLargeError: The jobs passed ``max_batch_job_bytes``; the message names the key.
     """
     holder = _JobHolder(settings)
-    report = check_batch(label, records, options, limits=report_limits(settings), each=holder.add)
+    report = check_loaded(label, records, options, settings, route=JobRoute(each=holder.add))
     return _RenderedJob(result=report, job=holder.job if report.ok else None)
 
 
@@ -220,7 +253,9 @@ def cli_render(ctx: click.Context, label_source: str, data: str | None, output: 
         label = load_label(label_source)
         records = None if data is None else load_batch(data, settings)
         machine = cli_ctx.mode.machine
-        rendered = _rendered(label, records, settings, output=output, raw_stdout_allowed=not machine)
+        rendered = _rendered(
+            label, records, settings, output=output, raw_stdout_allowed=not machine, open_spool=cli_ctx.services.open_spool
+        )
         result = rendered.result
         written = output if output is not None and result.ok else None
         shown = None if rendered.job is None else ShownJob(rendered.job, with_base64=machine)
@@ -235,23 +270,31 @@ def cli_render(ctx: click.Context, label_source: str, data: str | None, output: 
 
 
 def _rendered(
-    label: Label, records: Records | None, settings: PrinterSettings, *, output: str | None, raw_stdout_allowed: bool
+    label: Label,
+    records: Records | None,
+    settings: PrinterSettings,
+    *,
+    output: str | None,
+    raw_stdout_allowed: bool,
+    open_spool: OpenJobSpool,
 ) -> _RenderedJob:
     """Render for ``render``, writing the job when it is ok: as it goes for a batch that has somewhere to go."""
     options = render_options(settings)
     if records is None:
-        result = render_label(label, options)
+        result = check_loaded(label, None, options, settings)
         if output is not None and result.ok:
             _write_output(output, (result.data,), raw_stdout_allowed=raw_stdout_allowed)
         return _RenderedJob(result=result, job=result.data if output is None and result.ok else None)
     if output is None:
         return _batch_held_whole(label, records, options, settings)
-    limits = report_limits(settings)
     if output != STDIN:
-        written = write_batch(output, lambda each: check_batch(label, records, options, limits=limits, each=each))
-        return _RenderedJob(result=written)
-    with FileJobSpool() as spool:
-        report = check_batch(label, records, options, limits=limits, spool=spool)
+
+        def check(each: Callable[[BatchEntry], None]) -> BatchReport:
+            return check_loaded(label, records, options, settings, route=JobRoute(each=each))
+
+        return _RenderedJob(result=write_batch(output, check, open_spool=open_spool))
+    with open_spool() as spool:
+        report = check_loaded(label, records, options, settings, route=JobRoute(spool=spool))
         if report.ok:
             _write_output(output, report.record_jobs(), raw_stdout_allowed=raw_stdout_allowed)
     return _RenderedJob(result=report)

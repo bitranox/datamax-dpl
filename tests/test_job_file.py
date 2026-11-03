@@ -19,6 +19,7 @@ from cli_process import run_cli, run_cli_text
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.interrupt import noting_interrupts
 from datamax_dpl.adapters.cli.job_file import write_batch
+from datamax_dpl.adapters.cli.job_spool import FileJobSpool
 from datamax_dpl.application.use_cases import check_batch
 from datamax_dpl.composition import build_production
 from datamax_dpl.domain.label import Label, Qr, Text
@@ -87,7 +88,7 @@ def test_a_private_target_s_job_is_never_readable_to_others(tmp_path: Path) -> N
 
         return check_batch(_TEXT, [{"a": "r0"}, {"a": "r1"}], _DMX, each=each)
 
-    assert write_batch(str(target), check).ok
+    assert write_batch(str(target), check, open_spool=FileJobSpool).ok
     assert seen == [0o600, 0o600]
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
 
@@ -294,7 +295,7 @@ def test_a_ctrl_c_lost_in_the_last_record_replaces_nothing(tmp_path: Path) -> No
         return report
 
     with noting_interrupts(), pytest.raises(KeyboardInterrupt):
-        write_batch(str(target), check)
+        write_batch(str(target), check, open_spool=FileJobSpool)
     assert target.read_bytes() == _BEFORE
     assert _names(tmp_path) == ["job.dpl"]
 

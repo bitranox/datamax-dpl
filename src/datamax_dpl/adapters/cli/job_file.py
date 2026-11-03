@@ -19,11 +19,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, NamedTuple
 
 from .interrupt import raise_if_interrupted
-from .job_spool import FileJobSpool
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from ...application.ports import OpenJobSpool
     from ...application.use_cases import BatchEntry, BatchReport
 
 #: Names tried beside the target before giving up on a file of our own: another run may hold one.
@@ -156,7 +156,9 @@ def _write_beside(
         _remove(beside.path)
 
 
-def _write_direct(output: str, check: Callable[[Callable[[BatchEntry], None]], BatchReport]) -> BatchReport:
+def _write_direct(
+    output: str, check: Callable[[Callable[[BatchEntry], None]], BatchReport], *, open_spool: OpenJobSpool
+) -> BatchReport:
     """Check every record into a spool, then write the job from it to ``output``, which refuses or takes it."""
     passed = [True]
 
@@ -166,7 +168,7 @@ def _write_direct(output: str, check: Callable[[Callable[[BatchEntry], None]], B
         if passed[0]:
             spool.add(entry)
 
-    with FileJobSpool() as spool:
+    with open_spool() as spool:
         report = check(keep)
         spool.seal()
         if report.ok:
@@ -176,7 +178,9 @@ def _write_direct(output: str, check: Callable[[Callable[[BatchEntry], None]], B
     return report
 
 
-def _route(output: str, check: Callable[[Callable[[BatchEntry], None]], BatchReport]) -> BatchReport:
+def _route(
+    output: str, check: Callable[[Callable[[BatchEntry], None]], BatchReport], *, open_spool: OpenJobSpool
+) -> BatchReport:
     """Write beside the target where that leaves it what it was, else directly."""
     try:
         # The path as given: /dev/stdout on a pipe resolves to a name nothing can open.
@@ -184,24 +188,27 @@ def _route(output: str, check: Callable[[Callable[[BatchEntry], None]], BatchRep
     except FileNotFoundError:
         found = None
     except OSError:
-        return _write_direct(output, check)
+        return _write_direct(output, check, open_spool=open_spool)
     if found is not None and not stat.S_ISREG(found.st_mode):
-        return _write_direct(output, check)
+        return _write_direct(output, check, open_spool=open_spool)
     # A link is written through, not replaced by a file of its own.
     target = Path(os.path.realpath(output))
     beside = _open_beside(target, found)
     if beside is None:
-        return _write_direct(output, check)
+        return _write_direct(output, check, open_spool=open_spool)
     return _write_beside(target, beside, check)
 
 
-def write_batch(output: str, check: Callable[[Callable[[BatchEntry], None]], BatchReport]) -> BatchReport:
+def write_batch(
+    output: str, check: Callable[[Callable[[BatchEntry], None]], BatchReport], *, open_spool: OpenJobSpool
+) -> BatchReport:
     """Write the job of a batch to the file ``output`` if every record passes; else leave it as it was.
 
     Args:
         output: The file.
         check: Goes over the batch once, calling what it is given with each record
             (:func:`~datamax_dpl.application.use_cases.check_batch`), and returns its report.
+        open_spool: Makes the spool a target written directly is checked into first.
 
     Returns:
         The report. Nothing was written unless its ``ok`` is True.
@@ -210,7 +217,7 @@ def write_batch(output: str, check: Callable[[Callable[[BatchEntry], None]], Bat
         OSError: The file could not be written; the message names ``output``.
     """
     try:
-        return _route(output, check)
+        return _route(output, check, open_spool=open_spool)
     except OSError as exc:
         raise _named_for(exc, output) from exc
 

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 # Printer and camera
 from ..adapters.camera import capture_image
+from ..adapters.cli.job_spool import FileJobSpool
 from ..adapters.config.deploy import deploy_configuration
 from ..adapters.config.display import display_config
 
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
         GetConfig,
         GetDefaultConfigPath,
         InitLogging,
+        OpenJobSpool,
         OpenPrinter,
         OpenTunablePrinter,
         PrinterTransport,
@@ -51,6 +53,7 @@ if TYPE_CHECKING:
     _assert_set_printer_values: SetPrinterValues = set_user_printer_values
     _assert_sleep: Sleep = time.sleep
     _assert_clock: Clock = time.monotonic
+    _assert_open_spool: OpenJobSpool = FileJobSpool
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +71,7 @@ class AppServices:
     capture_image: CaptureImage
     sleep: Sleep
     clock: Clock
+    open_spool: OpenJobSpool
 
     def tuned_open_printer(self, tuning: TransportTuning) -> OpenPrinter:
         """``open_printer`` with the printer settings' ``tuning`` bound, see :func:`bind_tuning`."""
@@ -120,6 +124,7 @@ def build_production() -> AppServices:
         capture_image=capture_image,
         sleep=time.sleep,
         clock=time.monotonic,
+        open_spool=FileJobSpool,
     )
 
 
@@ -163,6 +168,8 @@ def build_testing(
         capture_image=camera or FakeCamera(),
         sleep=clock.sleep,
         clock=clock.now,
+        # The real spool: it is a temp file of this process's own, and tests check what it leaves.
+        open_spool=FileJobSpool,
     )
 
 

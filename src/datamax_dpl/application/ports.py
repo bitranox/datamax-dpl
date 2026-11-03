@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping, Sequence
+    from contextlib import AbstractContextManager
     from pathlib import Path
 
     from lib_layered_config import Config
@@ -207,6 +208,12 @@ class JobSpool(Protocol):
         ...
 
 
+class OpenJobSpool(Protocol):
+    """Make an empty :class:`JobSpool` for one batch; leaving its ``with`` block removes it."""
+
+    def __call__(self) -> AbstractContextManager[JobSpool]: ...
+
+
 class Sleep(Protocol):
     """Pause for ``seconds``; injected so polling loops run instantly under test."""
 
@@ -229,6 +236,7 @@ __all__ = [
     "GetDefaultConfigPath",
     "InitLogging",
     "JobSpool",
+    "OpenJobSpool",
     "OpenPrinter",
     "OpenTunablePrinter",
     "PrinterTransport",

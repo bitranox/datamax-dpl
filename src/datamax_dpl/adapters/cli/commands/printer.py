@@ -45,7 +45,6 @@ from ...preview import pillow_available, preview_findings, render_preview_png
 from ...transport.uri import is_one_way, unsupported_query
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
-from ..job_spool import FileJobSpool
 from ..label_io import STDIN, LabelInputError, load_label, load_records
 from ..payloads import FindingOut, SentTo, findings_text, refused_text, render_payload, went_out_text, worth_telling
 from ..runner import CommandResult, run_command
@@ -73,6 +72,7 @@ from .model_options import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from ....application.ports import JobSpool
     from ....domain.camera import CameraSettings
     from ....domain.label import Label
     from ....domain.render_context import RenderOptions
@@ -92,14 +92,14 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
 
     def body(cli_ctx: CLIContext) -> CommandResult:
         # Removed on the way out, whichever way that is: it holds the batch's jobs as checked.
-        with FileJobSpool() as spool:
+        with cli_ctx.services.open_spool() as spool:
             return _print_body(cli_ctx, label_source, data, given=given, spool=spool)
 
     run_command(ctx, command=CommandName.PRINT, body=body)
 
 
 def _print_body(
-    cli_ctx: CLIContext, label_source: str, data: str | None, *, given: Mapping[str, Any], spool: FileJobSpool
+    cli_ctx: CLIContext, label_source: str, data: str | None, *, given: Mapping[str, Any], spool: JobSpool
 ) -> CommandResult:
     """Run ``print``: a batch's check keeps each record in ``spool``, and the send reads it back."""
     settings = resolve_sending_settings(cli_ctx, command_overrides(given))
@@ -611,7 +611,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
         _refuse_long_preview(label, options, limit=_preview_limit(cli_ctx))
         result = check_loaded(label, None, options, settings, route=JobRoute(names=_names_at_send(link)))
         uri = link.uri
-        if not isinstance(result, RenderResult) or not result.ok:
+        if not result.ok:
             return _render_refused(result, verdict="REFUSED", settings=settings)
         folder = Path(output_dir)
         services = cli_ctx.services
