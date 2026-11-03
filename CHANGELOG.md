@@ -198,8 +198,10 @@ All notable changes to this project are documented here. The format follows
   3 + R + 2 x `upload_check_rounds` x W, 186 s with the defaults, for the first
   label on built-in RAM or on a plug-in module; 216 s on built-in RAM where the
   names are read before the label's downloads; for a later label of a batch
-  180 s (210 s on built-in RAM with no clear before the downloads). CONFIG.md
-  breaks these down.
+  180 s (210 s on built-in RAM with no clear before the downloads), so about
+  3 minutes for a printer that never answers. A lower `stored_names_wait`
+  shortens it (15 s gives 96 s for the first label), at the cost of counting a
+  slower answer as none. CONFIG.md breaks these down.
   Library: `RenderResult.upload_end`, `retry_clear`, `retry_clear_empties` and
   `retry_clear_may_go` carry what a caller needs to run the check,
   `RenderOptions.model_image_budget` (default True) leaves the model's budget
