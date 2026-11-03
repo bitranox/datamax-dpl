@@ -901,7 +901,7 @@ def _send_labels(link: Link, job: CheckedJob, *, cuts: Iterable[bool], sink: _La
         if (refused := _refused_as_rendered(record.result)) is not None:
             sink.add(refused, cut=cut)
             return False
-        if not _checked_with_reset(link, job, record, render, first=first):
+        if not _checked_with_reset(link, job, record, first=first):
             sink.add(record.as_sent(), cut=cut, unkept=record.unkept())
             return False
         # Built after the check: a round may have rendered the label again.
@@ -919,7 +919,7 @@ def _refused_as_rendered(result: RenderResult) -> RenderResult | None:
     return _unlisted_module(result)
 
 
-def _checked_with_reset(link: Link, job: CheckedJob, record: _Record, render: RecordRender, *, first: bool) -> bool:
+def _checked_with_reset(link: Link, job: CheckedJob, record: _Record, *, first: bool) -> bool:
     """Run the upload check of ``record``, and for the first label the reset check; True when it passed.
 
     The first label's names are read before the reset check: a label that the listing makes an
@@ -929,11 +929,11 @@ def _checked_with_reset(link: Link, job: CheckedJob, record: _Record, render: Re
     before = record.read_before() if checked else None
     told: tuple[Finding, ...] = ()
     if first and not isinstance(before, _Refused):
-        told = _after_reset(link, render, job)
+        told = _after_reset(link, record.render, job)
         record.findings.extend(told)
     passed = not checked or _check_label(record, before)
     if first and not told:
-        record.findings.extend(_reset_in_rounds(link, render, job, passed=passed))
+        record.findings.extend(_reset_in_rounds(link, record.render, job, passed=passed))
     return passed
 
 

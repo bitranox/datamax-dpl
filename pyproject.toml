@@ -190,7 +190,6 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 # Protocols/adapters: many-param signatures by design
 "src/datamax_dpl/adapters/cli/commands/calibrate.py" = ["PLR0913"]
 "src/datamax_dpl/adapters/cli/commands/config.py" = ["PLR0913"]
-"src/datamax_dpl/adapters/cli/commands/printer.py" = ["PLR0913"]
 "src/datamax_dpl/adapters/cli/root.py" = ["PLR0913"]
 "src/datamax_dpl/adapters/config/deploy.py" = ["PLR0913"]
 "src/datamax_dpl/adapters/memory/config.py" = ["PLR0913"]

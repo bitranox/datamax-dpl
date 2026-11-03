@@ -11,9 +11,9 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from datamax_dpl.adapters import cli as cli_mod
+from datamax_dpl.adapters.cli.config_load import report_load_failure
 from datamax_dpl.adapters.config import loader as config_mod
 from datamax_dpl.adapters.config.display import redact_url_secrets
-from datamax_dpl.adapters.cli.config_load import report_load_failure
 from datamax_dpl.composition import build_production
 
 if TYPE_CHECKING:
