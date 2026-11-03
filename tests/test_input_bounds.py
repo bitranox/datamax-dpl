@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.label_io import MAX_INPUT_BYTES, LabelInputError, load_records, read_input
 from datamax_dpl.adapters.cli.settings import PreviewSettings, preview_settings
+from datamax_dpl.adapters.memory import RecordingPrinter
 from datamax_dpl.adapters.preview import render_preview_png
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.decoder import MAX_EXPLAINED_COMMANDS, explain
@@ -61,8 +62,11 @@ if TYPE_CHECKING:
 LABEL = {"elements": [{"type": "text", "x": 5, "y": 5, "text": "{name}"}]}
 
 
-def _invoke(cli_runner: CliRunner, *args: str, stdin: bytes | None = None) -> Any:
-    return cli_runner.invoke(cli_mod.cli, list(args), obj=build_testing, input=stdin)
+def _invoke(
+    cli_runner: CliRunner, *args: str, stdin: bytes | None = None, printer: RecordingPrinter | None = None
+) -> Any:
+    """Run the CLI on in-memory services; every printer URI, a file: one included, opens ``printer``."""
+    return cli_runner.invoke(cli_mod.cli, list(args), obj=lambda: build_testing(printer=printer), input=stdin)
 
 
 def _write_label(tmp_path: Path, document: object = LABEL) -> str:
@@ -195,10 +199,12 @@ def test_verify_refuses_a_huge_label_before_anything_is_printed(cli_runner: CliR
     """The expected picture comes after the print, so the refusal must come before it."""
     label = _write_label(tmp_path, {"height": 100000, "elements": [{"type": "text", "x": 5, "y": 5, "text": "A"}]})
     target = f"file:{tmp_path / 'x.dpl'}"
-    result = _invoke(cli_runner, "--json-bare", "--set", "camera.kind=file", "verify", label, "--printer", target)
+    printer = RecordingPrinter()
+    args = ["--json-bare", "--set", "camera.kind=file", "verify", label, "--printer", target]
+    result = _invoke(cli_runner, *args, printer=printer)
     assert result.exit_code == 2, result.output
     assert "[preview] max_length_mm" in json.loads(result.stdout)["message"]
-    assert not (tmp_path / "x.dpl").exists()
+    assert printer.sent == []
 
 
 @pytest.mark.os_agnostic
@@ -355,15 +361,16 @@ def test_a_batch_past_max_batch_records_is_refused_before_rendering(
 ) -> None:
     """Exit 2 naming the key; nothing was rendered, so nothing reached the printer file."""
     target = tmp_path / "job.dpl"
-    printer = ["--printer", f"file:{target}"] if command == "print" else []
+    to_printer = ["--printer", f"file:{target}"] if command == "print" else []
     args = ["--json-bare", "--set", "printer.max_batch_records=3", command, _write_label(tmp_path)]
-    result = _invoke(cli_runner, *args, "--data", _records_file(tmp_path, name, 4), *printer)
+    printer = RecordingPrinter()
+    result = _invoke(cli_runner, *args, "--data", _records_file(tmp_path, name, 4), *to_printer, printer=printer)
     assert result.exit_code == 2, result.output
     document = json.loads(result.stdout)
     assert document["error"] == "LabelInputError"
     assert "more than 3 data records" in document["message"]
     assert "[printer] max_batch_records" in document["message"]
-    assert not target.exists()
+    assert printer.sent == []
 
 
 @pytest.mark.os_agnostic

@@ -41,10 +41,14 @@ def _swallow_an_interrupt() -> None:
         return
 
 
-def _interrupted_while_running() -> AppServices:
+def _interrupted_while_running(printer: RecordingPrinter) -> Callable[[], AppServices]:
     """The services of a run whose Ctrl-C came, and was swallowed, once the handlers were set."""
-    _swallow_an_interrupt()
-    return dataclasses.replace(build_testing())
+
+    def services() -> AppServices:
+        _swallow_an_interrupt()
+        return build_testing(printer=printer)
+
+    return services
 
 
 def _batch(tmp_path: Path) -> tuple[str, str]:
@@ -69,9 +73,13 @@ def test_a_swallowed_interrupt_ends_a_batch_with_130_and_nothing_out(
 ) -> None:
     label, data = _batch(tmp_path)
     out = tmp_path / "job.dpl"
+    # Every printer URI opens this recording printer, a file: one included: the file is never written.
+    printer = RecordingPrinter()
     verb, *rest = [word.format(out=out) for word in command]
-    code = main([verb, label, "--data", data, "--model", "dmx-600", *rest], services_factory=_interrupted_while_running)
+    services = _interrupted_while_running(printer)
+    code = main([verb, label, "--data", data, "--model", "dmx-600", *rest], services_factory=services)
     assert code == _INTERRUPTED_EXIT, capsys.readouterr().err
+    assert printer.sent == []
     assert not out.exists()
 
 

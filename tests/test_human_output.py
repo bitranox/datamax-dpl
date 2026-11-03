@@ -51,11 +51,13 @@ def _run(runner: CliRunner, *args: str, printer: RecordingPrinter | None = None)
 @pytest.mark.os_agnostic
 def test_print_refused_says_why(cli_runner: CliRunner, tmp_path: Path) -> None:
     target = tmp_path / "job.dpl"
-    result = _run(cli_runner, "print", _label(tmp_path), *STRICT, "--printer", f"file:{target}")
+    # Every printer URI opens this recording printer, so the file: target is never written either way.
+    printer = RecordingPrinter()
+    result = _run(cli_runner, "print", _label(tmp_path), *STRICT, "--printer", f"file:{target}", printer=printer)
     assert result.exit_code == 1
     assert "REFUSED: nothing sent" in result.stdout
     assert FindingCode.CIRCLE_RASTERIZED.value in result.stdout
-    assert not target.exists()
+    assert printer.sent == []
 
 
 @pytest.mark.os_agnostic
