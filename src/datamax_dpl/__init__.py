@@ -25,13 +25,21 @@ from .__init__conf__ import print_info
 from .adapters.logging.setup import InvalidLoggingConfigError
 from .adapters.preview import pillow_available, preview_findings, render_preview_png
 from .adapters.transport import open_printer
-from .application.ports import JobSpool, PrinterTransport
-from .application.upload_check import CheckedJob, ResetCheck, UploadCheck, UploadRefusedError, print_checked
+from .application.ports import Clock, JobSpool, OpenPrinter, PrinterTransport, Sleep
+from .application.upload_check import (
+    CheckedJob,
+    CheckedPrint,
+    ResetCheck,
+    UploadCheck,
+    UploadRefusedError,
+    print_checked,
+)
 from .application.use_cases import (
     AnswerWait,
     BatchEntry,
     BatchReport,
     BatchResult,
+    RecordRender,
     ReportedFinding,
     ReportLimits,
     check_batch,
@@ -49,7 +57,7 @@ from .domain.calibration import (
     along_label,
     calibration_labels,
 )
-from .domain.decoder import Explanation, explain
+from .domain.decoder import DecodedCommand, Explanation, explain
 from .domain.enums import (
     Attribute,
     BarcodeProblemCode,
@@ -61,6 +69,7 @@ from .domain.enums import (
     ImageModule,
     MediaSensor,
     MediaType,
+    ModelFamily,
     PrinterSetting,
     PrinterStop,
     QrError,
@@ -105,7 +114,21 @@ from .domain.label import (
 )
 from .domain.placeholders import MissingFieldError, fill_label
 from .domain.preview import SentAs
-from .domain.profiles import PrinterProfile, UnknownModelError, get_profile, list_profiles
+from .domain.profiles import (
+    CalibrationDefaults,
+    CalibrationKey,
+    Feature,
+    Firmware,
+    PrinterProfile,
+    SoftwareSwitchBits,
+    Source,
+    SpeedRange,
+    Support,
+    UndescribedBit,
+    UnknownModelError,
+    get_profile,
+    list_profiles,
+)
 from .domain.qr import QrDataTooLongError
 from .domain.render import RenderResult, build_job, render
 from .domain.render_context import RenderOptions
@@ -126,23 +149,30 @@ __all__ = [
     "BatchResult",
     "BatchTooLargeError",
     "Box",
+    "CalibrationDefaults",
+    "CalibrationKey",
     "CalibrationLabels",
     "CameraError",
     "CheckedJob",
+    "CheckedPrint",
     "Circle",
+    "Clock",
     "CommandKind",
     "ConfigurationError",
     "Counter",
     "Cut",
     "DataMatrixOptions",
     "DatamaxDplError",
+    "DecodedCommand",
     "DotSize",
     "DplUnit",
     "Explanation",
     "FallbackPolicy",
+    "Feature",
     "FillPattern",
     "Finding",
     "FindingCode",
+    "Firmware",
     "HardwareOption",
     "HeldImages",
     "Image",
@@ -155,6 +185,8 @@ __all__ = [
     "MediaSensor",
     "MediaType",
     "MissingFieldError",
+    "ModelFamily",
+    "OpenPrinter",
     "Pdf417Options",
     "Point",
     "Polygon",
@@ -168,6 +200,7 @@ __all__ = [
     "Qr",
     "QrDataTooLongError",
     "QrError",
+    "RecordRender",
     "RenderOptions",
     "RenderResult",
     "ReportLimits",
@@ -177,12 +210,18 @@ __all__ = [
     "ScalableText",
     "SentAs",
     "Severity",
+    "Sleep",
+    "SoftwareSwitchBits",
+    "Source",
     "SpeedCode",
+    "SpeedRange",
     "StatusProblem",
+    "Support",
     "Symbology",
     "Text",
     "TransportError",
     "TransportTuning",
+    "UndescribedBit",
     "Unit",
     "UnknownModelError",
     "UnsupportedOperationError",

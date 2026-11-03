@@ -9,8 +9,8 @@ All notable changes to this project are documented here. The format follows
 ### Fixed
 
 - A serial port that cannot be opened, written or read is named once with its reason (`cannot open serial
-  /dev/ttyS9: No such file or directory`): pyserial's own text repeated the path and its errno, the path quoted with
-  doubled backslashes. A user configuration file a calibration cannot read, a configuration that cannot be loaded,
+  /dev/ttyS9: No such file or directory`): pyserial's own text repeated the path and its errno. On Windows a port
+  that cannot be opened still reads as pyserial words it, which it builds from an error it never raises. A user configuration file a calibration cannot read, a configuration that cannot be loaded,
   and an answer that could not be written say the reason and the file as given.
 - `--json render -o -` is refused at once, as `ConfigurationError` like `print --printer -`, before the label or a
   record is read; it was refused only after the label was rendered, a `--data` batch's every record included, as
@@ -111,6 +111,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The package root exports every type an exported signature or field names, so a caller can import what it
+  annotates: `CalibrationDefaults`, `CalibrationKey`, `CheckedPrint`, `Clock`, `DecodedCommand`, `Feature`,
+  `Firmware`, `ModelFamily`, `OpenPrinter`, `RecordRender`, `Sleep`, `SoftwareSwitchBits`, `Source`, `SpeedRange`,
+  `Support` and `UndescribedBit`.
 - `docs/label-spec.md` lists the QR Code sizes and how they scanned on an Allegro 2.
 - A calibration label after a printer reset. Before the first label of a
   two-way `print`, `print --data`, `verify` or `print_checked`, the job reads
