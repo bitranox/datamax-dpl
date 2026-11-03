@@ -33,10 +33,9 @@ connection) is tried again, each time a connection is opened, every
 `[printer] refused_connect_retry_interval` (0.25 s) for up to `refused_connect_wait` (3 s), never
 past `timeout`. `status` and
 `memory` instead keep trying for `[printer] status_wait` (30 s) while a print server is busy with an
-earlier job and then say how long they waited (`no answer in 30.0 s (4 attempts)`), and `verify`
-waits as long for the printer to finish its job (`printer still busy after 30.0 s`): raise
+earlier job and then say how long they waited (`no answer in 30.0 s (4 attempts)`): raise
 `status_wait`, or pass `--timeout`, which is their whole wait. Before each label whose downloads no
-clear precedes, and after any downloads a label sends, `print` and `verify` may spend up to
+clear precedes, and after any downloads a label sends, `print` may spend up to
 `[printer] stored_names_wait` (30 s), plus the 1 s of silence that ends the answer, reading the
 printer's stored image names; `--timeout` leaves that wait. Nothing about them is kept from one
 label to the next: the printer may have been reset, or another program may have printed. So a
@@ -82,12 +81,9 @@ which may be waiting for the rest.
    extra (`uvx --from "datamax-dpl[preview]" datamax-dpl`, Python 3.11+). A label longer than
    `[preview] max_length_mm` (2000) is refused.
 4. Print ONE label first: a data file with the header and one row, `datamax-dpl print label.json
-   --data one.csv --model MODEL --printer tcp://HOST:9100`. Scan the barcode. Then print the
-   remaining rows (leave out the one already printed).
-5. With a camera configured (`[camera]` in the config), `datamax-dpl --json verify label.json
-   --printer ... --output-dir out` prints, waits (up to `status_wait`, polling every
-   `verify_poll_interval`), photographs, and returns `photo` and `expected` PNG paths: open both
-   and compare.
+   --data one.csv --model MODEL --printer tcp://HOST:9100`. Scan the barcode and compare the label
+   with the preview yourself: the tool has no camera and never inspects the printed label. Then
+   print the remaining rows (leave out the one already printed).
 
 ## Label JSON
 
@@ -141,7 +137,7 @@ which may be waiting for the rest.
   `dmx-400`, `dmx-430`, `dmx-600`, `dmx-800`, `prodigy-max-203`, `prodigy-max-300`, `pe42`, `pe43`,
   `ovation`, `ovation-300`, `ovation-2`, `titan-6200`, plus `generic` and `permissive`
   (`prodigy` is the plain Prodigy; the Plus and Max are separate profiles).
-  `validate`, `render`, `print` and `verify` all take `--model`, `--firmware`, `--policy`,
+  `validate`, `render` and `print` all take `--model`, `--firmware`, `--policy`,
   `--option` and `--cutter`; `preview` takes only `--model` and `--data`.
 - `datamax-dpl models` lists the profiles; `datamax-dpl capabilities MODEL` shows what one can do,
   including features gated by firmware or an option (pass those to `validate`/`render` as
@@ -164,10 +160,10 @@ which may be waiting for the rest.
   it, `degrade` sends every image but a QR Code at half resolution and double magnification
   (`image_halved`; `preview` shows it). Refused (`image_memory_exceeded`): still past it after
   halving, any job past it under `strict`, a halved image at `magnification` 5 or more. On a
-  two-way `print`/`verify` the model's budget is left out (the upload check decides,
+  two-way `print` the model's budget is left out (the upload check decides,
   `image_budget_skipped`); a configured `image_memory_bytes` still applies.
 - Image module: downloads go to the model's built-in module (`image_module` in `capabilities`); a Prodigy/Prodigy Plus has none and refuses them (`image_module_unknown`) until `[printer] image_module` (A-E) names the module fitted. The module is cleared before each label's downloads and again after the label's format and any cut, on a label that downloads nothing too (`[printer] clear_graphics_before` and `clear_graphics_after`, both `true`; the library's `RenderOptions.clear_graphics_before_label` and `clear_graphics_after_label`); the clear (`<STX>q`) goes only to the model's built-in RAM module, never to a plug-in one, whatever the keys say, and the plain Prodigy removes each name a label downloads instead. `<STX>q` empties the whole module, the images the printer stores and any fonts and formats in it too, so a label that places a stored image (an `image` without `bitmap`) is refused (`stored_image_cleared`) while `clear_graphics_before` is on, and a `--data` batch of it from its second record while only `clear_graphics_after` is: keep a stored image usable with both keys `false`. The plain Prodigy's removes take only the label's own downloads.
-- Upload check (`print`, `verify`, two-way link): a download into a full module is lost silently,
+- Upload check (`print`, two-way link): a download into a full module is lost silently,
   so a label's downloads go first, the printer's directory (`<STX>W`) is read within
   `stored_names_wait` (plus the 1 s of silence that ends the answer), and its format follows only
   once every downloaded name is listed. Else round 2 clears (`q` on built-in RAM, the Prodigy's `R`,
@@ -181,7 +177,7 @@ which may be waiting for the rest.
   once rendered again for a round (`image_upload_render_refused`). `[printer] upload_check_rounds`
   (1-3, default 3). An `image_module` of `C` (no directory lists it) is refused before anything is sent
   (`image_module_unlisted`); set the real letter (A on the Allegro 2) or use a one-way link.
-- Printer reset (`print`, `verify`, two-way link): before the first label the job reads `<SOH>A` once within `reset_check_wait` (3 s; no answer means nothing), after that label's names read where one goes, whose answer can carry the report itself. On `R` or `T` in front of the answer (`reset_reported`) one calibration label goes first, because one Allegro 2 printed the first label after a power cycle about 12 mm shifted: the job's printer settings and size, `calibration_label_text` in the middle (`printer_reset_calibrated`: one extra label came out). `calibrate_after_reset = false` only reports it (`printer_reset_not_calibrated`). Two limits: a `status` or `memory` run before the job takes the report, so that job's first label can be shifted; a one-way link cannot see a reset.
+- Printer reset (`print`, two-way link): before the first label the job reads `<SOH>A` once within `reset_check_wait` (3 s; no answer means nothing), after that label's names read where one goes, whose answer can carry the report itself. On `R` or `T` in front of the answer (`reset_reported`) one calibration label goes first, because one Allegro 2 printed the first label after a power cycle about 12 mm shifted: the job's printer settings and size, `calibration_label_text` in the middle (`printer_reset_calibrated`: one extra label came out). `calibrate_after_reset = false` only reports it (`printer_reset_not_calibrated`). Two limits: a `status` or `memory` run before the job takes the report, so that job's first label can be shifted; a one-way link cannot see a reset.
 - Every downloaded image goes under its content name (`D` + 7 characters from `0-9 A-Z a-z`, from
   its hash; letter case counts, measured kept and matched exactly on an Allegro 2 CA02 03.04 only),
   never the `image` element's `name`; only an `image` without `bitmap` that no element of the label
@@ -266,8 +262,7 @@ the model's default from the manual; a library caller sets the same fields in `R
   (drops the current job and pauses) and `reset` (clears the printer's buffers) each take
   `--printer` (default `[printer] uri`) and `--timeout`. To stop a job printing garbage:
   `cancel`, then `pause` to resume.
-- `capture --output-dir DIR` takes one photo, to check the `[camera]` settings before `verify`.
-  `config-deploy --target user` writes the user's config holding every key, each documented;
+- `config-deploy --target user` writes the user's config holding every key, each documented;
   `config-generate-examples` only shows where each layer reads from, with a generic sample.
 
 ## Several printers, and calibrating one
@@ -339,8 +334,8 @@ with open_printer("tcp://192.0.2.60:9100", timeout=10) as printer:
 ```
 
 Settings live in a layered config: `datamax-dpl config` shows the merged result,
-`datamax-dpl config-deploy --target user` writes an editable user copy with `[printer]` and
-`[camera]` sections.
+`datamax-dpl config-deploy --target user` writes an editable user copy of
+the settings.
 
 `render` raises `LabelRejectedError` on an error finding; `build_job` returns the result with
 `.findings` instead. `render_batch(label, records, options)` does the `--data` case and never raises
