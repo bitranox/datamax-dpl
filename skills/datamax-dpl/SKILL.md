@@ -38,12 +38,18 @@ printer's stored image names; `--timeout` leaves that wait. Nothing about them i
 label to the next: the printer may have been reset, or another program may have printed. So a
 `--data` batch whose labels download images with no clear before them is refused from its second
 record on (`batch_image_names_unread`) where no printer can be read before each label: `render`,
-`validate` with no tcp or serial printer named, and `print` to a `file:`, stdout or a device. Turn
+`validate` with no tcp or serial printer named, and `print` to a `file:`, stdout or a device -
+unless `[printer] clear_graphics_after` (on by default) clears that module after each label, which
+removes every name the label before downloaded; it reaches the model's built-in RAM module, and on
+the plain Prodigy any module, but never another plug-in module. Then no record is refused for its
+names: after a whole-module clear (`<STX>q`, the model's built-in RAM) only the first record is
+warned, since the module is empty for the rest; the plain Prodigy, which removes only its own
+names, warns on every record (`image_names_unread`), as names another program stored survive. Turn
 `[printer] clear_graphics_before` on (it clears only the model's built-in RAM module, so leave
 `image_module` unset or name that module; the plain Prodigy, which has none, removes each name it
 downloads instead, in the module `image_module` names), or send to a two-way printer, the only way
-for the Prodigy Plus and `generic`, which have no clear; a single label on those routes, and a
-batch's first record, only says
+for the Prodigy Plus and `generic`, which have no clear. A single label on a route that reads no
+printer, and a batch's first record, only says
 its names were not read (`image_names_unread`, a warning unless `[printer] held_image_severity`
 raises it). A job is sent in `[printer] send_chunk_bytes` pieces (1024) and the timeout bounds each
 one; a job cut off part way says to power-cycle the printer, which may be waiting for the rest.
@@ -326,8 +332,9 @@ reused logo included, about 1 s plus the printer's answer: about 17 minutes per 
 clear before the downloads, a label that downloads a new image costs a second one (about 35 minutes
 per 1000 in all). Pass `check_batch(..., read_names_at_send=True)` for a batch `print_checked` sends
 to a two-way printer: without it each record after the first that downloads images with no clear
-before them gets the error finding `batch_image_names_unread`, so the report is not `.ok` and
-nothing is sent. `[printer] max_batch_job_bytes` (64 MiB) applies only to `render --data` with no
+before them, and no clear after the label before that reaches the module, gets the error finding
+`batch_image_names_unread`, so the report is not `.ok` and nothing is sent.
+`[printer] max_batch_job_bytes` (64 MiB) applies only to `render --data` with no
 `-o`. `send(data)` writes the job as it is: it does not check what the printer stored, so an image
 download a full module lost gives a label with that image missing, and no error. On a channel that
 can read answers (tcp, serial), `print_checked(job, CheckedJob(renders=record_renders(label, None,
