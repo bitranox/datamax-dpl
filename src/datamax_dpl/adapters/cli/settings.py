@@ -155,9 +155,11 @@ class PrinterSettings(BaseModel):
     upload_check_rounds: int = Field(
         default=UPLOAD_CHECK_ROUNDS, ge=MIN_UPLOAD_CHECK_ROUNDS, le=MAX_UPLOAD_CHECK_ROUNDS
     )
-    # How long print waits for the one status read before a job that asks for a reset
-    # report: it runs before every job, so it has its own short wait and a printer that stays
+    # Whether print asks for a reset report before a job at all (<SOH>A); off, nothing is asked and
+    # no report is acted on, not even one a names read carries. How long print waits for that one
+    # status read: it runs before every job, so it has its own short wait and a printer that stays
     # silent costs only this. What a report triggers, and what that label says.
+    reset_check: bool = True
     reset_check_wait: float = Field(default=RESET_CHECK_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
     calibrate_after_reset: bool = CALIBRATE_AFTER_RESET
     calibration_label_text: str = CALIBRATION_LABEL_TEXT

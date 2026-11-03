@@ -156,8 +156,10 @@ def _upload_check(settings: PrinterSettings, cli_ctx: CLIContext) -> UploadCheck
     return UploadCheck(wait=_stored_names_wait(settings, cli_ctx), rounds=settings.upload_check_rounds)
 
 
-def _reset_check(settings: PrinterSettings) -> ResetCheck:
-    """How ``print`` asks for a reset report before a job, and what it does on one."""
+def _reset_check(settings: PrinterSettings) -> ResetCheck | None:
+    """How ``print`` asks for a reset report before a job, and what it does on one; None asks nothing (``reset_check``)."""
+    if not settings.reset_check:
+        return None
     return ResetCheck(
         wait=settings.reset_check_wait,
         calibrate=settings.calibrate_after_reset,

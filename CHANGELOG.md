@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `[printer] reset_check` (default `true`, also in `[printers.<name>]`): `false` makes `print` ask no `<SOH>A` reset
+  report before a job and act on none a names read carries, for a print server where the extra exchange costs. The
+  first label after a power cycle may then print shifted with nothing said. The library already had it as
+  `CheckedJob.reset=None`.
+
 ### Fixed
 
 - `print --printer NAME` with `calibrate_after_reset` off: `printer_reset_not_calibrated` names
