@@ -20,8 +20,9 @@ Global options (`--json` / `--json-bare`, `--set SECTION.KEY=VALUE`, `--profile`
 `datamax-dpl --json validate label.json`. stdout is then one envelope `{"ok", "command", "data",
 "skipped"}`; errors are `{"ok": false, "command", "error", "message"}` (`command` null when none was
 named). Exit codes: 0 done, 1 refused (an error finding), 2 could not run (a usage error, bad JSON,
-unknown model, printer unreachable or silent, broken config), 130 interrupted (Ctrl-C; for a command
-that sends, part of a job may already have gone), 141 the reader of the output went away. `status`
+unknown model, printer unreachable or silent, broken config), 130 interrupted (Ctrl-C, or Ctrl-Break
+on Windows; for a command that sends, part of a job may already have gone), 141 the reader of the
+output went away. `status`
 also exits 1 when the printer reports a problem, `explain` when it could not read part of the job,
 and `detect` when no model fits; `config` and `config-deploy` also use 13 (no permission), 22 (no
 such `--section`), 78 (config does not load or permissions refused), and `config-deploy` and
@@ -39,8 +40,10 @@ label to the next: the printer may have been reset, or another program may have 
 record on (`batch_image_names_unread`) where no printer can be read before each label: `render`,
 `validate` with no tcp or serial printer named, and `print` to a `file:`, stdout or a device. Turn
 `[printer] clear_graphics_before` on (it clears only the model's built-in RAM module, so leave
-`image_module` unset or name that module; the plain Prodigy removes each name it downloads instead),
-or send to a two-way printer; a single label on those routes, and a batch's first record, only says
+`image_module` unset or name that module; the plain Prodigy, which has none, removes each name it
+downloads instead, in the module `image_module` names), or send to a two-way printer, the only way
+for the Prodigy Plus and `generic`, which have no clear; a single label on those routes, and a
+batch's first record, only says
 its names were not read (`image_names_unread`, a warning unless `[printer] held_image_severity`
 raises it). A job is sent in `[printer] send_chunk_bytes` pieces (1024) and the timeout bounds each
 one; a job cut off part way says to power-cycle the printer, which may be waiting for the rest.
@@ -310,9 +313,11 @@ send, unless `check_batch(..., spool=)` gets a `JobSpool` (any object with `add`
 `entries`: `help(datamax_dpl.JobSpool)`; the package ships none for library use) to keep each
 checked record in, with its values: the send reads it back and never reads the records again
 (`print`, `render -o -` and `render -o` to a target that would not stay what it was if replaced - a
-device or pipe, a file this user may not write or does not own, one with another hard link or an
-extended attribute, one in a directory that takes no new file - keep theirs in a file in the system
-temp directory: per record its job's bytes and its values, plus about 0.6 KB; any other
+device or pipe, a file this user may not write or does not own, one with another hard link or with
+an extended attribute a new file would not get alike (an ACL of its own, not just the directory's
+default one), one in a directory that takes no new file - keep theirs in a file in the system
+temp directory and send or write the job only once every record passed, a file target in place:
+per record the spool holds its job's bytes and its values, plus about 0.6 KB; any other
 `render -o FILE` writes the job into a new file beside the target while it checks the records,
 which replaces the target once all passed, so the target's disk needs the room); a label is rendered
 again, from the values kept, only for
