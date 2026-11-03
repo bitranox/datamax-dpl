@@ -637,17 +637,22 @@ def _free_port() -> int:
 _DYNAMIC_PORTS_START = 49152
 #: The lowest port tried for one nothing may listen on: clear of the well-known and most registered ones.
 _QUIET_PORTS_START = 20000
+#: Where the one test that BINDS a quiet port draws from. The refused-port tests run on other xdist
+#: workers at the same time and all take the first free port from _QUIET_PORTS_START, so a listener
+#: started on that same port would turn their refusal into a connection.
+_LATE_LISTENER_PORTS_START = 21000
 
 
-def _port_no_other_test_takes() -> int:
+def _port_no_other_test_takes(*, first: int = _QUIET_PORTS_START) -> int:
     """Return a free port below every range a bind to port 0 draws from.
 
     A port from ``_free_port`` goes back to the pool the next bind to port 0 draws from, and the
     xdist workers start fake printers that way all the time: in CI one landed on it inside the
     3 s retry window, and a connect meant to be refused for good succeeded. Below the dynamic
-    range only an explicit bind can take the port, and no test binds one.
+    range only an explicit bind can take the port, and the only test that binds one draws from
+    its own block (``first=_LATE_LISTENER_PORTS_START``), apart from the refused-port tests.
     """
-    for port in range(_QUIET_PORTS_START, min(_linux_dynamic_ports_start(), _DYNAMIC_PORTS_START)):
+    for port in range(first, min(_linux_dynamic_ports_start(), _DYNAMIC_PORTS_START)):
         with contextlib.suppress(OSError), socket.create_server(("127.0.0.1", port)):
             return port
     # A host whose dynamic range starts below 20000 leaves no such port; the race is rare there.
@@ -669,7 +674,7 @@ def test_a_connection_refused_for_a_moment_is_retried() -> None:
     Measured on a SerComm PS301: about 1-2 s after a print job's connection closed, a status
     query's connect was refused. The listener here appears 0.6 s after the first attempt.
     """
-    port = _port_no_other_test_takes()
+    port = _port_no_other_test_takes(first=_LATE_LISTENER_PORTS_START)
     received = bytearray()
 
     def late_printer() -> None:
