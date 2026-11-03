@@ -142,7 +142,7 @@ one; a job cut off part way says to power-cycle the printer, which may be waitin
   halving, any job past it under `strict`, a halved image at `magnification` 5 or more. On a
   two-way `print`/`verify` the model's budget is left out (the upload check decides,
   `image_budget_skipped`); a configured `image_memory_bytes` still applies.
-- Image module: downloads go to the model's built-in module (`image_module` in `capabilities`); a Prodigy/Prodigy Plus has none and refuses them (`image_module_unknown`) until `[printer] image_module` (A-E) names the module fitted. The module is cleared before and after each label's downloads (`[printer] clear_graphics_before` and `clear_graphics_after`, both `true`; the library's `RenderOptions.clear_graphics_before_label` and `clear_graphics_after_label`); the clear (`<STX>q`) goes only to the model's built-in RAM module, never to a plug-in one, whatever the keys say, and the plain Prodigy removes each name a label downloads instead.
+- Image module: downloads go to the model's built-in module (`image_module` in `capabilities`); a Prodigy/Prodigy Plus has none and refuses them (`image_module_unknown`) until `[printer] image_module` (A-E) names the module fitted. The module is cleared before each label's downloads and again after the label's format and any cut, on a label that downloads nothing too (`[printer] clear_graphics_before` and `clear_graphics_after`, both `true`; the library's `RenderOptions.clear_graphics_before_label` and `clear_graphics_after_label`); the clear (`<STX>q`) goes only to the model's built-in RAM module, never to a plug-in one, whatever the keys say, and the plain Prodigy removes each name a label downloads instead. `<STX>q` removes the images the printer stores too, so a label that places a stored image (an `image` without `bitmap`) is refused (`stored_image_cleared`) while `clear_graphics_before` is on, and a `--data` batch of it from its second record while only `clear_graphics_after` is: keep a stored image usable with both keys `false`. The plain Prodigy's removes take only the label's own downloads.
 - Upload check (`print`, `verify`, two-way link): a download into a full module is lost silently,
   so a label's downloads go first, the printer's directory (`<STX>W`) is read within
   `stored_names_wait` (plus the 1 s of silence that ends the answer), and its format follows only
@@ -309,8 +309,13 @@ does not grow with the records. Time does: each record is rendered once to check
 send, unless `check_batch(..., spool=)` gets a `JobSpool` (any object with `add`, `seal` and
 `entries`: `help(datamax_dpl.JobSpool)`; the package ships none for library use) to keep each
 checked record in, with its values: the send reads it back and never reads the records again
-(`print` and `render -o` keep theirs in a file in the system temp directory: per record its job's
-bytes and its values, plus about 0.6 KB); a label is rendered again, from the values kept, only for
+(`print`, `render -o -` and `render -o` to a target that would not stay what it was if replaced - a
+device or pipe, a file this user may not write or does not own, one with another hard link or an
+extended attribute, one in a directory that takes no new file - keep theirs in a file in the system
+temp directory: per record its job's bytes and its values, plus about 0.6 KB; any other
+`render -o FILE` writes the job into a new file beside the target while it checks the records,
+which replaces the target once all passed, so the target's disk needs the room); a label is rendered
+again, from the values kept, only for
 what the printer answers. On a two-way link each label with an image costs a directory read, a
 reused logo included, about 1 s plus the printer's answer: about 17 minutes per 1000 labels; with no
 clear before the downloads, a label that downloads a new image costs a second one (about 35 minutes
