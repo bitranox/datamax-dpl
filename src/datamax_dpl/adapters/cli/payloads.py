@@ -19,7 +19,7 @@ from ...domain.decoder import readable
 from ...domain.enums import FindingCode, Severity
 from ...domain.units import DplUnit
 from ..config.sections import printer_section
-from .settings import PrinterSettings
+from .settings import PrinterSettings, with_setting_keys
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -43,12 +43,12 @@ class FindingOut(_Payload):
     record: int | None = None
 
     @classmethod
-    def of(cls, finding: Finding, *, record: int | None = None) -> FindingOut:
-        """Copy ``finding`` and tag it with its record."""
+    def of(cls, finding: Finding, *, settings: PrinterSettings, record: int | None = None) -> FindingOut:
+        """Copy ``finding`` and tag it with its record; each render option it names gets its settings key."""
         return cls(
             code=finding.code,
             severity=finding.severity,
-            message=finding.message,
+            message=with_setting_keys(finding.message, settings),
             element=finding.element,
             fallback=finding.fallback,
             record=record,
@@ -110,7 +110,7 @@ def _report_note(report: BatchReport, *, settings: PrinterSettings) -> str | Non
 def _figures(result: RenderResult | BatchReport, *, settings: PrinterSettings) -> _Figures:
     """What a payload reports of a single label, whose findings all stay, or of a batch's report."""
     if isinstance(result, BatchReport):
-        findings = [FindingOut.of(kept.finding, record=kept.record) for kept in result.findings]
+        findings = [FindingOut.of(kept.finding, settings=settings, record=kept.record) for kept in result.findings]
         return _Figures(
             model=result.model,
             dpl_unit=result.dpl_unit,
@@ -119,7 +119,7 @@ def _figures(result: RenderResult | BatchReport, *, settings: PrinterSettings) -
             job_bytes=result.job_bytes,
             downloads=list(result.downloads),
             downloads_total=result.downloads_total,
-            findings=[*findings, *(FindingOut.of(f) for f in result.batch_findings)],
+            findings=[*findings, *(FindingOut.of(f, settings=settings) for f in result.batch_findings)],
             findings_total=result.findings_total,
             findings_by_code=dict(result.finding_counts),
             note=_report_note(result, settings=settings),
@@ -132,7 +132,7 @@ def _figures(result: RenderResult | BatchReport, *, settings: PrinterSettings) -
         job_bytes=len(result.data),
         downloads=list(result.downloads),
         downloads_total=len(result.downloads),
-        findings=[FindingOut.of(f) for f in result.findings],
+        findings=[FindingOut.of(f, settings=settings) for f in result.findings],
         findings_total=len(result.findings),
         findings_by_code=dict(Counter(f.code for f in result.findings)),
         note=None,

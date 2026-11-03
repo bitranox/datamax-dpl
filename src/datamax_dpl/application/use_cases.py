@@ -53,12 +53,12 @@ from ..domain.errors import (
 from ..domain.findings import Finding
 from ..domain.frozen_mapping import FrozenMapping
 from ..domain.held_images import READ_AT_SEND, HeldImages, held_images_from
-from ..domain.label import Cut, Label
+from ..domain.label import Cut, Image, Label
 from ..domain.memory import MemoryDirectory, parse_module_directory
 from ..domain.placeholders import fill_record
 from ..domain.profiles import get_profile
 from ..domain.render import RenderResult, build_job, build_record, iter_jobs
-from ..domain.render_context import CLEAR_BEFORE_KEYS
+from ..domain.render_context import clear_may_go, option_name, whole_module_clear
 from ..domain.reset_label import calibration_job
 from ..domain.status import (
     CANCEL,
@@ -266,11 +266,27 @@ def _entries(
 
     held = READ_AT_SEND if read_names_at_send else None
     for number, result in enumerate(iter_jobs(labels(), options, held=held), start=1):
-        # The first record has no label before it in the batch that could have left a name, so it
-        # is judged as a single label is: its names not read is a finding, not a refusal.
-        checked = result if read_names_at_send or number == 1 else _refused_unread(result)
+        # The first record has no label before it in the batch that could have left a name or
+        # cleared an image, so it is judged as a single label is.
+        checked = (
+            result
+            if number == 1
+            else _judged_after_the_first(result, batch_label.per_record, options, read_names_at_send=read_names_at_send)
+        )
         values, last = current.pop()
         yield BatchEntry(result=checked, cut_after=plan.follows(number, last=last), record=values)
+
+
+def _judged_after_the_first(
+    result: RenderResult, label: Label, options: RenderOptions, *, read_names_at_send: bool
+) -> RenderResult:
+    """``result``, a record after the first, with what an earlier label of the batch makes it refuse.
+
+    Where the printer is read before each label, the names it holds are known at send, so only a
+    stored image the clear after an earlier label removed stays a refusal.
+    """
+    unread = result if read_names_at_send else _refused_unread(result, options)
+    return _refused_stored_cleared(unread, label, options)
 
 
 class _FindingsUpdate(TypedDict):
@@ -282,7 +298,7 @@ class _FindingsUpdate(TypedDict):
 require_update_fields(_FindingsUpdate, RenderResult)
 
 
-def _refused_unread(result: RenderResult) -> RenderResult:
+def _refused_unread(result: RenderResult, options: RenderOptions) -> RenderResult:
     """``result``, a record after the first, with ``batch_image_names_unread`` where its names would have to be known.
 
     A label with no clear before its downloads must leave out each name the printer holds, and an
@@ -299,24 +315,79 @@ def _refused_unread(result: RenderResult) -> RenderResult:
             f"the label downloads images into module {module} with no clear before them, and here no printer can "
             "be asked which names it holds before each label: an earlier label of the batch may leave a name this "
             "one downloads, and a download of a held name prints nothing. Send the batch to a two-way printer "
-            f"(tcp or serial), which is read before each label, or {_way_to_clear(result, result.image_module)}"
+            f"(tcp or serial), which is read before each label, or {_way_to_clear(result.image_module, options)}"
         ),
     )
     return result.model_copy(update=_FindingsUpdate(findings=(*result.findings, refusal)))
 
 
-def _way_to_clear(result: RenderResult, module: ImageModule) -> str:
-    """How ``module``, where the label's images go, gets the clear before each label that makes the names known."""
-    if result.retry_clear_may_go:
-        return f"turn on the clear before each label ({CLEAR_BEFORE_KEYS})"
-    built_in = get_profile(result.model).image_module
-    if built_in is not None and built_in != module:
+def _way_to_clear(module: ImageModule, options: RenderOptions) -> str:
+    """How ``module``, where the label's images go, gets the clear before each label that makes the names known.
+
+    Each way it names is one :func:`~datamax_dpl.domain.render_context.clear_may_go` allows, the
+    test the clear itself makes, so following the advice cannot meet the same refusal again.
+    """
+    profile = get_profile(options.model)
+
+    def clears(target: ImageModule) -> bool:
+        return clear_may_go(profile, target, firmware=options.firmware, options=options.options)
+
+    before = option_name("clear_graphics_before_label")
+    if clears(module):
+        return f"turn on the clear before each label ({before})"
+    built_in = profile.image_module
+    if built_in is not None and built_in != module and clears(built_in):
         return (
-            f"leave image_module unset, so the images go to module {built_in.value}, the model's built-in RAM, "
-            f"which the clear before each label ({CLEAR_BEFORE_KEYS}) empties; module {module.value} takes no "
-            "clear, as it may be flash"
+            f"leave the image module unset ({option_name('image_module')}), so the images go to module "
+            f"{built_in.value}, the model's built-in RAM, which the clear before each label ({before}) empties; "
+            f"module {module.value} takes no clear, as it may be flash"
         )
     return "use a model that can clear its image module: this one has no clear for it"
+
+
+def _refused_stored_cleared(result: RenderResult, label: Label, options: RenderOptions) -> RenderResult:
+    """``result``, a record after the first, refusing each stored image the clear after the label before removed.
+
+    The clear after each label empties the whole module (``<STX>q``) once the label printed, so a
+    stored image (no bitmap) the first label placed is gone for every label after it: the printer
+    then prints the rest of the format with no image and no error (an Allegro 2, measured
+    2026-11-01). The plain Prodigy's clear after removes only the names its label downloaded, so
+    an image the printer stores survives it. The domain says which images must be stored
+    (``image_must_be_stored``); with the clear before on, it refuses them itself.
+    """
+    if not options.clear_graphics_after_label:
+        return result
+    profile = get_profile(options.model)
+    if not whole_module_clear(profile, result.image_module, firmware=options.firmware, options=options.options):
+        return result
+    stored = [
+        f.element for f in result.findings if f.code is FindingCode.IMAGE_MUST_BE_STORED and f.element is not None
+    ]
+    if not stored or result.image_module is None:
+        return result
+    module = result.image_module.value
+    after = option_name("clear_graphics_after_label")
+    before = option_name("clear_graphics_before_label")
+    refusals = tuple(
+        Finding(
+            code=FindingCode.STORED_IMAGE_CLEARED,
+            severity=Severity.ERROR,
+            message=(
+                f"{_image_name(label, element)} has no bitmap, and the clear after the batch's previous label "
+                f"({after}) cleared module {module}, which removes every image stored there; give the bitmap, or "
+                f"turn off both clears ({before}, {after}) to print an image the printer stores across a batch"
+            ),
+            element=element,
+        )
+        for element in stored
+    )
+    return result.model_copy(update=_FindingsUpdate(findings=(*result.findings, *refusals)))
+
+
+def _image_name(label: Label, element: int) -> str:
+    """``image NAME`` for the image at ``element`` of ``label``, as the domain's messages name one."""
+    image = label.elements[element]
+    return f"image {image.name}" if isinstance(image, Image) else f"element {element}"
 
 
 class _DataAndFindingsUpdate(TypedDict):

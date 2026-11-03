@@ -8,6 +8,7 @@ findings go.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -118,9 +119,26 @@ def drawn_image_name(bitmap: Bitmap, *, salt: int = 0) -> str:
     return DRAWN_IMAGE_PREFIX + "".join(reversed(digits))
 
 
-#: Where the clear before each label is set, for a message telling a reader to turn it on or off:
-#: the settings key of the command line, and the render option a library caller passes.
-CLEAR_BEFORE_KEYS = "[printer] clear_graphics_before; RenderOptions.clear_graphics_before_label"
+#: How a message names a render option, ``RenderOptions.<field>``: a caller that sets the option
+#: under a name of its own (the command line's settings key, which depends on the printer section
+#: in use) finds each one by this pattern and adds that name; the domain cannot know it.
+OPTION_NAME = re.compile(r"RenderOptions\.([a-z][a-z0-9_]*)")
+
+
+def option_name(field: str) -> str:
+    """Name the render option ``field`` in a message, in the form :data:`OPTION_NAME` finds.
+
+    Raises:
+        ValueError: ``field`` is not a :class:`RenderOptions` field: a message would send the
+            reader to an option that does not exist.
+
+    Example:
+        >>> option_name("clear_graphics_before_label")
+        'RenderOptions.clear_graphics_before_label'
+    """
+    if field not in RenderOptions.model_fields:
+        raise ValueError(f"no render option {field!r}")
+    return f"RenderOptions.{field}"
 
 
 class RenderOptions(BaseModel):
@@ -337,6 +355,71 @@ def resolved_image_module(options: RenderOptions, profile: PrinterProfile) -> Im
     return profile.image_module if options.image_module is None else options.image_module
 
 
+def supported(
+    profile: PrinterProfile, feature: Feature, *, firmware: Firmware | None, options: frozenset[HardwareOption]
+) -> bool:
+    """Return True when ``profile`` has ``feature`` at ``firmware`` with the hardware ``options``.
+
+    Example:
+        >>> from datamax_dpl.domain.profiles import get_profile
+        >>> supported(get_profile("dmx-600"), Feature.CLEAR_MODULE, firmware=None, options=frozenset())
+        True
+    """
+    support = profile.support(feature)
+    if not support.available:
+        return False
+    if support.min_firmware is not None and (firmware is None or firmware < support.min_firmware):
+        return False
+    return support.option is None or support.option in options
+
+
+def whole_module_clear(
+    profile: PrinterProfile,
+    module: ImageModule | None,
+    *,
+    firmware: Firmware | None,
+    options: frozenset[HardwareOption],
+) -> bool:
+    """Return True when ``<STX>q`` may go to ``module``: the model has it, and the module is its built-in RAM.
+
+    A plug-in module may be flash, which every clear wears (manual p.35, Appendix L), so it is
+    never cleared, whatever the clear keys say.
+
+    Example:
+        >>> from datamax_dpl.domain.profiles import get_profile
+        >>> profile = get_profile("dmx-600")
+        >>> [whole_module_clear(profile, m, firmware=None, options=frozenset()) for m in (ImageModule.E, ImageModule.A)]
+        [True, False]
+    """
+    clears = supported(profile, Feature.CLEAR_MODULE, firmware=firmware, options=options)
+    return clears and module in profile.ram_modules
+
+
+def clear_may_go(
+    profile: PrinterProfile,
+    module: ImageModule | None,
+    *,
+    firmware: Firmware | None,
+    options: frozenset[HardwareOption],
+) -> bool:
+    """Return True when a clear may go to ``module``: ``<STX>q`` to built-in RAM, or the plain Prodigy's ``<STX>R``.
+
+    The one answer to "can this model clear the module its images go to": what a job sends before
+    and after a label, the clear before an upload again, and the advice a refusal gives all ask it,
+    so none of them can promise a clear another one leaves out. The Prodigy removes a name it
+    downloads in any module (manual p.36), so its answer does not depend on the module.
+
+    Example:
+        >>> from datamax_dpl.domain.profiles import get_profile
+        >>> models = ("allegro-2", "generic")
+        >>> [clear_may_go(get_profile(m), ImageModule.A, firmware=None, options=frozenset()) for m in models]
+        [True, False]
+    """
+    if whole_module_clear(profile, module, firmware=firmware, options=options):
+        return True
+    return supported(profile, Feature.REMOVE_IMAGE, firmware=firmware, options=options)
+
+
 @dataclass(frozen=True)
 class ImageDownload:
     """One image sent to the printer before the format.
@@ -530,21 +613,17 @@ class RenderContext:
 
     def supports(self, feature: Feature) -> bool:
         """Return True when the model has ``feature`` at this firmware with these options."""
-        support = self.profile.support(feature)
-        if not support.available:
-            return False
-        if support.min_firmware is not None and (self.firmware is None or self.firmware < support.min_firmware):
-            return False
-        return support.option is None or support.option in self.options
+        return supported(self.profile, feature, firmware=self.firmware, options=self.options)
 
     @property
     def clears_module(self) -> bool:
-        """True when a clear may go to the image module as ``<STX>q``: the model has it, the module is its RAM.
+        """True when a clear may go to the image module as ``<STX>q`` (:func:`whole_module_clear`)."""
+        return whole_module_clear(self.profile, self.image_module, firmware=self.firmware, options=self.options)
 
-        A plug-in module may be flash, which every clear wears (manual p.35, Appendix L), so its
-        clear is skipped whatever the clear keys say.
-        """
-        return self.supports(Feature.CLEAR_MODULE) and self.image_module in self.profile.ram_modules
+    @property
+    def clear_may_go(self) -> bool:
+        """True when a clear may go to the image module at all (:func:`clear_may_go`)."""
+        return clear_may_go(self.profile, self.image_module, firmware=self.firmware, options=self.options)
 
     @property
     def module_cleared_before(self) -> bool:
@@ -557,8 +636,7 @@ class RenderContext:
 
         Only without one can a name the printer holds meet a download of it again.
         """
-        before = self.printer_state.clear_graphics_before_label
-        return before and (self.clears_module or self.supports(Feature.REMOVE_IMAGE))
+        return self.printer_state.clear_graphics_before_label and self.clear_may_go
 
     @property
     def sent_downloads(self) -> list[ImageDownload]:
@@ -928,20 +1006,24 @@ class RenderContext:
 
 
 __all__ = [
-    "CLEAR_BEFORE_KEYS",
     "DRAWN_IMAGE_PREFIX",
     "MAX_FIELD_VALUE",
     "MAX_SYSTEM_DISTANCE_MM",
     "MIN_MAX_LABEL_LENGTH_MM",
     "MIN_START_OF_PRINT_MM",
     "NAME_ALPHABET",
+    "OPTION_NAME",
     "ImageDownload",
     "ImageEdge",
     "PlacedImage",
     "PrinterState",
     "RenderContext",
     "RenderOptions",
+    "clear_may_go",
     "drawn_image_name",
+    "option_name",
     "resolved_image_module",
     "resolved_printer_state",
+    "supported",
+    "whole_module_clear",
 ]

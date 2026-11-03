@@ -808,7 +808,7 @@ def retry_clear_may_go(ctx: RenderContext) -> bool:
         True for ``<STX>q`` to the model's built-in RAM or the Prodigy's ``<STX>R``; False on a
         plug-in module or a model that can clear nothing.
     """
-    return _clear_module_command(ctx) is not None or ctx.supports(Feature.REMOVE_IMAGE)
+    return ctx.clear_may_go
 
 
 def _removed_after(ctx: RenderContext) -> list[str]:

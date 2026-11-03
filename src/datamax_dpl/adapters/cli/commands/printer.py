@@ -537,7 +537,7 @@ def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | 
             height_dots=canvas.height,
             dpi=profile.dpi,
             lettered=pillow_available(),
-            findings=[FindingOut.of(finding) for finding in preview_findings(label)],
+            findings=[FindingOut.of(finding, settings=settings) for finding in preview_findings(label)],
         )
         human = f"wrote {output} ({canvas.width}x{canvas.height} dots)"
         if payload.findings:
@@ -650,7 +650,9 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
             status=report.status,
             photo=str(report.photo.path),
             expected=str(expected),
-            findings=[] if report.result is None else [FindingOut.of(f) for f in report.result.findings],
+            findings=[]
+            if report.result is None
+            else [FindingOut.of(f, settings=settings) for f in report.result.findings],
         )
         told = [f for f in payload.findings if worth_telling(f)]
         human = "\n".join([f"photo:    {payload.photo}", f"expected: {payload.expected}", *_told_lines(told)])

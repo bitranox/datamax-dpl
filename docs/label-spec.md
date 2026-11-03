@@ -376,7 +376,10 @@ another program stored under that name (the printer lists the job's own images b
 names, as `datamax-dpl memory` shows). Where the job clears the image module before the label
 (`<STX>q`, on the model's built-in RAM with the `[printer]` key `clear_graphics_before` on, the
 render option `clear_graphics_before_label` in the library), the clear removes
-such a stored image, so the label is refused with `stored_image_cleared`.
+such a stored image, so the label is refused with `stored_image_cleared`. The clear after each
+label (`clear_graphics_after`, the render option `clear_graphics_after_label`) removes it the same
+way once the label printed, so in a `--data` batch every record after the first is refused with
+`stored_image_cleared` too: keeping a stored image across a batch needs both clear keys off.
 Where no clear runs before the downloads, the printer's stored names decide instead: a printer
 that already holds a name prints nothing for a second download of it, so `print` and `verify`
 read its names right before each such label's downloads and leave out the download of each held

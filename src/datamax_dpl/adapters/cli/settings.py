@@ -38,7 +38,7 @@ from ...domain.job import MAX_STOP_POSITION_MM
 from ...domain.label import MAX_LENGTH, stop_position_or_printer
 from ...domain.preview import DEFAULT_PREVIEW_MAX_LENGTH_MM
 from ...domain.profiles import Firmware, ParsedFirmware
-from ...domain.render_context import RenderOptions
+from ...domain.render_context import OPTION_NAME, RenderOptions
 from ...domain.reset_label import (
     CALIBRATE_AFTER_RESET,
     CALIBRATION_LABEL_TEXT,
@@ -59,6 +59,8 @@ from ..config.sections import (
 from ..transport.uri import is_printer_name, is_printer_uri
 
 if TYPE_CHECKING:
+    import re
+
     from lib_layered_config import Config
     from pydantic_core import ErrorDetails
 
@@ -458,6 +460,50 @@ def render_options(settings: PrinterSettings, *, model_image_budget: bool = True
     )
 
 
+#: The printer settings key each render option comes from in :func:`render_options`, where a key
+#: is there for it: a message that names the option (``RenderOptions.<field>``) gets the key too.
+OPTION_KEYS: Mapping[str, str] = MappingProxyType(
+    {
+        "model": "model",
+        "firmware": "firmware",
+        "policy": "policy",
+        "cutter_installed": "cutter",
+        "options": "options",
+        "scale_across": "scale_across",
+        "scale_along": "scale_along",
+        "offset_across": "offset_across",
+        "offset_along": "offset_along",
+        "stop_position_mm": "stop_position",
+        "cutter_stop_position_mm": "cutter_stop_position",
+        "image_memory_bytes": "image_memory_bytes",
+        "image_module": "image_module",
+        "clear_graphics_before_label": "clear_graphics_before",
+        "clear_graphics_after_label": "clear_graphics_after",
+        "max_format_rows": "max_format_rows",
+        "held_image_severity": "held_image_severity",
+    }
+)
+
+
+def with_setting_keys(message: str, settings: PrinterSettings) -> str:
+    """``message`` with the key of the printer section in use after each render option it names.
+
+    The domain names an option the way a library caller sets it; on the command line it is a key
+    of whichever section ``--printer`` chose, which only the command knows.
+
+    Example:
+        >>> with_setting_keys("turn it on (RenderOptions.clear_graphics_before_label)", PrinterSettings(name="lager"))
+        'turn it on (RenderOptions.clear_graphics_before_label; [printers.lager] clear_graphics_before)'
+    """
+    section = printer_section(settings.name)
+
+    def named(match: re.Match[str]) -> str:
+        key = OPTION_KEYS.get(match[1])
+        return match[0] if key is None else f"{match[0]}; {section.setting(key)}"
+
+    return OPTION_NAME.sub(named, message)
+
+
 def transport_tuning(settings: PrinterSettings) -> TransportTuning:
     """How the transports pace their writes for this printer configuration.
 
@@ -491,6 +537,7 @@ def report_limits(settings: PrinterSettings) -> ReportLimits:
 
 
 __all__ = [
+    "OPTION_KEYS",
     "PreviewSettings",
     "PrinterOverrides",
     "PrinterSettings",
@@ -502,4 +549,5 @@ __all__ = [
     "report_limits",
     "require_uri",
     "transport_tuning",
+    "with_setting_keys",
 ]

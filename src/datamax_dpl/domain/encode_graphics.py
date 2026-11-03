@@ -13,7 +13,7 @@ from .qr import QrDataTooLongError, qr_bitmap
 from .raster import Bitmap
 from .raster_fallback import rasterize
 from .records import BoxRecord, RecordPosition, circle_record, image_record, line, line_record, polygon_record
-from .render_context import CLEAR_BEFORE_KEYS, ImageEdge
+from .render_context import ImageEdge, option_name
 from .units import Axis
 
 if TYPE_CHECKING:
@@ -193,7 +193,8 @@ def encode_image(element: Image, *, index: int, ctx: RenderContext) -> list[byte
         # names the module for the message.
         ctx.findings.refuse(
             FindingCode.STORED_IMAGE_CLEARED,
-            f"image {element.name} has no bitmap, and the clear before the label ({CLEAR_BEFORE_KEYS}) clears "
+            f"image {element.name} has no bitmap, and the clear before the label "
+            f"({option_name('clear_graphics_before_label')}) clears "
             f"module {ctx.image_module.value}, which removes every image stored there; give the bitmap, or turn "
             "that clear off to print an image the printer stores",
             element=index,

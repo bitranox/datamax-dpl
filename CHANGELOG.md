@@ -231,12 +231,18 @@ All notable changes to this project are documented here. The format follows
   `read_names_at_send` (True where a two-way sender reads the names before
   each label). Its message names the ways out: a tcp or serial printer, the
   clear before each label, or on a plug-in module, which takes no clear,
-  leaving `image_module` unset.
+  leaving `image_module` unset where the model's built-in module takes one;
+  a model that can clear neither (`generic`, the Prodigy Plus) is told to use
+  one that can. A message that names a clear key names the key of the section
+  in use, `[printers.NAME]` under `--printer NAME`, beside the render option.
 - `[printer] clear_graphics_before` and `clear_graphics_after` (both `true`):
-  clear the image module before and after each label's downloads (`<STX>q` to
-  the model's built-in RAM, the plain Prodigy's `<STX>R` for each name it
-  downloads; a plug-in module is never cleared). `false` keeps what the
-  printer stores. `RenderOptions.clear_graphics_before_label` and
+  clear the image module before each label's downloads and again after the
+  label (`<STX>q` to the model's built-in RAM, the plain Prodigy's `<STX>R`
+  for each name it downloads; a plug-in module is never cleared). `false`
+  keeps what the printer stores; a `--data` batch whose label places a stored
+  image (no bitmap) needs both `false`, since the clear after a label removes
+  it for the next, and is otherwise refused from its second record on
+  (`stored_image_cleared`). `RenderOptions.clear_graphics_before_label` and
   `clear_graphics_after_label` carry them.
 - `[printer] image_module` (`A` to `E`, unset by default): the memory module
   images are downloaded to. Unset takes the model's built-in module
