@@ -45,6 +45,7 @@ from ...preview import pillow_available, preview_findings, render_preview_png
 from ...transport.uri import is_one_way, unsupported_query
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
+from ..job_spool import FileJobSpool
 from ..label_io import STDIN, LabelInputError, load_label, load_records
 from ..payloads import FindingOut, SentTo, findings_text, refused_text, render_payload, went_out_text, worth_telling
 from ..runner import CommandResult, run_command
@@ -57,7 +58,7 @@ from ..settings import (
     require_uri,
 )
 from ..typed_click import argument, option
-from .labels import check_loaded, load_batch
+from .labels import JobRoute, check_loaded, load_batch
 from .model_options import (
     command_overrides,
     loaded_config,
@@ -90,36 +91,45 @@ def cli_print(ctx: click.Context, label_source: str, data: str | None, **given: 
     """Render a label and send it to the printer; nothing is sent when a finding is an error."""
 
     def body(cli_ctx: CLIContext) -> CommandResult:
-        settings = resolve_sending_settings(cli_ctx, command_overrides(given))
-        label = load_label(label_source)
-        records = None if data is None else load_batch(data, settings)
-        link = _link(settings)
-        options = _print_options(settings, link=link)
-        result = check_loaded(label, records, options, settings, names=_names_at_send(link))
-        uri = link.uri
-        if not result.ok:
-            return _render_refused(result, verdict="REFUSED: nothing sent", settings=settings)
-        open_printer = printer_opener(cli_ctx, settings)
-        if link.one_way:
-            # A one-way link cannot read the directory: the job goes out at once, as it always did.
-            report = print_result(result, uri=uri, timeout=settings.timeout, open_printer=open_printer)
-            sent, bytes_sent = result, report.bytes_sent
-        else:
-            job = CheckedJob(
-                renders=result.renders() if isinstance(result, BatchReport) else record_renders(label, None, options),
-                check=_upload_check(settings, cli_ctx),
-                reset=_reset_check(settings),
-            )
-            try:
-                checked = print_checked(result, job, uri=uri, timeout=settings.timeout, open_printer=open_printer)
-            except UploadRefusedError as exc:
-                return _upload_refused(exc, uri=uri, settings=settings)
-            sent, bytes_sent = checked.result, checked.bytes_sent
-        payload = render_payload(sent, sent=SentTo(uri, bytes_sent), settings=settings)
-        human = "\n".join(part for part in (f"sent {bytes_sent} bytes to {uri}", went_out_text(payload)) if part)
-        return CommandResult(ok=True, payload=payload, human=human)
+        # Removed on the way out, whichever way that is: it holds the batch's jobs as checked.
+        with FileJobSpool() as spool:
+            return _print_body(cli_ctx, label_source, data, given=given, spool=spool)
 
     run_command(ctx, command=CommandName.PRINT, body=body)
+
+
+def _print_body(
+    cli_ctx: CLIContext, label_source: str, data: str | None, *, given: Mapping[str, Any], spool: FileJobSpool
+) -> CommandResult:
+    """Run ``print``: a batch's check keeps each record in ``spool``, and the send reads it back."""
+    settings = resolve_sending_settings(cli_ctx, command_overrides(given))
+    label = load_label(label_source)
+    records = None if data is None else load_batch(data, settings)
+    link = _link(settings)
+    options = _print_options(settings, link=link)
+    result = check_loaded(label, records, options, settings, route=JobRoute(names=_names_at_send(link), spool=spool))
+    uri = link.uri
+    if not result.ok:
+        return _render_refused(result, verdict="REFUSED: nothing sent", settings=settings)
+    open_printer = printer_opener(cli_ctx, settings)
+    if link.one_way:
+        # A one-way link cannot read the directory: the job goes out at once, as it always did.
+        report = print_result(result, uri=uri, timeout=settings.timeout, open_printer=open_printer)
+        sent, bytes_sent = result, report.bytes_sent
+    else:
+        job = CheckedJob(
+            renders=result.renders() if isinstance(result, BatchReport) else record_renders(label, None, options),
+            check=_upload_check(settings, cli_ctx),
+            reset=_reset_check(settings),
+        )
+        try:
+            checked = print_checked(result, job, uri=uri, timeout=settings.timeout, open_printer=open_printer)
+        except UploadRefusedError as exc:
+            return _upload_refused(exc, uri=uri, settings=settings)
+        sent, bytes_sent = checked.result, checked.bytes_sent
+    payload = render_payload(sent, sent=SentTo(uri, bytes_sent), settings=settings)
+    human = "\n".join(part for part in (f"sent {bytes_sent} bytes to {uri}", went_out_text(payload)) if part)
+    return CommandResult(ok=True, payload=payload, human=human)
 
 
 def _names_at_send(link: _Link) -> HeldImages:
@@ -599,7 +609,7 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
         options = _print_options(settings, link=link)
         # The expected picture is drawn after the print, so a label too long for it stops here.
         _refuse_long_preview(label, options, limit=_preview_limit(cli_ctx))
-        result = check_loaded(label, None, options, settings, names=_names_at_send(link))
+        result = check_loaded(label, None, options, settings, route=JobRoute(names=_names_at_send(link)))
         uri = link.uri
         if not isinstance(result, RenderResult) or not result.ok:
             return _render_refused(result, verdict="REFUSED", settings=settings)

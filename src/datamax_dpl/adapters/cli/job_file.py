@@ -3,7 +3,8 @@
 A batch is written beside the target and takes its place only when every record passed: a job of
 any length needs no memory, and an error in the last record still leaves the target as it was.
 A target that would not stay what it was if replaced is written directly, after a pass that checks
-every record first: a device or a pipe, a file in a directory that takes no new file, a file this
+every record first and keeps each in a spool (:mod:`.job_spool`), which the write then reads back
+rather than rendering every record again: a device or a pipe, a file in a directory that takes no new file, a file this
 user may not write (it refuses, as a single label's write does), one owned by someone else (who
 would lose it), or one with another hard link (which would keep the old bytes).
 """
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, NamedTuple
 
 from .interrupt import raise_if_interrupted
+from .job_spool import FileJobSpool
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -155,12 +157,22 @@ def _write_beside(
 
 
 def _write_direct(output: str, check: Callable[[Callable[[BatchEntry], None]], BatchReport]) -> BatchReport:
-    """Check every record, then write the job to ``output`` itself, which refuses or takes it as it is."""
-    report = check(lambda _entry: None)
-    if report.ok:
-        with Path(output).open("wb") as stream:
-            for job in report.record_jobs():
-                stream.write(job)
+    """Check every record into a spool, then write the job from it to ``output``, which refuses or takes it."""
+    passed = [True]
+
+    def keep(entry: BatchEntry) -> None:
+        # A refused job is not written, so nothing past its first error is worth the disk.
+        passed[0] = passed[0] and entry.result.ok
+        if passed[0]:
+            spool.add(entry)
+
+    with FileJobSpool() as spool:
+        report = check(keep)
+        spool.seal()
+        if report.ok:
+            with Path(output).open("wb") as stream:
+                for entry in spool.entries():
+                    stream.write(entry.job)
     return report
 
 

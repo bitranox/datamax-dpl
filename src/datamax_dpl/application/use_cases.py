@@ -81,7 +81,7 @@ if TYPE_CHECKING:
 
     from ..domain.render_context import RenderOptions
     from ..domain.units import DplUnit
-    from .ports import Clock, OpenPrinter, PrinterTransport, Sleep
+    from .ports import Clock, JobSpool, OpenPrinter, PrinterTransport, Sleep
 
 _T = TypeVar("_T")
 
@@ -364,13 +364,24 @@ class ReportedFinding(NamedTuple):
 
 @dataclass(frozen=True)
 class BatchJob:
-    """What it takes to render a checked batch again: its records are read again, never held."""
+    """What it takes to send a checked batch: its records are read again, never held.
+
+    Attributes:
+        label: The label holding the placeholders.
+        records: The records, read again for each label the send renders again.
+        options: How the records were rendered.
+        read_names_at_send: Whether the printer's names are read before each label's downloads.
+        limits: How much of what grows with the records the report keeps.
+        spool: Every record as the check rendered it, which the send reads instead of rendering
+            it again; None renders each record again.
+    """
 
     label: Label
     records: Iterable[Mapping[str, str]]
     options: RenderOptions
     read_names_at_send: bool
     limits: ReportLimits
+    spool: JobSpool | None = None
 
 
 def unlisted_download(result: RenderResult) -> bool:
@@ -383,8 +394,9 @@ class BatchReport:
     """What a batch comes to, without its jobs: its size is bounded, however many records it has.
 
     The counterpart of :class:`BatchResult` for a batch too large to hold: :func:`check_batch`
-    makes one, and :meth:`entries`, :meth:`record_jobs` and :meth:`renders` render its records
-    again one at a time, from the same records.
+    makes one, and :meth:`entries`, :meth:`record_jobs` and :meth:`renders` give its records one at
+    a time: read back from the check's spool where it kept one, else rendered again from the same
+    records.
 
     Attributes:
         job: How to render the records again; None for the report of a batch held whole.
@@ -434,15 +446,18 @@ class BatchReport:
         return chain((kept.finding for kept in self.findings), self.batch_findings)
 
     def entries(self) -> Iterator[BatchEntry]:
-        """Render the records again, one at a time, as they were checked."""
+        """The records one at a time, as they were checked: from the spool, else rendered again."""
         job = self._job()
+        if job.spool is not None:
+            return job.spool.entries()
         return _entries(job.label, job.records, job.options, read_names_at_send=job.read_names_at_send)
 
     def record_jobs(self) -> Iterator[bytes]:
         """Each record's bytes in turn, its batch cut included, refusing records that are not the ones checked.
 
-        Nothing else stands between the second read of the records and the wire on a one-way link, so
-        a record that has gone bad, or one more or fewer than were checked, stops the job here.
+        From the spool these are the bytes checked. Rendered again, nothing else stands between the
+        second read of the records and the wire on a one-way link, so a record that has gone bad, or
+        one more or fewer than were checked, stops the job here.
 
         Yields:
             The next record's job.
@@ -468,17 +483,38 @@ class BatchReport:
             raise ConfigurationError(msg)
 
     def renders(self) -> Iterator[RecordRender]:
-        """How to render each label for a checked send (``CheckedJob.renders``), one at a time."""
+        """How to render each label for a checked send (``CheckedJob.renders``), one at a time.
+
+        With a spool each label's first render is the one checked, read back; a label is rendered
+        again only for what a read of the printer lists, a clear, or halved images.
+        """
         job = self._job()
         per_record = _batch_label(job.label).per_record
-        return (
+        fills = (
             _RecordFillRender(label=per_record, record=record, number=number, options=job.options)
             for number, record in enumerate(job.records)
         )
+        if job.spool is None:
+            return iter(fills)
+        return _spooled(fills, job.spool.entries())
 
     def cuts(self) -> Iterator[bool]:
         """For each record in turn, whether a batch cut follows it."""
         return (self.plan.follows(number, last=number == self.records) for number in range(1, self.records + 1))
+
+
+def _spooled(fills: Iterator[_RecordFillRender], entries: Iterator[BatchEntry]) -> Iterator[RecordRender]:
+    """Pair each record's render with its checked render from the spool, one pair at a time.
+
+    Raises:
+        ConfigurationError: The records, read again, come to more than the spool holds.
+    """
+    for fill in fills:
+        entry = next(entries, None)
+        if entry is None:
+            msg = "the batch's records, read again, come to more than were checked"
+            raise ConfigurationError(msg)
+        yield _SpooledRender(fill=fill, checked=entry.result)
 
 
 def report_of(result: BatchResult, *, limits: ReportLimits = DEFAULT_REPORT_LIMITS) -> BatchReport:
@@ -515,6 +551,11 @@ class BatchTally:
         self._unlisted_at: int | None = None
         for finding in plan.findings:
             self._count(finding)
+
+    @property
+    def ok(self) -> bool:
+        """True while no finding added is an error."""
+        return self._ok
 
     def _count(self, finding: Finding) -> None:
         self._findings_total += 1
@@ -588,11 +629,14 @@ def check_batch(
     read_names_at_send: bool = False,
     limits: ReportLimits = DEFAULT_REPORT_LIMITS,
     each: Callable[[BatchEntry], None] | None = None,
+    spool: JobSpool | None = None,
 ) -> BatchReport:
     """Go over a whole batch once, one record at a time, and report it without keeping its jobs.
 
     A batch with any bad record is refused before any of it goes out, so a sender calls this first
-    and only then renders the records a second time from the report (:meth:`BatchReport.renders`).
+    and only then sends the records from the report (:meth:`BatchReport.renders`,
+    :meth:`BatchReport.record_jobs`): read back from ``spool`` where one is given, else rendered a
+    second time.
 
     Args:
         label: The label holding the placeholders.
@@ -605,6 +649,8 @@ def check_batch(
             before each label's downloads (see :func:`render_batch`).
         limits: How much of what grows with the records the report keeps.
         each: Called with each record as it is rendered, for a caller writing the job as it goes.
+        spool: Where each record is kept as it is rendered, until the first in error; sealed at
+            the end, and the report sends from it only when every record passed.
 
     Returns:
         The report; check ``ok`` before sending. An error finding does not raise.
@@ -624,7 +670,15 @@ def check_batch(
         tally.add(entry.result, cut=entry.cut_after)
         if each is not None:
             each(entry)
-    job = BatchJob(label=label, records=records, options=options, read_names_at_send=read_names_at_send, limits=limits)
+        # A refused batch sends nothing, so nothing past its first error is worth the disk.
+        if spool is not None and tally.ok:
+            spool.add(entry)
+    if spool is not None:
+        spool.seal()
+    kept = spool if tally.ok else None
+    job = BatchJob(
+        label=label, records=records, options=options, read_names_at_send=read_names_at_send, limits=limits, spool=kept
+    )
     return tally.report(job)
 
 
@@ -757,6 +811,26 @@ class _RecordFillRender:
     def calibration(self, text: str) -> RenderResult:
         """Fill the label and render the calibration label for it."""
         return calibration_job(self._filled(), self.options, text=text)
+
+
+@dataclass(frozen=True)
+class _SpooledRender:
+    """:class:`_RecordFillRender` whose first render is the one the check kept, read back, not made again."""
+
+    fill: _RecordFillRender
+    checked: RenderResult
+
+    def first(self) -> RenderResult:
+        """Return the label as the check rendered it, its stored names to be read before its downloads."""
+        return self.checked
+
+    def __call__(self, held: HeldImages, *, halve: bool) -> RenderResult:
+        """Fill the label and render it for what the printer holds, its images halved when ``halve``."""
+        return self.fill(held, halve=halve)
+
+    def calibration(self, text: str) -> RenderResult:
+        """Fill the label and render the calibration label for it."""
+        return self.fill.calibration(text)
 
 
 #: Why the stored names are unknown on a channel that cannot read the printer's answer.

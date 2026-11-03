@@ -25,6 +25,7 @@ from ...transport.uri import is_one_way, parse_printer_uri
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
 from ..job_file import write_batch
+from ..job_spool import FileJobSpool
 from ..label_io import STDIN, LabelInputError, Records, load_label, load_records, read_input
 from ..payloads import RenderPayload, ShownJob, payload_findings_text, refused_text, render_payload, went_out_text
 from ..runner import CommandResult, run_command
@@ -35,6 +36,7 @@ from .model_options import command_overrides, printer_choice_decorator, render_o
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from ....application.ports import JobSpool
     from ....application.use_cases import BatchEntry
     from ....domain.render import RenderResult
     from ....domain.render_context import RenderOptions
@@ -63,13 +65,33 @@ def load_batch(source: str, settings: PrinterSettings) -> Records:
     return records
 
 
+class JobRoute(NamedTuple):
+    """What the way a checked job goes on decides about the check.
+
+    Attributes:
+        names: :data:`READ_AT_SEND` when the job goes to a two-way printer whose stored image
+            names are read right before each label's downloads. Otherwise why they are not read,
+            which a single label's ``image_names_unread`` finding quotes (None: the printer was not
+            asked); a batch whose labels need them is then refused (``batch_image_names_unread``).
+        spool: Where a batch keeps each record as it is checked, for the send to read back
+            instead of rendering it again; None for a job that is not sent, or renders again.
+    """
+
+    names: HeldImages | None = None
+    spool: JobSpool | None = None
+
+
+#: The route of a job checked and not sent: no printer asked, no spool.
+NOT_SENT = JobRoute()
+
+
 def check_loaded(
     label: Label,
     records: Records | None,
     options: RenderOptions,
     settings: PrinterSettings,
     *,
-    names: HeldImages | None = None,
+    route: JobRoute = NOT_SENT,
 ) -> RenderResult | BatchReport:
     """Render an already loaded label, or go over its records one at a time keeping no job.
 
@@ -82,18 +104,17 @@ def check_loaded(
         options: How to render (``render_options`` of the merged settings, or what a command
             makes of them).
         settings: The merged settings, for how much of a batch its answer keeps.
-        names: :data:`READ_AT_SEND` when the job goes to a two-way printer whose stored image
-            names are read right before each label's downloads. Otherwise why they are not read,
-            which a single label's ``image_names_unread`` finding quotes (None: the printer was not
-            asked); a batch whose labels need them is then refused (``batch_image_names_unread``).
+        route: What the printer the job goes to can tell, and where a batch keeps its records.
 
     Returns:
         The single render, or the batch's report when ``records`` are given.
     """
+    names = route.names
     if records is None:
         return render_label(label, options, held=names)
     read_at_send = names is not None and names.read_at_send
-    return check_batch(label, records, options, read_names_at_send=read_at_send, limits=report_limits(settings))
+    limits = report_limits(settings)
+    return check_batch(label, records, options, read_names_at_send=read_at_send, limits=limits, spool=route.spool)
 
 
 def two_way_printer_named(settings: PrinterSettings) -> bool:
@@ -229,9 +250,10 @@ def _rendered(
     if output != STDIN:
         written = write_batch(output, lambda each: check_batch(label, records, options, limits=limits, each=each))
         return _RenderedJob(result=written)
-    report = check_batch(label, records, options, limits=limits)
-    if report.ok:
-        _write_output(output, report.record_jobs(), raw_stdout_allowed=raw_stdout_allowed)
+    with FileJobSpool() as spool:
+        report = check_batch(label, records, options, limits=limits, spool=spool)
+        if report.ok:
+            _write_output(output, report.record_jobs(), raw_stdout_allowed=raw_stdout_allowed)
     return _RenderedJob(result=report)
 
 
@@ -264,7 +286,7 @@ def cli_validate(ctx: click.Context, label_source: str, data: str | None, **give
         # label, so a batch needing that passes; a single label says its names were not read.
         readable = records is not None and two_way_printer_named(settings)
         names = READ_AT_SEND if readable else None
-        result = check_loaded(label, records, render_options(settings), settings, names=names)
+        result = check_loaded(label, records, render_options(settings), settings, route=JobRoute(names=names))
         payload = render_payload(result, settings=settings)
         verdict = "OK" if result.ok else "REFUSED"
         human = f"{verdict}: {_human(payload, show_dpl=False)}"
@@ -452,6 +474,8 @@ def cli_capabilities(ctx: click.Context, model: str) -> None:
 
 
 __all__ = [
+    "NOT_SENT",
+    "JobRoute",
     "capabilities_payload",
     "check_loaded",
     "cli_capabilities",

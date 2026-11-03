@@ -927,8 +927,9 @@ def send_checked_label(link: Link, job: CheckedJob) -> CheckedSend[RenderResult]
 def _send_report(link: Link, report: BatchReport, job: CheckedJob) -> CheckedSend[BatchReport]:
     """Send a checked batch label by label, holding only the current one, and report it as it went out.
 
-    A label refused leaves the labels after it as first rendered: they are rendered once more for
-    the report, as a :class:`BatchResult` would have held them all along.
+    A label refused leaves the labels after it as first rendered: they are read back from the
+    report's spool (or, with none, rendered once more) for the report, as a :class:`BatchResult`
+    would have held them all along.
 
     Raises:
         ConfigurationError: ``job.renders`` held another number of labels than ``report``, which only

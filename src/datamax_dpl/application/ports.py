@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Callable, Iterator, Mapping, Sequence
     from pathlib import Path
 
     from lib_layered_config import Config
@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from ..domain.enums import DeployTarget, OutputFormat
     from ..domain.profiles import CalibrationKey
     from ..domain.timing import TransportTuning
+    from .use_cases import BatchEntry
 
 
 class GetConfig(Protocol):
@@ -184,6 +185,28 @@ class CaptureImage(Protocol):
     def __call__(self, settings: CameraSettings, *, output_dir: Path) -> CapturedImage: ...
 
 
+class JobSpool(Protocol):
+    """Where a batch's check pass keeps each record as it was rendered, for the send to read back.
+
+    The check pass renders every record once to refuse a bad batch before any of it goes out; kept
+    here, the send reads that render instead of making it again. Each record goes out of memory as
+    it is added, and :meth:`entries` reads one at a time, so memory does not grow with the records:
+    what grows is the space the spool takes, about the size of the job.
+    """
+
+    def add(self, entry: BatchEntry) -> None:
+        """Keep ``entry``, the next record as the check pass rendered it."""
+        ...
+
+    def seal(self) -> None:
+        """End the adding: every record is in, and :meth:`entries` may read them."""
+        ...
+
+    def entries(self) -> Iterator[BatchEntry]:
+        """Read the records back from the first, one at a time; each call starts over."""
+        ...
+
+
 class Sleep(Protocol):
     """Pause for ``seconds``; injected so polling loops run instantly under test."""
 
@@ -205,6 +228,7 @@ __all__ = [
     "GetConfig",
     "GetDefaultConfigPath",
     "InitLogging",
+    "JobSpool",
     "OpenPrinter",
     "OpenTunablePrinter",
     "PrinterTransport",

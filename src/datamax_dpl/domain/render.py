@@ -111,7 +111,11 @@ class RenderResult(BaseModel):
 
     # A job is not UTF-8 (charset-mapped text, image records): pydantic's default JSON form for
     # bytes is a UTF-8 string and raises on the first umlaut, so the bytes travel as base64.
-    model_config = ConfigDict(frozen=True, extra="forbid", ser_json_bytes="base64", val_json_bytes="base64")
+    # A batch spool reads one back per record: pydantic's default caches every short string it
+    # parses, which keeps each record's image names (up to 16384 of them), so only keys are cached.
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", ser_json_bytes="base64", val_json_bytes="base64", cache_strings="keys"
+    )
 
     data: bytes
     findings: tuple[Finding, ...]
