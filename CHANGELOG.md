@@ -29,7 +29,8 @@ All notable changes to this project are documented here. The format follows
   `heat`, `print_speed`, `slew_speed`, `backup_speed`, `column_offset`, `row_offset` and `present_distance` (lengths
   in mm whatever the label's unit). The label's own value wins; unset, as shipped, sends nothing, so the printer
   keeps its own and every job is as before. A set key meets the label value's range checks and findings, which
-  name the key. Library: `RenderOptions.heat`, `print_speed`, `slew_speed`, `backup_speed`, `column_offset_mm`,
+  name the key. The calibration label after a reset and the `calibrate print` labels take no column or row
+  offset. Library: `RenderOptions.heat`, `print_speed`, `slew_speed`, `backup_speed`, `column_offset_mm`,
   `row_offset_mm`, `present_distance_mm`; `ConfiguredLabelState` and `resolved_label_state` in
   `datamax_dpl.domain.render_context`, and `RenderContext` takes `configured=`.
 - `[printer] max_polygon_points` (also in `[printers.<name>]`, default 60, at most 10000): the most points one

@@ -16,7 +16,7 @@ from datamax_dpl.adapters import cli as cli_mod
 from datamax_dpl.adapters.cli.commands.calibrate import AxisChoice
 from datamax_dpl.adapters.cli.settings import check_printer_values
 from datamax_dpl.adapters.config.user_edit import write_printer_values
-from datamax_dpl.composition import AppServices, build_testing
+from datamax_dpl.composition import AppServices, build_production, build_testing
 from datamax_dpl.domain.errors import ConfigurationError
 from datamax_dpl.domain.profiles import CalibrationKey
 from datamax_dpl.domain.units import Axis
@@ -689,6 +689,40 @@ def test_the_printers_offset_moves_the_calibration_print_and_is_reported(
     assert b"OFFSET" in moved_target.read_bytes()
     # with the title brought level, only the moved field positions can still differ
     assert moved_target.read_bytes() != plain_target.read_bytes().replace(b"ALONG +0.00", b"ALONG -0.25")
+
+
+_OFFSETS = {"DATAMAX_DPL___PRINTER__COLUMN_OFFSET": "10", "DATAMAX_DPL___PRINTER__ROW_OFFSET": "5"}
+
+
+def _sent_with(cli_runner: CliRunner, target: Path, *args: str, env: Mapping[str, str]) -> bytes:
+    printer = ["--model", "allegro-2", "--printer", f"file:{target}"]
+    result = cli_runner.invoke(cli_mod.cli, ["--json", *args, *printer], obj=build_production, env=dict(env))
+    assert result.exit_code == 0, result.output
+    return target.read_bytes()
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.usefixtures("no_ambient_configuration")
+def test_the_configured_column_and_row_offsets_stay_out_of_the_calibration_labels(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    """They place a label's fields; the scale-measuring labels, as the reset calibration label, take none.
+
+    Both runs in one test read one configuration: the loader keeps it for the test's length.
+    """
+    label = tmp_path / "label.json"
+    label.write_text(json.dumps({"elements": [{"type": "text", "x": 5, "y": 5, "text": "A"}]}), encoding="utf-8")
+    # The control: the same variables do reach an ordinary label's format.
+    printed = _sent_with(cli_runner, tmp_path / "label.dpl", "print", str(label), env=_OFFSETS)
+
+    calibration = _sent_with(
+        cli_runner, tmp_path / "calibration.dpl", "calibrate", "print", "--width", "100", "--height", "55", env=_OFFSETS
+    )
+
+    format_offsets = re.compile(rb"[CR][0-9]{4}")
+    assert [line for line in printed.split(b"\r") if format_offsets.fullmatch(line)] == [b"C0040", b"R0020"]
+    assert calibration.count(_FORMAT_START) == 2
+    assert [line for line in calibration.split(b"\r") if format_offsets.fullmatch(line)] == []
 
 
 @pytest.mark.os_agnostic

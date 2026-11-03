@@ -564,14 +564,16 @@ options = []
 # backup_speed = "C"
 
 # Purpose: Column offset (Cnnnn) in mm for a label that sets none. The
-#          calibration label after a reset takes none.
+#          calibration label after a reset and the 'calibrate print'
+#          labels take none.
 # Type: float, 0 to 100000 (mm)
 # Default: unset (the printer's own)
 # Environment Variable: DATAMAX_DPL___PRINTER__COLUMN_OFFSET=2.5
 # column_offset = 2.5
 
 # Purpose: Row offset (Rnnnn) in mm for a label that sets none. The
-#          calibration label after a reset takes none.
+#          calibration label after a reset and the 'calibrate print'
+#          labels take none.
 # Type: float, 0 to 100000 (mm)
 # Default: unset (the printer's own)
 # Environment Variable: DATAMAX_DPL___PRINTER__ROW_OFFSET=2.5

@@ -5,13 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import rich_click as click
 from pydantic import BaseModel, ConfigDict
 
 from ....application.ports import PrinterEndpoint
 from ....application.use_cases import send_bytes
+from ....domain._invariants import require_update_fields
 from ....domain.calibration import (
     ALONG_LENGTH_MM,
     across_frame_width,
@@ -27,6 +28,7 @@ from ....domain.errors import ConfigurationError
 from ....domain.findings import Finding
 from ....domain.profiles import CalibrationKey
 from ....domain.render import build_job, effective_calibration, format_row_limit
+from ....domain.render_context import RenderOptions
 from ....domain.units import Axis
 from ...config.sections import PRINTER_SECTION, printer_section
 from ...transport.uri import is_printer_uri
@@ -55,7 +57,6 @@ if TYPE_CHECKING:
     from ....domain.label import Label
     from ....domain.profiles import CalibrationDefaults
     from ....domain.render import RenderResult
-    from ....domain.render_context import RenderOptions
     from ..context import CLIContext
     from ..settings import PrinterSettings
 
@@ -213,7 +214,7 @@ def cli_calibrate_print(
         overrides = command_overrides(given)
         settings = resolve_sending_settings(cli_ctx, overrides)
         axes = AxisChoice(axis).axes
-        options = render_options(settings)
+        options = _calibration_options(settings)
         sizes = _Sizes(width=width, height=height, along_length=along_length)
         built = _labels(settings, axes, options=options, sizes=sizes)
         results = {part: build_job(label, options) for part, label in built.labels.items()}
@@ -283,7 +284,7 @@ def _set_default_along_length(cli_ctx: CLIContext, printer: str | None, *, width
         return None
     try:
         settings = resolve_settings(cli_ctx, PrinterOverrides(printer=printer))
-        return _along_bar_length(None, settings=settings, width=width, options=render_options(settings))
+        return _along_bar_length(None, settings=settings, width=width, options=_calibration_options(settings))
     except ConfigurationError:
         return None
 
@@ -393,6 +394,32 @@ class _CalibrationLabels:
     along_length: float
 
 
+class _NoFormatOffsets(TypedDict):
+    """What the calibration labels' options leave out: the configured column and row offsets.
+
+    The offsets place a label's fields, and these labels measure where the scale alone puts
+    theirs, as the reset calibration label takes none either.
+    """
+
+    column_offset_mm: float | None
+    row_offset_mm: float | None
+
+
+require_update_fields(_NoFormatOffsets, RenderOptions)
+
+
+def _calibration_options(settings: PrinterSettings) -> RenderOptions:
+    """The render options the calibration labels are built with: the printer's, without its format offsets.
+
+    Example:
+        >>> from datamax_dpl.adapters.cli.settings import PrinterSettings
+        >>> options = _calibration_options(PrinterSettings(model="allegro-2", column_offset=10, row_offset=5))
+        >>> options.column_offset_mm, options.row_offset_mm
+        (None, None)
+    """
+    return render_options(settings).model_copy(update=_NoFormatOffsets(column_offset_mm=None, row_offset_mm=None))
+
+
 def _labels(
     settings: PrinterSettings, axes: tuple[Axis, ...], *, options: RenderOptions, sizes: _Sizes
 ) -> _CalibrationLabels:
@@ -475,7 +502,7 @@ def cli_calibrate_set(
         settings = resolve_settings(cli_ctx, PrinterOverrides(printer=name or None))
         # The labels printed with the effective values, the model's default where none is set,
         # so each new value starts from those.
-        options = render_options(settings)
+        options = _calibration_options(settings)
         calibration = effective_calibration(options)
         measured = {Axis.ACROSS: across, Axis.ALONG: along}
         nominal = {
