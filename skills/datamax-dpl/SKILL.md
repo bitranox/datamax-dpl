@@ -245,9 +245,11 @@ the model's default from the manual; a library caller sets the same fields in `R
 - `media` (`gap`, `reflective`, `continuous`), `start_of_print_mm` (12.7 to 2539.746, sent as set,
   unscaled), `max_label_length_mm` (127 to 2539.746) and `feed_rate` (`A` to `S`; outside the
   model's slew range its default goes, `feed_rate_out_of_range`), e.g.
-  `datamax-dpl --set printer.start_of_print_mm=20 print ...`; a value set is sent on every model.
-  Where the model knows no default (`generic`, `permissive`, the Prodigy Max's start of print) and
-  none is set, nothing goes and `printer_settings_unknown` names the key that sets it.
+  `datamax-dpl --set printer.start_of_print_mm=20 print ...`; a value set in range is sent on every
+  model. Where the model knows no default (`generic`, `permissive`, the Prodigy Max's start of
+  print, the DMX 400's feed rate) and none is set, nothing goes and `printer_settings_unknown` names
+  the key that sets it; a `feed_rate` outside the slew range then sends none either
+  (`feed_rate_out_of_range`).
 - `<STX>V` overrides every switch until the next power-up, so it goes out only once `cutter` and, on
   a model with a label-present bit, `[printer] label_present` (default `unknown`) are both `yes` or
   `no`; else `software_switches_not_sent` (info), whose message names the one missing. The Allegro
