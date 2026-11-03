@@ -25,6 +25,13 @@ All notable changes to this project are documented here. The format follows
 - `[printer] inch_unit_dots` (also in `[printers.<name>]`, unset by default): the whole dots one 1/100 in prints
   as, for a firmware or a printer that rounds the unit differently from the measured Allegro 2 (2). Unset keeps the
   model's value, so every job is as before. Library: `RenderOptions.inch_unit_dots`.
+- Seven label settings as `[printer]` and `[printers.<name>]` keys, for every label that sets none of its own:
+  `heat`, `print_speed`, `slew_speed`, `backup_speed`, `column_offset`, `row_offset` and `present_distance` (lengths
+  in mm whatever the label's unit). The label's own value wins; unset, as shipped, sends nothing, so the printer
+  keeps its own and every job is as before. A set key meets the label value's range checks and findings, which
+  name the key. Library: `RenderOptions.heat`, `print_speed`, `slew_speed`, `backup_speed`, `column_offset_mm`,
+  `row_offset_mm`, `present_distance_mm`; `ConfiguredLabelState` and `resolved_label_state` in
+  `datamax_dpl.domain.render_context`, and `RenderContext` takes `configured=`.
 - `[printer] max_polygon_points` (also in `[printers.<name>]`, default 60, at most 10000): the most points one
   polygon may have. The limit left the label schema, which now takes up to 10000; at the default a 61-point polygon
   is refused on reading exactly as before (exit 2, the same message), now naming the key that allows more. Library:

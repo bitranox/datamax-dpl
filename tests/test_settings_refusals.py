@@ -136,6 +136,10 @@ PRINTER_NUMBERS = [
     "max_polygon_points",
     "start_of_print_mm",
     "max_label_length_mm",
+    "heat",
+    "column_offset",
+    "row_offset",
+    "present_distance",
     "label_width",
     "label_height",
 ]

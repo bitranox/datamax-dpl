@@ -50,6 +50,8 @@ MAX_MULTIPLIER = 24
 MAX_IMAGE_NAME = 8
 MAX_FORMAT_NAME = 16
 MAX_QUANTITY = 9999
+#: Highest heat any model takes (``Hnn``); a model's own maximum is checked when a job is rendered.
+MAX_HEAT = 30
 #: Most characters a QR Code holds (version 40, error level L, numeric data).
 MAX_QR_DATA = 4296
 #: Most modules of reserved white space the ``qr`` element keeps on each side.
@@ -476,7 +478,7 @@ class Label(_Frozen):
     quantity: int = Field(default=1, ge=1, le=MAX_QUANTITY, strict=True)
     elements: list[Element] = Field(min_length=1, max_length=MAX_ELEMENTS)
     cut: Cut | None = None
-    heat: int | None = Field(default=None, ge=0, le=30, strict=True)
+    heat: int | None = Field(default=None, ge=0, le=MAX_HEAT, strict=True)
     print_speed: SpeedCode | None = None
     slew_speed: SpeedCode | None = None
     backup_speed: SpeedCode | None = None
@@ -531,6 +533,7 @@ __all__ = [
     "MAX_ELEMENTS",
     "MAX_FIELD_DATA",
     "MAX_FORMAT_NAME",
+    "MAX_HEAT",
     "MAX_IMAGE_NAME",
     "MAX_LENGTH",
     "MAX_MULTIPLIER",
@@ -551,6 +554,7 @@ __all__ = [
     "Image",
     "Label",
     "Line",
+    "NonNegative",
     "Pdf417Options",
     "Point",
     "Polygon",

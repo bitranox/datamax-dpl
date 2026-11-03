@@ -18,7 +18,13 @@ from typing import TYPE_CHECKING
 from .enums import Attribute, FindingCode, Unit
 from .findings import Finding, FindingCollector
 from .profiles import Feature, get_profile
-from .render_context import RenderContext, RenderOptions, resolved_image_module, resolved_printer_state
+from .render_context import (
+    RenderContext,
+    RenderOptions,
+    resolved_image_module,
+    resolved_label_state,
+    resolved_printer_state,
+)
 from .units import DplUnit
 
 if TYPE_CHECKING:
@@ -45,6 +51,7 @@ def _context(options: RenderOptions, findings: FindingCollector) -> RenderContex
         image_module=resolved_image_module(options, profile),
         # A batch has no label of its own, so no label media wins over the options' here.
         printer_state=resolved_printer_state(options, profile, label_media=None),
+        configured=resolved_label_state(options),
         default_attribute=Attribute.XOR,
     )
 

@@ -54,15 +54,21 @@ class _CalibrationFields(TypedDict):
     plain_zero: bool
 
 
-class _NoClears(TypedDict):
-    """The options a calibration label renders with: no clear before or after it."""
+class _CalibrationOptions(TypedDict):
+    """What the calibration label's options change: no clear around it, and no configured format offset.
+
+    The offsets go for the reason the label's own do: they place fields, and this label has none
+    of the job's fields to place. Heat, speeds and present distance stay, as the label's own do.
+    """
 
     clear_graphics_before_label: bool
     clear_graphics_after_label: bool
+    column_offset_mm: float | None
+    row_offset_mm: float | None
 
 
 require_update_fields(_CalibrationFields, Label)
-require_update_fields(_NoClears, RenderOptions)
+require_update_fields(_CalibrationOptions, RenderOptions)
 
 
 def check_label_text(text: str) -> str:
@@ -105,7 +111,8 @@ def calibration_job(label: Label, options: RenderOptions, *, text: str) -> Rende
     Args:
         label: The job's label; its elements, copies and format settings stay out, since this
             label only has to come out once, the right size.
-        options: The options the job renders with, except that this label clears nothing.
+        options: The options the job renders with, except that this label clears nothing and
+            takes no configured column or row offset.
         text: What it says, mapped as any text field's text is.
 
     Returns:
@@ -139,11 +146,16 @@ def calibration_job(label: Label, options: RenderOptions, *, text: str) -> Rende
             plain_zero=False,
         )
     )
-    no_clears = options.model_copy(
-        update=_NoClears(clear_graphics_before_label=False, clear_graphics_after_label=False)
+    calibration_options = options.model_copy(
+        update=_CalibrationOptions(
+            clear_graphics_before_label=False,
+            clear_graphics_after_label=False,
+            column_offset_mm=None,
+            row_offset_mm=None,
+        )
     )
     # Marked filled: braces in the text are the text, not placeholders nothing will fill.
-    return build_job(calibration.marked_filled(), no_clears)
+    return build_job(calibration.marked_filled(), calibration_options)
 
 
 def _placed_text(label: Label, options: RenderOptions, *, text: str) -> Text:

@@ -529,6 +529,62 @@ options = []
 # Environment Variable: DATAMAX_DPL___PRINTER__LABEL_PRESENT=no
 # label_present = "unknown"
 
+# Seven label settings for every label that sets none of its own: the label's
+# own value wins. Each ships unset, which sends nothing, so the printer keeps
+# whatever it holds; no model default goes out. A set key takes the label
+# field's type and bounds and meets the same checks against the model (a heat
+# or speed past its range is clamped, a model without the command deviates).
+# Lengths are in mm whatever unit a label uses, and print through scale_across
+# and scale_along like the label's own.
+
+# Purpose: Heat (Hnn) for a label that sets none.
+# Type: integer, 0 to 30 (the model's maximum applies: 20 on most models)
+# Default: unset (the printer's own)
+# Environment Variable: DATAMAX_DPL___PRINTER__HEAT=12
+# heat = 12
+
+# Purpose: Print speed (Px) for a label that sets none.
+# Type: string, one speed letter "A" (1 in/s) to "S" (10 in/s)
+# Default: unset (the printer's own)
+# Environment Variable: DATAMAX_DPL___PRINTER__PRINT_SPEED=C
+# print_speed = "C"
+
+# Purpose: Slew speed (Sx) for a label that sets none.
+# Type: string, one speed letter "A" (1 in/s) to "S" (10 in/s)
+# Default: unset (the printer's own)
+# Environment Variable: DATAMAX_DPL___PRINTER__SLEW_SPEED=C
+# slew_speed = "C"
+
+# Purpose: Backfeed speed (pX) for a label that sets none; a model without one
+#          deviates (speed_unsupported).
+# Type: string, one speed letter "A" (1 in/s) to "S" (10 in/s)
+# Default: unset (the printer's own)
+# Environment Variable: DATAMAX_DPL___PRINTER__BACKUP_SPEED=C
+# backup_speed = "C"
+
+# Purpose: Column offset (Cnnnn) in mm for a label that sets none. The
+#          calibration label after a reset takes none.
+# Type: float, 0 to 100000 (mm)
+# Default: unset (the printer's own)
+# Environment Variable: DATAMAX_DPL___PRINTER__COLUMN_OFFSET=2.5
+# column_offset = 2.5
+
+# Purpose: Row offset (Rnnnn) in mm for a label that sets none. The
+#          calibration label after a reset takes none.
+# Type: float, 0 to 100000 (mm)
+# Default: unset (the printer's own)
+# Environment Variable: DATAMAX_DPL___PRINTER__ROW_OFFSET=2.5
+# row_offset = 2.5
+
+# Purpose: Present distance (<STX>Kf) in mm for a label that sets none: how far
+#          a printed label is fed out for removal. A model without it sends it
+#          as the stop position or ignores it (present_distance_unsupported);
+#          more than 9999/100 in is refused (present_distance_too_large).
+# Type: float, greater than 0, at most 100000 (mm)
+# Default: unset (the printer's own)
+# Environment Variable: DATAMAX_DPL___PRINTER__PRESENT_DISTANCE=10
+# present_distance = 10
+
 # ------------------------------------------------------------------------------
 # Named printers - one section per printer, chosen with --printer NAME
 # ------------------------------------------------------------------------------

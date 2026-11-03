@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 from .charset import DEFAULT_SYMBOL_SET
 from .enums import FindingCode, MediaSensor, PrinterSetting, PrinterStop, SpeedCode
@@ -43,6 +43,32 @@ class _SpeedCommand(str, Enum):
     PRINT = "P"
     SLEW = "S"
     BACKUP = "p"
+
+
+_T = TypeVar("_T")
+
+
+@dataclass(frozen=True)
+class _Wanted(Generic[_T]):
+    """A label setting a job sends: the label's own, or the one the options set where the label sets none.
+
+    Attributes:
+        value: The setting.
+        source: Empty for the label's own; `` (RenderOptions.<field>)`` for a configured one, so a
+            finding about it names the option (and on the command line, its key).
+    """
+
+    value: _T
+    source: str
+
+
+def _wanted(own: _T | None, configured: _T | None, *, option: str) -> _Wanted[_T] | None:
+    """Return the label's own setting, else the configured one, else None: nothing is sent."""
+    if own is not None:
+        return _Wanted(own, "")
+    if configured is not None:
+        return _Wanted(configured, f" ({option_name(option)})")
+    return None
 
 
 def _system(command: str) -> bytes:
@@ -285,6 +311,13 @@ def _report_label_settings_left_out(label: Label, ctx: RenderContext) -> None:
         ),
         (PrinterSetting.STOP, "present_distance", label.present_distance),
     ]
+    configured = ctx.configured.present_distance_mm
+    if label.present_distance is None and configured is not None and not _sends(PrinterSetting.STOP, ctx):
+        ctx.findings.info(
+            FindingCode.LABEL_SETTING_NOT_SENT,
+            f"the configured present distance {configured:g} mm ({option_name('present_distance_mm')}) is not "
+            f"sent: {option_name('send_settings')} leaves out {PrinterSetting.STOP.value}",
+        )
     for setting, name, value in asked:
         if value is not None and not _sends(setting, ctx):
             ctx.findings.info(
@@ -313,9 +346,14 @@ def _present_distance_is_a_stop(ctx: RenderContext) -> bool:
     return not ctx.supports(Feature.PRESENT_DISTANCE) and ctx.supports(Feature.STOP_POSITION)
 
 
+def _has_present_distance(label: Label, ctx: RenderContext) -> bool:
+    """Return True when the job sends a present distance: the label's own, or a configured one."""
+    return label.present_distance is not None or ctx.configured.present_distance_mm is not None
+
+
 def _label_sets_stop(label: Label, ctx: RenderContext) -> bool:
     """Return True when the label stops itself: its ``stop_position``, or a present distance sent as one."""
-    return label.stop_position is not None or (label.present_distance is not None and _present_distance_is_a_stop(ctx))
+    return label.stop_position is not None or (_has_present_distance(label, ctx) and _present_distance_is_a_stop(ctx))
 
 
 def stops_at_tear_off(label: Label, ctx: RenderContext) -> bool:
@@ -388,31 +426,43 @@ def _present_commands(label: Label, ctx: RenderContext) -> list[bytes]:
         commands = _label_stop(label.stop_position, ctx)
     else:
         commands = _configured_stop(label, ctx)
-    if label.present_distance is not None:
-        commands += _present_distance(label.present_distance, ctx)
+    wanted = _present_hundredths(label, ctx)
+    if wanted is not None:
+        commands += _present_distance(wanted, ctx)
     return commands
 
 
-def _present_distance(value: float, ctx: RenderContext) -> list[bytes]:
+def _present_hundredths(label: Label, ctx: RenderContext) -> _Wanted[int] | None:
+    """Return the present distance the job sends in 1/100 in: the label's, else the configured mm."""
+    if label.present_distance is not None:
+        return _Wanted(ctx.inch_hundredths(label.present_distance, axis=Axis.ALONG), "")
+    configured = ctx.configured.present_distance_mm
+    if configured is None:
+        return None
+    hundredths = ctx.configured_inch_hundredths(configured, axis=Axis.ALONG)
+    return _Wanted(hundredths, f" ({option_name('present_distance_mm')})")
+
+
+def _present_distance(wanted: _Wanted[int], ctx: RenderContext) -> list[bytes]:
+    hundredths = wanted.value
     if ctx.supports(Feature.PRESENT_DISTANCE):
-        hundredths = ctx.inch_hundredths(value, axis=Axis.ALONG)
         if hundredths > MAX_PRESENT_DISTANCE:
             ctx.findings.refuse(
                 FindingCode.PRESENT_DISTANCE_TOO_LARGE,
-                f"present distance takes at most {MAX_PRESENT_DISTANCE}/100 in",
+                f"present distance{wanted.source} takes at most {MAX_PRESENT_DISTANCE}/100 in",
             )
             return []
         return [_system(f"Kf{hundredths:04d}")]
     if _present_distance_is_a_stop(ctx):
         ctx.findings.deviate(
             FindingCode.PRESENT_DISTANCE_UNSUPPORTED,
-            f"present distance: {ctx.requirement(Feature.PRESENT_DISTANCE)}",
+            f"present distance{wanted.source}: {ctx.requirement(Feature.PRESENT_DISTANCE)}",
             fallback="sent as stop position (measured from the sensor, not from the next label)",
         )
-        return _stop_command(ctx.inch_hundredths(value, axis=Axis.ALONG), ctx)
+        return _stop_command(hundredths, ctx)
     ctx.findings.deviate(
         FindingCode.PRESENT_DISTANCE_UNSUPPORTED,
-        f"present distance: {ctx.requirement(Feature.PRESENT_DISTANCE)}",
+        f"present distance{wanted.source}: {ctx.requirement(Feature.PRESENT_DISTANCE)}",
         fallback="ignored",
     )
     return []
@@ -440,36 +490,39 @@ def system_prefix(label: Label, ctx: RenderContext) -> list[bytes]:
 
 
 def _speed_line(
-    command: _SpeedCommand, wanted: SpeedCode | None, allowed: SpeedRange | None, ctx: RenderContext
+    command: _SpeedCommand, wanted: _Wanted[SpeedCode] | None, allowed: SpeedRange | None, ctx: RenderContext
 ) -> list[bytes]:
     if wanted is None:
         return []
     if allowed is None:
         ctx.findings.deviate(
             FindingCode.SPEED_UNSUPPORTED,
-            f"{ctx.profile.name} has no setting for '{command.value}'",
+            f"{ctx.profile.name} has no setting for '{command.value}'{wanted.source}",
             fallback="printer default kept",
         )
         return []
-    if not allowed.contains(wanted):
-        clamped = allowed.clamp(wanted)
+    speed = wanted.value
+    if not allowed.contains(speed):
+        clamped = allowed.clamp(speed)
         ctx.findings.deviate(
             FindingCode.SPEED_OUT_OF_RANGE,
-            f"speed {wanted.value} is outside {allowed.low.value}-{allowed.high.value} on {ctx.profile.name}",
+            f"speed {speed.value}{wanted.source} is outside {allowed.low.value}-{allowed.high.value} "
+            f"on {ctx.profile.name}",
             fallback=f"speed {clamped.value}",
         )
-        wanted = clamped
-    return [line(f"{command.value}{wanted.value}")]
+        speed = clamped
+    return [line(f"{command.value}{speed.value}")]
 
 
 def _heat_line(label: Label, ctx: RenderContext) -> list[bytes]:
-    if label.heat is None:
+    wanted = _wanted(label.heat, ctx.configured.heat, option="heat")
+    if wanted is None:
         return []
-    heat = label.heat
+    heat = wanted.value
     if heat > ctx.profile.heat_max:
         ctx.findings.deviate(
             FindingCode.HEAT_OUT_OF_RANGE,
-            f"heat {heat} is above the {ctx.profile.name} maximum {ctx.profile.heat_max}",
+            f"heat {heat}{wanted.source} is above the {ctx.profile.name} maximum {ctx.profile.heat_max}",
             fallback=f"heat {ctx.profile.heat_max}",
         )
         heat = ctx.profile.heat_max
@@ -478,22 +531,57 @@ def _heat_line(label: Label, ctx: RenderContext) -> list[bytes]:
 
 def _speed_lines(label: Label, ctx: RenderContext) -> list[bytes]:
     backup = ctx.profile.backup_speed if ctx.supports(Feature.BACKUP_SPEED) else None
+    configured = ctx.configured
     return (
-        _speed_line(_SpeedCommand.PRINT, label.print_speed, ctx.profile.print_speed, ctx)
-        + _speed_line(_SpeedCommand.SLEW, label.slew_speed, ctx.profile.slew_speed, ctx)
-        + _speed_line(_SpeedCommand.BACKUP, label.backup_speed, backup, ctx)
+        _speed_line(
+            _SpeedCommand.PRINT,
+            _wanted(label.print_speed, configured.print_speed, option="print_speed"),
+            ctx.profile.print_speed,
+            ctx,
+        )
+        + _speed_line(
+            _SpeedCommand.SLEW,
+            _wanted(label.slew_speed, configured.slew_speed, option="slew_speed"),
+            ctx.profile.slew_speed,
+            ctx,
+        )
+        + _speed_line(
+            _SpeedCommand.BACKUP,
+            _wanted(label.backup_speed, configured.backup_speed, option="backup_speed"),
+            backup,
+            ctx,
+        )
     )
 
 
+@dataclass(frozen=True)
+class _Offset:
+    """One format offset: its command letter, its axis, its name in a finding, and the option that sets it."""
+
+    letter: str
+    axis: Axis
+    what: str
+    option: str
+
+
+_COLUMN = _Offset("C", Axis.ACROSS, "column offset", "column_offset_mm")
+_ROW = _Offset("R", Axis.ALONG, "row offset", "row_offset_mm")
+
+
+def _offset_line(offset: _Offset, *, own: float | None, configured: float | None, ctx: RenderContext) -> list[bytes]:
+    """Return the offset's line: the label's own, in its unit; else the configured mm; else none."""
+    if own is not None:
+        return [line(f"{offset.letter}{ctx.distance(own, axis=offset.axis, element=None, what=offset.what):04d}")]
+    if configured is None:
+        return []
+    what = f"{offset.what} ({option_name(offset.option)})"
+    return [line(f"{offset.letter}{ctx.configured_distance(configured, axis=offset.axis, what=what):04d}")]
+
+
 def _offset_lines(label: Label, ctx: RenderContext) -> list[bytes]:
-    lines: list[bytes] = []
-    if label.column_offset is not None:
-        lines.append(
-            line(f"C{ctx.distance(label.column_offset, axis=Axis.ACROSS, element=None, what='column offset'):04d}")
-        )
-    if label.row_offset is not None:
-        lines.append(line(f"R{ctx.distance(label.row_offset, axis=Axis.ALONG, element=None, what='row offset'):04d}"))
-    return lines
+    return _offset_line(
+        _COLUMN, own=label.column_offset, configured=ctx.configured.column_offset_mm, ctx=ctx
+    ) + _offset_line(_ROW, own=label.row_offset, configured=ctx.configured.row_offset_mm, ctx=ctx)
 
 
 def _look_lines(label: Label, ctx: RenderContext) -> list[bytes]:

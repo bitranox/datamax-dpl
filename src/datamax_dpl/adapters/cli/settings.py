@@ -38,7 +38,7 @@ from ...domain.enums import (
 )
 from ...domain.errors import ConfigurationError
 from ...domain.job import MAX_STOP_POSITION_MM
-from ...domain.label import MAX_LENGTH, MAX_POLYGON_POINTS, MAX_POLYGON_POINTS_LIMIT, stop_position_or_printer
+from ...domain.label import MAX_HEAT, MAX_LENGTH, MAX_POLYGON_POINTS, MAX_POLYGON_POINTS_LIMIT, stop_position_or_printer
 from ...domain.preview import DEFAULT_PREVIEW_MAX_LENGTH_MM
 from ...domain.profiles import Firmware, ParsedFirmware
 from ...domain.render_context import OPTION_NAME, MaxLabelLengthMm, RenderOptions, StartOfPrintMm
@@ -237,6 +237,16 @@ class PrinterSettings(BaseModel):
     start_of_print_mm: StartOfPrintMm | None = None
     max_label_length_mm: MaxLabelLengthMm | None = None
     feed_rate: SpeedCode | None = None
+    # The label settings a job sets where the label sets none, with the label's types and bounds; the
+    # label's own value wins. Unset sends none, so the printer keeps its own: no model default goes.
+    # Lengths are in mm whatever unit a label uses.
+    heat: int | None = Field(default=None, ge=0, le=MAX_HEAT)
+    print_speed: SpeedCode | None = None
+    slew_speed: SpeedCode | None = None
+    backup_speed: SpeedCode | None = None
+    column_offset: float | None = Field(default=None, ge=0, le=MAX_LENGTH)
+    row_offset: float | None = Field(default=None, ge=0, le=MAX_LENGTH)
+    present_distance: float | None = Field(default=None, gt=0, le=MAX_LENGTH)
     # yes/no/unknown like cutter: while unknown, a model with a label-present bit gets no <STX>V.
     label_present: LabelPresence = LabelPresence.UNKNOWN
     name: str = ""
@@ -272,6 +282,10 @@ class PrinterSettings(BaseModel):
         "max_polygon_points",
         "start_of_print_mm",
         "max_label_length_mm",
+        "heat",
+        "column_offset",
+        "row_offset",
+        "present_distance",
         "label_width",
         "label_height",
         mode="before",
@@ -555,6 +569,13 @@ def render_options(settings: PrinterSettings, *, model_image_budget: bool = True
         start_of_print_mm=settings.start_of_print_mm,
         max_label_length_mm=settings.max_label_length_mm,
         feed_rate=settings.feed_rate,
+        heat=settings.heat,
+        print_speed=settings.print_speed,
+        slew_speed=settings.slew_speed,
+        backup_speed=settings.backup_speed,
+        column_offset_mm=settings.column_offset,
+        row_offset_mm=settings.row_offset,
+        present_distance_mm=settings.present_distance,
         label_present=_LABEL_PRESENT[settings.label_present],
         model_image_budget=model_image_budget,
     )
@@ -588,6 +609,13 @@ OPTION_KEYS: Mapping[str, str] = MappingProxyType(
         "start_of_print_mm": "start_of_print_mm",
         "max_label_length_mm": "max_label_length_mm",
         "feed_rate": "feed_rate",
+        "heat": "heat",
+        "print_speed": "print_speed",
+        "slew_speed": "slew_speed",
+        "backup_speed": "backup_speed",
+        "column_offset_mm": "column_offset",
+        "row_offset_mm": "row_offset",
+        "present_distance_mm": "present_distance",
         "label_present": "label_present",
     }
 )

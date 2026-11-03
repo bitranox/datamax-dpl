@@ -52,6 +52,7 @@ from datamax_dpl.domain.render_context import (
     RenderContext,
     RenderOptions,
     drawn_image_name,
+    resolved_label_state,
     resolved_printer_state,
 )
 from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS, STATUS_REQUEST
@@ -445,6 +446,7 @@ def test_two_different_images_whose_names_collide_in_one_job_get_different_names
         findings=FindingCollector(FallbackPolicy.DEGRADE),
         image_module=ImageModule.A,
         printer_state=resolved_printer_state(RenderOptions(), get_profile("generic"), label_media=None),
+        configured=resolved_label_state(RenderOptions()),
     )
     bitmap = Bitmap.from_rows(["#."])
     taken = drawn_image_name(bitmap)
@@ -554,6 +556,7 @@ def test_download_drawn_image_never_names_two_different_images_alike(
         findings=FindingCollector(FallbackPolicy.DEGRADE),
         image_module=ImageModule.A,
         printer_state=resolved_printer_state(RenderOptions(), get_profile("generic"), label_media=None),
+        configured=resolved_label_state(RenderOptions()),
         reserved_image_names=frozenset({first}) if reserved else frozenset(),
     )
     if taken_by_other:

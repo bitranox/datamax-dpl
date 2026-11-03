@@ -76,6 +76,11 @@ configured stop and the model's default are not sent either. The one exception i
 configured stop positions and the model's default, and what a model without `<STX>f` or `<STX>Kf`
 does with them, is in the README under [Where the label stops](../README.md#where-the-label-stops).
 
+`heat`, `print_speed`, `slew_speed`, `backup_speed`, `column_offset`, `row_offset` and
+`present_distance` each have a `[printer]` key of the same name that sets it for a label that sets
+none, the lengths in mm; the label's own value wins, and an unset key sends nothing. See
+[Label settings for every label](../CONFIG.md#label-settings-for-every-label).
+
 Where fields overlap, the attribute decides what prints, and `preview` draws the same: 1 XOR
 prints only the dots an odd number of fields share, 2 transparent prints both, 3 opaque lets the
 later field whiten the rectangle it covers. Inverse (5) prints white on black, which the preview

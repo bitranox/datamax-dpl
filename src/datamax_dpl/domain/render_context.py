@@ -30,7 +30,7 @@ from .geometry import Size
 from .held_images import HeldImages
 from .image_budget import HALVING_FACTOR, halve, halved_magnification, image_data_bytes
 from .image_records import CR, MAX_WIDTH, download_command
-from .label import MAX_POLYGON_POINTS, MAX_POLYGON_POINTS_LIMIT, Positive, StopPosition
+from .label import MAX_HEAT, MAX_POLYGON_POINTS, MAX_POLYGON_POINTS_LIMIT, NonNegative, Positive, StopPosition
 from .profiles import Feature, ParsedFirmware
 from .raster import Bitmap
 from .records import MAX_IMAGE_MAGNIFICATION, Magnification
@@ -189,6 +189,16 @@ class RenderOptions(BaseModel):
         inch_unit_dots: Whole printer dots one 1/100 in prints as, for a printer that rounds the
             unit to whole dots; None takes the model's (``PrinterProfile.inch_unit_dots``: 2 on the
             Allegro 2, measured on one CA02 03.04, none elsewhere). Applies to a job in 1/100 in.
+        heat: Heat (``Hnn``) a job sets where the label sets none; the label's own wins. Checked
+            against the model's maximum as the label's is. None sends none: the printer keeps its own.
+        print_speed: Print speed (``Px``) where the label sets none, the same way.
+        slew_speed: Slew speed (``Sx``) where the label sets none, the same way.
+        backup_speed: Backfeed speed (``Bx``) where the label sets none, the same way.
+        column_offset_mm: Column offset (``Cnnnn``) in mm where the label sets none, sent as if the
+            label had set it in mm, whatever unit the label uses; None sends none.
+        row_offset_mm: Row offset (``Rnnnn``) in mm, the same way.
+        present_distance_mm: Present distance (``<STX>Kf``) in mm where the label sets none, sent
+            as if the label had set it in mm; None sends none.
         max_polygon_points: Most vertices one polygon of the job may have; a polygon with more
             is refused (``polygon_too_many_points``) under either policy. The manual sets no
             limit, so the default (``MAX_POLYGON_POINTS``, 60) is ours.
@@ -250,6 +260,14 @@ class RenderOptions(BaseModel):
     max_format_rows: int | None = Field(default=None, gt=0, strict=True)
     inch_unit_dots: int | None = Field(default=None, gt=0, strict=True)
     max_polygon_points: int = Field(default=MAX_POLYGON_POINTS, gt=0, le=MAX_POLYGON_POINTS_LIMIT, strict=True)
+    # The label's own types and bounds, so a value that passes here is one a label could hold.
+    heat: int | None = Field(default=None, ge=0, le=MAX_HEAT, strict=True)
+    print_speed: SpeedCode | None = None
+    slew_speed: SpeedCode | None = None
+    backup_speed: SpeedCode | None = None
+    column_offset_mm: NonNegative | None = None
+    row_offset_mm: NonNegative | None = None
+    present_distance_mm: Positive | None = None
     send_settings: frozenset[PrinterSetting] | None = None
     media: MediaSensor | None = None
     # A library caller passes numbers, so text and booleans are refused here; the settings key of
@@ -296,6 +314,50 @@ class PrinterState:
     label_present: bool | None
     clear_graphics_before_label: bool
     clear_graphics_after_label: bool
+
+
+@dataclass(frozen=True)
+class ConfiguredLabelState:
+    """The label settings the render options set, each used only where the label sets none.
+
+    Every field is required, so a state is resolved from the options (:func:`resolved_label_state`)
+    or written out in full. None sends nothing for that setting: the printer keeps its own.
+
+    Attributes:
+        heat: Heat, or None.
+        print_speed: Print speed, or None.
+        slew_speed: Slew speed, or None.
+        backup_speed: Backfeed speed, or None.
+        column_offset_mm: Column offset in mm, or None.
+        row_offset_mm: Row offset in mm, or None.
+        present_distance_mm: Present distance in mm, or None.
+    """
+
+    heat: int | None
+    print_speed: SpeedCode | None
+    slew_speed: SpeedCode | None
+    backup_speed: SpeedCode | None
+    column_offset_mm: float | None
+    row_offset_mm: float | None
+    present_distance_mm: float | None
+
+
+def resolved_label_state(options: RenderOptions) -> ConfiguredLabelState:
+    """Return the label settings ``options`` set; no model default fills one they leave unset.
+
+    Example:
+        >>> resolved_label_state(RenderOptions(heat=17)).heat, resolved_label_state(RenderOptions()).heat
+        (17, None)
+    """
+    return ConfiguredLabelState(
+        heat=options.heat,
+        print_speed=options.print_speed,
+        slew_speed=options.slew_speed,
+        backup_speed=options.backup_speed,
+        column_offset_mm=options.column_offset_mm,
+        row_offset_mm=options.row_offset_mm,
+        present_distance_mm=options.present_distance_mm,
+    )
 
 
 def resolved_printer_state(
@@ -544,6 +606,8 @@ class RenderContext:
             model has none and the options name none: a download then refuses the job.
         printer_state: The persistent printer settings this label's job sets, from
             :func:`resolved_printer_state`; required, so no context carries an unresolved one.
+        configured: The label settings the options set where the label sets none, from
+            :func:`resolved_label_state`; required for the same reason.
         cutter_installed: Whether the printer has a working cutter; None when unknown.
         symbol_set: Symbol set of the label's scalable text, or None for the printer default.
         default_attribute: Attribute the format is in when no element overrides it.
@@ -581,6 +645,7 @@ class RenderContext:
     findings: FindingCollector
     image_module: ImageModule | None
     printer_state: PrinterState
+    configured: ConfiguredLabelState
     cutter_installed: bool | None = None
     symbol_set: str | None = None
     default_attribute: Attribute = Attribute.XOR
@@ -670,9 +735,10 @@ class RenderContext:
 
     def dpl_units(self, value: float, *, axis: Axis) -> int:
         """Convert a label length on ``axis`` to this job's DPL unit, with no check and no finding."""
-        return to_dpl(
-            value, self.unit, target=self.dpl_unit, dpi=self.profile.dpi, correction=self.correction(axis)
-        ).value
+        return self._dpl_units_from(value, self.unit, axis=axis)
+
+    def _dpl_units_from(self, value: float, unit: Unit, *, axis: Axis) -> int:
+        return to_dpl(value, unit, target=self.dpl_unit, dpi=self.profile.dpi, correction=self.correction(axis)).value
 
     @property
     def dots_per_unit(self) -> float:
@@ -699,7 +765,18 @@ class RenderContext:
 
     def distance(self, value: float, *, axis: Axis, element: int | None, what: str) -> int:
         """Convert a label length on ``axis`` to this job's DPL unit, refusing values past four digits."""
-        converted = self.dpl_units(value, axis=axis)
+        return self._fitting_field(self.dpl_units(value, axis=axis), element=element, what=what)
+
+    def configured_distance(self, mm: float, *, axis: Axis, what: str) -> int:
+        """Convert a length the options set in mm as :meth:`distance` converts a label's, whatever its unit.
+
+        Unlike :meth:`nominal_inch_hundredths` the printer's scale applies: the options stand in for
+        a label setting, which is a length on the label.
+        """
+        return self._fitting_field(self._dpl_units_from(mm, Unit.MM, axis=axis), element=None, what=what)
+
+    def _fitting_field(self, converted: int, *, element: int | None, what: str) -> int:
+        """Return ``converted``, or the largest field value with a refusal when it does not fit four digits."""
         if converted > MAX_FIELD_VALUE:
             self.findings.refuse(
                 FindingCode.DISTANCE_TOO_LARGE,
@@ -711,8 +788,15 @@ class RenderContext:
 
     def inch_hundredths(self, value: float, *, axis: Axis) -> int:
         """Convert a label length on ``axis`` to hundredths of an inch (system commands use inch mode)."""
+        return self._inch_hundredths_from(value, self.unit, axis=axis)
+
+    def configured_inch_hundredths(self, mm: float, *, axis: Axis) -> int:
+        """Convert a length the options set in mm as :meth:`inch_hundredths` converts a label's."""
+        return self._inch_hundredths_from(mm, Unit.MM, axis=axis)
+
+    def _inch_hundredths_from(self, value: float, unit: Unit, *, axis: Axis) -> int:
         return to_dpl(
-            value, self.unit, target=DplUnit.INCH_HUNDREDTHS, dpi=self.profile.dpi, correction=self.correction(axis)
+            value, unit, target=DplUnit.INCH_HUNDREDTHS, dpi=self.profile.dpi, correction=self.correction(axis)
         ).value
 
     def nominal_inch_hundredths(self, mm: float) -> int:
@@ -1024,6 +1108,7 @@ __all__ = [
     "MIN_START_OF_PRINT_MM",
     "NAME_ALPHABET",
     "OPTION_NAME",
+    "ConfiguredLabelState",
     "ImageDownload",
     "ImageEdge",
     "MaxLabelLengthMm",
@@ -1036,6 +1121,7 @@ __all__ = [
     "drawn_image_name",
     "option_name",
     "resolved_image_module",
+    "resolved_label_state",
     "resolved_printer_state",
     "supported",
     "whole_module_clear",

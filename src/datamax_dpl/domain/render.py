@@ -45,7 +45,14 @@ from .overlap import inexact_rectangle, printed_dots
 from .placeholders import label_placeholders
 from .preview import SentAs
 from .profiles import CalibrationDefaults, CalibrationKey, Feature, get_profile
-from .render_context import RenderContext, RenderOptions, option_name, resolved_image_module, resolved_printer_state
+from .render_context import (
+    RenderContext,
+    RenderOptions,
+    option_name,
+    resolved_image_module,
+    resolved_label_state,
+    resolved_printer_state,
+)
 from .transparency import Emulation, emulate_transparency
 from .units import MM_PER_INCH, Axis, Correction, DplUnit, to_inches
 
@@ -349,6 +356,7 @@ def _context(label: Label, options: RenderOptions, *, halve: bool, held: HeldIma
         findings=findings,
         image_module=resolved_image_module(options, profile),
         printer_state=resolved_printer_state(options, profile, label_media=label.media),
+        configured=resolved_label_state(options),
         cutter_installed=options.cutter_installed,
         symbol_set=label.symbol_set,
         default_attribute=label.attribute or Attribute.XOR,
