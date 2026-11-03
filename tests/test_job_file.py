@@ -10,6 +10,7 @@ import json
 import os
 import signal
 import stat
+import struct
 import sys
 from typing import TYPE_CHECKING
 
@@ -27,7 +28,7 @@ from datamax_dpl.domain.render_context import RenderOptions
 
 if TYPE_CHECKING:
     import subprocess
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
     from pathlib import Path
 
     from click.testing import CliRunner, Result
@@ -203,14 +204,23 @@ def _two_records(*, each: Callable[[BatchEntry], None] | None = None, spool: Job
     return check_batch(_TEXT, [{"a": "r0"}, {"a": "r1"}], _DMX, each=each, spool=spool)
 
 
-def _labelled(names: frozenset[str] | None) -> Callable[[Path], frozenset[str] | None]:
-    """A lister that answers ``names`` for every file, as a system labelling each file alike would."""
+def _labelled(attributes: Mapping[str, bytes] | None) -> Callable[[Path], Mapping[str, bytes] | None]:
+    """A reader that answers ``attributes`` for every file, as a system labelling each file alike would."""
 
-    def listed(path: Path) -> frozenset[str] | None:
+    def read(path: Path) -> Mapping[str, bytes] | None:
         del path
-        return names
+        return attributes
 
-    return listed
+    return read
+
+
+def _target_differs(name: str, *, target: Path, own: bytes, new: bytes) -> Callable[[Path], Mapping[str, bytes]]:
+    """A reader that gives ``target`` the value ``own`` for ``name`` and every other file ``new``."""
+
+    def read(path: Path) -> Mapping[str, bytes]:
+        return {name: own if path == target else new}
+
+    return read
 
 
 @pytest.mark.os_agnostic
@@ -219,21 +229,87 @@ def test_a_label_every_new_file_gets_too_leaves_the_target_replaceable(tmp_path:
     target = tmp_path / "job.dpl"
     target.write_bytes(_BEFORE)
     inode = target.stat().st_ino
-    listed = _labelled(frozenset({"security.selinux"}))
-    assert write_batch(str(target), _two_records, open_spool=FileJobSpool, list_attributes=listed).ok
+    read = _labelled({"security.selinux": b"system_u:object_r:user_tmp_t:s0"})
+    assert write_batch(str(target), _two_records, open_spool=FileJobSpool, read_attributes=read).ok
     assert target.stat().st_ino != inode
     assert b"r1" in target.read_bytes()
 
 
 @pytest.mark.os_agnostic
-def test_unknown_extended_attributes_keep_the_target_in_place(tmp_path: Path) -> None:
-    """A target whose attributes cannot be listed may hold one a new file would lack, so it is not replaced."""
+@pytest.mark.parametrize(
+    ("name", "own", "new"),
+    [
+        ("system.posix_acl_access", b"own acl: nobody rw", b"default acl: nobody r"),
+        ("security.selinux", b"system_u:object_r:etc_t:s0", b"system_u:object_r:user_tmp_t:s0"),
+    ],
+    ids=["acl-of-its-own", "changed-selinux-label"],
+)
+def test_an_attribute_a_new_file_gets_with_another_value_keeps_the_target_in_place(
+    tmp_path: Path, name: str, own: bytes, new: bytes
+) -> None:
+    """Same name, other value: a replacement would take the new file's ACL or label, which can widen access."""
     target = tmp_path / "job.dpl"
     target.write_bytes(_BEFORE)
     inode = target.stat().st_ino
-    assert write_batch(str(target), _two_records, open_spool=FileJobSpool, list_attributes=_labelled(None)).ok
+    read = _target_differs(name, target=target, own=own, new=new)
+    assert write_batch(str(target), _two_records, open_spool=FileJobSpool, read_attributes=read).ok
     assert target.stat().st_ino == inode
     assert b"r1" in target.read_bytes()
+
+
+@pytest.mark.os_agnostic
+def test_unknown_extended_attributes_keep_the_target_in_place(tmp_path: Path) -> None:
+    """A target whose attributes cannot be read may hold one a new file would lack, so it is not replaced."""
+    target = tmp_path / "job.dpl"
+    target.write_bytes(_BEFORE)
+    inode = target.stat().st_ino
+    assert write_batch(str(target), _two_records, open_spool=FileJobSpool, read_attributes=_labelled(None)).ok
+    assert target.stat().st_ino == inode
+    assert b"r1" in target.read_bytes()
+
+
+#: The tags of a POSIX ACL entry in the kernel's xattr form (linux/posix_acl_xattr.h).
+_ACL_USER_OBJ, _ACL_USER, _ACL_GROUP_OBJ, _ACL_MASK, _ACL_OTHER = 0x01, 0x02, 0x04, 0x10, 0x20
+#: The id an entry for the owner, the owning group, the mask or others carries.
+_ACL_NO_ID = 0xFFFFFFFF
+#: Some other user's id: an ACL may name a user the system does not know.
+_OTHER_UID = 65534
+
+
+def _acl(*, owner: int, other_user: int, group: int, mask: int, others: int) -> bytes:
+    """A POSIX ACL as ``system.posix_acl_*`` holds it: version 2, then (tag, perm, id) entries in tag order."""
+    entries = [
+        (_ACL_USER_OBJ, owner, _ACL_NO_ID),
+        (_ACL_USER, other_user, _OTHER_UID),
+        (_ACL_GROUP_OBJ, group, _ACL_NO_ID),
+        (_ACL_MASK, mask, _ACL_NO_ID),
+        (_ACL_OTHER, others, _ACL_NO_ID),
+    ]
+    return struct.pack("<I", 2) + b"".join(struct.pack("<HHI", *entry) for entry in entries)
+
+
+@pytest.mark.os_linux
+def test_a_target_with_its_own_acl_under_a_default_acl_keeps_it(cli_runner: CliRunner, tmp_path: Path) -> None:
+    """A directory's default ACL gives the new file an ACL too; the target's own one must not be traded for it."""
+    if sys.platform != "linux":
+        pytest.skip("Python reads extended attributes on Linux alone")
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    label, data = _files(tmp_path, _TEXT, "r0\n")
+    target = shared / "job.dpl"
+    target.write_bytes(_BEFORE)
+    try:
+        # The directory gives every new file read for the other user; the target gives it read and write.
+        os.setxattr(shared, "system.posix_acl_default", _acl(owner=7, other_user=4, group=5, mask=5, others=5))
+        os.setxattr(target, "system.posix_acl_access", _acl(owner=6, other_user=6, group=4, mask=6, others=4))
+    except OSError as exc:
+        pytest.skip(f"this file system keeps no POSIX ACL: {exc}")
+    own = os.getxattr(target, "system.posix_acl_access")
+    inode = target.stat().st_ino
+    assert _render(cli_runner, label, data, target).exit_code == 0
+    assert target.read_bytes() != _BEFORE
+    assert target.stat().st_ino == inode
+    assert os.getxattr(target, "system.posix_acl_access") == own
 
 
 @pytest.mark.os_posix

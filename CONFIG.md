@@ -673,8 +673,9 @@ alone. A target that
 would not stay what it was is written in place: a device, a pipe, a directory that takes no new file, a
 file this user may not write (refused, as a single label's write is), one another user owns, one with
 another hard link, or on Linux one with an extended attribute (a POSIX ACL, a `user.` attribute) that a
-new file made beside it does not get. One that every new file gets too, as SELinux's `security.selinux`,
-does not keep a target in place. Elsewhere they are not read, and a replaced file loses them. A replaced file has a new
+new file made beside it does not get, or gets with another value. One that every new file gets alike, as
+SELinux's `security.selinux` or the ACL a directory's default ACL gives, does not keep a target in place;
+a target whose own ACL or label differs from that one does. Elsewhere they are not read, and a replaced file loses them. A replaced file has a new
 inode. SIGTERM or SIGHUP end the process with no handler, as closing the console window does on
 Windows, so they leave the spool directory, or the `.NAME.PID.N.tmp` beside the target, behind, and the target as
 it was. `render`

@@ -55,8 +55,8 @@ All notable changes to this project are documented here. The format follows
   label renders again for the send (a two-way batch whose images no clear empties, a single label, `calibrate
   print`) stops the job before its next byte goes out. A Ctrl-C after the envelope began adds no second envelope: stdout carries one, and exit 130 and the
   stderr line say the rest.
-- Ctrl-Break on Windows ends a command as Ctrl-C does: exit 130, and a `--data` batch's spool removed. It ended the
-  process at once and left the spool, with every record's values, in the temp directory.
+- Ctrl-Break on Windows ends a command as Ctrl-C does, with exit 130 and the `interrupted` line, and removes a
+  `--data` batch's spool; it ended the process at once, with no message.
 - `render -o -` and `print --printer -` exit 141 and say nothing when the reader of the job goes away, as the other
   commands do; they exited 2 or 120.
 - A record's own failure names its record, counted from 0 as a finding's `record` is: `data record 7 has no field 'v'`,
@@ -85,8 +85,9 @@ All notable changes to this project are documented here. The format follows
   `render -o FILE` writes a file beside the target and replaces the target only when every record passed, and
   `render -o -` checks all of them, then streams. A target that would not stay what it was if replaced (a device, a
   pipe, a directory taking no new file, a file another user owns, with another hard link, or on Linux with an
-  extended attribute, such as a POSIX ACL, that a new file beside it does not get) is written in place after the
-  check; SELinux's label, which every new file gets, does not count.
+  extended attribute, such as a POSIX ACL of its own, that a new file beside it does not get with the same value)
+  is written in place after the check; a directory's default ACL or SELinux's label, which a new file gets alike,
+  does not count.
 - Library: `iter_batch` yields one `RenderResult` at a time, `check_batch` returns a `BatchReport` holding no job, and
   `print_checked` takes the report with `report.renders()`, building each label when its turn comes. `render_batch`
   stays as the way to hold a batch whole. `check_batch(spool=...)` keeps each record in a `JobSpool` as it is
