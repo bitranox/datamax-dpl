@@ -1316,3 +1316,48 @@ def test_a_refusal_after_a_skipped_round_names_the_rounds_that_ran() -> None:
     # Round 3 ran after round 2 was skipped, so that skip is no reason for "no further round".
     assert "no further round" not in message
     assert "; round 2 skipped, it would download again" in message
+
+
+# ======================== upload_check_rounds = 0: no read after the upload ========================
+
+
+@pytest.mark.os_agnostic
+def test_no_round_sends_the_format_after_the_upload_with_no_read_even_when_the_download_was_lost() -> None:
+    """With 0 nothing checks the upload: a lost download leaves the format placing an image no module holds."""
+    label = Label(elements=[LOGO])
+    [logo] = render_label(label, ALLEGRO).downloads
+    modules = ImageModules(lose={0})
+
+    printer, sent = _print(modules, label, rounds=0)
+
+    upload, rest = printer.sent
+    assert printer.queries == []
+    assert upload + rest == render_label(label, ALLEGRO).data
+    assert modules.placed_missing == [logo]
+    assert _upload_codes(_single(sent)) == []
+
+
+@pytest.mark.os_agnostic
+def test_one_round_refuses_the_same_lost_download_that_no_round_sends() -> None:
+    printer, refused = _refused(ImageModules(lose={0}), Label(elements=[LOGO]), rounds=1)
+
+    assert printer.queries == [WG]
+    assert FORMAT not in printer.data
+    assert _upload_codes(_single(refused.result)) == [(FindingCode.IMAGE_UPLOAD_REFUSED, Severity.ERROR)]
+
+
+@pytest.mark.os_agnostic
+def test_no_round_still_reads_the_names_before_downloads_no_clear_precedes_and_skips_a_held_one() -> None:
+    """The read before the downloads decides what is placed rather than downloaded again; 0 keeps it."""
+    label = Label(elements=[LOGO, ICON])
+    logo, icon = render_label(label, PLUG_IN_TWO_WAY).downloads
+    modules = ImageModules(held=[("B", logo, 512)])
+
+    printer, sent = _print(modules, label, PLUG_IN_TWO_WAY, rounds=0)
+
+    assert printer.queries == [WG]
+    assert modules.downloads == [icon]
+    assert modules.downloaded_held == []
+    assert modules.placed_missing == []
+    assert printer.data.count(FORMAT) == 1
+    assert _upload_codes(_single(sent)) == []

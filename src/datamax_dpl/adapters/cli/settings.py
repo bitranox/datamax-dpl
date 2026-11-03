@@ -151,7 +151,8 @@ class PrinterSettings(BaseModel):
     # precedes; its own key, so a link that never answers can wait less without shortening status.
     stored_names_wait: float = Field(default=STORED_NAMES_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
     # How many rounds print runs before refusing a label whose images the printer did not
-    # list after the upload: 1 reads once, 2 adds a clear and a second upload, 3 the images halved.
+    # list after the upload: 1 reads once, 2 adds a clear and a second upload, 3 the images halved;
+    # 0 reads nothing after the upload, so a lost download goes unseen.
     upload_check_rounds: int = Field(
         default=UPLOAD_CHECK_ROUNDS, ge=MIN_UPLOAD_CHECK_ROUNDS, le=MAX_UPLOAD_CHECK_ROUNDS
     )

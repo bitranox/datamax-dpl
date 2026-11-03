@@ -7,7 +7,8 @@ bytes, a striped one of the same size 281), so no count made before sending can 
 link ``print`` therefore sends each label that downloads an image in two parts: first
 everything up to and including its downloads, then, once the printer's graphic directory
 (``<STX>W``) lists every name the label downloaded, the rest (its format, any cut, the clear
-after). A name missing, or no answer within ``stored_names_wait``, starts the next round, up to
+after). With :attr:`UploadCheck.rounds` 0 nothing is read after the upload and the format follows at
+once. A name missing, or no answer within ``stored_names_wait``, starts the next round, up to
 :attr:`UploadCheck.rounds`:
 
 1. upload and read;
@@ -124,8 +125,8 @@ UPLOAD_CHECK_ROUNDS = 3
 #: The round that clears the module and uploads again, and the round that uploads the images halved.
 CLEAR_ROUND = 2
 HALVING_ROUND = 3
-#: The fewest and the most rounds ``upload_check_rounds`` takes.
-MIN_UPLOAD_CHECK_ROUNDS = 1
+#: The fewest and the most rounds ``upload_check_rounds`` takes. 0 reads nothing after the upload.
+MIN_UPLOAD_CHECK_ROUNDS = 0
 MAX_UPLOAD_CHECK_ROUNDS = HALVING_ROUND
 
 
@@ -136,6 +137,10 @@ class UploadCheck(NamedTuple):
         wait: How long each read of the directory keeps trying (``stored_names_wait``).
         rounds: How many rounds run before a label is refused: 1 uploads and reads once, 2 adds a
             clear and a second upload, 3 (the default) adds the images halved and a third upload.
+            0 uploads and reads nothing back: the format follows the upload unchecked, as on a
+            one-way link, so an image the printer lost prints as nothing (one Allegro 2,
+            2026-11-01). The names read before downloads no clear precedes still runs: it keeps
+            a held name from being downloaded again, which printed nothing (2026-10-30).
     """
 
     wait: AnswerWait
@@ -474,6 +479,9 @@ class _Record:
         module = self._module()
         self.link.send(self.result.data[: self.result.upload_end])
         self._own_names |= frozenset(self.result.downloads)
+        if self.check.rounds < 1:
+            # No round: nothing reads the upload back, so nothing can be missing.
+            return ()
         listed = self.link.read(module, wait=self.check.wait)
         if listed.listed is None:
             self._unsure |= frozenset(self.result.downloads)

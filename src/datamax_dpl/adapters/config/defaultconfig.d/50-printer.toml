@@ -155,8 +155,13 @@ timeout = 10.0
 #          full module is lost with no error. 1 uploads and reads once; 2 then
 #          clears the module where a clear may go (never a plug-in module) and
 #          uploads again; 3 then uploads the images halved 2x2. Each round
-#          after the first reports image_upload_retried.
-# Type: integer, 1 to 3
+#          after the first reports image_upload_retried. 0 reads nothing back
+#          and retries nothing. Warning: on an Allegro 2 a format whose image
+#          is missing printed the rest with no error (2026-11-01), so a lost
+#          download then goes unseen. The names read before downloads no clear
+#          precedes still runs with 0: re-sending a name the printer already
+#          held printed nothing (2026-10-30).
+# Type: integer, 0 to 3
 # Default: 3
 # Environment Variable: DATAMAX_DPL___PRINTER__UPLOAD_CHECK_ROUNDS=2
 # upload_check_rounds = 3

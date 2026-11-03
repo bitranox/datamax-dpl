@@ -12,6 +12,11 @@ All notable changes to this project are documented here. The format follows
   report before a job and act on none a names read carries, for a print server where the extra exchange costs. The
   first label after a power cycle may then print shifted with nothing said. The library already had it as
   `CheckedJob.reset=None`.
+- `[printer] upload_check_rounds` takes `0`: `print` uploads a label's images and sends its format with no read
+  after the upload and no retry, as on a one-way link (`UploadCheck(rounds=0)` in the library;
+  `MIN_UPLOAD_CHECK_ROUNDS` is 0). A lost download then goes unseen, and an Allegro 2 prints such a format without
+  the image and with no error. The names read before downloads no clear precedes still runs, so a held name is
+  still placed rather than downloaded again.
 
 ### Fixed
 

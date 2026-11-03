@@ -190,8 +190,8 @@ def test_the_upload_check_runs_three_rounds_by_default_and_a_named_printer_sets_
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize(("value", "bound"), [(0, "greater than or equal to 1"), (4, "less than or equal to 3")])
-def test_upload_check_rounds_outside_one_to_three_is_refused_with_the_key_named(value: int, bound: str) -> None:
+@pytest.mark.parametrize(("value", "bound"), [(-1, "greater than or equal to 0"), (4, "less than or equal to 3")])
+def test_upload_check_rounds_outside_zero_to_three_is_refused_with_the_key_named(value: int, bound: str) -> None:
     with pytest.raises(ConfigurationError, match=rf"^printer\.upload_check_rounds: Input should be {bound}$"):
         _settings({"printer": {"upload_check_rounds": value}})
 

@@ -134,3 +134,24 @@ def test_reset_check_off_leaves_a_report_a_names_read_carries_unacted_on(cli_run
 def test_reset_check_takes_only_a_boolean_and_names_its_key() -> None:
     with pytest.raises(ConfigurationError, match=r"^printer\.reset_check: Input should be a valid boolean"):
         _settings({"printer": {"reset_check": "sometimes"}})
+
+
+# ======================== upload_check_rounds = 0: no read after the upload ========================
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("rounds", "requests", "lost_image_printed"), [(None, 2, False), ("0", 0, True)])
+def test_upload_check_rounds_0_reaches_the_print_and_reads_nothing_after_the_upload(
+    cli_runner: CliRunner, tmp_path: Path, rounds: str | None, requests: int, lost_image_printed: bool
+) -> None:
+    """The default reads the lost upload, clears and uploads again; 0 sends the format after the lost one."""
+    modules = ImageModules(lose={0})
+    printer = ModulePrinter(modules)
+    setting = [] if rounds is None else ["--set", f"printer.upload_check_rounds={rounds}"]
+    args = [*setting, "print", _label_file(tmp_path, IMAGE_LABEL), "--model", "allegro-2", "--printer", URI]
+
+    result = _cli(cli_runner, printer, *args)
+
+    assert result.exit_code == 0, result.output
+    assert modules.requests == requests
+    assert bool(modules.placed_missing) is lost_image_printed
