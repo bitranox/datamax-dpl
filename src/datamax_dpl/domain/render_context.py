@@ -193,7 +193,7 @@ class RenderOptions(BaseModel):
             against the model's maximum as the label's is. None sends none: the printer keeps its own.
         print_speed: Print speed (``Px``) where the label sets none, the same way.
         slew_speed: Slew speed (``Sx``) where the label sets none, the same way.
-        backup_speed: Backfeed speed (``Bx``) where the label sets none, the same way.
+        backup_speed: Backfeed speed (``px``) where the label sets none, the same way.
         column_offset_mm: Column offset (``Cnnnn``) in mm where the label sets none, sent as if the
             label had set it in mm, whatever unit the label uses; None sends none.
         row_offset_mm: Row offset (``Rnnnn``) in mm, the same way.
