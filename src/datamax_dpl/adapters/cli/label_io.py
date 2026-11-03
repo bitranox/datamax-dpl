@@ -3,7 +3,7 @@
 A label is a JSON document matching ``datamax-dpl schema``. Data records come from CSV (header row
 gives the field names), a JSON array of objects, or JSON lines. Input is bounded in size and
 every value is read as text, because records only ever fill ``{name}`` placeholders. Records are
-parsed one at a time as a command goes through them, so a batch does not hold them.
+parsed one at a time as a command goes through them, a JSON array's too, so a batch does not hold them.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from ...domain.errors import DatamaxDplError
 from ...domain.label import MAX_POLYGON_POINTS, MAX_POLYGON_POINTS_LIMIT, Label
 from ...domain.printable import printable
 from .interrupt import raise_if_interrupted
+from .json_array import array_elements, is_one_array, starts_an_array
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -31,8 +32,8 @@ if TYPE_CHECKING:
 #: Default of ``[printer] max_input_bytes``: the largest label or data file accepted, so a wrong path
 #: (a disk image) fails fast. The file's bytes are held while its records are read.
 MAX_INPUT_BYTES = 16 * 1024 * 1024
-#: Largest ``max_input_bytes`` taken, 1 GiB: a file is held whole, and a JSON array parsed whole takes
-#: about 35 times its size, so past this no host here reads one.
+#: Largest ``max_input_bytes`` taken, 1 GiB: a file is held whole while its records are read, so past
+#: this no host here reads one.
 MAX_INPUT_BYTES_LIMIT = 1024 * 1024 * 1024
 _READ_PIECE_BYTES = 64 * 1024
 STDIN = "-"
@@ -232,8 +233,8 @@ class Records:
     """The data records of a file, read one at a time and as often as a command needs them.
 
     Holds the file's bytes, which ``max_input_bytes`` bounds, and no record: stdin can be read
-    only once, while a batch is gone over once to check it and once to send it. A JSON array has no
-    way to be read in parts, so it is parsed once, whole, and held for as long as this object is.
+    only once, while a batch is gone over once to check it and once to send it. A JSON array is
+    walked element by element (:mod:`.json_array`), each pass parsing one element at a time.
     """
 
     def __init__(self, data: bytes, source: str, *, limit: int | None = None) -> None:
@@ -244,7 +245,7 @@ class Records:
             source: Its name, which also says the format: CSV for ``*.csv``.
             limit: Stop checking CSV or JSON lines once past this many records, so a caller refusing
                 more than that does not go through them all. :func:`len` then stops one past it;
-                a JSON array, parsed whole by then, counts in full.
+                a JSON array, read to its end by then to know it is one, counts in full.
 
         Raises:
             LabelInputError: A record that was checked cannot be parsed.
@@ -252,8 +253,11 @@ class Records:
         self._data = data
         self._source = source
         self._csv = source.lower().endswith(".csv")
-        self._rows: list[object] | None = None if self._csv else _json_rows(data)
-        checked = iter(self) if limit is None or self._rows is not None else itertools.islice(self, limit + 1)
+        opens_an_array = not self._csv and starts_an_array(data)
+        self._array = opens_an_array and is_one_array(data)
+        self._one: list[object] | None = None if self._csv or opens_an_array else _one_document(data)
+        counted_in_full = self._array or self._one is not None
+        checked = iter(self) if limit is None or counted_in_full else itertools.islice(self, limit + 1)
         self._count = sum(1 for _ in checked)
 
     def __iter__(self) -> Iterator[dict[str, str]]:
@@ -271,23 +275,31 @@ class Records:
     def _parsed(self) -> Iterator[dict[str, str]]:
         if self._csv:
             return _records_from_csv(self._data, self._source)
-        if self._rows is None:
+        if self._array:
+            rows: Iterator[object] = array_elements(self._data)
+        elif self._one is not None:
+            rows = iter(self._one)
+        else:
             return _records_from_json_lines(self._data, self._source)
         # Counted from 0, as a finding's record is; a JSON line goes by its line in the file instead.
-        return (_as_record(row, where=f"{self._source} record {number}") for number, row in enumerate(self._rows))
+        return (_as_record(row, where=f"{self._source} record {number}") for number, row in enumerate(rows))
 
     def __len__(self) -> int:
         """How many records were checked: all of them, unless the limit stopped it (see ``__init__``)."""
         return self._count
 
 
-def _json_rows(data: bytes) -> list[object] | None:
-    """The rows of a JSON document, or None when ``data`` is no one document: JSON lines."""
+def _one_document(data: bytes) -> list[object] | None:
+    """The one record of a JSON document that is no array, or None when ``data`` is no one document: JSON lines.
+
+    An array never comes here, whole or broken: :func:`.json_array.is_one_array` judged it, and a
+    broken one is read as JSON lines, whose refusal names the line that is not JSON.
+    """
     try:
         document: object = orjson.loads(data)
     except orjson.JSONDecodeError:
         return None
-    return cast("list[object]", document) if isinstance(document, list) else [document]
+    return [document]
 
 
 def load_records(source: str, *, limit: int | None = None, bounds: InputBounds = DEFAULT_INPUT_BOUNDS) -> Records:

@@ -176,7 +176,7 @@ class PrinterSettings(BaseModel):
     calibrate_after_reset: bool = CALIBRATE_AFTER_RESET
     calibration_label_text: str = CALIBRATION_LABEL_TEXT
     # The largest label or data file read, held whole while its records are read: more raises the
-    # peak memory by that much, and a JSON array parsed whole by about 35 times that.
+    # peak memory by that much, whatever the format, as each record is parsed only in its turn.
     max_input_bytes: int = Field(default=MAX_INPUT_BYTES, gt=0, le=MAX_INPUT_BYTES_LIMIT)
     # Most records one --data batch may hold: memory no longer grows with them, time does, since
     # every record is rendered once to check it and again to send it.

@@ -20,7 +20,7 @@ All notable changes to this project are documented here. The format follows
   `read_memory_directory(read_limit=)`.
 - `[printer] max_input_bytes` (default 16 MiB, at most 1 GiB): the largest label or data file `render`, `validate`,
   `print`, `preview` and `explain` read, so a CSV past 16 MiB can be printed without splitting it. Raising it raises
-  the peak memory by the file's size (a JSON array: about 35 times it). The refusal names the key of the section in
+  the peak memory by the file's size. The refusal names the key of the section in
   use. `max_batch_records` now takes up to 536870912, more records than a file of the largest `max_input_bytes`
   holds. Library (CLI adapter): `InputBounds`, and `bounds=` on `read_input`, `load_label` and `load_records`.
 - `[printer] inch_unit_dots` (also in `[printers.<name>]`, unset by default): the whole dots one 1/100 in prints
@@ -56,6 +56,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A JSON array `--data` file is read one element at a time, as CSV and JSON lines already were, so the peak memory
+  is the file's bytes plus one record. Up to 0.6.0 the array was parsed whole and held: 20000 two-field records
+  (1.9 MB) peaked at 68 MB resident and 40000 at 81 MB, now 60 MB and 63 MB, the same as the CSV. Records, their
+  order and every refusal of a malformed file read word for word as before.
 - `print --printer NAME` with `calibrate_after_reset` off: `printer_reset_not_calibrated` names
   `[printers.<name>] calibrate_after_reset`, the key of the section in use, rather than always `[printer]`.
 

@@ -113,8 +113,8 @@ which may be waiting for the rest.
 - **y counts from the BOTTOM edge**, x from the left; a field's reference point is its
   lower-left corner (a circle's is its centre). "At the top" means a HIGH `y`.
 - `{name}` placeholders take values from `--data` (CSV header names, a JSON array of objects or
-  JSON lines; UTF-8, a BOM is fine), one label per record. A JSON array is parsed whole, so a large
-  batch belongs in CSV or JSON lines. `{{` and `}}` are literal braces.
+  JSON lines; UTF-8, a BOM is fine), one label per record, each parsed only in its turn, in every
+  format. `{{` and `}}` are literal braces.
 - Fonts 0-8 are fixed bitmaps scaled by `width_multiplier`/`height_multiplier`; 3-6 print
   capitals only. Font 9 needs `points`. Umlauts work in fonts 1, 2 and 9, capital umlauts and
   sharp s also in 3-6; the euro sign in none.
