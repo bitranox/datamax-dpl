@@ -24,10 +24,14 @@ unknown model, printer unreachable or silent, broken config), 130 interrupted (C
 on Windows; for a command that sends, part of a job may already have gone), 141 the reader of the
 output went away. `status`
 also exits 1 when the printer reports a problem, `explain` when it could not read part of the job,
-and `detect` when no model fits; `config` and `config-deploy` also use 13 (no permission), 22 (no
-such `--section`), 78 (config does not load or permissions refused), and `config-deploy` and
-`config-generate-examples` 1. A printer that does not answer in time says how long it was given (`no
-complete answer within 0.5 s`): raise `--timeout` (seconds) or `[printer] timeout`. `status` and
+and `detect` when no model fits; `config` also uses 22 (no such `--section`) and 78 (the config does
+not load), `config-deploy` 13 (no permission), 78 (its permission settings refused) and 1 (any other
+failure), and `config-generate-examples` 1. A printer that does not answer in time says how long it
+was given (`no complete answer within 0.5 s`): raise `--timeout` (seconds) or `[printer] timeout`. A
+tcp connect the printer or print server refuses (one does for a moment after closing the last job's
+connection) is tried again, each time a connection is opened, every
+`[printer] refused_connect_retry_interval` (0.25 s) for up to `refused_connect_wait` (3 s), never
+past `timeout`. `status` and
 `memory` instead keep trying for `[printer] status_wait` (30 s) while a print server is busy with an
 earlier job and then say how long they waited (`no answer in 30.0 s (4 attempts)`), and `verify`
 waits as long for the printer to finish its job (`printer still busy after 30.0 s`): raise
@@ -49,17 +53,21 @@ names, warns on every record (`image_names_unread`), as names another program st
 `image_module` unset or name that module; the plain Prodigy, which has none, removes each name it
 downloads instead, in the module `image_module` names), or send to a two-way printer, the only way
 for the Prodigy Plus and `generic`, which have no clear. A single label on a route that reads no
-printer, and a batch's first record, only says
-its names were not read (`image_names_unread`, a warning unless `[printer] held_image_severity`
-raises it). A job is sent in `[printer] send_chunk_bytes` pieces (1024) and the timeout bounds each
-one; a job cut off part way says to power-cycle the printer, which may be waiting for the rest.
+printer, and a batch's first record, only says its names were not read (`image_names_unread`, a
+warning unless `[printer] held_image_severity` raises it; that key (`info`, `warning` or `error`)
+also sets `image_name_held`, a download left out because the printer holds its name, and `error`
+refuses either whatever `--policy` says). A job is sent in `[printer] send_chunk_bytes` pieces
+(1024) and the timeout bounds each one; a job cut off part way says to power-cycle the printer,
+which may be waiting for the rest.
 
 ## The loop - labels cost money, so do every step
 
 1. Write the label JSON (format: `datamax-dpl schema`; example below).
-2. `datamax-dpl --json validate label.json --model MODEL [--data rows.csv] [--cutter yes]`
-   (with `--data` every record is checked). Read EVERY finding in `data.findings` (`code`,
-   `severity`, `message`, `element`, `record`, `fallback`): `error` will not print; `warning` with
+2. `datamax-dpl --json validate label.json --model MODEL [--data rows.csv] [--cutter yes]` (with
+   `--data` every record is checked; `render`, `validate` and `print` refuse a batch of more than
+   `[printer] max_batch_records` (100000) records, exit 2, before anything renders). Read EVERY
+   finding in `data.findings` (`code`, `severity`, `message`, `element`, `record`, `fallback`):
+   `error` will not print; `warning` with
    `fallback` says what prints instead; `info` notes an assumption. Fix and repeat. A batch keeps
    the first 1000 findings, past those the first finding of each code not yet kept, and always its
    first error: `data.findings_total` and `data.findings_by_code` count all of them, and
@@ -99,6 +107,8 @@ one; a job cut off part way says to power-cycle the printer, which may be waitin
   format sends `D11` unless the label sets `dot_size`. Barcodes print their text line unless
   `"human_readable": false`. Barcode data never takes `<SOH>`, `<STX>`, `<ESC>` or `<CR>`
   (`barcode_control_character`, `barcode_record_terminator`): binary data holding them is not supported.
+  Barcode `data` is at most 255 characters, 3000 for PDF417, counting the PDF417 and DataMatrix
+  parameter header (8 and 10 characters): 2992 and 245 characters of data there.
 - **y counts from the BOTTOM edge**, x from the left; a field's reference point is its
   lower-left corner (a circle's is its centre). "At the top" means a HIGH `y`.
 - `{name}` placeholders take values from `--data` (CSV header names, a JSON array of objects or
@@ -135,7 +145,8 @@ one; a job cut off part way says to power-cycle the printer, which may be waitin
   `--option` and `--cutter`; `preview` takes only `--model` and `--data`.
 - `datamax-dpl models` lists the profiles; `datamax-dpl capabilities MODEL` shows what one can do,
   including features gated by firmware or an option (pass those to `validate`/`render` as
-  `--firmware 2.01` / `--option datamatrix`).
+  `--firmware 2.01` / `--option datamatrix`; the minor has two digits, so `3.2` is `3.20`, not
+  `3.02`).
 - Unknown model: `datamax-dpl --json detect --printer tcp://HOST:9100` (needs tcp or serial; it
   only reads status and sends no label) names candidates; otherwise use `generic`, the subset every model has (it has no cutting at all).
 - `--policy degrade` (default) applies fallbacks and reports them; `--policy strict` refuses
@@ -143,6 +154,10 @@ one; a job cut off part way says to power-cycle the printer, which may be waitin
   past the print width, an unsupported symbology, a bad check digit).
 - Typical fallbacks: circles and polygons on old models become downloaded images; a missing font 9
   size becomes the nearest one; out-of-range speed and heat are clamped.
+- Format length: a field reaching past `[printer] max_format_rows` dot rows along the feed, as the
+  job commands it (scale and offset included), is refused under both policies
+  (`format_past_max_length`); a label `dot_size` of height 2 doubles it. Unset it is the model's
+  limit: 1648 on `allegro-2` (the lowest row one printer was seen to cut off), none elsewhere.
 - Image memory: a job's downloaded images (given bitmaps, raster fallbacks, QR Codes) must fit
   `[printer] image_memory_bytes` (`allegro-2` default 44535, read from one printer's module A
   cartridge: on another one, set it from `memory --kind graphic`; other models have no budget). Past
@@ -151,7 +166,7 @@ one; a job cut off part way says to power-cycle the printer, which may be waitin
   halving, any job past it under `strict`, a halved image at `magnification` 5 or more. On a
   two-way `print`/`verify` the model's budget is left out (the upload check decides,
   `image_budget_skipped`); a configured `image_memory_bytes` still applies.
-- Image module: downloads go to the model's built-in module (`image_module` in `capabilities`); a Prodigy/Prodigy Plus has none and refuses them (`image_module_unknown`) until `[printer] image_module` (A-E) names the module fitted. The module is cleared before each label's downloads and again after the label's format and any cut, on a label that downloads nothing too (`[printer] clear_graphics_before` and `clear_graphics_after`, both `true`; the library's `RenderOptions.clear_graphics_before_label` and `clear_graphics_after_label`); the clear (`<STX>q`) goes only to the model's built-in RAM module, never to a plug-in one, whatever the keys say, and the plain Prodigy removes each name a label downloads instead. `<STX>q` removes the images the printer stores too, so a label that places a stored image (an `image` without `bitmap`) is refused (`stored_image_cleared`) while `clear_graphics_before` is on, and a `--data` batch of it from its second record while only `clear_graphics_after` is: keep a stored image usable with both keys `false`. The plain Prodigy's removes take only the label's own downloads.
+- Image module: downloads go to the model's built-in module (`image_module` in `capabilities`); a Prodigy/Prodigy Plus has none and refuses them (`image_module_unknown`) until `[printer] image_module` (A-E) names the module fitted. The module is cleared before each label's downloads and again after the label's format and any cut, on a label that downloads nothing too (`[printer] clear_graphics_before` and `clear_graphics_after`, both `true`; the library's `RenderOptions.clear_graphics_before_label` and `clear_graphics_after_label`); the clear (`<STX>q`) goes only to the model's built-in RAM module, never to a plug-in one, whatever the keys say, and the plain Prodigy removes each name a label downloads instead. `<STX>q` empties the whole module, the images the printer stores and any fonts and formats in it too, so a label that places a stored image (an `image` without `bitmap`) is refused (`stored_image_cleared`) while `clear_graphics_before` is on, and a `--data` batch of it from its second record while only `clear_graphics_after` is: keep a stored image usable with both keys `false`. The plain Prodigy's removes take only the label's own downloads.
 - Upload check (`print`, `verify`, two-way link): a download into a full module is lost silently,
   so a label's downloads go first, the printer's directory (`<STX>W`) is read within
   `stored_names_wait` (plus the 1 s of silence that ends the answer), and its format follows only
@@ -209,6 +224,34 @@ refused (`present_distance_too_large`). Models without `<STX>f` (`generic`, `pro
 `prodigy-152`) send neither: a label's own `stop_position` or `present_distance` is a deviation
 (`stop_position_unsupported`, `present_distance_unsupported`; an error under `strict`), a
 configured stop only the info `configured_stop_position_unsupported` (prints under `strict` too).
+
+## The printer state each job sets
+
+Another program or the front panel may have changed the printer since the last job, so each label's
+job sets the persistent settings the label relies on before its format, besides the image module
+clear before and after it (Image module, above). A 50 x 30 mm `allegro-2` label with `--cutter yes`
+and no config sends `<STX>n<STX>c0000<STX>O0220<STX>M1200<STX>SC<STX>V1<STX>f263<STX>qA`, its
+format, then `<STX>qA` (the clear of module A): media sensor (`<STX>c`; `<STX>e`/`<STX>r` where the
+model picks its sensor), start of print (`<STX>O`), maximum label length (`<STX>M`), feed rate
+(`<STX>S`), software switches (`<STX>V`) and stop position (`<STX>f`, above). Each value comes from
+the label (`media`, `stop_position`), else the `[printers.<name>]` section, else `[printer]`, else
+the model's default from the manual; a library caller sets the same fields in `RenderOptions`.
+
+- `[printer] send_settings` (unset: all) lists which go out, of `media`, `stop`, `start_of_print`,
+  `max_label_length`, `feed_rate` and `software_switches`; one left out keeps what the printer
+  holds, `[]` sends none, and a label's own media or stop it leaves out is reported
+  (`label_setting_not_sent`). A site that keeps the printer's own start of print leaves
+  `start_of_print` out of the list.
+- `media` (`gap`, `reflective`, `continuous`), `start_of_print_mm` (12.7 to 2539.746, sent as set,
+  unscaled), `max_label_length_mm` (127 to 2539.746) and `feed_rate` (`A` to `S`; outside the
+  model's slew range its default goes, `feed_rate_out_of_range`), e.g.
+  `datamax-dpl --set printer.start_of_print_mm=20 print ...`; a value set is sent on every model.
+  Where the model knows no default (`generic`, `permissive`, the Prodigy Max's start of print) and
+  none is set, nothing goes and `printer_settings_unknown` names the key that sets it.
+- `<STX>V` overrides every switch until the next power-up, so it goes out only once `cutter` and, on
+  a model with a label-present bit, `[printer] label_present` (default `unknown`) are both `yes` or
+  `no`; else `software_switches_not_sent` (info), whose message names the one missing. The Allegro
+  and Allegro 2 have no such bit, so `--cutter` (or `[printer] cutter`) alone decides there.
 
 ## Reading a DPL file, and the printer's own controls
 
@@ -323,7 +366,7 @@ device or pipe, a file this user may not write or does not own, one with another
 an extended attribute a new file would not get alike (an ACL of its own, not just the directory's
 default one), one in a directory that takes no new file - keep theirs in a file in the system
 temp directory and send or write the job only once every record passed, a file target in place:
-per record the spool holds its job's bytes and its values, plus about 0.6 KB; any other
+per record the spool holds its job's bytes and its values, plus about 0.5 KB; any other
 `render -o FILE` writes the job into a new file beside the target while it checks the records,
 which replaces the target once all passed, so the target's disk needs the room); a label is rendered
 again, from the values kept, only for
