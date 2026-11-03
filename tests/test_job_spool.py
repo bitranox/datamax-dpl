@@ -70,9 +70,9 @@ _LARGE = 800
 #: Strings cached per record grew it by about 50 bytes a record, 37 KB over these 750 records.
 _FLAT_BYTES = 16 * 1024
 #: Why the check skips 3.10: there what is held after reading back, after a full collection, grew by
-#: about 70 KB between these sizes (3.10.22, two runs, 2026-11-03), past the bound with nothing of
-#: the batch kept. 3.11 to 3.15 grew by under 2 KB.
-_RAMP_310 = "3.10 holds about 70 KB more at 800 records than at 50 after a full collection, with nothing kept"
+#: 48 to 78 KB between these sizes (3.10.22, two runs, 2026-11-03), past the bound with nothing of
+#: the batch kept. 3.11 to 3.15 grew by under 3 KB (two runs each).
+_RAMP_310 = "3.10 holds 48 to 78 KB more at 800 records than at 50 after a full collection, with nothing kept"
 _TCP = "tcp://192.0.2.60:9100"
 
 
@@ -302,10 +302,12 @@ def _held_after_reading(records: int) -> int:
     What stays, not the peak: one record's render costs more than the strings a batch would keep,
     so a peak taken over the run shows the first record and hides what piles up behind it. Read
     after a full collection: on 3.11 to 3.13 what the interpreter keeps for reuse (free lists) and
-    garbage not yet collected grew by about 140 KB between these sizes with nothing of the batch
+    garbage not yet collected grew by about 395 KB between these sizes with nothing of the batch
     held, and a full collection drops all of it.
     """
-    rows = [{"a": f"record-{number}-{'x' * 60}"} for number in range(records)]
+    # Short values keep each code a version 1 symbol: a longer one draws slower and names the same
+    # (see _FOUR in test_batch_names.py for why that cost matters on 3.12 under coverage).
+    rows = [{"a": f"record-{number}"} for number in range(records)]
     tracemalloc.start()
     try:
         with FileJobSpool() as spool:
