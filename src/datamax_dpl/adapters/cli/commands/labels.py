@@ -29,7 +29,7 @@ from ..job_file import write_batch
 from ..label_io import STDIN, LabelInputError, Records, load_label, load_records, read_input
 from ..payloads import RenderPayload, ShownJob, payload_findings_text, refused_text, render_payload, went_out_text
 from ..runner import CommandResult, run_command
-from ..settings import render_options, report_limits
+from ..settings import PrinterOverrides, input_bounds, render_options, report_limits
 from ..typed_click import argument, option
 from .model_options import command_overrides, printer_choice_decorator, render_options_decorator, resolve_settings
 
@@ -58,7 +58,7 @@ def load_batch(source: str, settings: PrinterSettings) -> Records:
         LabelInputError: The file cannot be read or parsed, or holds no record or too many.
     """
     limit = settings.max_batch_records
-    records = load_records(source, limit=limit)
+    records = load_records(source, limit=limit, bounds=input_bounds(settings))
     if len(records) > limit:
         key = printer_section(settings.name).setting("max_batch_records")
         raise LabelInputError(f"{source} holds more than {limit} data records; a larger batch needs {key}")
@@ -256,7 +256,7 @@ def cli_render(ctx: click.Context, label_source: str, data: str | None, output: 
             msg = "--output - cannot be combined with --json: stdout carries the envelope"
             raise ConfigurationError(msg)
         settings = resolve_settings(cli_ctx, command_overrides(given))
-        label = load_label(label_source)
+        label = load_label(label_source, bounds=input_bounds(settings))
         records = None if data is None else load_batch(data, settings)
         rendered = _rendered(label, records, settings, output=output, cli_ctx=cli_ctx)
         result = rendered.result
@@ -319,7 +319,7 @@ def cli_validate(ctx: click.Context, label_source: str, data: str | None, **give
 
     def body(cli_ctx: CLIContext) -> CommandResult:
         settings = resolve_settings(cli_ctx, command_overrides(given))
-        label = load_label(label_source)
+        label = load_label(label_source, bounds=input_bounds(settings))
         records = None if data is None else load_batch(data, settings)
         # A batch is judged by the link print would take: a two-way printer is read before each
         # label, so a batch needing that passes; a single label says its names were not read.
@@ -350,8 +350,10 @@ class ExplainPayload(BaseModel):
 def cli_explain(ctx: click.Context, dpl_source: str) -> None:
     """Explain an existing DPL file command by command, and rebuild its label as JSON."""
 
-    def body(_cli_ctx: CLIContext) -> CommandResult:
-        explanation = explain(read_input(dpl_source))
+    def body(cli_ctx: CLIContext) -> CommandResult:
+        # The [printer] section's bound: explain names no printer, so no other section applies.
+        bounds = input_bounds(resolve_settings(cli_ctx, PrinterOverrides()))
+        explanation = explain(read_input(dpl_source, bounds=bounds))
         payload = ExplainPayload(
             commands=list(explanation.commands), label=explanation.label, problems=list(explanation.problems)
         )

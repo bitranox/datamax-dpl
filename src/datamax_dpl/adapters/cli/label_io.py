@@ -13,6 +13,7 @@ import io
 import itertools
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, cast
 
@@ -27,8 +28,12 @@ from .interrupt import raise_if_interrupted
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-#: Largest label or data file accepted, so a wrong path (a disk image) fails fast.
+#: Default of ``[printer] max_input_bytes``: the largest label or data file accepted, so a wrong path
+#: (a disk image) fails fast. The file's bytes are held while its records are read.
 MAX_INPUT_BYTES = 16 * 1024 * 1024
+#: Largest ``max_input_bytes`` taken, 1 GiB: a file is held whole, and a JSON array parsed whole takes
+#: about 35 times its size, so past this no host here reads one.
+MAX_INPUT_BYTES_LIMIT = 1024 * 1024 * 1024
 _READ_PIECE_BYTES = 64 * 1024
 STDIN = "-"
 _LINE_END = re.compile(rb"\r\n|\r|\n")
@@ -36,6 +41,27 @@ _LINE_END = re.compile(rb"\r\n|\r|\n")
 
 class LabelInputError(DatamaxDplError, ValueError):
     """A label or data file could not be read or does not describe a valid label."""
+
+
+@dataclass(frozen=True, slots=True)
+class InputBounds:
+    """How much of a label or data file a command reads, and the setting that allows more.
+
+    Attributes:
+        max_bytes: The largest file accepted (``[printer] max_input_bytes``).
+        max_bytes_key: The setting a refusal names, as the section in use spells it; empty names none.
+
+    Example:
+        >>> InputBounds().max_bytes == MAX_INPUT_BYTES
+        True
+    """
+
+    max_bytes: int = MAX_INPUT_BYTES
+    max_bytes_key: str = ""
+
+
+#: The bounds of a reader given none: the defaults, naming no setting.
+DEFAULT_INPUT_BOUNDS = InputBounds()
 
 
 def _read_at_most(stream: BinaryIO, limit: int) -> bytes:
@@ -48,22 +74,24 @@ def _read_at_most(stream: BinaryIO, limit: int) -> bytes:
     return b"".join(pieces)
 
 
-def read_input(source: str) -> bytes:
-    """Read ``source`` (a path, or ``-`` for stdin), refusing more than :data:`MAX_INPUT_BYTES`.
+def read_input(source: str, *, bounds: InputBounds = DEFAULT_INPUT_BOUNDS) -> bytes:
+    """Read ``source`` (a path, or ``-`` for stdin), refusing more than ``bounds.max_bytes``.
 
     Raises:
-        LabelInputError: The file cannot be read or is too large.
+        LabelInputError: The file cannot be read or is too large; the message names the setting.
     """
+    limit = bounds.max_bytes
     try:
         if source == STDIN:
-            data = _read_at_most(sys.stdin.buffer, MAX_INPUT_BYTES + 1)
+            data = _read_at_most(sys.stdin.buffer, limit + 1)
         else:
             with Path(source).open("rb") as handle:
-                data = _read_at_most(handle, MAX_INPUT_BYTES + 1)
+                data = _read_at_most(handle, limit + 1)
     except OSError as exc:
         raise LabelInputError(f"cannot read {source}: {exc.strerror or exc}") from None
-    if len(data) > MAX_INPUT_BYTES:
-        raise LabelInputError(f"{source} is larger than {MAX_INPUT_BYTES} bytes")
+    if len(data) > limit:
+        advice = f"; a larger file needs {bounds.max_bytes_key}" if bounds.max_bytes_key else ""
+        raise LabelInputError(f"{source} is larger than {limit} bytes{advice}")
     return data
 
 
@@ -97,9 +125,9 @@ def parse_label(data: bytes, *, source: str = "label") -> Label:
         raise LabelInputError(f"{source} is not a valid label: {validation_lines(exc)}") from None
 
 
-def load_label(source: str) -> Label:
-    """Read and parse the label at ``source`` (path or ``-``)."""
-    return parse_label(read_input(source), source=source)
+def load_label(source: str, *, bounds: InputBounds = DEFAULT_INPUT_BOUNDS) -> Label:
+    """Read and parse the label at ``source`` (path or ``-``), within ``bounds``."""
+    return parse_label(read_input(source, bounds=bounds), source=source)
 
 
 def _as_record(row: object, *, where: str) -> dict[str, str]:
@@ -148,7 +176,7 @@ def _records_from_csv(data: bytes, source: str) -> Iterator[dict[str, str]]:
 class Records:
     """The data records of a file, read one at a time and as often as a command needs them.
 
-    Holds the file's bytes, which :data:`MAX_INPUT_BYTES` bounds, and no record: stdin can be read
+    Holds the file's bytes, which ``max_input_bytes`` bounds, and no record: stdin can be read
     only once, while a batch is gone over once to check it and once to send it. A JSON array has no
     way to be read in parts, so it is parsed once, whole, and held for as long as this object is.
     """
@@ -207,12 +235,13 @@ def _json_rows(data: bytes) -> list[object] | None:
     return cast("list[object]", document) if isinstance(document, list) else [document]
 
 
-def load_records(source: str, *, limit: int | None = None) -> Records:
+def load_records(source: str, *, limit: int | None = None, bounds: InputBounds = DEFAULT_INPUT_BOUNDS) -> Records:
     """Read data records: CSV for ``*.csv``, else JSON array, JSON object or JSON lines.
 
     Args:
         source: The file, or ``-`` for stdin.
         limit: See :class:`Records`.
+        bounds: How large the file may be.
 
     Returns:
         The records, which can be iterated as often as needed; every one that was checked parsed.
@@ -220,15 +249,18 @@ def load_records(source: str, *, limit: int | None = None) -> Records:
     Raises:
         LabelInputError: The file cannot be read or parsed, or holds no record.
     """
-    records = Records(read_input(source), source, limit=limit)
+    records = Records(read_input(source, bounds=bounds), source, limit=limit)
     if not len(records):
         raise LabelInputError(f"{source} holds no data record")
     return records
 
 
 __all__ = [
+    "DEFAULT_INPUT_BOUNDS",
     "MAX_INPUT_BYTES",
+    "MAX_INPUT_BYTES_LIMIT",
     "STDIN",
+    "InputBounds",
     "LabelInputError",
     "Records",
     "load_label",

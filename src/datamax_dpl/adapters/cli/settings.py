@@ -68,6 +68,7 @@ from ..config.sections import (
     printer_section,
 )
 from ..transport.uri import is_printer_name, is_printer_uri
+from .label_io import MAX_INPUT_BYTES, MAX_INPUT_BYTES_LIMIT, InputBounds
 
 if TYPE_CHECKING:
     import re
@@ -87,8 +88,11 @@ _ConfiguredStop = Annotated[_BoundedStop | PrinterStop, stop_position_or_printer
 
 #: Default of ``[printer] max_batch_records``.
 MAX_BATCH_RECORDS = 100_000
-#: Largest ``max_batch_records`` taken: more records than a 16 MiB file can hold, so "no limit".
-MAX_BATCH_RECORDS_LIMIT = 10_000_000
+#: Bytes of the smallest data record: one character and its line end.
+_SMALLEST_RECORD_BYTES = 2
+#: Largest ``max_batch_records`` taken: more records than a file at the largest ``max_input_bytes``
+#: can hold, so "no limit" whatever that key allows.
+MAX_BATCH_RECORDS_LIMIT = MAX_INPUT_BYTES_LIMIT // _SMALLEST_RECORD_BYTES
 #: Default of ``[printer] max_batch_job_bytes``, 64 MiB. It bounds the job, not the memory: the process
 #: holds several times the job while it answers, measured per output mode and platform in CONFIG.md
 #: ("Batches and memory"). 100000 records of a one-field label come to 6-7 MB, nine such batches fit.
@@ -171,6 +175,9 @@ class PrinterSettings(BaseModel):
     reset_check_wait: float = Field(default=RESET_CHECK_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
     calibrate_after_reset: bool = CALIBRATE_AFTER_RESET
     calibration_label_text: str = CALIBRATION_LABEL_TEXT
+    # The largest label or data file read, held whole while its records are read: more raises the
+    # peak memory by that much, and a JSON array parsed whole by about 35 times that.
+    max_input_bytes: int = Field(default=MAX_INPUT_BYTES, gt=0, le=MAX_INPUT_BYTES_LIMIT)
     # Most records one --data batch may hold: memory no longer grows with them, time does, since
     # every record is rendered once to check it and again to send it.
     max_batch_records: int = Field(default=MAX_BATCH_RECORDS, gt=0, le=MAX_BATCH_RECORDS_LIMIT)
@@ -239,6 +246,7 @@ class PrinterSettings(BaseModel):
         "directory_read_limit",
         "reset_check_wait",
         "upload_check_rounds",
+        "max_input_bytes",
         "max_batch_records",
         "max_batch_job_bytes",
         "max_reported_findings",
@@ -623,6 +631,17 @@ def require_uri(settings: PrinterSettings) -> str:
     raise ConfigurationError(f"no printer given: pass --printer NAME or URI, or set {uri_key}")
 
 
+def input_bounds(settings: PrinterSettings) -> InputBounds:
+    """How large a label or data file a command reads: ``max_input_bytes``, named for the section in use.
+
+    Example:
+        >>> input_bounds(PrinterSettings(name="lager", max_input_bytes=512))
+        InputBounds(max_bytes=512, max_bytes_key='[printers.lager] max_input_bytes')
+    """
+    key = printer_section(settings.name).setting("max_input_bytes")
+    return InputBounds(max_bytes=settings.max_input_bytes, max_bytes_key=key)
+
+
 def report_limits(settings: PrinterSettings) -> ReportLimits:
     """How much of a batch its answer keeps: ``max_reported_findings`` and ``max_reported_downloads``."""
     return ReportLimits(findings=settings.max_reported_findings, downloads=settings.max_reported_downloads)
@@ -634,6 +653,7 @@ __all__ = [
     "PrinterOverrides",
     "PrinterSettings",
     "check_printer_values",
+    "input_bounds",
     "preview_settings",
     "printer_settings",
     "render_options",

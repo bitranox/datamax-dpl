@@ -116,6 +116,7 @@ PRINTER_NUMBERS = [
     "directory_read_limit",
     "reset_check_wait",
     "upload_check_rounds",
+    "max_input_bytes",
     "max_batch_records",
     "max_batch_job_bytes",
     "max_reported_findings",
@@ -231,7 +232,7 @@ def test_a_dotenv_true_is_refused_as_a_number(tmp_path: Path) -> None:
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize(
     ("key", "largest"),
-    [("max_batch_records", 10_000_000), ("max_batch_job_bytes", 1_099_511_627_776)],
+    [("max_batch_records", 536_870_912), ("max_batch_job_bytes", 1_099_511_627_776)],
 )
 def test_a_batch_limit_takes_its_documented_largest_value_and_no_more(key: str, largest: int) -> None:
     assert getattr(_printer({key: largest}), key) == largest

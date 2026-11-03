@@ -47,6 +47,7 @@ from ..runner import CommandResult, run_command
 from ..settings import (
     PrinterOverrides,
     PrinterSettings,
+    input_bounds,
     preview_settings,
     render_options,
     require_uri,
@@ -98,7 +99,7 @@ def _print_body(
 ) -> CommandResult:
     """Run ``print``: a batch's check keeps each record in ``spool``, and the send reads it back."""
     settings = resolve_sending_settings(cli_ctx, command_overrides(given))
-    label = load_label(label_source)
+    label = load_label(label_source, bounds=input_bounds(settings))
     records = None if data is None else load_batch(data, settings)
     link = _link(settings)
     options = _print_options(settings, link=link)
@@ -506,9 +507,10 @@ def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | 
         if output == STDIN:
             raise LabelInputError("preview --output - is not supported: a PNG goes to a file")
         settings = resolve_settings(cli_ctx, PrinterOverrides(model=model))
-        label = load_label(label_source)
+        bounds = input_bounds(settings)
+        label = load_label(label_source, bounds=bounds)
         if data is not None:
-            label = fill_record(label, next(iter(load_records(data))), number=0)
+            label = fill_record(label, next(iter(load_records(data, bounds=bounds))), number=0)
         profile = get_profile(settings.model)
         options = render_options(settings)
         limit = _preview_limit(cli_ctx)

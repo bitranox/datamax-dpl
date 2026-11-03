@@ -17,6 +17,11 @@ All notable changes to this project are documented here. The format follows
   `[printer] directory_read_limit` (default `120.0` s): the longest one `memory` answer may take, so a slow serial line
   or a long listing can be read. Library: `UploadCheck.idle`, `Link.read(idle=)`, `read_stored_names(idle=)` and
   `read_memory_directory(read_limit=)`.
+- `[printer] max_input_bytes` (default 16 MiB, at most 1 GiB): the largest label or data file `render`, `validate`,
+  `print`, `preview` and `explain` read, so a CSV past 16 MiB can be printed without splitting it. Raising it raises
+  the peak memory by the file's size (a JSON array: about 35 times it). The refusal names the key of the section in
+  use. `max_batch_records` now takes up to 536870912, more records than a file of the largest `max_input_bytes`
+  holds. Library (CLI adapter): `InputBounds`, and `bounds=` on `read_input`, `load_label` and `load_records`.
 - `[printer] upload_check_rounds` takes `0`: `print` uploads a label's images and sends its format with no read
   after the upload and no retry, as on a one-way link (`UploadCheck(rounds=0)` in the library;
   `MIN_UPLOAD_CHECK_ROUNDS` is 0). A lost download then goes unseen, and an Allegro 2 prints such a format without

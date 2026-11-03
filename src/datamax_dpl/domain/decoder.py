@@ -23,7 +23,7 @@ from .symbology import SYMBOLOGY_BY_IDENTIFIER
 _SOH, _STX, _CR = 0x01, 0x02, 0x0D
 _PRINTABLE = range(32, 127)
 #: Most commands one result lists. A sanity limit, so no settings key: a command takes about 1 KB of
-#: result and can be a single byte of input, so the 16 MiB a file may hold would come to 15 GB. This
+#: result and can be a single byte of input, so the 16 MiB a file holds by default would come to 15 GB. This
 #: is a batch of about 1000 labels, more than anyone reads through.
 MAX_EXPLAINED_COMMANDS = 100_000
 #: A record header is 15 characters: a b c d eee ffff gggg.

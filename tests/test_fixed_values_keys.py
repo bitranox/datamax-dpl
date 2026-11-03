@@ -18,7 +18,13 @@ from lib_layered_config import Config
 from printer_server import ImageModules, ModulePrinter
 
 from datamax_dpl.adapters.cli import root as cli_mod
-from datamax_dpl.adapters.cli.settings import PrinterOverrides, PrinterSettings, printer_settings
+from datamax_dpl.adapters.cli.label_io import MAX_INPUT_BYTES, MAX_INPUT_BYTES_LIMIT, load_records
+from datamax_dpl.adapters.cli.settings import (
+    MAX_BATCH_RECORDS_LIMIT,
+    PrinterOverrides,
+    PrinterSettings,
+    printer_settings,
+)
 from datamax_dpl.adapters.memory import RecordingPrinter
 from datamax_dpl.application.use_cases import DIRECTORY_IDLE_SECONDS
 from datamax_dpl.composition import build_testing
@@ -282,3 +288,112 @@ def test_a_directory_key_out_of_range_is_refused_naming_it(key: str, value: floa
 def test_a_directory_key_refuses_a_boolean(key: str) -> None:
     with pytest.raises(ConfigurationError, match=rf"^printer\.{key}: needs a number, got true"):
         _settings({"printer": {key: True}})
+
+
+# ======================== max_input_bytes: the largest label or data file ========================
+
+#: A label file of 60-odd bytes, padded with whitespace JSON allows to any length.
+_SMALL_LABEL = b'{"elements": [{"type": "text", "x": 1, "y": 1, "text": "A"}]}'
+
+
+def _padded(tmp_path: Path, name: str, content: bytes, size: int) -> str:
+    path = tmp_path / name
+    path.write_bytes(content + b" " * (size - len(content)))
+    return str(path)
+
+
+def _input_error(result: Result) -> str:
+    assert result.exit_code == 2, result.output
+    document = json.loads(result.stdout)
+    assert document["error"] == "LabelInputError"
+    message: str = document["message"]
+    return message
+
+
+@pytest.mark.os_agnostic
+def test_max_input_bytes_defaults_to_16_mib_and_a_file_one_past_it_is_refused(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    label = _padded(tmp_path, "label.json", _SMALL_LABEL, MAX_INPUT_BYTES + 1)
+
+    message = _input_error(_cli(cli_runner, None, "validate", label))
+
+    assert PrinterSettings().max_input_bytes == MAX_INPUT_BYTES == 16 * 1024 * 1024
+    assert message == f"{label} is larger than {MAX_INPUT_BYTES} bytes; a larger file needs [printer] max_input_bytes"
+
+
+@pytest.mark.os_agnostic
+def test_a_larger_max_input_bytes_reads_a_file_past_16_mib(cli_runner: CliRunner, tmp_path: Path) -> None:
+    label = _padded(tmp_path, "label.json", _SMALL_LABEL, MAX_INPUT_BYTES + 1)
+
+    result = _cli(cli_runner, None, "--set", f"printer.max_input_bytes={MAX_INPUT_BYTES + 1}", "validate", label)
+
+    assert result.exit_code == 0, result.output
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("section", "printer"), [("printer", []), ("printers.lager", ["--printer", "lager"])], ids=["printer", "named"]
+)
+def test_a_smaller_max_input_bytes_refuses_a_label_and_names_the_key_of_the_section_in_use(
+    cli_runner: CliRunner, tmp_path: Path, section: str, printer: list[str]
+) -> None:
+    label = _padded(tmp_path, "label.json", _SMALL_LABEL, 101)
+    named = ["--set", f"printers.lager.uri={URI}"]
+
+    message = _input_error(
+        _cli(cli_runner, None, *named, "--set", f"{section}.max_input_bytes=100", "validate", label, *printer)
+    )
+    passed = _cli(cli_runner, None, *named, "--set", f"{section}.max_input_bytes=101", "validate", label, *printer)
+
+    assert message.endswith(f"is larger than 100 bytes; a larger file needs [{section}] max_input_bytes")
+    assert passed.exit_code == 0, passed.output
+
+
+@pytest.mark.os_agnostic
+def test_max_input_bytes_bounds_the_data_file_too(cli_runner: CliRunner, tmp_path: Path) -> None:
+    label = _padded(tmp_path, "label.json", _SMALL_LABEL, len(_SMALL_LABEL))
+    data = _padded(tmp_path, "data.csv", b"n\n1\n2\n", 300)
+
+    message = _input_error(
+        _cli(cli_runner, None, "--set", "printer.max_input_bytes=200", "validate", label, "--data", data)
+    )
+
+    assert message == f"{data} is larger than 200 bytes; a larger file needs [printer] max_input_bytes"
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("command", ["render", "explain", "preview"])
+def test_every_command_reading_a_file_takes_max_input_bytes(
+    cli_runner: CliRunner, tmp_path: Path, command: str
+) -> None:
+    source = _padded(tmp_path, "input.json", _SMALL_LABEL, 101)
+    extra = ["-o", str(tmp_path / "out.png")] if command == "preview" else []
+
+    message = _input_error(_cli(cli_runner, None, "--set", "printer.max_input_bytes=100", command, source, *extra))
+
+    assert message.endswith("is larger than 100 bytes; a larger file needs [printer] max_input_bytes")
+
+
+@pytest.mark.os_agnostic
+def test_max_input_bytes_takes_its_largest_value_and_no_more() -> None:
+    assert _settings({"printer": {"max_input_bytes": MAX_INPUT_BYTES_LIMIT}}).max_input_bytes == MAX_INPUT_BYTES_LIMIT
+    with pytest.raises(ConfigurationError, match=r"^printer\.max_input_bytes: Input should be less than or equal to"):
+        _settings({"printer": {"max_input_bytes": MAX_INPUT_BYTES_LIMIT + 1}})
+    with pytest.raises(ConfigurationError, match=r"^printer\.max_input_bytes: Input should be greater than 0"):
+        _settings({"printer": {"max_input_bytes": 0}})
+
+
+@pytest.mark.os_agnostic
+def test_max_batch_records_ceiling_still_means_no_limit_at_the_largest_input(tmp_path: Path) -> None:
+    """The smallest CSV record is one character and a line end, so no file within the ceiling holds more records."""
+    path = tmp_path / "tiny.csv"
+    path.write_bytes(b"n\n" + b"x\n" * 1000)
+
+    smallest_record = (path.stat().st_size - len(b"n\n")) // len(load_records(str(path)))
+
+    assert smallest_record == 2
+    assert MAX_BATCH_RECORDS_LIMIT * smallest_record >= MAX_INPUT_BYTES_LIMIT
+    assert _settings({"printer": {"max_batch_records": MAX_BATCH_RECORDS_LIMIT}}).max_batch_records == (
+        MAX_BATCH_RECORDS_LIMIT
+    )

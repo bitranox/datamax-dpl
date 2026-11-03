@@ -60,7 +60,7 @@ FONT_9 = 9
 MAX_LENGTH = 100_000.0
 #: Most elements one label may hold. A sanity limit, so no settings key: the largest format any model
 #: takes is 399 records, and every per-element cost (drawing, encoding, comparing fields for
-#: transparency) would otherwise scale with whatever a 16 MiB document can hold, about 190,000.
+#: transparency) would otherwise scale with whatever a document can hold, about 190,000 in 16 MiB.
 MAX_ELEMENTS = 2048
 
 NonNegative = Annotated[float, Field(ge=0, le=MAX_LENGTH, strict=True, allow_inf_nan=False)]
