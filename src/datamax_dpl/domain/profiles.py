@@ -187,13 +187,15 @@ class CalibrationKey(str, Enum):
 
     @classmethod
     def scale(cls, axis: Axis) -> CalibrationKey:
-        """The scale factor's key on ``axis``."""
-        return cls.SCALE_ACROSS if axis is Axis.ACROSS else cls.SCALE_ALONG
+        """The scale factor's key on ``axis``; its value (``"across"``) picks the same key."""
+        # Axis is a str Enum, so a caller may hand its value: an identity test would read "across"
+        # as the other axis, and Axis() refuses a value that is neither.
+        return cls.SCALE_ACROSS if Axis(axis) is Axis.ACROSS else cls.SCALE_ALONG
 
     @classmethod
     def offset(cls, axis: Axis) -> CalibrationKey:
-        """The offset's key on ``axis``."""
-        return cls.OFFSET_ACROSS if axis is Axis.ACROSS else cls.OFFSET_ALONG
+        """The offset's key on ``axis``; its value (``"across"``) picks the same key."""
+        return cls.OFFSET_ACROSS if Axis(axis) is Axis.ACROSS else cls.OFFSET_ALONG
 
 
 @dataclass(frozen=True)

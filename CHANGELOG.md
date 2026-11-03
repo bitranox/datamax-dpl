@@ -114,9 +114,10 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - The package root exports every type an exported signature or field names, so a caller can import what it
-  annotates: `CalibrationDefaults`, `CalibrationKey`, `CheckedPrint`, `Clock`, `DecodedCommand`, `Feature`,
+  annotates: `Axis`, `CalibrationDefaults`, `CalibrationKey`, `CheckedPrint`, `Clock`, `DecodedCommand`, `Feature`,
   `Firmware`, `ModelFamily`, `OpenPrinter`, `RecordRender`, `Sleep`, `SoftwareSwitchBits`, `Source`, `SpeedRange`,
-  `Support` and `UndescribedBit`.
+  `Support` and `UndescribedBit`. `CalibrationKey.scale` and `.offset` take an `Axis` or its value: `"across"` picks
+  the across key (it picked the along one).
 - `docs/label-spec.md` lists the QR Code sizes and how they scanned on an Allegro 2.
 - A calibration label after a printer reset. Before the first label of a
   two-way `print`, `print --data`, `verify` or `print_checked`, the job reads

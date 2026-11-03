@@ -134,7 +134,7 @@ from .domain.render import RenderResult, build_job, render
 from .domain.render_context import RenderOptions
 from .domain.symbology import Symbology
 from .domain.timing import TransportTuning
-from .domain.units import DplUnit
+from .domain.units import Axis, DplUnit
 
 __all__ = [
     "ACROSS_INSET_MM",
@@ -142,6 +142,7 @@ __all__ = [
     "AnswerNotEndedError",
     "AnswerWait",
     "Attribute",
+    "Axis",
     "Barcode",
     "BarcodeProblemCode",
     "BatchEntry",

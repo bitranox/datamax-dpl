@@ -9,6 +9,7 @@ from typing import cast
 
 import pytest
 
+import datamax_dpl
 from datamax_dpl.domain.detect import MEMORY_REPORT_MODELS, Evidence, suggest_profiles
 from datamax_dpl.domain.enums import ImageModule, ModelFamily
 from datamax_dpl.domain.profiles import (
@@ -23,6 +24,7 @@ from datamax_dpl.domain.profiles import (
     get_profile,
     list_profiles,
 )
+from datamax_dpl.domain.units import Axis
 
 
 def _values(calibration: CalibrationDefaults) -> tuple[float, float, float, float, float | None]:
@@ -191,3 +193,17 @@ def test_a_calibration_key_reads_the_value_it_names_and_is_the_configuration_key
         "offset_across": 0.3,
         "offset_along": 0.4,
     }
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("axis", ["across", "along"])
+def test_a_calibration_key_reads_an_axis_given_by_its_value(axis: str) -> None:
+    """Axis is a str Enum, so its value may stand for it; it must pick that axis, not the other."""
+    given = cast("Axis", axis)
+    assert CalibrationKey.scale(given) is CalibrationKey.scale(Axis(axis))
+    assert CalibrationKey.offset(given) is CalibrationKey.offset(Axis(axis))
+
+
+@pytest.mark.os_agnostic
+def test_the_axis_a_calibration_key_takes_is_exported() -> None:
+    assert datamax_dpl.Axis is Axis

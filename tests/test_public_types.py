@@ -1,8 +1,11 @@
 """Every package type a caller meets in an exported signature or field can be imported from the root.
 
 The test walks the type hints of each exported function, of each exported class (its fields), and of
-each public method and property, and names every type of this package found there that the root does
-not export. A type left out on purpose is listed below with its reason.
+each public method, property, class and static method, ``__call__`` and overload, on the class and on
+each of its bases from this package; an exported object that is neither (a callable instance) is
+walked through its class's members. The arguments of a ``Callable`` count as hints. It names every
+type of this package found there that the root does not export; one left out on purpose is listed
+below with its reason.
 """
 
 from __future__ import annotations
@@ -11,11 +14,17 @@ import collections.abc
 import importlib
 import inspect
 import pkgutil
+import sys
 import typing
 
 import pytest
 
 import datamax_dpl
+
+if typing.TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+
+    from datamax_dpl.application.use_cases import BatchJob
 
 #: Types an exported signature names that a caller never builds, passes or annotates, and why.
 _KEPT_OUT = {
@@ -44,7 +53,10 @@ def _package_types(hint: object) -> typing.Iterator[str]:
     if isinstance(hint, typing.TypeVar):
         return
     for argument in typing.get_args(hint):
-        yield from _package_types(argument)
+        # A Callable's parameters come as one list: Callable[[X], Y] gives ([X], Y).
+        parts = typing.cast("list[object]", argument) if isinstance(argument, list) else [argument]
+        for part in parts:
+            yield from _package_types(part)
     origin = typing.get_origin(hint) or hint
     name = getattr(origin, "__name__", None)
     if name and (getattr(origin, "__module__", "") or "").startswith("datamax_dpl"):
@@ -57,31 +69,67 @@ def _hinted(item: object, names: dict[str, object]) -> typing.Iterator[tuple[str
     yield from typing.get_type_hints(item, globalns=scope).items()
 
 
-def _members(name: str, item: object) -> typing.Iterator[tuple[str, object]]:
-    """``item`` and, for a class, each public method and property's getter, named for the message."""
-    yield name, item
-    if not inspect.isclass(item):
+#: The dunder methods a caller calls or implements, walked beside the public ones.
+_CALLED_DUNDERS = frozenset({"__init__", "__call__"})
+
+
+def _functions(member: object) -> typing.Iterator[object]:
+    """The functions a class attribute holds: a method, a getter, a class or static method's function, overloads."""
+    if isinstance(member, property):
+        member = member.fget
+    elif isinstance(member, classmethod):
+        member = typing.cast("classmethod[object, ..., object]", member).__func__
+    elif isinstance(member, staticmethod):
+        member = typing.cast("staticmethod[..., object]", member).__func__
+    if not inspect.isfunction(member):
         return
-    for attribute, member in vars(item).items():
-        function = member.fget if isinstance(member, property) else member
-        if inspect.isfunction(function) and (not attribute.startswith("_") or attribute == "__init__"):
-            yield f"{name}.{attribute}", function
+    yield member
+    # get_overloads is 3.11+; on 3.10 the implementation's own hints, which cover each overload, stay.
+    if sys.version_info >= (3, 11):
+        yield from typing.get_overloads(member)
 
 
-def _unexported() -> dict[str, set[str]]:
+def _package_bases(cls: type) -> list[type]:
+    """``cls`` and each base of it from this package (or from its own module): their members are the class's too."""
+    own = (cls.__module__, "datamax_dpl")
+    return [base for base in cls.__mro__ if (base.__module__ or "").startswith(own)]
+
+
+def _members(name: str, item: object) -> typing.Iterator[tuple[str, object]]:
+    """``item`` and each member a caller meets through it, named for the message.
+
+    A class gives its methods and its bases' from this package; any other callable (an instance
+    with ``__call__``) gives its class's, but not the class itself, which the caller never names.
+    """
+    if inspect.isfunction(item) or inspect.isclass(item):
+        yield name, item
+    owner = item if inspect.isclass(item) else type(item)
+    if not inspect.isclass(item) and not callable(item):
+        return
+    for cls in _package_bases(owner):
+        for attribute, member in vars(cls).items():
+            if attribute.startswith("_") and attribute not in _CALLED_DUNDERS:
+                continue
+            for function in _functions(member):
+                yield f"{name}.{attribute}", function
+
+
+def _unexported_in(items: Mapping[str, object], exported: set[str]) -> dict[str, set[str]]:
+    """Each package type ``items`` name that ``exported`` lacks, with where."""
     names = _namespace()
-    exported = set(datamax_dpl.__all__)
     found: dict[str, set[str]] = {}
-    for name in sorted(exported):
-        item = getattr(datamax_dpl, name)
-        if not (inspect.isfunction(item) or inspect.isclass(item)):
-            continue
-        for where, member in _members(name, item):
+    for name in sorted(items):
+        for where, member in _members(name, items[name]):
             for parameter, hint in _hinted(member, names):
                 for type_name in _package_types(hint):
                     if type_name not in exported:
                         found.setdefault(type_name, set()).add(f"{where}:{parameter}")
     return found
+
+
+def _unexported() -> dict[str, set[str]]:
+    exported = set(datamax_dpl.__all__)
+    return _unexported_in({name: getattr(datamax_dpl, name) for name in exported}, exported)
 
 
 @pytest.mark.os_agnostic
@@ -95,3 +143,45 @@ def test_every_type_an_exported_signature_names_is_exported_or_kept_out_with_a_r
 def test_each_type_kept_out_is_still_named_somewhere() -> None:
     """A reason for a type no signature names any more is a stale entry."""
     assert set(_KEPT_OUT) <= set(_unexported())
+
+
+def _takes_a_job(callback: Callable[[BatchJob], None]) -> None:
+    del callback
+
+
+class _Planted:
+    """A class whose every blind spot of a walk names BatchJob."""
+
+    @classmethod
+    def from_job(cls, job: BatchJob) -> _Planted:
+        del job
+        return cls()
+
+    @staticmethod
+    def check(job: BatchJob) -> None:
+        del job
+
+    def __call__(self, job: BatchJob) -> None:
+        del job
+
+
+class _PlantedChild(_Planted):
+    """Inherits every member above: a walk of its own ``vars`` alone finds none."""
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("item", "where"),
+    [
+        pytest.param(_takes_a_job, "planted:callback", id="callable-parameter"),
+        pytest.param(_Planted, "planted.from_job:job", id="classmethod"),
+        pytest.param(_Planted, "planted.check:job", id="staticmethod"),
+        pytest.param(_Planted, "planted.__call__:job", id="call"),
+        pytest.param(_PlantedChild, "planted.from_job:job", id="inherited"),
+        pytest.param(_Planted(), "planted.__call__:job", id="callable-instance"),
+    ],
+)
+def test_the_walk_finds_a_type_in_each_place_a_signature_can_name_it(item: object, where: str) -> None:
+    """A planted unexported type in each place: a walk blind to one of them would miss a real export."""
+    found = _unexported_in({"planted": item}, set(datamax_dpl.__all__))
+    assert where in found.get("BatchJob", set()), found
