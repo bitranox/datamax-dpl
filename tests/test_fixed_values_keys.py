@@ -7,11 +7,15 @@ with the printer as they were.
 
 from __future__ import annotations
 
+import contextlib
+import gc
 import json
 import re
+import tracemalloc
 from importlib import resources
 from typing import TYPE_CHECKING, Any
 
+import orjson
 import pytest
 import tomlkit
 from lib_layered_config import Config
@@ -19,7 +23,13 @@ from printer_server import ImageModules, ModulePrinter
 from pydantic import ValidationError
 
 from datamax_dpl.adapters.cli import root as cli_mod
-from datamax_dpl.adapters.cli.label_io import MAX_INPUT_BYTES, MAX_INPUT_BYTES_LIMIT, load_records
+from datamax_dpl.adapters.cli.label_io import (
+    MAX_INPUT_BYTES,
+    MAX_INPUT_BYTES_LIMIT,
+    LabelInputError,
+    load_records,
+    parse_label,
+)
 from datamax_dpl.adapters.cli.settings import (
     MAX_BATCH_RECORDS_LIMIT,
     PrinterOverrides,
@@ -41,6 +51,7 @@ from datamax_dpl.domain.reset_label import CALIBRATION_LABEL_TEXT
 from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS, MAX_TIMEOUT_SECONDS, TIMEOUT_SECONDS
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from click.testing import CliRunner, Result
@@ -539,6 +550,54 @@ def test_the_default_refusal_names_the_key_that_takes_more_points(cli_runner: Cl
     result = _cli(cli_runner, None, "render", _polygon_file(tmp_path, 61), "--model", "allegro-2")
 
     assert json.loads(result.stdout)["message"].endswith("not 61; more points need [printer] max_polygon_points")
+
+
+def _peak_bytes(work: Callable[[], object]) -> int:
+    gc.collect()
+    tracemalloc.start()
+    try:
+        with contextlib.suppress(LabelInputError):
+            work()
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+def _cost_beyond_the_json(points: int) -> int:
+    """Peak of reading a label of four polygons of ``points`` vertices, less the peak of parsing its JSON."""
+    document = _polygon(points)
+    document["elements"] *= 4
+    data = json.dumps(document).encode("utf-8")
+    return _peak_bytes(lambda: parse_label(data)) - _peak_bytes(lambda: orjson.loads(data))
+
+
+@pytest.mark.os_agnostic
+def test_a_long_polygon_is_refused_before_any_of_its_points_is_built() -> None:
+    """A refused polygon costs what its JSON costs: at four times the points, no more beyond that.
+
+    Measured with the check after the schema: 2.5 MB beyond the JSON at 2000 points and 10.2 MB at
+    8000, every point built as a model before the label was refused.
+    """
+    small = _cost_beyond_the_json(2000)
+    large = _cost_beyond_the_json(8000)
+
+    assert large - small < 200_000, (small, large)
+
+
+@pytest.mark.os_agnostic
+def test_at_the_schema_ceiling_the_refusal_names_no_key_since_none_takes_more(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    setting = ["--set", f"printer.max_polygon_points={MAX_POLYGON_POINTS_LIMIT}"]
+    source = _polygon_file(tmp_path, MAX_POLYGON_POINTS_LIMIT + 1)
+
+    result = _cli(cli_runner, None, *setting, "validate", source, "--model", "allegro-2")
+
+    assert result.exit_code == 2, result.output
+    assert json.loads(result.stdout)["message"] == (
+        f"{source} is not a valid label: elements.0.polygon.points: List should have at most 10000 items after "
+        "validation, not 10001"
+    )
 
 
 @pytest.mark.os_agnostic

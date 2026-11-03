@@ -21,7 +21,7 @@ import orjson
 from pydantic import ValidationError
 
 from ...domain.errors import DatamaxDplError
-from ...domain.label import MAX_POLYGON_POINTS, Label, long_polygons
+from ...domain.label import MAX_POLYGON_POINTS, MAX_POLYGON_POINTS_LIMIT, Label
 from ...domain.printable import printable
 from .interrupt import raise_if_interrupted
 
@@ -119,36 +119,64 @@ def parse_label(data: bytes, *, source: str = "label", bounds: InputBounds = DEF
 
     The schema takes far more points than the setting allows by default, and cannot read the
     setting; the check here keeps a long polygon a refusal of the file, as it was while the
-    schema held the limit, rather than an error finding of the job.
+    schema held the limit, rather than an error finding of the job. It counts the points in the
+    parsed JSON before the schema runs, so a refused polygon's points are never built as models.
 
     Raises:
         LabelInputError: Not JSON, or not a valid label.
     """
     try:
-        document = orjson.loads(data)
+        document: object = orjson.loads(data)
     except orjson.JSONDecodeError as exc:
         raise LabelInputError(f"{source} is not valid JSON: {exc}") from None
+    _refuse_long_polygons(document, source=source, bounds=bounds)
     try:
-        label = Label.model_validate(document)
+        return Label.model_validate(document)
     except ValidationError as exc:
         raise LabelInputError(f"{source} is not a valid label: {validation_lines(exc)}") from None
-    _refuse_long_polygons(label, source=source, bounds=bounds)
-    return label
 
 
-def _refuse_long_polygons(label: Label, *, source: str, bounds: InputBounds) -> None:
-    """Refuse ``label`` when a polygon has more points than ``bounds.max_polygon_points``.
+def _raw_long_polygons(document: object, *, limit: int) -> Iterator[tuple[int, int]]:
+    """Yield ``(index, points)`` of each polygon of a parsed, unvalidated label with more than ``limit`` points.
 
-    The message reads as the schema's did when it held the limit, plus the setting that allows more.
+    Anything that is not shaped as a label is skipped: the schema refuses it next.
+
+    Example:
+        >>> polygon = {"type": "polygon", "points": [{"x": 0, "y": 0}] * 3}
+        >>> list(_raw_long_polygons({"elements": [{"type": "circle"}, polygon]}, limit=2))
+        [(1, 3)]
+    """
+    if not isinstance(document, dict):
+        return
+    elements = cast("dict[str, object]", document).get("elements")
+    if not isinstance(elements, list):
+        return
+    for index, element in enumerate(cast("list[object]", elements)):
+        if not isinstance(element, dict):
+            continue
+        fields = cast("dict[str, object]", element)
+        points = fields.get("points")
+        if fields.get("type") == "polygon" and isinstance(points, list):
+            count = len(cast("list[object]", points))
+            if count > limit:
+                yield index, count
+
+
+def _refuse_long_polygons(document: object, *, source: str, bounds: InputBounds) -> None:
+    """Refuse ``document`` when a polygon has more points than ``bounds.max_polygon_points``.
+
+    The message reads as the schema's did when it held the limit, plus the setting that allows more;
+    at the schema's own ceiling no setting allows more, so the message names none.
     """
     limit = bounds.max_polygon_points
     lines = [
         f"elements.{index}.polygon.points: List should have at most {limit} items after validation, not {points}"
-        for index, points in long_polygons(label.elements, limit=limit)
+        for index, points in _raw_long_polygons(document, limit=limit)
     ]
     if not lines:
         return
-    advice = f"; more points need {bounds.max_polygon_points_key}" if bounds.max_polygon_points_key else ""
+    key = bounds.max_polygon_points_key if limit < MAX_POLYGON_POINTS_LIMIT else ""
+    advice = f"; more points need {key}" if key else ""
     raise LabelInputError(f"{source} is not a valid label: {'; '.join(lines)}{advice}")
 
 
