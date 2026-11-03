@@ -22,6 +22,11 @@ manual and checks every label against the one you print on. Where a model lacks 
 either applies a documented fallback and tells you (a circle becomes a downloaded bitmap) or, if
 you prefer, refuses the label.
 
+**QR codes work although none of these printers has a QR command.** datamax-dpl draws the code
+itself (versions 1 to 40, error levels L, M, Q and H) and sends it as a downloaded graphic, so it
+prints on all 18 models; the Prodigy and Prodigy Plus need `image_module` set first. On an
+Allegro 2 a phone read the printed codes fine up to version 20 at 4 dots per module.
+
 It is a Python library and a command line tool. Every command can answer with a JSON envelope
 and meaningful exit codes, so scripts and LLM agents can drive it. With a camera configured,
 `verify` prints a label, photographs it and puts the photo next to the expected preview.
