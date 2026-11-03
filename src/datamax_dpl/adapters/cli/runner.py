@@ -107,6 +107,9 @@ def run_command(ctx: rich_click.Context, *, command: CommandName, body: Callable
     except _CLICK_CONTROL:
         raise
     except Exception as exc:
+        # A Ctrl-C a library turned into its own error (pydantic's "Error serializing to JSON:
+        # KeyboardInterrupt") is still the user's Ctrl-C: it ends with 130, not as that error.
+        raise_if_interrupted()
         # main turns it into exit 141 and says nothing, as for a reader lost at any other write.
         gone = _gone_reader(exc, cli_ctx=cli_ctx)
         if gone is not None:

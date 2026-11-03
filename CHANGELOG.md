@@ -42,7 +42,8 @@ All notable changes to this project are documented here. The format follows
   name cannot forge a line after it.
 - A refused `render` with no `-o` answers with no job: the envelope's `dpl` and `dpl_base64` are null.
 - A Ctrl-C landing where a library swallows it, while a record is filled, still ends a `--data` batch with exit 130 and
-  no job written. A Ctrl-C after the envelope began adds no second envelope: stdout carries one, and exit 130 and the
+  no job written, on every route and on the last record too; one a library turns into its own error (writing a
+  record to the spool gave exit 2 "Error serializing to JSON: KeyboardInterrupt") ends with 130 too. A Ctrl-C after the envelope began adds no second envelope: stdout carries one, and exit 130 and the
   stderr line say the rest.
 - `render -o -` and `print --printer -` exit 141 and say nothing when the reader of the job goes away, as the other
   commands do; they exited 2 or 120.

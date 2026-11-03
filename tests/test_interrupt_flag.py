@@ -183,6 +183,31 @@ def test_a_ctrl_c_lost_on_the_last_record_sends_nothing(
     assert not out.exists()
 
 
+class _SerializingAnInterrupt(FileJobSpool):
+    """A spool whose write turns a Ctrl-C into its own error, as pydantic's JSON serializer does."""
+
+    def add(self, entry: BatchEntry) -> None:
+        _swallow_an_interrupt()
+        raise ValueError("Error serializing to JSON: KeyboardInterrupt")
+
+
+@pytest.mark.os_agnostic
+def test_a_ctrl_c_a_library_turned_into_its_own_error_still_ends_with_130(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    label, data = _batch(tmp_path)
+    printer = RecordingPrinter()
+
+    def services() -> AppServices:
+        return dataclasses.replace(build_testing(printer=printer), open_spool=_SerializingAnInterrupt)
+
+    code = main(["print", label, "--data", data, "--model", "dmx-600", "--printer", "-"], services_factory=services)
+    captured = capsys.readouterr()
+    assert code == _INTERRUPTED_EXIT, captured.err
+    assert "serializing" not in captured.err
+    assert printer.sent == []
+
+
 #: The functions that render a job; each CLI call of one must come through check_loaded.
 _RENDERERS = frozenset({"check_batch", "render_label", "render_batch", "iter_batch"})
 #: Where the CLI may call one directly, and why no byte of a job can follow it there.
