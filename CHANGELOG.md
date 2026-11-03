@@ -23,6 +23,8 @@ All notable changes to this project are documented here. The format follows
 - The attempts a `status`, `memory` or upload-check give-up counts include every connect the TCP transport tried
   itself: a refused connection is tried again every 0.25 s for up to 3 s within one opening, and a closed port with
   `--timeout 2` reported `(1 attempt)` after 8 connects. `TransportError.attempts` carries the count.
+- A transport that got no complete answer shows its seconds to a tenth (`no complete answer within 2 s`, `the
+  answer did not end within 2.3 s`): what was left of a longer wait printed as `within 1.99752 s`.
 - A serial port that cannot be opened, written or read is named once with its reason (`cannot open serial
   /dev/ttyS9: No such file or directory`): pyserial's own text repeated the path and its errno. On Windows a port
   that cannot be opened still reads as pyserial words it, which it builds from an error it never raises. A user configuration file a calibration cannot read, a configuration that cannot be loaded,

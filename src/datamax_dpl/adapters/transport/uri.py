@@ -392,6 +392,20 @@ class Skipped(NamedTuple):
 NOTHING_SKIPPED = Skipped()
 
 
+def shown_seconds(seconds: float) -> str:
+    """Seconds as a transport message shows them: to a tenth, as the wait that gives up shows its own.
+
+    The seconds are often what was left of a longer wait (``1.99752``), which read as noise. A wait
+    under 0.05 s, which a tenth would show as 0, keeps two figures.
+
+    Example:
+        >>> [shown_seconds(s) for s in (1.99752, 0.1 + 0.2, 2.0, 0.04)]
+        ['2', '0.3', '2', '0.04']
+    """
+    tenths = round(seconds, 1)
+    return f"{tenths:g}" if tenths else f"{seconds:.2g}"
+
+
 def no_answer(
     channel: str, *, wait: Wait, received: bytes | bytearray, skipped: Skipped = NOTHING_SKIPPED
 ) -> PrinterTimeoutError:
@@ -410,7 +424,7 @@ def no_answer(
         >>> print(no_answer("tcp 192.0.2.60:9100", wait=Wait(seconds=0.5, deadline=0.0), received=b"NNNN"))
         tcp 192.0.2.60:9100: no complete answer within 0.5 s (4 bytes read)
 
-        The seconds print as the sibling messages print theirs (``:g``), without float noise:
+        The seconds print to a tenth (:func:`shown_seconds`), without float noise:
 
         >>> print(no_answer("serial COM3", wait=Wait(seconds=0.1 + 0.2, deadline=0.0), received=b"NNN"))
         serial COM3: no complete answer within 0.3 s (3 bytes read)
@@ -426,7 +440,7 @@ def no_answer(
     detail = f"{len(received) + skipped.size} bytes read"
     if skipped.lines:
         detail += f"; {skipped.describe()}"
-    message = f"{channel}: no complete answer within {wait.seconds:g} s ({detail})"
+    message = f"{channel}: no complete answer within {shown_seconds(wait.seconds)} s ({detail})"
     advice = NO_ANSWER_HINT if not skipped.lines and not answer_started(received) else ""
     return PrinterTimeoutError(message, advice=advice)
 
@@ -641,6 +655,7 @@ __all__ = [
     "is_printer_uri",
     "no_answer",
     "parse_printer_uri",
+    "shown_seconds",
     "transport_error",
     "truncated_job_advice",
     "unsupported_query",

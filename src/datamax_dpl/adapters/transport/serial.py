@@ -30,6 +30,7 @@ from .uri import (
     answer_started,
     check_timeout,
     no_answer,
+    shown_seconds,
     truncated_job_advice,
 )
 
@@ -373,7 +374,8 @@ class SerialTransport(ClosingTransport):
                 return answer
             if not chunk:
                 raise AnswerNotEndedError(
-                    f"serial {self._uri.path}: the answer did not end within {total:g} s ({len(answer)} bytes read)"
+                    f"serial {self._uri.path}: the answer did not end within {shown_seconds(total)} s "
+                    f"({len(answer)} bytes read)"
                 )
             answer += chunk
             self._check_answer_size(answer)

@@ -19,9 +19,11 @@ from datamax_dpl.adapters.transport.uri import (
     SerialUri,
     StdoutUri,
     TcpUri,
+    Wait,
     check_timeout,
     is_printer_name,
     is_printer_uri,
+    no_answer,
     parse_printer_uri,
     transport_error,
     unsupported_query,
@@ -402,3 +404,16 @@ def test_a_timeout_too_big_for_a_float_is_the_documented_refusal() -> None:
     """math.isfinite converts first, so 10**400 escaped as OverflowError where a ValueError is documented."""
     with pytest.raises(ValueError, match="must be above 0"):
         check_timeout(10**400)
+
+
+# ======================== Seconds in a no-answer message ========================
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("seconds", "shown"), [(1.99752, "2"), (0.30000000000000004, "0.3"), (2.0, "2"), (12.3456, "12.3"), (0.04, "0.04")]
+)
+def test_a_no_answer_message_shows_the_seconds_to_a_tenth(seconds: float, shown: str) -> None:
+    """The wait is often what was left of a longer one (1.99752 s); the message rounds it as its siblings do."""
+    message = str(no_answer("tcp 127.0.0.1:9100", wait=Wait(seconds=seconds, deadline=0.0), received=b""))
+    assert f"no complete answer within {shown} s (0 bytes read)" in message

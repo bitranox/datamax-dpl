@@ -21,6 +21,7 @@ from .uri import (
     answer_started,
     check_timeout,
     no_answer,
+    shown_seconds,
     transport_error,
     truncated_job_advice,
 )
@@ -341,7 +342,8 @@ class TcpTransport(ClosingTransport):
                 return bytes(answer)
             if chunk is None:
                 raise AnswerNotEndedError(
-                    f"tcp {self._uri.target}: the answer did not end within {total:g} s ({len(answer)} bytes read)"
+                    f"tcp {self._uri.target}: the answer did not end within {shown_seconds(total)} s "
+                    f"({len(answer)} bytes read)"
                 )
             if not chunk:
                 return bytes(answer)
