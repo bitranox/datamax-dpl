@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 import rich_click as click
 from pydantic import BaseModel, ConfigDict
 
+from ....application.ports import PrinterEndpoint
 from ....application.upload_check import CheckedJob, ResetCheck, UploadCheck, UploadRefusedError, print_checked
 from ....application.use_cases import (
     DIRECTORY_IDLE_SECONDS,
@@ -111,10 +112,10 @@ def _print_body(
     uri = link.uri
     if not result.ok:
         return _render_refused(result, verdict="REFUSED: nothing sent", settings=settings)
-    open_printer = printer_opener(cli_ctx, settings)
+    endpoint = PrinterEndpoint(uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings))
     if link.one_way:
         # A one-way link cannot read the directory: the job goes out at once, as it always did.
-        report = print_result(result, uri=uri, timeout=settings.timeout, open_printer=open_printer)
+        report = print_result(result, endpoint=endpoint)
         sent, bytes_sent = result, report.bytes_sent
     else:
         job = CheckedJob(
@@ -123,7 +124,7 @@ def _print_body(
             reset=_reset_check(settings),
         )
         try:
-            checked = print_checked(result, job, uri=uri, timeout=settings.timeout, open_printer=open_printer)
+            checked = print_checked(result, job, endpoint=endpoint)
         except UploadRefusedError as exc:
             return _upload_refused(exc, uri=uri, settings=settings)
         sent, bytes_sent = checked.result, checked.bytes_sent
@@ -203,9 +204,7 @@ def cli_status(ctx: click.Context, **given: Any) -> None:
         settings = resolve_settings(cli_ctx, command_overrides(given))
         uri = _queryable_uri(settings)
         status = query_status(
-            uri=uri,
-            timeout=settings.timeout,
-            open_printer=printer_opener(cli_ctx, settings),
+            endpoint=PrinterEndpoint(uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)),
             wait=_answer_wait(settings, cli_ctx),
         )
         payload = StatusPayload(
@@ -331,7 +330,9 @@ def cli_detect(ctx: click.Context, **given: Any) -> None:
     def body(cli_ctx: CLIContext) -> CommandResult:
         settings = resolve_settings(cli_ctx, command_overrides(given))
         report = detect_printer(
-            uri=_queryable_uri(settings), timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)
+            endpoint=PrinterEndpoint(
+                uri=_queryable_uri(settings), timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)
+            )
         )
         human = "\n".join([*report.detection.reasons, "fits: " + (", ".join(report.detection.candidates) or "none")])
         return CommandResult(ok=bool(report.detection.candidates), payload=report, human=human)
@@ -397,10 +398,8 @@ def cli_memory(ctx: click.Context, kind: str, idle: float, **given: Any) -> None
         uri = _queryable_uri(settings)
         directories = read_memory_directory(
             kinds=KindChoice(kind).kinds,
-            uri=uri,
-            timeout=settings.timeout,
+            endpoint=PrinterEndpoint(uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)),
             idle=idle,
-            open_printer=printer_opener(cli_ctx, settings),
             wait=_answer_wait(settings, cli_ctx),
         )
         payload = MemoryPayload(printer=uri, directories=list(directories))
@@ -459,7 +458,10 @@ def _single(command: PrinterCommand, help_text: str) -> click.Command:
             uri = require_uri(settings)
             parsed_printer_uri(settings)
             report = send_command(
-                command, uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)
+                command,
+                endpoint=PrinterEndpoint(
+                    uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)
+                ),
             )
             payload = SentPayload(printer=uri, command=command, bytes_sent=report.bytes_sent)
             return CommandResult(ok=True, payload=payload, human=f"{command.value} sent to {uri}")
@@ -630,11 +632,11 @@ def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: 
                 result,
                 label,
                 options=options,
-                uri=uri,
-                timeout=settings.timeout,
+                endpoint=PrinterEndpoint(
+                    uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)
+                ),
                 camera=camera,
                 output_dir=folder,
-                open_printer=printer_opener(cli_ctx, settings),
                 capture=services.capture_image,
                 sleep=services.sleep,
                 wait=_idle_wait(settings, cli_ctx),

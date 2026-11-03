@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 import rich_click as click
 from pydantic import BaseModel, ConfigDict
 
+from ....application.ports import PrinterEndpoint
 from ....application.use_cases import send_bytes
 from ....domain.calibration import (
     ALONG_LENGTH_MM,
@@ -258,9 +259,7 @@ def _send_print(
     # One send for both formats: a print server can refuse a reconnect for a second or two.
     report = send_bytes(
         b"".join(result.data for result in printed.results),
-        uri=uri,
-        timeout=settings.timeout,
-        open_printer=printer_opener(cli_ctx, settings),
+        endpoint=PrinterEndpoint(uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)),
     )
     hint: str | None = None
     if printed.along_length_mm is not None:

@@ -16,6 +16,7 @@ from datamax_dpl.adapters.camera.file import MEDIA_TYPE_BY_SUFFIX
 from datamax_dpl.adapters.camera.http import EXTENSION_BY_MEDIA_TYPE, MEDIA_TYPE_BY_CONTENT_TYPE
 from datamax_dpl.adapters.cli.payloads import FindingOut, findings_text
 from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.use_cases import PrinterCommand, send_command
 from datamax_dpl.domain.barcodes import check_barcode
 from datamax_dpl.domain.camera import CameraKind, CameraSettings
@@ -62,7 +63,12 @@ def test_the_command_table_covers_every_printer_command() -> None:
 @pytest.mark.parametrize("command", list(PrinterCommand), ids=lambda command: command.value)
 def test_every_printer_command_sends_its_own_bytes(command: PrinterCommand) -> None:
     printer = RecordingPrinter()
-    send_command(command, uri="tcp://192.0.2.60:9100", timeout=1.0, open_printer=open_recording_printer(printer))
+    send_command(
+        command,
+        endpoint=PrinterEndpoint(
+            uri="tcp://192.0.2.60:9100", timeout=1.0, open_printer=open_recording_printer(printer)
+        ),
+    )
     assert printer.data == _COMMAND_BYTES[command]
 
 

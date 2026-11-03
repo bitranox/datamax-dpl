@@ -151,8 +151,9 @@ from `datamax_dpl`.
 download a full module lost gives a label with that image missing, and no error. On a channel that
 can read answers (tcp, serial), `print_checked(job, CheckedJob(renders=record_renders(label, None,
 options), check=UploadCheck(wait=AnswerWait(seconds=30))),
-uri=uri, timeout=10, open_printer=open_printer)` is the route `print` takes: it reads the printer's
-directory after each label's downloads and raises `UploadRefusedError` before a format would print
+endpoint=PrinterEndpoint(uri=uri, timeout=10, open_printer=open_printer))` is the route `print`
+takes: it reads the printer's directory after each label's downloads and raises
+`UploadRefusedError` before a format would print
 without its image. It also reads the status once first: on a reported reset one calibration label
 goes out before the job, and `CheckedJob(reset=None)` asks nothing.
 

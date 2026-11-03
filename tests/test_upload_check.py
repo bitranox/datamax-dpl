@@ -19,6 +19,7 @@ from printer_server import ImageModules, ModulePrinter, module_printer, module_p
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.upload_check import (
     CheckedJob,
     Link,
@@ -96,7 +97,9 @@ def _print(
     """Print with the upload check; return the printer and the job as it went out."""
     printer = ModulePrinter(modules)
     result, job = _job(label, options, records, rounds)
-    report = print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    report = print_checked(
+        result, job, endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    )
     assert report.bytes_sent == sum(len(chunk) for chunk in printer.sent if chunk != WG)
     return printer, report.result
 
@@ -112,7 +115,9 @@ def _refused(
     printer = ModulePrinter(modules)
     result, job = _job(label, options, None, rounds)
     with pytest.raises(UploadRefusedError) as caught:
-        print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+        print_checked(
+            result, job, endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+        )
     assert caught.value.bytes_sent == sum(len(chunk) for chunk in printer.sent if chunk != WG)
     return printer, caught.value
 
@@ -313,7 +318,9 @@ def test_such_a_module_reads_the_names_again_in_round_2_after_a_read_with_no_ans
     result = render_label(label, PLUG_IN_TWO_WAY, held=READ_AT_SEND)
     job = CheckedJob(renders=record_renders(label, None, PLUG_IN_TWO_WAY), reset=None, check=_check(rounds))
 
-    report = print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    report = print_checked(
+        result, job, endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    )
 
     sent = _single(report.result)
     assert (sent.halved_elements, sent.downloads) == ((), ())
@@ -456,7 +463,9 @@ def test_a_later_label_in_error_once_rendered_from_round_2_s_read_again_is_refus
 
     with pytest.raises(UploadRefusedError) as caught:
         print_checked(
-            BatchResult(results=renders), job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer)
+            BatchResult(results=renders),
+            job,
+            endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer)),
         )
 
     assert modules.downloads == [logo]
@@ -491,7 +500,9 @@ def test_such_a_module_halves_with_no_further_read_when_round_2_s_read_after_its
     job = CheckedJob(renders=record_renders(label, None, PLUG_IN_TWO_WAY), reset=None, check=_check())
     result = render_label(label, PLUG_IN_TWO_WAY, held=READ_AT_SEND)
 
-    report = print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    report = print_checked(
+        result, job, endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    )
 
     assert _single(report.result).halved_elements == (0,)
     assert logo in modules.names("B")
@@ -560,7 +571,9 @@ def test_a_directory_answer_that_leaves_out_the_job_s_module_is_no_answer_and_no
     result = render_label(label, PLUG_IN_TWO_WAY, held=READ_AT_SEND)
     job = CheckedJob(renders=record_renders(label, None, PLUG_IN_TWO_WAY), reset=None, check=_check())
 
-    report = print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    report = print_checked(
+        result, job, endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    )
 
     assert modules.downloaded_held == []
     assert modules.downloads.count(logo) == 1
@@ -600,7 +613,9 @@ def test_the_plain_prodigys_halving_round_places_a_halved_name_its_last_read_lis
     result = render_label(label, PRODIGY_NO_KEYS, held=READ_AT_SEND)
     job = CheckedJob(renders=record_renders(label, None, PRODIGY_NO_KEYS), reset=None, check=_check())
 
-    report = print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    report = print_checked(
+        result, job, endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    )
 
     assert modules.downloaded_held == []
     assert modules.placed_missing == []
@@ -627,7 +642,9 @@ def test_the_plain_prodigys_halving_round_downloads_again_a_qr_code_its_removes_
     result = render_label(label, PRODIGY_NO_KEYS, held=READ_AT_SEND)
     job = CheckedJob(renders=record_renders(label, None, PRODIGY_NO_KEYS), reset=None, check=_check())
 
-    report = print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    report = print_checked(
+        result, job, endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    )
 
     assert modules.placed_missing == []
     assert modules.downloaded_held == []
@@ -666,7 +683,9 @@ def test_a_job_with_an_error_finding_is_refused_before_anything_is_opened() -> N
     assert not result.ok
 
     with pytest.raises(LabelRejectedError):
-        print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+        print_checked(
+            result, job, endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+        )
 
     assert printer.opened == []
 
@@ -698,7 +717,7 @@ def test_a_channel_the_print_server_closed_after_the_answer_gets_no_format_and_a
         return next(channels)
 
     result, job = _job(Label(elements=[LOGO]), ALLEGRO, None, 3)
-    report = print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_printer)
+    report = print_checked(result, job, endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_printer))
 
     assert FORMAT not in first.data
     assert second.sent[0].startswith(FORMAT)
@@ -717,7 +736,7 @@ def test_a_read_whose_connection_was_closed_goes_on_a_new_one_and_the_format_fol
         return next(channels)
 
     result, job = _job(Label(elements=[LOGO]), ALLEGRO, None, 3)
-    print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_printer)
+    print_checked(result, job, endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_printer))
 
     assert FORMAT not in first.data
     assert second.queries == [WG]
@@ -769,7 +788,7 @@ def test_a_connect_refused_after_a_read_with_no_answer_is_tried_again_within_the
     job = job._replace(check=UploadCheck(wait=wait, rounds=3))
 
     with pytest.raises(UploadRefusedError):
-        print_checked(result, job, uri=URI, timeout=5.0, open_printer=opener)
+        print_checked(result, job, endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=opener))
 
     assert opener.refused >= 7.5 / 0.25
     assert opener.first.modules.requests == 3
@@ -785,7 +804,7 @@ def test_a_connect_refused_for_longer_than_the_wait_ends_the_job_with_the_wait_n
     job = job._replace(check=UploadCheck(wait=wait, rounds=3))
 
     with pytest.raises(PrinterTimeoutError, match="wait longer"):
-        print_checked(result, job, uri=URI, timeout=5.0, open_printer=opener)
+        print_checked(result, job, endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=opener))
 
     assert opener.refused > 1
 
@@ -806,11 +825,9 @@ def test_verify_refused_by_the_upload_check_sends_no_format_and_takes_no_photo(t
             _single(result),
             label,
             options=ALLEGRO,
-            uri=URI,
-            timeout=5.0,
+            endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer)),
             camera=CameraSettings(kind=CameraKind.FILE),
             output_dir=tmp_path,
-            open_printer=open_recording_printer(printer),
             capture=capture,
             sleep=lambda _seconds: None,
             checked=job,
@@ -826,7 +843,9 @@ def test_a_one_way_channel_reads_nothing_and_gets_the_whole_job_in_one_send() ->
     printer = RecordingPrinter(bidirectional=False)
     result, job = _job(Label(elements=[LOGO]), ALLEGRO, None, 3)
 
-    report = print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    report = print_checked(
+        result, job, endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    )
 
     assert printer.sent == [result.data]
     assert printer.queries == []
@@ -898,7 +917,9 @@ def test_a_refused_record_ends_the_batch_and_the_records_after_it_are_not_sent()
     result, job = _job(label, options, records, 2)
 
     with pytest.raises(UploadRefusedError) as caught:
-        print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+        print_checked(
+            result, job, endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+        )
 
     assert printer.data.count(FORMAT) == 1
     sent = caught.value.result
@@ -921,11 +942,9 @@ def test_verify_checks_the_upload_and_draws_the_expected_picture_from_the_halved
         _single(result),
         label,
         options=ALLEGRO,
-        uri=URI,
-        timeout=5.0,
+        endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer)),
         camera=CameraSettings(kind=CameraKind.FILE),
         output_dir=tmp_path,
-        open_printer=open_recording_printer(printer),
         capture=capture,
         sleep=lambda _seconds: None,
         checked=job,
@@ -1049,7 +1068,9 @@ def test_a_two_way_batch_to_module_c_sends_not_even_the_records_before_the_first
     printer = ModulePrinter(ImageModules())
 
     with pytest.raises(UploadRefusedError) as caught:
-        print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+        print_checked(
+            result, job, endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+        )
 
     assert printer.sent == []
     assert caught.value.bytes_sent == 0
@@ -1062,7 +1083,9 @@ def test_a_one_way_channel_sends_a_module_c_job_whole_as_before() -> None:
     printer = RecordingPrinter(bidirectional=False)
     result, job = _job(Label(elements=[LOGO]), options, None, 3)
 
-    print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    print_checked(
+        result, job, endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    )
 
     assert printer.sent == [result.data]
 
@@ -1321,7 +1344,7 @@ def test_print_checked_refuses_a_result_and_renders_that_disagree_before_opening
         raise AssertionError("the printer must not be opened")
 
     with pytest.raises(ConfigurationError, match=r"3 labels.*2 renders"):
-        print_checked(result, job, uri=URI, timeout=1.0, open_printer=open_printer)
+        print_checked(result, job, endpoint=PrinterEndpoint(uri=URI, timeout=1.0, open_printer=open_printer))
     assert opened == []
 
 
@@ -1332,9 +1355,7 @@ def test_send_checked_refuses_a_result_and_renders_that_disagree_before_sending(
     printer = RecordingPrinter()
     link = Link(
         printer=printer,
-        uri=URI,
-        timeout=1.0,
-        open_printer=open_recording_printer(printer),
+        endpoint=PrinterEndpoint(uri=URI, timeout=1.0, open_printer=open_recording_printer(printer)),
         reconnect=AnswerWait(seconds=1.0),
     )
     with pytest.raises(ConfigurationError, match=r"3 labels.*2 renders"):

@@ -11,6 +11,7 @@ from datamax_dpl import BatchTooLargeError
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.settings import PrinterSettings
 from datamax_dpl.adapters.memory.printer import RecordingPrinter, open_recording_printer
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.use_cases import BatchResult, print_result, render_batch
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.label import Label, Qr, Text
@@ -140,7 +141,9 @@ def test_a_batch_sent_one_way_needs_no_joined_copy() -> None:
     label = Label(elements=[Text(x=10, y=10, text="{a}")])
     batch = render_batch(label, [{"a": "0"}, {"a": "1"}], _DMX)
     printer = RecordingPrinter()
-    report = print_result(batch, uri="file:x", timeout=1.0, open_printer=open_recording_printer(printer))
+    report = print_result(
+        batch, endpoint=PrinterEndpoint(uri="file:x", timeout=1.0, open_printer=open_recording_printer(printer))
+    )
     assert report.bytes_sent == batch.job_bytes
     assert "data" not in batch.__dict__
     assert b"".join(printer.sent) == batch.data

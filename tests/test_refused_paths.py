@@ -13,6 +13,7 @@ import pytest
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory import FakeCamera, RecordingPrinter, open_recording_printer
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.upload_check import CheckedJob, UploadCheck
 from datamax_dpl.application.use_cases import AnswerWait, print_result, record_renders, render_batch
 from datamax_dpl.application.verify import verify_print
@@ -83,11 +84,9 @@ def test_a_library_caller_of_verify_print_gets_the_refusal(tmp_path: Path) -> No
             build_job(label, options),
             label,
             options=options,
-            uri=PRINTER,
-            timeout=1.0,
+            endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=open_recording_printer(printer)),
             camera=CameraSettings(kind=CameraKind.FILE),
             output_dir=tmp_path,
-            open_printer=open_recording_printer(printer),
             capture=camera,
             sleep=lambda _seconds: None,
         )
@@ -110,11 +109,9 @@ def test_verify_print_refuses_a_checked_job_that_is_not_one_label(tmp_path: Path
             build_job(label, options),
             label,
             options=options,
-            uri=PRINTER,
-            timeout=1.0,
+            endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=open_recording_printer(printer)),
             camera=CameraSettings(kind=CameraKind.FILE),
             output_dir=tmp_path,
-            open_printer=open_recording_printer(printer),
             capture=camera,
             sleep=lambda _seconds: None,
             checked=job,
@@ -133,11 +130,9 @@ def test_verify_print_takes_the_expected_pictures_model_from_the_options_before_
             build_job(label, RenderOptions(model="allegro-2")),
             label,
             options=RenderOptions(model="no-such-model"),
-            uri=PRINTER,
-            timeout=1.0,
+            endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=open_recording_printer(printer)),
             camera=CameraSettings(kind=CameraKind.FILE),
             output_dir=tmp_path,
-            open_printer=open_recording_printer(printer),
             capture=camera,
             sleep=lambda _seconds: None,
         )
@@ -208,7 +203,10 @@ def test_print_result_refuses_a_job_with_an_error_finding() -> None:
     """The CLI guards before it gets here, so a library caller is who this guard is for."""
     label, options = _strict_circle()
     with pytest.raises(LabelRejectedError, match="nothing was sent"):
-        print_result(build_job(label, options), uri=PRINTER, timeout=1.0, open_printer=_opener_that_fails)
+        print_result(
+            build_job(label, options),
+            endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=_opener_that_fails),
+        )
 
 
 @pytest.mark.os_agnostic
@@ -217,7 +215,7 @@ def test_print_result_refuses_a_mixed_batch() -> None:
     records = [{"code": "4006381333931"}, {"code": "notdigits"}]
     batch = render_batch(label, records, RenderOptions(model="allegro-2"))
     with pytest.raises(LabelRejectedError, match="nothing was sent"):
-        print_result(batch, uri=PRINTER, timeout=1.0, open_printer=_opener_that_fails)
+        print_result(batch, endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=_opener_that_fails))
 
 
 # ======================== CLI error routes ========================

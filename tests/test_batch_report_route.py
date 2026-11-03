@@ -18,6 +18,7 @@ from datamax_dpl import (
 )
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory.printer import open_recording_printer
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.use_cases import AnswerWait
 from datamax_dpl.composition import build_production
 from datamax_dpl.domain.enums import Attribute, ImageModule
@@ -151,7 +152,11 @@ def test_a_report_with_an_error_is_refused_with_its_findings_and_nothing_sent() 
     # A refused report gives no renders at all, so a send cannot even be put together from it.
     with pytest.raises(LabelRejectedError) as refused:
         job = CheckedJob(renders=report.renders(), check=UploadCheck(wait=AnswerWait(seconds=1.0)), reset=None)
-        print_checked(report, job, uri="tcp://printer", timeout=5.0, open_printer=open_recording_printer(printer))
+        print_checked(
+            report,
+            job,
+            endpoint=PrinterEndpoint(uri="tcp://printer", timeout=5.0, open_printer=open_recording_printer(printer)),
+        )
     assert [finding.code.value for finding in refused.value.findings] == ["qr_data_too_long"]
     assert printer.sent == []
 

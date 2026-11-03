@@ -13,6 +13,7 @@ from datamax_dpl.adapters.cli.config_load import ConfigLoad, load_config, start_
 from datamax_dpl.adapters.cli.context import TracebackState, snapshot_traceback_state
 from datamax_dpl.adapters.config.overrides import NestedOverrides, nest_overrides
 from datamax_dpl.adapters.memory import PrinterOpen, RecordingPrinter, open_recording_printer
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.upload_check import CheckedJob, CheckedSend, Link, UploadCheck, send_checked
 from datamax_dpl.application.use_cases import (
     ONE_WAY_LINK,
@@ -43,7 +44,9 @@ def test_read_stored_names_returns_the_channel_that_answered_and_what_it_listed(
     printer = RecordingPrinter(answers={WG: LISTING})
 
     read = read_stored_names(
-        printer, module=ImageModule.A, uri=URI, timeout=1.0, open_printer=open_recording_printer(printer)
+        printer,
+        module=ImageModule.A,
+        endpoint=PrinterEndpoint(uri=URI, timeout=1.0, open_printer=open_recording_printer(printer)),
     )
 
     assert type(read) is StoredNamesRead
@@ -56,7 +59,9 @@ def test_read_stored_names_on_a_one_way_link_returns_no_channel_and_the_reason()
     printer = RecordingPrinter(bidirectional=False)
 
     read = read_stored_names(
-        None, module=ImageModule.A, uri=URI, timeout=1.0, open_printer=open_recording_printer(printer)
+        None,
+        module=ImageModule.A,
+        endpoint=PrinterEndpoint(uri=URI, timeout=1.0, open_printer=open_recording_printer(printer)),
     )
 
     assert type(read) is StoredNamesRead
@@ -70,7 +75,10 @@ def test_poll_status_returns_the_channel_and_the_status_by_name() -> None:
     wait = AnswerWait(seconds=1.0)
 
     poll = poll_status(
-        printer, uri=URI, timeout=1.0, open_printer=open_recording_printer(printer), wait=wait, started=wait.clock()
+        printer,
+        endpoint=PrinterEndpoint(uri=URI, timeout=1.0, open_printer=open_recording_printer(printer)),
+        wait=wait,
+        started=wait.clock(),
     )
 
     assert type(poll) is StatusPoll
@@ -85,7 +93,9 @@ def test_send_checked_returns_the_job_as_sent_and_whether_every_label_went() -> 
     result = render_label(HELLO, OPTIONS)
     job = CheckedJob(renders=record_renders(HELLO, None, OPTIONS), check=UploadCheck(wait=AnswerWait(seconds=1.0)))
     link = Link(
-        printer=opener(URI, timeout=1.0), uri=URI, timeout=1.0, open_printer=opener, reconnect=AnswerWait(seconds=1.0)
+        printer=opener(URI, timeout=1.0),
+        endpoint=PrinterEndpoint(uri=URI, timeout=1.0, open_printer=opener),
+        reconnect=AnswerWait(seconds=1.0),
     )
 
     send = send_checked(link, result, job)

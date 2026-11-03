@@ -21,6 +21,7 @@ from printer_server import ImageModules, ModulePrinter, answering, answering_ove
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory import open_recording_printer
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.upload_check import CheckedJob, UploadCheck, UploadRefusedError, print_checked
 from datamax_dpl.application.use_cases import (
     AnswerWait,
@@ -573,7 +574,10 @@ def test_a_printer_that_never_answers_the_names_request_is_unread_with_the_wait_
 def _read_names(uri: str, *, wait: AnswerWait) -> HeldImages:
     """Read module A's names on a channel of the read's own, closing it after."""
     read = read_stored_names(
-        None, module=ImageModule.A, uri=uri, timeout=1.0, open_printer=build_production().open_printer, wait=wait
+        None,
+        module=ImageModule.A,
+        endpoint=PrinterEndpoint(uri=uri, timeout=1.0, open_printer=build_production().open_printer),
+        wait=wait,
     )
     if read.channel is not None:
         read.channel.close()
@@ -587,7 +591,9 @@ def _print(printer: ModulePrinter, label: Label, options: RenderOptions) -> Rend
     )
     result = render_label(label, options, held=READ_AT_SEND)
     opener = open_recording_printer(printer)
-    return print_checked(result, job, uri="tcp://192.0.2.60:9100", timeout=1.0, open_printer=opener).result
+    return print_checked(
+        result, job, endpoint=PrinterEndpoint(uri="tcp://192.0.2.60:9100", timeout=1.0, open_printer=opener)
+    ).result
 
 
 #: A plug-in module: no clear may go, not even round 2's, so only a read can tell what it holds.
@@ -599,7 +605,13 @@ def _print_batch(printer: ModulePrinter, label: Label, records: int, options: Re
     rows: list[dict[str, str]] = [{}] * records
     report = check_batch(label, rows, options, read_names_at_send=True)
     job = CheckedJob(renders=report.renders(), check=UploadCheck(wait=AnswerWait(seconds=1.0)), reset=None)
-    print_checked(report, job, uri="tcp://192.0.2.60:9100", timeout=1.0, open_printer=open_recording_printer(printer))
+    print_checked(
+        report,
+        job,
+        endpoint=PrinterEndpoint(
+            uri="tcp://192.0.2.60:9100", timeout=1.0, open_printer=open_recording_printer(printer)
+        ),
+    )
 
 
 @pytest.mark.os_agnostic
@@ -671,7 +683,13 @@ def test_a_name_another_program_removed_between_two_labels_is_downloaded_again()
         yield from renders
 
     job = CheckedJob(renders=emptied_after_the_first(), check=UploadCheck(wait=AnswerWait(seconds=1.0)), reset=None)
-    print_checked(report, job, uri="tcp://192.0.2.60:9100", timeout=1.0, open_printer=open_recording_printer(printer))
+    print_checked(
+        report,
+        job,
+        endpoint=PrinterEndpoint(
+            uri="tcp://192.0.2.60:9100", timeout=1.0, open_printer=open_recording_printer(printer)
+        ),
+    )
 
     assert modules.downloads == [LOGO_SENT, LOGO_SENT]
     assert modules.placed_missing == []

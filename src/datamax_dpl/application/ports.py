@@ -3,6 +3,8 @@
 Each Protocol class defines a ``__call__`` method whose signature exactly
 matches the corresponding adapter function.  Existing module-level functions
 satisfy these protocols automatically via structural subtyping (PEP 544).
+:class:`PrinterEndpoint` bundles the :class:`OpenPrinter` port with the URI
+and timeout it is always called with.
 
 System Role:
     Sits between domain and adapters.  Infrastructure types (``Config``)
@@ -12,6 +14,7 @@ System Role:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
@@ -167,6 +170,48 @@ class OpenPrinter(Protocol):
     def __call__(self, uri: str, *, timeout: float) -> PrinterTransport: ...
 
 
+@dataclass(frozen=True)
+class PrinterEndpoint:
+    """One printer as the use cases reach it: its URI, the seconds a connect or write may take, the opener.
+
+    The three always travel together: every use case that talks to a printer opens it by this URI
+    with this timeout through this opener, and hands all three on to the reads it makes.
+
+    Attributes:
+        uri: The printer (``tcp://host:9100``, ``serial:///dev/ttyS0``...).
+        timeout: Seconds for each connect and write.
+        open_printer: Opens a channel to ``uri``.
+
+    Example:
+        >>> from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
+        >>> printer = RecordingPrinter()
+        >>> opener = open_recording_printer(printer)
+        >>> endpoint = PrinterEndpoint(uri="tcp://192.0.2.1:9100", timeout=5.0, open_printer=opener)
+        >>> endpoint.open().send(b"job")
+        >>> printer.sent
+        [b'job']
+    """
+
+    uri: str
+    timeout: float
+    open_printer: OpenPrinter
+
+    def open(self, *, timeout: float | None = None) -> PrinterTransport:
+        """Open a channel to :attr:`uri` within ``timeout`` seconds, :attr:`timeout` when None.
+
+        Args:
+            timeout: Seconds for this connect, for a caller whose wait leaves less than
+                :attr:`timeout`; None takes :attr:`timeout`.
+
+        Returns:
+            The open channel, the caller's to close.
+
+        Raises:
+            TransportError: The printer could not be reached.
+        """
+        return self.open_printer(self.uri, timeout=self.timeout if timeout is None else timeout)
+
+
 class OpenTunablePrinter(Protocol):
     """An :class:`OpenPrinter` that also takes how the transport paces its writes.
 
@@ -242,6 +287,7 @@ __all__ = [
     "OpenJobSpool",
     "OpenPrinter",
     "OpenTunablePrinter",
+    "PrinterEndpoint",
     "PrinterTransport",
     "SetPrinterValues",
     "Sleep",

@@ -104,7 +104,7 @@ from .use_cases import (
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-    from .ports import OpenPrinter, PrinterTransport
+    from .ports import PrinterEndpoint, PrinterTransport
     from .use_cases import RecordRender
 
 _Sent_co = TypeVar("_Sent_co", bound="RenderResult | BatchResult | BatchReport", covariant=True)
@@ -275,9 +275,7 @@ class Link:
 
     Attributes:
         printer: The open channel, None after a read that failed closed it.
-        uri: The printer.
-        timeout: Seconds for each connect and write.
-        open_printer: Opens a new channel.
+        endpoint: The printer, through which a new channel opens.
         reconnect: How long a send keeps trying to open a new channel where a failed read left
             none (``stored_names_wait``, as the read itself).
         bytes_sent: Job bytes written so far, the directory requests not counted.
@@ -285,9 +283,7 @@ class Link:
     """
 
     printer: PrinterTransport | None
-    uri: str
-    timeout: float
-    open_printer: OpenPrinter
+    endpoint: PrinterEndpoint
     reconnect: AnswerWait
     bytes_sent: int = 0
     reset_seen: bool = False
@@ -312,18 +308,14 @@ class Link:
     def channel(self) -> PrinterTransport:
         """The open channel, a new one when a failed read left none; :meth:`close_opened` closes that one."""
         if self.printer is None:
-            self.printer = open_within(
-                uri=self.uri, timeout=self.timeout, open_printer=self.open_printer, wait=self.reconnect
-            )
+            self.printer = open_within(endpoint=self.endpoint, wait=self.reconnect)
             self._hold_opened(self.printer)
         return self.printer
 
     def read(self, module: ImageModule, *, wait: AnswerWait) -> HeldImages:
         """Read what ``module`` holds on the open channel; keep the channel that answered."""
         before = self.printer
-        read = read_stored_names(
-            self.printer, module=module, uri=self.uri, timeout=self.timeout, open_printer=self.open_printer, wait=wait
-        )
+        read = read_stored_names(self.printer, module=module, endpoint=self.endpoint, wait=wait)
         self.printer = read.channel
         if self.printer is not None and self.printer is not before:
             self._hold_opened(self.printer)
@@ -1036,29 +1028,23 @@ def _refuse_bad_check(check: UploadCheck) -> None:
 
 @overload
 def print_checked(
-    result: RenderResult, job: CheckedJob, *, uri: str, timeout: float, open_printer: OpenPrinter
+    result: RenderResult, job: CheckedJob, *, endpoint: PrinterEndpoint
 ) -> CheckedPrint[RenderResult]: ...
 
 
 @overload
-def print_checked(
-    result: BatchResult, job: CheckedJob, *, uri: str, timeout: float, open_printer: OpenPrinter
-) -> CheckedPrint[BatchResult]: ...
+def print_checked(result: BatchResult, job: CheckedJob, *, endpoint: PrinterEndpoint) -> CheckedPrint[BatchResult]: ...
 
 
 @overload
-def print_checked(
-    result: BatchReport, job: CheckedJob, *, uri: str, timeout: float, open_printer: OpenPrinter
-) -> CheckedPrint[BatchReport]: ...
+def print_checked(result: BatchReport, job: CheckedJob, *, endpoint: PrinterEndpoint) -> CheckedPrint[BatchReport]: ...
 
 
 def print_checked(
     result: RenderResult | BatchResult | BatchReport,
     job: CheckedJob,
     *,
-    uri: str,
-    timeout: float,
-    open_printer: OpenPrinter,
+    endpoint: PrinterEndpoint,
 ) -> CheckedPrint[RenderResult | BatchResult | BatchReport]:
     """Send a rendered job, checking each label's image upload before its format goes out.
 
@@ -1077,9 +1063,7 @@ def print_checked(
             :func:`~datamax_dpl.application.use_cases.check_batch` with its ``renders()`` in ``job``:
             memory does not grow with the records then.
         job: How to render each label again, the upload check and the reset check.
-        uri: The printer.
-        timeout: Seconds for each connect and write.
-        open_printer: Opens the channel.
+        endpoint: The printer, its timeout for each connect and write, and how to open it.
 
     Returns:
         What was sent where, and the job as it went out with the checks' findings.
@@ -1100,7 +1084,7 @@ def print_checked(
         pydantic.ValidationError: A report's record, read again, breaks a field limit.
 
     Examples:
-        >>> from datamax_dpl import AnswerWait, CheckedJob, Label, RenderOptions, Text, UploadCheck
+        >>> from datamax_dpl import AnswerWait, CheckedJob, Label, PrinterEndpoint, RenderOptions, Text, UploadCheck
         >>> from datamax_dpl import build_job, record_renders
         >>> from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
         >>> label, options = Label(elements=[Text(x=1, y=1, text="HELLO")]), RenderOptions(model="dmx-600")
@@ -1109,9 +1093,9 @@ def print_checked(
         >>> sent = print_checked(
         ...     build_job(label, options),
         ...     CheckedJob(renders=record_renders(label, None, options), check=check),
-        ...     uri="tcp://192.0.2.1:9100",
-        ...     timeout=5.0,
-        ...     open_printer=open_recording_printer(printer),
+        ...     endpoint=PrinterEndpoint(
+        ...         uri="tcp://192.0.2.1:9100", timeout=5.0, open_printer=open_recording_printer(printer)
+        ...     ),
         ... )
         >>> sent.result.ok, b"HELLO" in b"".join(printer.sent)
         (True, True)
@@ -1121,20 +1105,20 @@ def print_checked(
         raise LabelRejectedError(msg, error_findings(result))
     _refuse_mismatch(result, job)
     _refuse_bad_check(job.check)
-    printer = open_printer(uri, timeout=timeout)
-    link = Link(printer=printer, uri=uri, timeout=timeout, open_printer=open_printer, reconnect=job.check.wait)
+    printer = endpoint.open()
+    link = Link(printer=printer, endpoint=endpoint, reconnect=job.check.wait)
     try:
         if not printer.bidirectional:
             for piece in (result.data,) if isinstance(result, RenderResult) else result.record_jobs():
                 link.send(piece)
-            return CheckedPrint(uri=uri, bytes_sent=link.bytes_sent, result=result)
+            return CheckedPrint(uri=endpoint.uri, bytes_sent=link.bytes_sent, result=result)
         sent = send_checked(link, result, job)
     finally:
         printer.close()
         link.close_opened()
     if not sent.all_sent:
         raise UploadRefusedError(sent.result, bytes_sent=link.bytes_sent)
-    return CheckedPrint(uri=uri, bytes_sent=link.bytes_sent, result=sent.result)
+    return CheckedPrint(uri=endpoint.uri, bytes_sent=link.bytes_sent, result=sent.result)
 
 
 __all__ = [

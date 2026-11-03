@@ -16,6 +16,7 @@ from printer_server import ImageModules, ModulePrinter
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.upload_check import CheckedJob, UploadCheck
 from datamax_dpl.application.use_cases import AnswerWait, record_renders, render_label
 from datamax_dpl.application.verify import VerifyReport, verify_print
@@ -61,11 +62,9 @@ def _verify(
         result,
         label,
         options=ALLEGRO,
-        uri=URI,
-        timeout=5.0,
+        endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_printer),
         camera=CameraSettings(kind=CameraKind.FILE),
         output_dir=tmp_path,
-        open_printer=open_printer,
         capture=capture,
         sleep=lambda _seconds: None,
         checked=checked,

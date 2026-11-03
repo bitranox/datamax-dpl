@@ -18,7 +18,7 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from functools import cached_property
 from itertools import chain
@@ -86,7 +86,7 @@ if TYPE_CHECKING:
 
     from ..domain.render_context import RenderOptions
     from ..domain.units import DplUnit
-    from .ports import Clock, JobSpool, OpenPrinter, PrinterTransport, Sleep
+    from .ports import Clock, JobSpool, PrinterEndpoint, PrinterTransport, Sleep
 
 _T = TypeVar("_T")
 
@@ -1122,9 +1122,7 @@ def read_stored_names(
     printer: PrinterTransport | None,
     *,
     module: ImageModule,
-    uri: str,
-    timeout: float,
-    open_printer: OpenPrinter,
+    endpoint: PrinterEndpoint,
     wait: AnswerWait | None = None,
 ) -> StoredNamesRead:
     """Read the image names the printer holds in ``module`` (``<STX>W``), asking on ``printer`` first.
@@ -1137,15 +1135,14 @@ def read_stored_names(
     replaces its own.
 
     Args:
-        printer: The open channel to ask first, or None to open one with ``open_printer``.
+        printer: The open channel to ask first, or None to open one through ``endpoint``.
         module: The job's image module.
-        uri: The printer.
-        timeout: Seconds for each connect and write.
-        open_printer: Opens a channel when there is none, or the one asked took no request.
+        endpoint: The printer; it opens a channel when there is none, or the one asked took no
+            request.
         wait: How long to keep trying for the answer, as ``memory`` does, and by when its last
             byte must have arrived: an answer still coming when the wait ends counts as no
             answer. The silence that ends the answer (:data:`DIRECTORY_IDLE_SECONDS`) comes on
-            top. None waits ``timeout``.
+            top. None waits ``endpoint.timeout``.
 
     Returns:
         The channel that answered and what it says ``module`` holds (see :class:`StoredNamesRead`).
@@ -1153,9 +1150,7 @@ def read_stored_names(
     try:
         asked = _ask_directories(
             kinds=(MemoryKind.GRAPHIC,),
-            uri=uri,
-            timeout=timeout,
-            open_printer=open_printer if printer is None else _open_channel_first(printer, open_printer),
+            endpoint=endpoint if printer is None else _open_channel_first(printer, endpoint),
             idle=DIRECTORY_IDLE_SECONDS,
             wait=wait,
             answer_within_wait=True,
@@ -1163,7 +1158,7 @@ def read_stored_names(
     except UnsupportedOperationError:
         return StoredNamesRead(channel=None, held=HeldImages(unread_because=ONE_WAY_LINK))
     except AnswerNotEndedError:
-        unread = _still_arriving(AnswerWait(seconds=timeout) if wait is None else wait)
+        unread = _still_arriving(AnswerWait(seconds=endpoint.timeout) if wait is None else wait)
         return StoredNamesRead(channel=None, held=HeldImages(unread_because=unread))
     except TransportError as exc:
         return StoredNamesRead(channel=None, held=HeldImages(unread_because=f"reading them failed: {exc}"))
@@ -1193,20 +1188,18 @@ class PrintReport(BaseModel):
     bytes_sent: int
 
 
-def send_bytes(data: bytes, *, uri: str, timeout: float, open_printer: OpenPrinter) -> PrintReport:
-    """Send ``data`` to the printer at ``uri``.
+def send_bytes(data: bytes, *, endpoint: PrinterEndpoint) -> PrintReport:
+    """Send ``data`` to the printer at ``endpoint``.
 
     Raises:
         TransportError: The printer could not be reached or written.
     """
-    with closing(open_printer(uri, timeout=timeout)) as printer:
+    with closing(endpoint.open()) as printer:
         printer.send(data)
-    return PrintReport(uri=uri, bytes_sent=len(data))
+    return PrintReport(uri=endpoint.uri, bytes_sent=len(data))
 
 
-def print_result(
-    result: RenderResult | BatchResult | BatchReport, *, uri: str, timeout: float, open_printer: OpenPrinter
-) -> PrintReport:
+def print_result(result: RenderResult | BatchResult | BatchReport, *, endpoint: PrinterEndpoint) -> PrintReport:
     """Send a rendered job, refusing one that has error findings; a batch goes one record's bytes at a time.
 
     Raises:
@@ -1217,13 +1210,13 @@ def print_result(
         msg = "label has errors; nothing was sent"
         raise LabelRejectedError(msg, error_findings(result))
     if isinstance(result, RenderResult):
-        return send_bytes(result.data, uri=uri, timeout=timeout, open_printer=open_printer)
+        return send_bytes(result.data, endpoint=endpoint)
     sent = 0
-    with closing(open_printer(uri, timeout=timeout)) as printer:
+    with closing(endpoint.open()) as printer:
         for job in result.record_jobs():
             printer.send(job)
             sent += len(job)
-    return PrintReport(uri=uri, bytes_sent=sent)
+    return PrintReport(uri=endpoint.uri, bytes_sent=sent)
 
 
 class PrinterCommand(str, Enum):
@@ -1247,9 +1240,9 @@ _COMMAND_BYTES: Mapping[PrinterCommand, bytes] = MappingProxyType(
 )
 
 
-def send_command(command: PrinterCommand, *, uri: str, timeout: float, open_printer: OpenPrinter) -> PrintReport:
+def send_command(command: PrinterCommand, *, endpoint: PrinterEndpoint) -> PrintReport:
     """Send one immediate or system command (reset, cancel, pause, feed, cut)."""
-    return send_bytes(_COMMAND_BYTES[command], uri=uri, timeout=timeout, open_printer=open_printer)
+    return send_bytes(_COMMAND_BYTES[command], endpoint=endpoint)
 
 
 #: Default of ``[printer] status_wait``: seconds ``status`` and ``memory`` keep trying for the first
@@ -1293,19 +1286,15 @@ class AnswerWait(NamedTuple):
     sleep: Sleep = time.sleep
 
 
-def query_status(
-    *, uri: str, timeout: float, open_printer: OpenPrinter, wait: AnswerWait | None = None
-) -> PrinterStatus:
+def query_status(*, endpoint: PrinterEndpoint, wait: AnswerWait | None = None) -> PrinterStatus:
     """Ask the printer for its status (``<SOH>A``), trying again within ``wait`` (see :class:`AnswerWait`).
 
     Lines that do not end in eight status flags are skipped: a print server can pass on what the
     printer still owed an earlier query (a memory report line) after the status request went out.
 
     Args:
-        uri: The printer.
-        timeout: Seconds for each connect and write, never past the wait.
-        open_printer: Opens the channel.
-        wait: How long to keep trying; None waits ``timeout`` seconds in all.
+        endpoint: The printer; its timeout bounds each connect and write, never past the wait.
+        wait: How long to keep trying; None waits ``endpoint.timeout`` seconds in all.
 
     Raises:
         UnsupportedOperationError: The channel cannot read answers (file, stdout, device file).
@@ -1315,10 +1304,8 @@ def query_status(
     """
     answered = _first_answer(
         _ask_status,
-        uri=uri,
-        timeout=timeout,
-        open_printer=open_printer,
-        wait=AnswerWait(seconds=timeout) if wait is None else wait,
+        endpoint=endpoint,
+        wait=AnswerWait(seconds=endpoint.timeout) if wait is None else wait,
     )
     answered.channel.close()
     return parse_ascii_status(answered.answer)
@@ -1346,7 +1333,7 @@ def read_reset_report(printer: PrinterTransport, *, wait: float) -> bool:
         return False
 
 
-def open_within(*, uri: str, timeout: float, open_printer: OpenPrinter, wait: AnswerWait) -> PrinterTransport:
+def open_within(*, endpoint: PrinterEndpoint, wait: AnswerWait) -> PrinterTransport:
     """Open the printer, again after ``wait.retry_interval`` while a connect takes no request, within ``wait``.
 
     For a sender whose channel a failed read closed: a print server that got no answer from its
@@ -1358,9 +1345,7 @@ def open_within(*, uri: str, timeout: float, open_printer: OpenPrinter, wait: An
             wait ran out; the message counts the attempts and quotes the last failure.
         TransportError: Any failure that is not ``unanswered``, raised as is.
     """
-    return _first_answer(
-        lambda _channel, _left: None, uri=uri, timeout=timeout, open_printer=open_printer, wait=wait
-    ).channel
+    return _first_answer(lambda _channel, _left: None, endpoint=endpoint, wait=wait).channel
 
 
 @dataclass(frozen=True)
@@ -1377,13 +1362,13 @@ class StatusPoll:
 
 
 def poll_status(
-    printer: PrinterTransport, *, uri: str, timeout: float, open_printer: OpenPrinter, wait: AnswerWait, started: float
+    printer: PrinterTransport, *, endpoint: PrinterEndpoint, wait: AnswerWait, started: float
 ) -> StatusPoll:
     """Ask the already open ``printer`` for its status exactly as :func:`query_status` asks a new one.
 
     The same :class:`AnswerWait` applies, measured from ``started`` so that several polls share
     one wait: a silent channel is read until the wait ends and never asked a second time, and a
-    failure that took no request is asked again on a new connection opened with ``open_printer``.
+    failure that took no request is asked again on a new connection opened through ``endpoint``.
 
     Returns:
         The channel that answered, ``printer`` or the new connection, still open, and the status.
@@ -1396,9 +1381,7 @@ def poll_status(
     """
     answered = _first_answer(
         _ask_status,
-        uri=uri,
-        timeout=timeout,
-        open_printer=_open_channel_first(printer, open_printer),
+        endpoint=_open_channel_first(printer, endpoint),
         wait=wait,
         started=started,
     )
@@ -1411,15 +1394,16 @@ def poll_status(
         raise
 
 
-def _open_channel_first(printer: PrinterTransport, open_printer: OpenPrinter) -> OpenPrinter:
-    """An opener whose first attempt is the channel already open, as a retried request needs one."""
+def _open_channel_first(printer: PrinterTransport, endpoint: PrinterEndpoint) -> PrinterEndpoint:
+    """``endpoint`` whose first opening is the channel already open, as a retried request needs one."""
     first = [printer]
+    open_printer = endpoint.open_printer
 
     def open_once(uri: str, *, timeout: float) -> PrinterTransport:
         # Only a failure that took no request opens another.
         return first.pop() if first else open_printer(uri, timeout=timeout)
 
-    return open_once
+    return replace(endpoint, open_printer=open_once)
 
 
 def _ask_status(channel: PrinterTransport, left: float) -> bytes:
@@ -1438,9 +1422,7 @@ class _Answered(Generic[_T]):
 def _first_answer(
     ask: Callable[[PrinterTransport, float], _T],
     *,
-    uri: str,
-    timeout: float,
-    open_printer: OpenPrinter,
+    endpoint: PrinterEndpoint,
     wait: AnswerWait,
     started: float | None = None,
 ) -> _Answered[_T]:
@@ -1456,12 +1438,13 @@ def _first_answer(
         PrinterTimeoutError: The wait ran out; the message gives the seconds waited, counts the
             attempts and quotes the last failure.
         TransportError: Any failure that is not ``unanswered``, raised as is.
-        ValueError: ``timeout`` or a wait value is not a usable number of seconds; nothing was opened.
+        ValueError: ``endpoint.timeout`` or a wait value is not a usable number of seconds; nothing was opened.
     """
+    timeout = endpoint.timeout
     check_timeout(timeout)
     check_timeout(wait.seconds, name=TimeoutName.WAIT)
     check_timeout(wait.retry_interval, name=TimeoutName.RETRY_INTERVAL)
-    tries = _Tries(uri, wait, started=started)
+    tries = _Tries(endpoint.uri, wait, started=started)
     while True:
         # No attempt starts once the wait is over: the pause before it can overrun the end.
         if tries.attempts and tries.left() <= 0:
@@ -1471,7 +1454,7 @@ def _first_answer(
         connect = min(timeout, tries.left() if tries.attempts else wait.seconds)
         tries.attempts += 1
         try:
-            printer = open_printer(uri, timeout=connect)
+            printer = endpoint.open(timeout=connect)
             return _Answered(channel=printer, answer=_ask_or_close(ask, printer, tries=tries))
         except _WaitEndedError:
             raise tries.ran_out() from tries.last
@@ -1567,27 +1550,24 @@ DIRECTORY_IDLE_SECONDS = 1.0
 def read_memory_directory(
     *,
     kinds: Sequence[MemoryKind],
-    uri: str,
-    timeout: float,
-    open_printer: OpenPrinter,
+    endpoint: PrinterEndpoint,
     idle: float = DIRECTORY_IDLE_SECONDS,
     wait: AnswerWait | None = None,
 ) -> tuple[MemoryDirectory, ...]:
     """Ask the printer for the memory module directory of each kind (``<STX>W``), in order.
 
     The first request is tried again within ``wait`` as :func:`query_status` tries its own; the
-    other kinds are asked on the connection that answered, each waiting ``timeout`` for its first
-    byte. An answer the parser cannot read is returned with ``parsed`` False and its raw text,
+    other kinds are asked on the connection that answered, each waiting ``endpoint.timeout`` for its
+    first byte. An answer the parser cannot read is returned with ``parsed`` False and its raw text,
     never raised: the printer did answer, and the text is what a reader needs to judge it.
 
     Args:
         kinds: The kinds to list, each asked separately over one connection.
-        uri: The printer.
-        timeout: Seconds for each connect and write, and for the first byte of every answer after
-            the first.
-        open_printer: Opens the channel.
+        endpoint: The printer; its timeout bounds each connect and write, and the wait for the
+            first byte of every answer after the first.
         idle: Seconds of silence that end an answer.
-        wait: How long to keep trying for the first answer; None waits ``timeout`` seconds in all.
+        wait: How long to keep trying for the first answer; None waits ``endpoint.timeout``
+            seconds in all.
             An answer that began in time has the transport's own bound
             (:data:`~datamax_dpl.domain.timing.MAX_ANSWER_SECONDS`).
 
@@ -1606,9 +1586,7 @@ def read_memory_directory(
         return ()
     asked = _ask_directories(
         kinds=kinds,
-        uri=uri,
-        timeout=timeout,
-        open_printer=open_printer,
+        endpoint=endpoint,
         idle=idle,
         wait=wait,
         answer_within_wait=False,
@@ -1620,9 +1598,7 @@ def read_memory_directory(
 def _ask_directories(
     *,
     kinds: Sequence[MemoryKind],
-    uri: str,
-    timeout: float,
-    open_printer: OpenPrinter,
+    endpoint: PrinterEndpoint,
     idle: float,
     wait: AnswerWait | None,
     answer_within_wait: bool,
@@ -1645,15 +1621,13 @@ def _ask_directories(
             # wait no longer than that silence still reads a printer that answers at once.
             total=left + idle if answer_within_wait else MAX_ANSWER_SECONDS,
         ),
-        uri=uri,
-        timeout=timeout,
-        open_printer=open_printer,
-        wait=AnswerWait(seconds=timeout) if wait is None else wait,
+        endpoint=endpoint,
+        wait=AnswerWait(seconds=endpoint.timeout) if wait is None else wait,
     )
     printer = answered.channel
     try:
         answers = [answered.answer] + [
-            printer.read_answer(MEMORY_DIRECTORY_REQUESTS[kind], timeout=timeout, idle=idle) for kind in rest
+            printer.read_answer(MEMORY_DIRECTORY_REQUESTS[kind], timeout=endpoint.timeout, idle=idle) for kind in rest
         ]
     except BaseException:
         printer.close()
@@ -1682,14 +1656,15 @@ def _ask(printer: PrinterTransport, request: bytes, *, timeout: float, lines: in
         return None
 
 
-def detect_printer(*, uri: str, timeout: float, open_printer: OpenPrinter) -> DetectReport:
+def detect_printer(*, endpoint: PrinterEndpoint) -> DetectReport:
     """Ask the printer what it answers and suggest the profiles that fit.
 
     Raises:
         UnsupportedOperationError: The channel cannot read answers.
         TransportError: The printer could not be reached.
     """
-    with closing(open_printer(uri, timeout=timeout)) as printer:
+    timeout = endpoint.timeout
+    with closing(endpoint.open()) as printer:
         serial = _ask(printer, SERIAL_TEST_REQUEST, timeout=timeout)
         version = _ask(printer, VERSION_REQUEST, timeout=timeout)
         memory = _ask(printer, MEMORY_REQUEST, timeout=timeout, lines=MEMORY_REPORT_LINES)

@@ -20,6 +20,7 @@ from datamax_dpl.adapters.transport import open_printer
 from datamax_dpl.adapters.transport.serial import SerialTransport
 from datamax_dpl.adapters.transport.tcp import MAX_ANSWER_BYTES, MAX_IDLE_ANSWER_BYTES
 from datamax_dpl.adapters.transport.uri import SerialUri
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.use_cases import MEMORY_REPORT_LINES, detect_printer, query_status, read_reset_report
 from datamax_dpl.composition import build_production
 from datamax_dpl.domain.errors import AnswerNotEndedError, PrinterProtocolError, PrinterTimeoutError, TransportError
@@ -416,7 +417,7 @@ def test_detect_over_serial_ignores_a_memory_report_cut_short() -> None:
     def open_port(uri: str, *, timeout: float) -> SerialTransport:
         return SerialTransport(port, uri=LOOP)
 
-    report = detect_printer(uri="serial://loop", timeout=0.3, open_printer=open_port)
+    report = detect_printer(endpoint=PrinterEndpoint(uri="serial://loop", timeout=0.3, open_printer=open_port))
 
     assert MEMORY_REPORT_LINES == 8
     assert (report.evidence.serial_test, report.evidence.version) == (True, "VER DA - 01.01 12/21/93")
@@ -776,7 +777,7 @@ def test_a_read_answer_of_a_port_whose_far_end_went_is_a_transport_error(gone_po
 @pytest.mark.skipif(sys.platform == "win32", reason="os.openpty is POSIX only")
 def test_a_status_of_a_port_whose_far_end_went_is_a_transport_error(gone_port: _GonePort) -> None:
     with pytest.raises(TransportError):
-        query_status(uri="serial:///dev/gone", timeout=0.5, open_printer=gone_port.open)
+        query_status(endpoint=PrinterEndpoint(uri="serial:///dev/gone", timeout=0.5, open_printer=gone_port.open))
 
 
 @pytest.mark.os_posix

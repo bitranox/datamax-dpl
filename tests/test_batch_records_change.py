@@ -19,6 +19,7 @@ from datamax_dpl import (
     print_checked,
 )
 from datamax_dpl.adapters.memory.printer import open_recording_printer
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.use_cases import AnswerWait
 from datamax_dpl.domain.label import Label, Qr, Text
 from datamax_dpl.domain.render_context import RenderOptions
@@ -96,7 +97,11 @@ def test_the_one_way_send_stops_at_a_record_that_has_turned_bad(tmp_path: Path) 
     target = tmp_path / "job.dpl"
     report = check_batch(_QR, _Passes(_rows("r0", "r1"), _rows("r0", _TOO_LONG)), _OPTIONS)
     with pytest.raises(LabelRejectedError):
-        print_checked(report, _one_way_job(report), uri=f"file:{target}", timeout=1.0, open_printer=open_printer)
+        print_checked(
+            report,
+            _one_way_job(report),
+            endpoint=PrinterEndpoint(uri=f"file:{target}", timeout=1.0, open_printer=open_printer),
+        )
     assert target.read_bytes().count(_FORMAT) == 1, "the record before it went out, and no more"
 
 
@@ -105,7 +110,9 @@ def test_the_one_way_send_refuses_another_number_of_records(tmp_path: Path) -> N
     report = check_batch(_TEXT, _Passes(_rows("r0", "r1"), _rows("r0")), _OPTIONS)
     uri = f"file:{tmp_path / 'job.dpl'}"
     with pytest.raises(ConfigurationError):
-        print_checked(report, _one_way_job(report), uri=uri, timeout=1.0, open_printer=open_printer)
+        print_checked(
+            report, _one_way_job(report), endpoint=PrinterEndpoint(uri=uri, timeout=1.0, open_printer=open_printer)
+        )
 
 
 @pytest.mark.os_agnostic
@@ -119,7 +126,7 @@ def test_the_two_way_send_refuses_another_number_of_records(second: tuple[str, .
     job = _one_way_job(report)._replace(reset=None)
     opened = open_recording_printer(printer)
     with pytest.raises(ConfigurationError, match="holds 2 labels"):
-        print_checked(report, job, uri="tcp://printer", timeout=5.0, open_printer=opened)
+        print_checked(report, job, endpoint=PrinterEndpoint(uri="tcp://printer", timeout=5.0, open_printer=opened))
 
 
 @pytest.mark.os_agnostic
@@ -127,7 +134,9 @@ def test_a_record_with_a_missing_field_on_the_send_raises_what_the_docs_name(tmp
     report = check_batch(_TEXT, _Passes(_rows("r0"), [{"b": "x"}]), _OPTIONS)
     uri = f"file:{tmp_path / 'job.dpl'}"
     with pytest.raises(MissingFieldError, match="data record 0"):
-        print_checked(report, _one_way_job(report), uri=uri, timeout=1.0, open_printer=open_printer)
+        print_checked(
+            report, _one_way_job(report), endpoint=PrinterEndpoint(uri=uri, timeout=1.0, open_printer=open_printer)
+        )
 
 
 @pytest.mark.os_agnostic
@@ -135,7 +144,9 @@ def test_a_value_past_a_field_limit_on_the_send_raises_what_the_docs_name(tmp_pa
     report = check_batch(_TEXT, _Passes(_rows("r0"), _rows("A" * 100000)), _OPTIONS)
     uri = f"file:{tmp_path / 'job.dpl'}"
     with pytest.raises(ValidationError):
-        print_checked(report, _one_way_job(report), uri=uri, timeout=1.0, open_printer=open_printer)
+        print_checked(
+            report, _one_way_job(report), endpoint=PrinterEndpoint(uri=uri, timeout=1.0, open_printer=open_printer)
+        )
 
 
 @pytest.mark.os_agnostic

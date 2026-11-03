@@ -22,6 +22,7 @@ from datamax_dpl import ReportLimits, check_batch, iter_batch
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.label_io import load_records, read_input
 from datamax_dpl.adapters.memory.printer import open_recording_printer
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.upload_check import CheckedJob, UploadCheck, UploadRefusedError, print_checked
 from datamax_dpl.application.use_cases import (
     AnswerWait,
@@ -142,7 +143,11 @@ def test_a_checked_send_of_a_report_holds_only_the_current_record() -> None:
     report = check_batch(_QR, records, _ALLEGRO)
     printer = ModulePrinter(ImageModules())
     job = CheckedJob(renders=report.renders(), check=_check(), reset=None)
-    sent = print_checked(report, job, uri="tcp://printer", timeout=5.0, open_printer=open_recording_printer(printer))
+    sent = print_checked(
+        report,
+        job,
+        endpoint=PrinterEndpoint(uri="tcp://printer", timeout=5.0, open_printer=open_recording_printer(printer)),
+    )
     assert sent.result.records == 20
     assert records.read == 40
     assert records.most_alive <= _MOST_ALIVE
@@ -164,7 +169,9 @@ def _sent_whole(modules: ImageModules, label: Label, options: RenderOptions) -> 
     job = CheckedJob(renders=renders, check=_check(), reset=None)
     opened = open_recording_printer(printer)
     try:
-        result: BatchResult = print_checked(held, job, uri="tcp://printer", timeout=5.0, open_printer=opened).result
+        result: BatchResult = print_checked(
+            held, job, endpoint=PrinterEndpoint(uri="tcp://printer", timeout=5.0, open_printer=opened)
+        ).result
     except UploadRefusedError as refused:
         assert isinstance(refused.result, BatchResult)
         return b"".join(printer.sent), report_of(refused.result, limits=ReportLimits()), False
@@ -178,7 +185,9 @@ def _sent_report(modules: ImageModules, label: Label, options: RenderOptions) ->
     job = CheckedJob(renders=report.renders(), check=_check(), reset=None)
     opened = open_recording_printer(printer)
     try:
-        result = print_checked(report, job, uri="tcp://printer", timeout=5.0, open_printer=opened).result
+        result = print_checked(
+            report, job, endpoint=PrinterEndpoint(uri="tcp://printer", timeout=5.0, open_printer=opened)
+        ).result
     except UploadRefusedError as refused:
         assert isinstance(refused.result, BatchReport)
         return b"".join(printer.sent), refused.result, False

@@ -16,6 +16,7 @@ import pytest
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory import FakeCamera, RecordingPrinter, open_recording_printer
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.use_cases import BUSY_HINT, AnswerWait, query_status
 from datamax_dpl.application.verify import IdleWait, verify_print, wait_idle
 from datamax_dpl.composition import build_testing
@@ -163,7 +164,11 @@ def _wait(clock: Clock, *, seconds: float = 5.0, poll_interval: float = 0.5) -> 
 
 
 def _idle(printer: PrinterTransport, clock: Clock, **wait: float) -> PrinterStatus:
-    return wait_idle(printer, uri=PRINTER, timeout=1.0, open_printer=_never_opens, wait=_wait(clock, **wait))
+    return wait_idle(
+        printer,
+        endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=_never_opens),
+        wait=_wait(clock, **wait),
+    )
 
 
 @pytest.mark.os_agnostic
@@ -326,7 +331,9 @@ def test_a_job_connection_that_took_no_poll_is_asked_again_on_a_new_one_which_is
     fresh = BusyPrinter(clock, busy_for=0.0)
     wait = _wait(clock)
 
-    status = wait_idle(job_channel, uri=PRINTER, timeout=1.0, open_printer=_opener(fresh), wait=wait)
+    status = wait_idle(
+        job_channel, endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=_opener(fresh)), wait=wait
+    )
 
     assert status.idle
     # The job's connection is the caller's to close; the one opened here is closed here.
@@ -339,7 +346,9 @@ def test_after_a_new_connection_answered_busy_the_next_poll_goes_to_it() -> None
     job_channel = HungUpPrinter(clock)
     fresh = BusyPrinter(clock, busy_for=1.0)
 
-    status = wait_idle(job_channel, uri=PRINTER, timeout=1.0, open_printer=_opener(fresh), wait=_wait(clock))
+    status = wait_idle(
+        job_channel, endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=_opener(fresh)), wait=_wait(clock)
+    )
 
     assert status.idle
     # Busy at 0 and 0.5 s, idle at 1.0 s: three polls, all on the one new connection.
@@ -352,7 +361,11 @@ def _status_outcome(
     """What ``status`` does with ``printer`` as its first connection: the answer or error, when, the waits."""
     wait = AnswerWait(seconds=5.0, wait_longer=WAIT_LONGER, clock=printer.clock, sleep=printer.clock.sleep)
     try:
-        outcome = str(query_status(uri=PRINTER, timeout=1.0, open_printer=_opener(printer, *opens), wait=wait).idle)
+        outcome = str(
+            query_status(
+                endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=_opener(printer, *opens)), wait=wait
+            ).idle
+        )
     except TransportError as exc:
         outcome = str(exc)
     return outcome, printer.clock.now, printer.waits
@@ -363,7 +376,11 @@ def _verify_outcome(
 ) -> tuple[str, float, list[float]]:
     """What ``verify``'s idle wait does with ``printer`` as the job's connection, in the same terms."""
     try:
-        status = wait_idle(printer, uri=PRINTER, timeout=1.0, open_printer=_opener(*opens), wait=_wait(printer.clock))
+        status = wait_idle(
+            printer,
+            endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=_opener(*opens)),
+            wait=_wait(printer.clock),
+        )
         outcome = str(status.idle)
     except TransportError as exc:
         outcome = str(exc)
@@ -413,11 +430,9 @@ def test_verify_refuses_an_unusable_wait_before_the_label_is_sent(case: str, tmp
             render(label, options),
             label,
             options=options,
-            uri=PRINTER,
-            timeout=1.0,
+            endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=open_recording_printer(printer)),
             camera=CameraSettings(kind=CameraKind.FILE),
             output_dir=tmp_path,
-            open_printer=open_recording_printer(printer),
             capture=FakeCamera(),
             sleep=clock.sleep,
             wait=_BAD_WAITS[case](clock),
@@ -432,7 +447,9 @@ def test_verify_takes_a_one_way_settle_of_0() -> None:
     wait = _wait(clock)._replace(one_way_settle=0.0)
 
     assert wait_idle(
-        BusyPrinter(clock, busy_for=0.0), uri=PRINTER, timeout=1.0, open_printer=_never_opens, wait=wait
+        BusyPrinter(clock, busy_for=0.0),
+        endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=_never_opens),
+        wait=wait,
     ).idle
 
 
@@ -552,11 +569,9 @@ def test_a_library_caller_without_a_camera_is_not_told_about_a_config_file(tmp_p
             render(label, options),
             label,
             options=options,
-            uri=PRINTER,
-            timeout=1.0,
+            endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=open_recording_printer(RecordingPrinter())),
             camera=CameraSettings(),
             output_dir=tmp_path,
-            open_printer=open_recording_printer(RecordingPrinter()),
             capture=FakeCamera(),
             sleep=clock.sleep,
         )
@@ -583,7 +598,9 @@ def test_a_connection_opened_for_a_poll_is_closed_however_its_answer_reads(answe
 
     def poll() -> PrinterStatus:
         return wait_idle(
-            _DroppedBeforeTheRequest(), uri=PRINTER, timeout=1.0, open_printer=open_second, wait=_wait(clock)
+            _DroppedBeforeTheRequest(),
+            endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=open_second),
+            wait=_wait(clock),
         )
 
     if outcome == "refused":

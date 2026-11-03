@@ -17,6 +17,7 @@ from printer_server import ImageModules, ModulePrinter, module_printer
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.settings import PrinterOverrides, PrinterSettings, printer_settings
 from datamax_dpl.adapters.memory import FakeCamera, RecordingPrinter, open_recording_printer
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.upload_check import (
     CheckedJob,
     Link,
@@ -118,7 +119,9 @@ def _print(
     """Print through the library's checked route; return the job, the job as it went out and the bytes sent."""
     result = render_label(label, options) if records is None else render_batch(label, records, options)
     job = CheckedJob(renders=record_renders(label, records, options), check=_check(), reset=reset)
-    report = print_checked(result, job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    report = print_checked(
+        result, job, endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer))
+    )
     return result, report.result, report.bytes_sent
 
 
@@ -486,11 +489,9 @@ def test_verify_sends_the_calibration_label_before_its_label_and_photographs_onc
         result,
         TEXT_LABEL,
         options=ALLEGRO,
-        uri=URI,
-        timeout=5.0,
+        endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer)),
         camera=CameraSettings(kind=CameraKind.FILE),
         output_dir=tmp_path,
-        open_printer=open_recording_printer(printer),
         capture=camera,
         sleep=lambda _seconds: None,
         checked=job,
@@ -641,7 +642,11 @@ def test_a_channel_the_read_lost_is_replaced_for_the_job(
     result = render_label(TEXT_LABEL, ALLEGRO)
     job = CheckedJob(renders=record_renders(TEXT_LABEL, None, ALLEGRO), check=_check())
 
-    report = print_checked(result, job, uri=server.address, timeout=5.0, open_printer=build_production().open_printer)
+    report = print_checked(
+        result,
+        job,
+        endpoint=PrinterEndpoint(uri=server.address, timeout=5.0, open_printer=build_production().open_printer),
+    )
     server.join()
 
     assert report.bytes_sent == len(result.data)
@@ -674,7 +679,11 @@ def test_a_one_way_link_handed_straight_to_the_check_reads_nothing() -> None:
     result = render_label(TEXT_LABEL, ALLEGRO)
     job = CheckedJob(renders=record_renders(TEXT_LABEL, None, ALLEGRO), check=_check())
     opener = open_recording_printer(printer)
-    link = Link(printer=printer, uri=URI, timeout=1.0, open_printer=opener, reconnect=AnswerWait(seconds=1.0))
+    link = Link(
+        printer=printer,
+        endpoint=PrinterEndpoint(uri=URI, timeout=1.0, open_printer=opener),
+        reconnect=AnswerWait(seconds=1.0),
+    )
 
     send_checked(link, result, job)
 
@@ -691,7 +700,11 @@ def test_a_real_file_channel_handed_straight_to_the_check_gets_exactly_the_job(t
     result = render_label(TEXT_LABEL, ALLEGRO)
     job = CheckedJob(renders=record_renders(TEXT_LABEL, None, ALLEGRO), check=_check())
     channel = opener(uri, timeout=1.0)
-    link = Link(printer=channel, uri=uri, timeout=1.0, open_printer=opener, reconnect=AnswerWait(seconds=1.0))
+    link = Link(
+        printer=channel,
+        endpoint=PrinterEndpoint(uri=uri, timeout=1.0, open_printer=opener),
+        reconnect=AnswerWait(seconds=1.0),
+    )
 
     send_checked(link, result, job)
     channel.close()
@@ -718,11 +731,9 @@ def test_verify_on_a_one_way_link_reads_nothing_and_prints_nothing_extra(tmp_pat
         result,
         TEXT_LABEL,
         options=ALLEGRO,
-        uri=URI,
-        timeout=5.0,
+        endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer)),
         camera=CameraSettings(kind=CameraKind.FILE),
         output_dir=tmp_path,
-        open_printer=open_recording_printer(printer),
         capture=camera,
         sleep=lambda _seconds: None,
         checked=CheckedJob(renders=record_renders(TEXT_LABEL, None, ALLEGRO), check=_check()),
@@ -758,9 +769,7 @@ def test_a_job_into_the_module_no_directory_lists_reads_nothing_and_prints_nothi
     job = CheckedJob(renders=record_renders(IMAGE_LABEL, None, options), check=_check())
     link = Link(
         printer=printer,
-        uri=URI,
-        timeout=1.0,
-        open_printer=open_recording_printer(printer),
+        endpoint=PrinterEndpoint(uri=URI, timeout=1.0, open_printer=open_recording_printer(printer)),
         reconnect=AnswerWait(seconds=1.0),
     )
 
@@ -782,7 +791,9 @@ def test_a_label_in_error_once_rendered_with_the_names_read_prints_no_calibratio
     opener = open_recording_printer(printer)
     job = CheckedJob(renders=record_renders(IMAGE_LABEL, None, strict), check=_check())
     link = Link(
-        printer=opener(URI, timeout=1.0), uri=URI, timeout=1.0, open_printer=opener, reconnect=AnswerWait(seconds=1.0)
+        printer=opener(URI, timeout=1.0),
+        endpoint=PrinterEndpoint(uri=URI, timeout=1.0, open_printer=opener),
+        reconnect=AnswerWait(seconds=1.0),
     )
 
     send = send_checked(link, first, job)
@@ -819,7 +830,11 @@ def test_the_reset_read_makes_no_refused_for_silence_decision() -> None:
         result = render_label(IMAGE_LABEL, ALLEGRO)
         job = CheckedJob(renders=record_renders(IMAGE_LABEL, None, ALLEGRO), check=_check())
         with pytest.raises(Exception, match="did not store"):
-            print_checked(result, job, uri=URI, timeout=1.0, open_printer=open_recording_printer(printer))
+            print_checked(
+                result,
+                job,
+                endpoint=PrinterEndpoint(uri=URI, timeout=1.0, open_printer=open_recording_printer(printer)),
+            )
         arms.append((modules.requests, list(printer.sent)))
     assert arms[0] == arms[1]
     assert arms[0][0] == 3
@@ -845,7 +860,7 @@ def test_a_reset_is_never_read_as_an_empty_module() -> None:
     result = render_label(IMAGE_LABEL, PLUG_IN, held=READ_AT_SEND)
     job = CheckedJob(renders=record_renders(IMAGE_LABEL, None, PLUG_IN), check=_check())
 
-    print_checked(result, job, uri=URI, timeout=1.0, open_printer=opener)
+    print_checked(result, job, endpoint=PrinterEndpoint(uri=URI, timeout=1.0, open_printer=opener))
 
     assert modules.downloaded_held == []
     assert modules.placed_missing == []
@@ -866,7 +881,7 @@ def test_on_built_in_ram_the_calibration_label_leaves_what_the_module_holds_alon
     result = render_label(IMAGE_LABEL, keys_off, held=READ_AT_SEND)
     job = CheckedJob(renders=record_renders(IMAGE_LABEL, None, keys_off), check=_check())
 
-    print_checked(result, job, uri=URI, timeout=1.0, open_printer=opener)
+    print_checked(result, job, endpoint=PrinterEndpoint(uri=URI, timeout=1.0, open_printer=opener))
 
     assert modules.placed_missing == []
     assert modules.names("A") == [name]
@@ -881,7 +896,7 @@ def test_a_report_the_names_read_took_counts_and_nothing_more_is_asked() -> None
     result = render_label(IMAGE_LABEL, PLUG_IN, held=READ_AT_SEND)
     job = CheckedJob(renders=record_renders(IMAGE_LABEL, None, PLUG_IN), check=_check())
 
-    report = print_checked(result, job, uri=URI, timeout=1.0, open_printer=opener)
+    report = print_checked(result, job, endpoint=PrinterEndpoint(uri=URI, timeout=1.0, open_printer=opener))
 
     assert modules.status_requests == 0
     assert printer.data.count(CALIBRATION_TEXT) == 1
@@ -1100,7 +1115,9 @@ def test_an_unusable_upload_check_is_refused_before_a_byte_goes_out(check: Uploa
     job = CheckedJob(renders=record_renders(label, None, ALLEGRO), check=check)
     with pytest.raises(ValueError, match=r"wait|interval|rounds|retry"):
         print_checked(
-            render_label(label, ALLEGRO), job, uri=URI, timeout=5.0, open_printer=open_recording_printer(printer)
+            render_label(label, ALLEGRO),
+            job,
+            endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer)),
         )
     assert printer.sent == []
 

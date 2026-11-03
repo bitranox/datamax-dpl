@@ -109,7 +109,8 @@ turn the outcome into output and an exit code.
 
 ### Application (`src/datamax_dpl/application/`)
 
-- `ports.py` - Protocols the adapters implement (printer, camera, clock, configuration, logging).
+- `ports.py` - Protocols the adapters implement (printer, camera, clock, configuration, logging), and
+  `PrinterEndpoint`, the printer URI, timeout and opener the use cases take as one value.
 - `use_cases.py` - render one label or a batch, print, send commands, query status, detect, read the memory directory.
 - `verify.py` - print, wait for the printer, photograph, return photo and expected preview.
 - `upload_check.py` - check a job's images reached the printer before the format that places them.

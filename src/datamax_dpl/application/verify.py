@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
     from ..domain.label import Label
     from ..domain.render_context import RenderOptions
-    from .ports import CaptureImage, OpenPrinter, PrinterTransport, Sleep
+    from .ports import CaptureImage, PrinterEndpoint, PrinterTransport, Sleep
 
 #: Default of ``[printer] verify_poll_interval``: seconds between two status polls while the label prints.
 POLL_SECONDS = 0.5
@@ -110,9 +110,7 @@ def check_idle_wait(wait: IdleWait) -> IdleWait:
     return wait
 
 
-def wait_idle(
-    printer: PrinterTransport, *, uri: str, timeout: float, open_printer: OpenPrinter, wait: IdleWait
-) -> PrinterStatus:
+def wait_idle(printer: PrinterTransport, *, endpoint: PrinterEndpoint, wait: IdleWait) -> PrinterStatus:
     """Poll the status until the printer is idle or reports a problem, within ``wait.answer``.
 
     ``printer`` is the open channel the job went out on, and stays the caller's to close; a
@@ -136,9 +134,7 @@ def wait_idle(
     try:
         while answer_wait.clock() < deadline:
             try:
-                poll = poll_status(
-                    channel, uri=uri, timeout=timeout, open_printer=open_printer, wait=answer_wait, started=started
-                )
+                poll = poll_status(channel, endpoint=endpoint, wait=answer_wait, started=started)
             except PrinterTimeoutError as exc:
                 # The poll is read exactly as status reads one; only what the message says differs,
                 # since a printer last heard busy is most likely still busy.
@@ -178,23 +174,21 @@ class _Printed(NamedTuple):
 def _print_and_wait(
     result: RenderResult,
     *,
-    uri: str,
-    timeout: float,
+    endpoint: PrinterEndpoint,
     wait: IdleWait,
-    open_printer: OpenPrinter,
     sleep: Sleep,
     checked: CheckedJob | None,
 ) -> _Printed:
-    with closing(open_printer(uri, timeout=timeout)) as printer:
+    with closing(endpoint.open()) as printer:
         if not printer.bidirectional:
             printer.send(result.data)
             sleep(wait.one_way_settle)
             return _Printed(result=result, bytes_sent=len(result.data), status=None)
         if checked is None:
             printer.send(result.data)
-            status = wait_idle(printer, uri=uri, timeout=timeout, open_printer=open_printer, wait=wait)
+            status = wait_idle(printer, endpoint=endpoint, wait=wait)
             return _Printed(result=result, bytes_sent=len(result.data), status=status)
-        link = Link(printer=printer, uri=uri, timeout=timeout, open_printer=open_printer, reconnect=checked.check.wait)
+        link = Link(printer=printer, endpoint=endpoint, reconnect=checked.check.wait)
         try:
             return _send_checked_and_wait(link, checked, wait=wait)
         finally:
@@ -213,7 +207,7 @@ def _send_checked_and_wait(link: Link, checked: CheckedJob, *, wait: IdleWait) -
     if not send.all_sent:
         raise UploadRefusedError(send.result, bytes_sent=link.bytes_sent)
     # On the channel the rest of the job went out on, or a new one that closes with the link.
-    status = wait_idle(link.channel(), uri=link.uri, timeout=link.timeout, open_printer=link.open_printer, wait=wait)
+    status = wait_idle(link.channel(), endpoint=link.endpoint, wait=wait)
     return _Printed(result=send.result, bytes_sent=link.bytes_sent, status=status)
 
 
@@ -222,11 +216,9 @@ def verify_print(
     label: Label,
     *,
     options: RenderOptions,
-    uri: str,
-    timeout: float,
+    endpoint: PrinterEndpoint,
     camera: CameraSettings,
     output_dir: Path,
-    open_printer: OpenPrinter,
     capture: CaptureImage,
     sleep: Sleep,
     wait: IdleWait | None = None,
@@ -236,7 +228,8 @@ def verify_print(
 
     ``options`` are the ones ``result`` was rendered with: the expected picture places each field
     at the row and column that job writes, its images as the job sent them. ``wait`` is how long
-    the printer may take to finish (see :class:`IdleWait`); None waits ``timeout`` seconds in all.
+    the printer may take to finish (see :class:`IdleWait`); None waits ``endpoint.timeout`` seconds in
+    all.
     ``checked`` sends a label that downloads an image after its upload check on a two-way channel
     (see :mod:`~datamax_dpl.application.upload_check`); None sends the job at once.
 
@@ -268,12 +261,10 @@ def verify_print(
             raise ConfigurationError(msg)
         checked = checked._replace(renders=renders)
     profile = get_profile(options.model)
-    idle_wait = IdleWait(answer=AnswerWait(seconds=timeout, sleep=sleep)) if wait is None else wait
+    idle_wait = IdleWait(answer=AnswerWait(seconds=endpoint.timeout, sleep=sleep)) if wait is None else wait
     # Before the job goes out: refused afterwards, it would leave a label printed and not photographed.
     check_idle_wait(idle_wait)
-    printed = _print_and_wait(
-        result, uri=uri, timeout=timeout, wait=idle_wait, open_printer=open_printer, sleep=sleep, checked=checked
-    )
+    printed = _print_and_wait(result, endpoint=endpoint, wait=idle_wait, sleep=sleep, checked=checked)
     sleep(camera.settle_seconds)
     photo = capture(camera, output_dir=output_dir)
     expected = encode_png(preview_bitmap(label, profile, sent_as=printed.result.sent_as, options=options))

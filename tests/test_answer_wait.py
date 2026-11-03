@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.use_cases import AnswerWait, query_status, read_memory_directory
 from datamax_dpl.domain.enums import MemoryKind
 from datamax_dpl.domain.errors import PrinterTimeoutError, TransportError
@@ -128,7 +129,7 @@ def test_a_connect_that_timed_out_is_tried_again_and_the_next_one_is_asked() -> 
 
     wait = AnswerWait(seconds=5.0, retry_interval=0.25, clock=clock, sleep=sleep)
 
-    status = query_status(uri=PRINTER, timeout=1.0, open_printer=open_printer, wait=wait)
+    status = query_status(endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=open_printer), wait=wait)
 
     assert status.idle
     assert len(opened) == 2
@@ -145,7 +146,7 @@ def test_a_pause_that_overruns_the_wait_starts_no_attempt_and_keeps_the_last_fai
     wait = AnswerWait(seconds=1.0, retry_interval=0.5, clock=clock, sleep=overrunning_sleep)
 
     with pytest.raises(PrinterTimeoutError) as caught:
-        query_status(uri=PRINTER, timeout=1.0, open_printer=refusing_then(), wait=wait)
+        query_status(endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=refusing_then()), wait=wait)
 
     message = str(caught.value)
     assert message.startswith(f"{PRINTER}: no answer in 1.1 s (1 attempt);")
@@ -167,7 +168,9 @@ def test_a_connect_that_uses_up_the_wait_asks_nothing_closes_and_keeps_the_last_
     wait = AnswerWait(seconds=1.0, retry_interval=0.25, clock=clock, sleep=sleep)
 
     with pytest.raises(PrinterTimeoutError) as caught:
-        query_status(uri=PRINTER, timeout=1.0, open_printer=refusing_then(slow_connect), wait=wait)
+        query_status(
+            endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=refusing_then(slow_connect)), wait=wait
+        )
 
     message = str(caught.value)
     assert message.startswith(f"{PRINTER}: no answer in 2.2 s (2 attempts);")
@@ -191,7 +194,9 @@ def test_memory_reports_the_answer_wait_the_transport_capped_not_the_wait_asked_
 
     with pytest.raises(PrinterTimeoutError) as caught:
         read_memory_directory(
-            kinds=(MemoryKind.GRAPHIC,), uri=PRINTER, timeout=10.0, open_printer=open_channel, wait=wait
+            kinds=(MemoryKind.GRAPHIC,),
+            endpoint=PrinterEndpoint(uri=PRINTER, timeout=10.0, open_printer=open_channel),
+            wait=wait,
         )
 
     assert str(caught.value).startswith(f"{PRINTER}: no answer in {MAX_ANSWER_SECONDS:.1f} s (1 attempt);")

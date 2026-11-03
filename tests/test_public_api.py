@@ -15,6 +15,7 @@ import datamax_dpl
 from datamax_dpl.adapters.config import get_config
 from datamax_dpl.adapters.memory import open_recording_printer
 from datamax_dpl.adapters.preview import preview_findings, render_preview_png
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.domain.render_context import RenderOptions
 
 
@@ -238,8 +239,8 @@ def test_the_checked_route_the_readme_names_refuses_that_label() -> None:
         datamax_dpl.print_checked(
             job,
             checked,
-            uri="tcp://192.0.2.60:9100",
-            timeout=1,
-            open_printer=open_recording_printer(ModulePrinter(modules)),
+            endpoint=PrinterEndpoint(
+                uri="tcp://192.0.2.60:9100", timeout=1, open_printer=open_recording_printer(ModulePrinter(modules))
+            ),
         )
     assert modules.placed_missing == []

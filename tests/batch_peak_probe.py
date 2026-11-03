@@ -28,6 +28,7 @@ from printer_server import ImageModules
 
 from datamax_dpl import open_printer
 from datamax_dpl.adapters.cli import root as cli_mod
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.upload_check import CheckedJob, UploadCheck, print_checked
 from datamax_dpl.application.use_cases import AnswerWait, check_batch
 from datamax_dpl.composition import build_production
@@ -97,7 +98,7 @@ def _library_one_way(directory: Path, label: Label) -> int:
     report = check_batch(label, records, options)
     job = CheckedJob(renders=report.renders(), check=UploadCheck(wait=AnswerWait(seconds=1.0)))
     uri = f"file:{directory / 'sent.dpl'}"
-    print_checked(report, job, uri=uri, timeout=1.0, open_printer=open_printer)
+    print_checked(report, job, endpoint=PrinterEndpoint(uri=uri, timeout=1.0, open_printer=open_printer))
     return 0
 
 

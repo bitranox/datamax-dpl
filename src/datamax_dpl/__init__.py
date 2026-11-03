@@ -25,7 +25,7 @@ from .__init__conf__ import print_info
 from .adapters.logging.setup import InvalidLoggingConfigError
 from .adapters.preview import pillow_available, preview_findings, render_preview_png
 from .adapters.transport import open_printer
-from .application.ports import Clock, JobSpool, OpenPrinter, PrinterTransport, Sleep
+from .application.ports import Clock, JobSpool, OpenPrinter, PrinterEndpoint, PrinterTransport, Sleep
 from .application.upload_check import (
     CheckedJob,
     CheckedPrint,
@@ -192,6 +192,7 @@ __all__ = [
     "Point",
     "Polygon",
     "PreviewTooLongError",
+    "PrinterEndpoint",
     "PrinterProfile",
     "PrinterProtocolError",
     "PrinterSetting",

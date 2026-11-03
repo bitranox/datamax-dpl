@@ -15,6 +15,7 @@ from printer_server import ImageModules, ModulePrinter
 from datamax_dpl import ReportLimits, check_batch, render_batch
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory.printer import open_recording_printer
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.upload_check import CheckedJob, UploadCheck, UploadRefusedError, print_checked
 from datamax_dpl.application.use_cases import AnswerWait, report_of
 from datamax_dpl.composition import build_production
@@ -119,7 +120,11 @@ def test_a_record_turned_bad_before_a_two_way_send_with_no_spool_stops_the_batch
     turned = "rendered again with what the printer then held, has errors"
     with pytest.raises(UploadRefusedError, match=turned) as raised:
         print_checked(
-            report, job, uri="tcp://192.0.2.60:9100", timeout=1.0, open_printer=open_recording_printer(printer)
+            report,
+            job,
+            endpoint=PrinterEndpoint(
+                uri="tcp://192.0.2.60:9100", timeout=1.0, open_printer=open_recording_printer(printer)
+            ),
         )
     assert records.reads > 1, "the send read the records again"
     assert raised.value.bytes_sent > 0, "the first label went out"

@@ -9,6 +9,7 @@ import pytest
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.memory import FakeCamera, RecordingPrinter, open_recording_printer
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.upload_check import CheckedJob, UploadCheck, print_checked
 from datamax_dpl.application.use_cases import AnswerWait, print_result, record_renders, render_batch
 from datamax_dpl.composition import build_testing
@@ -134,7 +135,9 @@ def test_print_checked_refused_carries_the_findings() -> None:
     job = CheckedJob(renders=record_renders(label, None, options), check=UploadCheck(wait=AnswerWait(seconds=1.0)))
     with pytest.raises(LabelRejectedError) as refused:
         print_checked(
-            build_job(label, options), job, uri="x", timeout=1.0, open_printer=open_recording_printer(printer)
+            build_job(label, options),
+            job,
+            endpoint=PrinterEndpoint(uri="x", timeout=1.0, open_printer=open_recording_printer(printer)),
         )
     assert [finding.code for finding in refused.value.findings] == [FindingCode.CIRCLE_RASTERIZED]
     assert printer.sent == []
@@ -146,7 +149,9 @@ def test_print_result_refused_carries_a_batch_s_findings() -> None:
     batch = render_batch(label, [{}, {}], options)
     printer = RecordingPrinter()
     with pytest.raises(LabelRejectedError) as refused:
-        print_result(batch, uri="x", timeout=1.0, open_printer=open_recording_printer(printer))
+        print_result(
+            batch, endpoint=PrinterEndpoint(uri="x", timeout=1.0, open_printer=open_recording_printer(printer))
+        )
     assert len(refused.value.findings) == 2
 
 

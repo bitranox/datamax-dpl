@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.upload_check import Link
 from datamax_dpl.application.use_cases import AnswerWait
 
@@ -45,7 +46,9 @@ def _send_through_dropped_channels(sends: int) -> tuple[int, list[_ClosingPrintS
         return cast("PrinterTransport", opened)
 
     link = Link(
-        printer=None, uri="tcp://printer", timeout=1.0, open_printer=open_new, reconnect=AnswerWait(seconds=1.0)
+        printer=None,
+        endpoint=PrinterEndpoint(uri="tcp://printer", timeout=1.0, open_printer=open_new),
+        reconnect=AnswerWait(seconds=1.0),
     )
     for _ in range(sends):
         link.send(b"x")

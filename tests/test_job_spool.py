@@ -28,6 +28,7 @@ from datamax_dpl.adapters.cli.job_spool import FileJobSpool, SpoolWriteError
 from datamax_dpl.adapters.cli.main import main
 from datamax_dpl.adapters.memory import RecordingPrinter
 from datamax_dpl.adapters.memory.printer import open_recording_printer
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.upload_check import CheckedJob, UploadCheck, UploadRefusedError, print_checked
 from datamax_dpl.application.use_cases import AnswerWait, BatchEntry, BatchReport, RecordRender, record_renders
 from datamax_dpl.composition import AppServices, build_testing
@@ -107,7 +108,9 @@ class _CountedRecords:
 
 def _sent_two_way(report: BatchReport, printer: ModulePrinter) -> bytes:
     job = CheckedJob(renders=report.renders(), check=UploadCheck(wait=AnswerWait(seconds=1.0)), reset=None)
-    print_checked(report, job, uri=_TCP, timeout=1.0, open_printer=open_recording_printer(printer))
+    print_checked(
+        report, job, endpoint=PrinterEndpoint(uri=_TCP, timeout=1.0, open_printer=open_recording_printer(printer))
+    )
     return printer.data
 
 
@@ -231,7 +234,9 @@ def test_a_spool_keeps_counts_of_the_findings_the_report_does_not_keep_and_a_sen
         report = check_batch(_UNMAPPED, rows, _ALLEGRO, read_names_at_send=True, spool=spool, limits=_FEW_FINDINGS)
         job = CheckedJob(renders=report.renders(), check=UploadCheck(wait=AnswerWait(seconds=1.0)), reset=None)
         printer = ModulePrinter(ImageModules())
-        sent = print_checked(report, job, uri=_TCP, timeout=1.0, open_printer=open_recording_printer(printer)).result
+        sent = print_checked(
+            report, job, endpoint=PrinterEndpoint(uri=_TCP, timeout=1.0, open_printer=open_recording_printer(printer))
+        ).result
     assert report.findings_total > _FEW_FINDINGS.findings * 2
     assert sum(len(entry.result.findings) for entry in kept) == len(report.findings)
     assert sum(sum(entry.unkept.values()) for entry in kept) == report.findings_total - len(report.findings)
@@ -718,7 +723,11 @@ def _sent(printer: ModulePrinter) -> tuple[BatchReport, BatchReport]:
         job = CheckedJob(renders=checked.renders(), check=UploadCheck(wait=AnswerWait(seconds=1.0)), reset=None)
         try:
             sent = print_checked(
-                checked, job, uri="tcp://192.0.2.60:9100", timeout=1.0, open_printer=open_recording_printer(printer)
+                checked,
+                job,
+                endpoint=PrinterEndpoint(
+                    uri="tcp://192.0.2.60:9100", timeout=1.0, open_printer=open_recording_printer(printer)
+                ),
             ).result
         except UploadRefusedError as refused:
             assert isinstance(refused.result, BatchReport)
@@ -793,9 +802,9 @@ def test_a_callers_own_record_render_sends_over_a_two_way_link() -> None:
     sent = print_checked(
         build_job(label, _DMX),
         job,
-        uri="tcp://192.0.2.60:9100",
-        timeout=1.0,
-        open_printer=open_recording_printer(printer),
+        endpoint=PrinterEndpoint(
+            uri="tcp://192.0.2.60:9100", timeout=1.0, open_printer=open_recording_printer(printer)
+        ),
     )
     assert sent.bytes_sent > 0
     assert b"hi" in b"".join(printer.sent)

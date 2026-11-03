@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from datamax_dpl.adapters.memory import PrinterOpen, RecordingPrinter, open_recording_printer
+from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.use_cases import read_memory_directory
 from datamax_dpl.domain.enums import ImageModule, MemoryKind
 from datamax_dpl.domain.errors import PrinterTimeoutError, UnsupportedOperationError
@@ -178,7 +179,9 @@ def test_an_answer_that_is_no_directory_is_kept_unparsed_and_not_raised(answer: 
 def test_reading_one_kind_sends_its_request_and_parses_the_answer() -> None:
     printer = RecordingPrinter(answers={b"\x02WG": MANUAL_SAMPLE})
     directories = read_memory_directory(
-        kinds=(MemoryKind.GRAPHIC,), uri=PRINTER, timeout=2.0, idle=0.5, open_printer=open_recording_printer(printer)
+        kinds=(MemoryKind.GRAPHIC,),
+        endpoint=PrinterEndpoint(uri=PRINTER, timeout=2.0, open_printer=open_recording_printer(printer)),
+        idle=0.5,
     )
     assert [d.modules for d in directories] == [MANUAL_MODULES]
     assert printer.queries == [b"\x02WG"]
@@ -191,7 +194,9 @@ def test_reading_no_kind_returns_nothing_and_opens_nothing() -> None:
     printer = RecordingPrinter()
 
     directories = read_memory_directory(
-        kinds=(), uri=PRINTER, timeout=2.0, idle=0.5, open_printer=open_recording_printer(printer)
+        kinds=(),
+        endpoint=PrinterEndpoint(uri=PRINTER, timeout=2.0, open_printer=open_recording_printer(printer)),
+        idle=0.5,
     )
 
     assert (directories, printer.opened, printer.queries) == ((), [], [])
@@ -203,10 +208,8 @@ def test_reading_every_kind_asks_in_the_order_given_over_one_connection() -> Non
     printer = RecordingPrinter(answers=answers)
     directories = read_memory_directory(
         kinds=(MemoryKind.FONT, MemoryKind.GRAPHIC, MemoryKind.FORMAT),
-        uri=PRINTER,
-        timeout=2.0,
+        endpoint=PrinterEndpoint(uri=PRINTER, timeout=2.0, open_printer=open_recording_printer(printer)),
         idle=0.5,
-        open_printer=open_recording_printer(printer),
     )
     assert [d.kind for d in directories] == ["font", "graphic", "format"]
     assert printer.queries == [b"\x02WF", b"\x02WG", b"\x02WL"]
@@ -219,10 +222,8 @@ def test_a_printer_that_does_not_answer_is_a_timeout() -> None:
     with pytest.raises(PrinterTimeoutError, match="no answer to"):
         read_memory_directory(
             kinds=(MemoryKind.GRAPHIC,),
-            uri=PRINTER,
-            timeout=2.0,
+            endpoint=PrinterEndpoint(uri=PRINTER, timeout=2.0, open_printer=open_recording_printer(printer)),
             idle=0.5,
-            open_printer=open_recording_printer(printer),
         )
     assert printer.closed
 
@@ -233,10 +234,8 @@ def test_a_one_way_channel_cannot_read_a_directory() -> None:
     with pytest.raises(UnsupportedOperationError, match="cannot read the printer's answer"):
         read_memory_directory(
             kinds=(MemoryKind.GRAPHIC,),
-            uri=PRINTER,
-            timeout=2.0,
+            endpoint=PrinterEndpoint(uri=PRINTER, timeout=2.0, open_printer=open_recording_printer(printer)),
             idle=0.5,
-            open_printer=open_recording_printer(printer),
         )
 
 
@@ -373,10 +372,8 @@ def test_a_bad_idle_is_refused_before_the_printer_is_opened() -> None:
     with pytest.raises(ValueError, match="idle must be above 0"):
         read_memory_directory(
             kinds=(MemoryKind.GRAPHIC,),
-            uri=PRINTER,
-            timeout=2.0,
+            endpoint=PrinterEndpoint(uri=PRINTER, timeout=2.0, open_printer=open_recording_printer(printer)),
             idle=0.0,
-            open_printer=open_recording_printer(printer),
         )
     assert printer.opened == []
 
