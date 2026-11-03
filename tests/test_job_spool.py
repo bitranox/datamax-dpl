@@ -29,10 +29,11 @@ from datamax_dpl.adapters.cli.main import main
 from datamax_dpl.adapters.memory import RecordingPrinter
 from datamax_dpl.adapters.memory.printer import open_recording_printer
 from datamax_dpl.application.upload_check import CheckedJob, UploadCheck, UploadRefusedError, print_checked
-from datamax_dpl.application.use_cases import AnswerWait, BatchEntry, BatchReport
+from datamax_dpl.application.use_cases import AnswerWait, BatchEntry, BatchReport, RecordRender, record_renders
 from datamax_dpl.composition import AppServices, build_testing
 from datamax_dpl.domain.enums import ImageModule
 from datamax_dpl.domain.label import Cut, Image, Label, Qr, Text
+from datamax_dpl.domain.render import RenderResult, build_job
 from datamax_dpl.domain.render_context import RenderOptions
 
 if TYPE_CHECKING:
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
     from typing_extensions import Buffer
 
     from datamax_dpl.application.ports import JobSpool
+    from datamax_dpl.domain.held_images import HeldImages
 
 pytestmark = pytest.mark.usefixtures("no_ambient_configuration")
 
@@ -746,3 +748,37 @@ def test_the_spool_holds_each_job_once_plus_a_header(records: int) -> None:
         assert spool.path is not None
         size = spool.path.stat().st_size
     assert report.job_bytes < size <= report.job_bytes + records * _HEADER_ROOM
+
+
+class _CallersOwnRender:
+    """A caller's own render with the three methods :class:`RecordRender` names, and nothing of the spool's."""
+
+    def __init__(self, label: Label, options: RenderOptions) -> None:
+        (self._inner,) = record_renders(label, None, options)
+
+    def first(self) -> RenderResult:
+        return self._inner.first()
+
+    def __call__(self, held: HeldImages, *, halve: bool) -> RenderResult:
+        return self._inner(held, halve=halve)
+
+    def calibration(self, text: str) -> RenderResult:
+        return self._inner.calibration(text)
+
+
+@pytest.mark.os_agnostic
+def test_a_callers_own_record_render_sends_over_a_two_way_link() -> None:
+    """The spool's counts stay off the protocol, so a render a caller writes needs only its three methods."""
+    label = Label(elements=[Text(x=5, y=5, text="hi")])
+    render: RecordRender = _CallersOwnRender(label, _DMX)
+    printer = ModulePrinter(ImageModules())
+    job = CheckedJob(renders=[render], check=UploadCheck(wait=AnswerWait(seconds=1.0)), reset=None)
+    sent = print_checked(
+        build_job(label, _DMX),
+        job,
+        uri="tcp://192.0.2.60:9100",
+        timeout=1.0,
+        open_printer=open_recording_printer(printer),
+    )
+    assert sent.bytes_sent > 0
+    assert b"hi" in b"".join(printer.sent)

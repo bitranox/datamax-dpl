@@ -97,6 +97,7 @@ from .use_cases import (
     open_within,
     read_reset_report,
     read_stored_names,
+    unkept_of,
     unlisted_download,
 )
 
@@ -700,7 +701,7 @@ class _Record:
 
     def unkept(self) -> Mapping[FindingCode, int]:
         """The counts of findings :meth:`as_sent` leaves out: the first render's, unless a round rendered it again."""
-        return self.render.unkept() if self.result is self._first_result else NO_UNKEPT
+        return unkept_of(self.render) if self.result is self._first_result else NO_UNKEPT
 
 
 # Dataclasses, not NamedTuples: a round's outcome is told apart from the tuple of missing names

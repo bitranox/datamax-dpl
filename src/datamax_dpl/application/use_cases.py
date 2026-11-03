@@ -943,10 +943,6 @@ class RecordRender(Protocol):
         """Return the calibration label for this label: its settings and size, with ``text`` in the middle."""
         ...
 
-    def unkept(self) -> Mapping[FindingCode, int]:
-        """Return the counts of findings :meth:`first` has beyond its ``findings`` (see :attr:`BatchEntry.unkept`)."""
-        ...
-
 
 def record_renders(
     label: Label, records: Sequence[Mapping[str, str]] | None, options: RenderOptions
@@ -1002,10 +998,6 @@ class _LabelRender:
         """Render the calibration label for this label."""
         return calibration_job(self.label, self.options, text=text)
 
-    def unkept(self) -> Mapping[FindingCode, int]:
-        """None: its first render holds all its findings."""
-        return NO_UNKEPT
-
 
 @dataclass(frozen=True)
 class _RecordFillRender:
@@ -1031,10 +1023,6 @@ class _RecordFillRender:
         """Fill the label and render the calibration label for it."""
         return calibration_job(self._filled(), self.options, text=text)
 
-    def unkept(self) -> Mapping[FindingCode, int]:
-        """None: its first render holds all its findings."""
-        return NO_UNKEPT
-
 
 @dataclass(frozen=True)
 class _SpooledRender:
@@ -1056,9 +1044,15 @@ class _SpooledRender:
         """Fill the label and render the calibration label for it."""
         return self.fill.calibration(text)
 
-    def unkept(self) -> Mapping[FindingCode, int]:
-        """The counts of the checked render's findings that the spool did not keep in full."""
-        return self.unkept_counts
+
+def unkept_of(render: RecordRender) -> Mapping[FindingCode, int]:
+    """The counts of findings ``render``'s first render has beyond its ``findings`` (see :attr:`BatchEntry.unkept`).
+
+    Only a render read back from a spool (:meth:`BatchReport.renders`) can have any: the spool kept
+    the rest as counts. Every other one, a caller's own :class:`RecordRender` included, holds all
+    its findings, so the counts stay off the protocol a caller implements.
+    """
+    return render.unkept_counts if isinstance(render, _SpooledRender) else NO_UNKEPT
 
 
 #: Why the stored names are unknown on a channel that cannot read the printer's answer.
@@ -1702,5 +1696,6 @@ __all__ = [
     "report_of",
     "send_bytes",
     "send_command",
+    "unkept_of",
     "unlisted_download",
 ]
