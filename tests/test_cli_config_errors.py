@@ -128,7 +128,8 @@ def test_a_label_command_without_config_needs_still_runs(cli_runner: CliRunner, 
 @pytest.mark.parametrize("args", NEEDS_CONFIG.values(), ids=NEEDS_CONFIG.keys())
 @pytest.mark.parametrize(
     ("error", "message"),
-    [(ConfigError(BROKEN_TOML), BROKEN_TOML), (UNREADABLE, str(UNREADABLE))],
+    # The reason and the file as given: str() of an OSError quotes the name with repr.
+    [(ConfigError(BROKEN_TOML), BROKEN_TOML), (UNREADABLE, "Permission denied: /etc/xdg/app/config.toml")],
     ids=["broken-file", "unreadable-file"],
 )
 def test_a_command_that_reads_the_config_refuses_with_exit_78(
