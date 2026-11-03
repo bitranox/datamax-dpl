@@ -623,8 +623,7 @@ def test_an_unknown_host_is_not_unanswered_so_nothing_asks_it_again() -> None:
 
 @pytest.mark.os_agnostic
 def test_a_refused_connection_is_a_transport_error() -> None:
-    with socket.create_server(("127.0.0.1", 0)) as probe:
-        port = probe.getsockname()[1]
+    port = _port_no_other_test_takes()
     with pytest.raises(TransportError, match=f"tcp 127.0.0.1:{port}"):
         open_printer(f"tcp://127.0.0.1:{port}", timeout=1.0)
 
@@ -670,7 +669,7 @@ def test_a_connection_refused_for_a_moment_is_retried() -> None:
     Measured on a SerComm PS301: about 1-2 s after a print job's connection closed, a status
     query's connect was refused. The listener here appears 0.6 s after the first attempt.
     """
-    port = _free_port()
+    port = _port_no_other_test_takes()
     received = bytearray()
 
     def late_printer() -> None:
