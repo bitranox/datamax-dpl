@@ -648,11 +648,15 @@ the records first and keeps what it found, not the jobs: each record is rendered
 with the records, which is what `max_batch_records` bounds. `render -o FILE` writes that pass into a
 new file beside the target, with the target's mode, that replaces it when every record passed. `print`,
 `render -o -`, and `render -o` to a target that would not stay what it was if replaced, write each
-record as it is checked to a spool file and send the job from it once every record passed. The spool
-costs disk, about the size of the job plus each record's findings, in a directory of its own
-(`datamax-dpl-spool-*`) in the system's temp directory (`TMPDIR`, `TEMP` or `TMP`) that only this user
-may enter, the file readable by this user alone; the command removes it however it ends, Ctrl-C
-included. A label is rendered again only where its bytes depend on what the printer answers: from the
+record as it is checked to a spool file and send the job from it once every record passed, never
+reading the records again. The spool costs disk: per record its job, the record's values and about
+0.5 KB of what the send reads besides, and of its findings only those the answer keeps in full (at most
+`max_reported_findings` over the whole batch, plus the first of each code), the rest as counts. It sits
+in a directory of its own (`datamax-dpl-spool-*`) in the system's temp directory (`TMPDIR`, `TEMP` or
+`TMP`) that only this user may enter, the file readable by this user alone; where that directory is a
+RAM disk (tmpfs), the spool takes memory, so point `TMPDIR` at a disk for a large batch. The command
+removes it however it ends, Ctrl-C and a full disk included; a full disk ends a batch that passed with
+an error naming the spool, while a batch with a bad record is still refused for it. A label is rendered again only where its bytes depend on what the printer answers: from the
 names read before its downloads (no clear before the label), for round 2's clear and upload again, or
 with its images halved in round 3. On a two-way link each label with a new image costs its directory
 read, about 1 s plus the printer's answer, so about 17 minutes per 1000 distinct codes. A target that

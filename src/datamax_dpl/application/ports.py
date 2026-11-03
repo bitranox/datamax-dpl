@@ -190,9 +190,12 @@ class JobSpool(Protocol):
     """Where a batch's check pass keeps each record as it was rendered, for the send to read back.
 
     The check pass renders every record once to refuse a bad batch before any of it goes out; kept
-    here, the send reads that render instead of making it again. Each record goes out of memory as
-    it is added, and :meth:`entries` reads one at a time, so memory does not grow with the records:
-    what grows is the space the spool takes, about the size of the job.
+    here, the send reads that render instead of making it again, and a label it renders again for
+    what the printer answers fills from the values kept with it (:attr:`BatchEntry.record`), so the
+    records are never read again. Each record goes out of memory as it is added, and :meth:`entries`
+    reads one at a time, so memory does not grow with the records. What grows is the space the spool
+    takes: per record its job, its values and its other fields, and of its findings only those the
+    report keeps in full, the rest as counts (:attr:`BatchEntry.unkept`).
     """
 
     def add(self, entry: BatchEntry) -> None:

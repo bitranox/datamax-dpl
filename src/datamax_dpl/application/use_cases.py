@@ -50,6 +50,7 @@ from ..domain.errors import (
     UnsupportedOperationError,
 )
 from ..domain.findings import Finding
+from ..domain.frozen_mapping import FrozenMapping
 from ..domain.held_images import READ_AT_SEND, HeldImages, held_images_from
 from ..domain.label import Cut, Label
 from ..domain.memory import MemoryDirectory, parse_module_directory
@@ -195,16 +196,28 @@ def render_batch(
     return BatchResult(results=tuple(results), batch_findings=plan.findings, cut_after=tuple(cuts))
 
 
+#: No findings beyond those a result holds.
+NO_UNKEPT: Mapping[FindingCode, int] = FrozenMapping[FindingCode, int]({})
+
+
 class BatchEntry(NamedTuple):
     """One record of a batch as first rendered.
 
     Attributes:
-        result: Its render, the batch cut not in its ``data``.
+        result: Its render, the batch cut not in its ``data``. One a check pass kept in its spool
+            holds in ``findings`` only those the batch's report kept in full (see ``unkept``).
         cut_after: Whether a batch cut (``<STX>o``) follows the record.
+        record: The values the record filled the label with, as they were read when it was
+            checked: a label rendered again for what the printer answers fills from these, so
+            what goes out is what was checked. None where an entry was made without them.
+        unkept: How many findings of each code the record has beyond ``result.findings``, which
+            the report counted and kept none of in full: a spool keeps their counts, not them.
     """
 
     result: RenderResult
     cut_after: bool
+    record: Mapping[str, str] | None = None
+    unkept: Mapping[FindingCode, int] = NO_UNKEPT
 
     @property
     def job(self) -> bytes:
@@ -235,17 +248,22 @@ def _entries(
     """Render one record at a time, carrying the batch's cuts across them and nothing about the printer."""
     batch_label = _batch_label(label)
     plan = _plan_of(batch_label, options)
-    lasts: list[bool] = []
+    # The current record's values and whether it is the last; iter_jobs takes one label and
+    # yields its result before it asks for the next, so this holds one record at a time.
+    current: list[tuple[dict[str, str], bool]] = []
 
     def labels() -> Iterator[Label]:
         for number, (record, last) in enumerate(_with_last(records)):
-            lasts.append(last)
-            yield fill_record(batch_label.per_record, record, number=number)
+            # Read once, here: the render and what the send fills again both take these values.
+            values = dict(record)
+            current.append((values, last))
+            yield fill_record(batch_label.per_record, values, number=number)
 
     held = READ_AT_SEND if read_names_at_send else None
     for number, result in enumerate(iter_jobs(labels(), options, held=held), start=1):
         checked = result if read_names_at_send else _refused_unread(result)
-        yield BatchEntry(result=checked, cut_after=plan.follows(number, last=lasts.pop()))
+        values, last = current.pop()
+        yield BatchEntry(result=checked, cut_after=plan.follows(number, last=last), record=values)
 
 
 class _FindingsUpdate(TypedDict):
@@ -368,12 +386,12 @@ class BatchJob:
 
     Attributes:
         label: The label holding the placeholders.
-        records: The records, read again for each label the send renders again.
+        records: The records, read again by a send with no spool; never read again with one.
         options: How the records were rendered.
         read_names_at_send: Whether the printer's names are read before each label's downloads.
         limits: How much of what grows with the records the report keeps.
-        spool: Every record as the check rendered it, which the send reads instead of rendering
-            it again; None renders each record again.
+        spool: Every record as the check rendered it, with its values, which the send reads
+            instead of the records; None renders each record again from them.
     """
 
     label: Label
@@ -443,9 +461,26 @@ class BatchReport:
         """The findings kept, a record's first, then the batch's own."""
         return chain((kept.finding for kept in self.findings), self.batch_findings)
 
-    def entries(self) -> Iterator[BatchEntry]:
-        """The records one at a time, as they were checked: from the spool, else rendered again."""
+    def _sendable(self) -> BatchJob:
+        """How to send the batch, which only one that passed its check has.
+
+        Raises:
+            LabelRejectedError: The batch was refused when it was checked; its errors are named.
+            ValueError: This is the report of a batch held whole.
+        """
         job = self._job()
+        if not self.ok:
+            msg = "the batch was refused when it was checked, so none of it is sent"
+            raise LabelRejectedError(msg, error_findings(self))
+        return job
+
+    def entries(self) -> Iterator[BatchEntry]:
+        """The records one at a time, as they were checked: from the spool, else rendered again.
+
+        Raises:
+            LabelRejectedError: The batch was refused when it was checked.
+        """
+        job = self._sendable()
         if job.spool is not None:
             return job.spool.entries()
         return _entries(job.label, job.records, job.options, read_names_at_send=job.read_names_at_send)
@@ -461,8 +496,9 @@ class BatchReport:
             The next record's job.
 
         Raises:
-            LabelRejectedError: A record now has an error finding, which :attr:`findings` of the
-                exception name; what came before it has been yielded.
+            LabelRejectedError: The batch was refused when it was checked, before anything is
+                yielded; or a record now has an error finding, which :attr:`findings` of the
+                exception name, after what came before it has been yielded.
             ConfigurationError: The records now come to another number than were checked.
             MissingFieldError: A record now lacks a field a placeholder names.
             pydantic.ValidationError: A filled value now breaks a field limit.
@@ -483,36 +519,40 @@ class BatchReport:
     def renders(self) -> Iterator[RecordRender]:
         """How to render each label for a checked send (``CheckedJob.renders``), one at a time.
 
-        With a spool each label's first render is the one checked, read back; a label is rendered
-        again only for what a read of the printer lists, a clear, or halved images.
+        With a spool each label's first render is the one checked, read back, and a label rendered
+        again (for what a read of the printer lists, a clear, or halved images) fills from the
+        values that were checked: the records are not read again. Without one each label is
+        rendered from the records, read again.
+
+        Raises:
+            LabelRejectedError: The batch was refused when it was checked.
         """
-        job = self._job()
+        job = self._sendable()
         per_record = _batch_label(job.label).per_record
-        fills = (
+        if job.spool is not None:
+            return _spooled(per_record, job.options, job.spool.entries())
+        return (
             _RecordFillRender(label=per_record, record=record, number=number, options=job.options)
             for number, record in enumerate(job.records)
         )
-        if job.spool is None:
-            return iter(fills)
-        return _spooled(fills, job.spool.entries())
 
     def cuts(self) -> Iterator[bool]:
         """For each record in turn, whether a batch cut follows it."""
         return (self.plan.follows(number, last=number == self.records) for number in range(1, self.records + 1))
 
 
-def _spooled(fills: Iterator[_RecordFillRender], entries: Iterator[BatchEntry]) -> Iterator[RecordRender]:
-    """Pair each record's render with its checked render from the spool, one pair at a time.
+def _spooled(per_record: Label, options: RenderOptions, entries: Iterator[BatchEntry]) -> Iterator[RecordRender]:
+    """Each record's checked render from the spool, which renders it again from the values kept with it.
 
     Raises:
-        ConfigurationError: The records, read again, come to more than the spool holds.
+        ConfigurationError: A spooled record holds no values (a spool that does not keep them).
     """
-    for fill in fills:
-        entry = next(entries, None)
-        if entry is None:
-            msg = "the batch's records, read again, come to more than were checked"
+    for number, entry in enumerate(entries):
+        if entry.record is None:
+            msg = f"the spool gave back data record {number} without its values, which a send renders it again from"
             raise ConfigurationError(msg)
-        yield _SpooledRender(fill=fill, checked=entry.result)
+        fill = _RecordFillRender(label=per_record, record=entry.record, number=number, options=options)
+        yield _SpooledRender(fill=fill, checked=entry.result, unkept_counts=entry.unkept)
 
 
 def report_of(result: BatchResult, *, limits: ReportLimits = DEFAULT_REPORT_LIMITS) -> BatchReport:
@@ -559,7 +599,7 @@ class BatchTally:
         self._counts[finding.code] = self._counts.get(finding.code, 0) + 1
         self._ok = self._ok and finding.severity is not Severity.ERROR
 
-    def _keep(self, finding: Finding, *, record: int) -> None:
+    def _keep(self, finding: Finding, *, record: int) -> bool:
         """Keep ``finding`` while there is room, and past that the first of its code.
 
         Past the room a code seen for the first time is what a reader cannot get from the counts: an
@@ -573,19 +613,39 @@ class BatchTally:
             self._findings.append(ReportedFinding(record=record, finding=finding))
             self._codes_kept.add(finding.code)
             self._error_kept = self._error_kept or error
+            return True
+        return False
 
-    def add(self, result: RenderResult, *, cut: bool) -> None:
-        """Add the next record, ``cut`` when a batch cut follows it."""
+    def add(
+        self, result: RenderResult, *, cut: bool, unkept: Mapping[FindingCode, int] = NO_UNKEPT
+    ) -> tuple[Finding, ...]:
+        """Add the next record, ``cut`` when a batch cut follows it.
+
+        Args:
+            result: The record's render.
+            cut: Whether a batch cut follows it.
+            unkept: How many findings of each code it has beyond ``result.findings``, counted and
+                not kept (see :attr:`BatchEntry.unkept`); none of them is an error.
+
+        Returns:
+            Those of the record's findings this report keeps in full, in order.
+        """
         record = self.records
         self.records += 1
         self._first = self._first or result
         self._fields += result.record_count
         self._bytes += len(result.data) + (len(BATCH_CUT_BYTES) if cut else 0)
+        kept: list[Finding] = []
         for finding in result.findings:
             self._count(finding)
-            self._keep(finding, record=record)
+            if self._keep(finding, record=record):
+                kept.append(finding)
+        for code, count in unkept.items():
+            self._findings_total += count
+            self._counts[code] = self._counts.get(code, 0) + count
         self._downloads_total += len(result.downloads)
         self._downloads.extend(result.downloads[: self._limits.downloads - len(self._downloads)])
+        return tuple(kept)
 
     def report(self, job: BatchJob | None) -> BatchReport:
         """Return the report of what was added, ``job`` being how to render it again.
@@ -634,8 +694,9 @@ def check_batch(
 
     Args:
         label: The label holding the placeholders.
-        records: One mapping of field name to value per label, which can be iterated again (a list,
-            or an object whose ``__iter__`` starts over) and yields the same records each time: sending
+        records: One mapping of field name to value per label. With ``spool`` they are read once,
+            here, and may be a generator. Without one they must be iterable again (a list, or an
+            object whose ``__iter__`` starts over) and yield the same records each time: sending
             reads them again, and what it reads then was never checked. One that has gone bad or
             changed in number is refused when its turn comes, after the records before it went out.
         options: The model, fallback policy and job settings.
@@ -643,8 +704,9 @@ def check_batch(
             before each label's downloads (see :func:`render_batch`).
         limits: How much of what grows with the records the report keeps.
         each: Called with each record as it is rendered, for a caller writing the job as it goes.
-        spool: Where each record is kept as it is rendered, until the first in error; sealed at
-            the end, and the report sends from it only when every record passed.
+        spool: Where each record is kept as it is rendered, with its values, until the first in
+            error; sealed at the end, and the report sends from it alone, never reading the
+            records again, only when every record passed.
 
     Returns:
         The report; check ``ok`` before sending. An error finding does not raise.
@@ -652,30 +714,58 @@ def check_batch(
     Raises:
         MissingFieldError: A record lacks a field a placeholder names.
         UnknownModelError: ``options.model`` names no profile.
-        ValueError: ``records`` can be read only once, or holds no record.
+        ValueError: ``records`` can be read only once and no ``spool`` is given, or holds no record.
         pydantic.ValidationError: A filled value breaks a field limit.
         OSError: ``spool`` could not keep a record of a batch that passed (a full disk). One that
             fails on a refused batch is not raised: the refusal is the answer, and nothing is sent.
     """
     # Asked of the type: calling iter() on a re-iterable would be one read of its source before the check.
-    if isinstance(records, Iterator):
-        msg = "check_batch reads the records again, and a generator can be read only once; use iter_batch for one"
+    if spool is None and isinstance(records, Iterator):
+        msg = (
+            "check_batch with no spool reads the records again, and a generator can be read only once; "
+            "give it a spool, or use iter_batch"
+        )
         raise ValueError(msg)
     tally = BatchTally(limits, plan=_plan_of(_batch_label(label), options))
     keeping = _Keeping(spool)
     for entry in _entries(label, records, options, read_names_at_send=read_names_at_send):
-        tally.add(entry.result, cut=entry.cut_after)
+        kept = tally.add(entry.result, cut=entry.cut_after)
         if each is not None:
             each(entry)
         # A refused batch sends nothing, so nothing past its first error is worth the disk.
         if tally.ok:
-            keeping.add(entry)
+            keeping.add(_as_kept(entry, kept))
     keeping.seal(ok=tally.ok)
-    kept = spool if tally.ok else None
     job = BatchJob(
-        label=label, records=records, options=options, read_names_at_send=read_names_at_send, limits=limits, spool=kept
+        label=label,
+        records=records,
+        options=options,
+        read_names_at_send=read_names_at_send,
+        limits=limits,
+        spool=spool if tally.ok else None,
     )
     return tally.report(job)
+
+
+def _as_kept(entry: BatchEntry, kept: tuple[Finding, ...]) -> BatchEntry:
+    """``entry`` as a spool keeps it: of its findings ``kept`` in full, as the report keeps them, the rest as counts.
+
+    A warning on every field of every record would otherwise make the spool many times the job,
+    for findings the report holds only counts of past its first ones.
+    """
+    findings = entry.result.findings
+    if len(kept) == len(findings):
+        return entry
+    unkept: dict[FindingCode, int] = {}
+    left = iter(kept)
+    following = next(left, None)
+    for finding in findings:
+        if finding is following:
+            following = next(left, None)
+            continue
+        unkept[finding.code] = unkept.get(finding.code, 0) + 1
+    result = entry.result.model_copy(update=_FindingsUpdate(findings=kept))
+    return entry._replace(result=result, unkept=FrozenMapping(unkept))
 
 
 class _Keeping:
@@ -762,6 +852,10 @@ class RecordRender(Protocol):
         """Return the calibration label for this label: its settings and size, with ``text`` in the middle."""
         ...
 
+    def unkept(self) -> Mapping[FindingCode, int]:
+        """Return the counts of findings :meth:`first` has beyond its ``findings`` (see :attr:`BatchEntry.unkept`)."""
+        ...
+
 
 def record_renders(
     label: Label, records: Sequence[Mapping[str, str]] | None, options: RenderOptions
@@ -817,6 +911,10 @@ class _LabelRender:
         """Render the calibration label for this label."""
         return calibration_job(self.label, self.options, text=text)
 
+    def unkept(self) -> Mapping[FindingCode, int]:
+        """None: its first render holds all its findings."""
+        return NO_UNKEPT
+
 
 @dataclass(frozen=True)
 class _RecordFillRender:
@@ -842,6 +940,10 @@ class _RecordFillRender:
         """Fill the label and render the calibration label for it."""
         return calibration_job(self._filled(), self.options, text=text)
 
+    def unkept(self) -> Mapping[FindingCode, int]:
+        """None: its first render holds all its findings."""
+        return NO_UNKEPT
+
 
 @dataclass(frozen=True)
 class _SpooledRender:
@@ -849,6 +951,7 @@ class _SpooledRender:
 
     fill: _RecordFillRender
     checked: RenderResult
+    unkept_counts: Mapping[FindingCode, int]
 
     def first(self) -> RenderResult:
         """Return the label as the check rendered it, its stored names to be read before its downloads."""
@@ -861,6 +964,10 @@ class _SpooledRender:
     def calibration(self, text: str) -> RenderResult:
         """Fill the label and render the calibration label for it."""
         return self.fill.calibration(text)
+
+    def unkept(self) -> Mapping[FindingCode, int]:
+        """The counts of the checked render's findings that the spool did not keep in full."""
+        return self.unkept_counts
 
 
 #: Why the stored names are unknown on a channel that cannot read the printer's answer.
@@ -1468,6 +1575,7 @@ def detect_printer(*, uri: str, timeout: float, open_printer: OpenPrinter) -> De
 __all__ = [
     "BUSY_HINT",
     "DIRECTORY_IDLE_SECONDS",
+    "NO_UNKEPT",
     "ONE_WAY_LINK",
     "RETRY_INTERVAL_SECONDS",
     "STATUS_WAIT_SECONDS",

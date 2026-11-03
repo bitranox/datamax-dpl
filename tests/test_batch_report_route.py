@@ -27,7 +27,7 @@ from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.symbology import Symbology
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
     from pathlib import Path
 
     from click.testing import CliRunner, Result
@@ -148,8 +148,9 @@ def test_whether_a_record_downloads_is_the_same_for_every_record_of_a_batch(labe
 def test_a_report_with_an_error_is_refused_with_its_findings_and_nothing_sent() -> None:
     report = check_batch(_QR, [{"a": "r0"}, {"a": _TOO_LONG}], _ALLEGRO)
     printer = ModulePrinter(ImageModules())
-    job = CheckedJob(renders=report.renders(), check=UploadCheck(wait=AnswerWait(seconds=1.0)), reset=None)
+    # A refused report gives no renders at all, so a send cannot even be put together from it.
     with pytest.raises(LabelRejectedError) as refused:
+        job = CheckedJob(renders=report.renders(), check=UploadCheck(wait=AnswerWait(seconds=1.0)), reset=None)
         print_checked(report, job, uri="tcp://printer", timeout=5.0, open_printer=open_recording_printer(printer))
     assert [finding.code.value for finding in refused.value.findings] == ["qr_data_too_long"]
     assert printer.sent == []
@@ -175,3 +176,18 @@ def test_an_empty_batch_yields_nothing_and_has_no_report() -> None:
     assert list(iter_batch(_TEXT, [], _ALLEGRO)) == []
     with pytest.raises(ValueError, match="a batch needs at least one record"):
         check_batch(_TEXT, [], _ALLEGRO)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("method", ["entries", "record_jobs", "renders"])
+def test_a_refused_report_gives_none_of_its_records_and_says_it_was_refused(method: str) -> None:
+    """Not the records before the bad one, then a claim that it has errors it did not have when checked."""
+    report = check_batch(_QR, [{"a": "r0"}, {"a": _TOO_LONG}], _ALLEGRO)
+    reads: dict[str, Callable[[], Iterator[object]]] = {
+        "entries": report.entries,
+        "record_jobs": report.record_jobs,
+        "renders": report.renders,
+    }
+    with pytest.raises(LabelRejectedError, match="refused when it was checked") as refused:
+        next(iter(reads[method]()))
+    assert [finding.code.value for finding in refused.value.findings] == ["qr_data_too_long"]

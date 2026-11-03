@@ -59,10 +59,12 @@ All notable changes to this project are documented here. The format follows
 - A `--data` batch goes one record at a time: the memory of `print`, `validate` and `render -o` no longer grows with
   the records. A 399-field label with 8000 records took 2.9 GB in `print`, and now takes 59 MB. Every record is still
   checked before any byte goes out, so a batch with a bad record is refused as before, and each record is rendered
-  once for it: `print`, `render -o -` and an in-place `render -o` keep each checked record in a spool file in the
-  system's temp directory, readable by this user alone and removed however the command ends (SIGTERM and SIGHUP
-  leave it), and send from it. A spool that fills the disk ends a batch that passed with an error naming it; a batch
-  with a bad record is still refused for that record. A label is rendered again only for what the printer answers: its names read, round
+  once for it: `print`, `render -o -` and an in-place `render -o` keep each checked record, with its values, in a
+  spool file in the system's temp directory, readable by this user alone and removed however the command ends
+  (SIGTERM and SIGHUP leave it), and send from it, never reading the records again. Per record the spool holds the
+  job, the values and about 0.5 KB besides; of the findings only those the answer keeps in full, the rest as counts. A
+  spool that fills the disk ends a batch that passed with an error naming it; a batch with a bad record is still
+  refused for that record. A label is rendered again only for what the printer answers: its names read, round
   2's clear, or halved images. 4000 records of a 399-field label took 34 s in `print` and `render -o -`, and now take
   17 s. On a two-way link each label with a new image costs its directory read, about 1 s plus the printer's answer.
   `render -o FILE` writes a file beside the target and replaces the target only when every record passed, and
@@ -72,10 +74,12 @@ All notable changes to this project are documented here. The format follows
 - Library: `iter_batch` yields one `RenderResult` at a time, `check_batch` returns a `BatchReport` holding no job, and
   `print_checked` takes the report with `report.renders()`, building each label when its turn comes. `render_batch`
   stays as the way to hold a batch whole. `check_batch(spool=...)` keeps each record in a `JobSpool` as it is
-  checked, and the report sends from it; `JobSpool` (the protocol with `add`, `seal` and `entries`) imports from
-  `datamax_dpl`. Without a spool the send reads the records again: one now in error is refused when its turn comes
-  (`LabelRejectedError`), as is another number of records (`ConfigurationError`); one that changed and still renders
-  goes out as it now reads.
+  checked, with the values it was checked with (`BatchEntry.record`), and the report sends from it alone, so its
+  records may be a generator; `JobSpool` (the protocol with `add`, `seal` and `entries`) imports from `datamax_dpl`.
+  Without a spool `check_batch` refuses a generator, and the send reads the records again: one now in error is
+  refused when its turn comes (`LabelRejectedError`), as is another number of records (`ConfigurationError`); one
+  that changed and still renders goes out as it now reads. `entries()`, `record_jobs()` and `renders()` of a report
+  refused at its check raise `LabelRejectedError` naming its errors before giving any record.
 - `[printer] max_reported_findings` and `max_reported_downloads` (default 1000 each): a batch's answer keeps that many
   findings and image names in full, past that the first finding of each code, and always its first error. The JSON
   envelope gains `findings_total`, `findings_by_code`, `downloads_total` and `report_note`, which names the key when

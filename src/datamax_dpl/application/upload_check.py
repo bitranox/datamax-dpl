@@ -88,6 +88,7 @@ from ..domain.reset_label import (
 )
 from ..domain.timing import TimeoutName, check_timeout
 from .use_cases import (
+    NO_UNKEPT,
     AnswerWait,
     BatchReport,
     BatchResult,
@@ -100,7 +101,7 @@ from .use_cases import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
 
     from .ports import OpenPrinter, PrinterTransport
     from .use_cases import RecordRender
@@ -403,10 +404,13 @@ class _Record:
     _unread_because: str = field(default="", init=False)
     # Names this label's own uploads sent: listed later, each holds the label's own picture.
     _own_names: frozenset[str] = field(default=frozenset(), init=False)
+    # The label as first sent, whose findings a spool may have kept only some of (see unkept).
+    _first_result: RenderResult = field(init=False)
 
     def __post_init__(self) -> None:
         """Take the label as it is first sent."""
         self.result = self.render.first()
+        self._first_result = self.result
 
     def read_before(self) -> _Skipped | _Refused | None:
         """Read the printer's names right before the downloads of a label no clear precedes.
@@ -694,6 +698,10 @@ class _Record:
         """The label's result as it went out, with the rounds' findings."""
         return self.result.model_copy(update=_FindingsUpdate(findings=self.result.findings + tuple(self.findings)))
 
+    def unkept(self) -> Mapping[FindingCode, int]:
+        """The counts of findings :meth:`as_sent` leaves out: the first render's, unless a round rendered it again."""
+        return self.render.unkept() if self.result is self._first_result else NO_UNKEPT
+
 
 # Dataclasses, not NamedTuples: a round's outcome is told apart from the tuple of missing names
 # by type, and a NamedTuple of one str would itself be a tuple[str, ...].
@@ -787,8 +795,8 @@ class _LabelSink(Protocol):
     format went out.
     """
 
-    def add(self, result: RenderResult, *, cut: bool) -> None:
-        """Take the next label, ``cut`` when a batch cut follows it."""
+    def add(self, result: RenderResult, *, cut: bool, unkept: Mapping[FindingCode, int] = ...) -> object:
+        """Take the next label, ``cut`` when a batch cut follows it, ``unkept`` counting findings it leaves out."""
         ...
 
 
@@ -798,9 +806,9 @@ class _SentLabels:
     def __init__(self) -> None:
         self.sent: list[RenderResult] = []
 
-    def add(self, result: RenderResult, *, cut: bool) -> None:
-        """Keep the next label; a :class:`BatchResult` holds its cuts apart."""
-        del cut
+    def add(self, result: RenderResult, *, cut: bool, unkept: Mapping[FindingCode, int] = NO_UNKEPT) -> None:
+        """Keep the next label; a :class:`BatchResult` holds its cuts apart, and its results every finding."""
+        del cut, unkept
         self.sent.append(result)
 
 
@@ -907,12 +915,12 @@ def _send_labels(link: Link, job: CheckedJob, *, cuts: Iterable[bool], sink: _La
         if first and not told:
             record.findings.extend(_reset_in_rounds(link, render, job, passed=passed))
         if not passed:
-            sink.add(record.as_sent(), cut=cut)
+            sink.add(record.as_sent(), cut=cut, unkept=record.unkept())
             return False
         # Built after the check: a round may have rendered the label again.
         whole = with_cut(record.result.data, record.result.closing, cut=cut)
         link.send(whole[record.result.upload_end :] if record.result.downloads else whole)
-        sink.add(record.as_sent(), cut=cut)
+        sink.add(record.as_sent(), cut=cut, unkept=record.unkept())
         first = False
     return True
 
@@ -944,7 +952,7 @@ def _send_report(link: Link, report: BatchReport, job: CheckedJob) -> CheckedSen
     if not all_sent:
         reached = tally.records
         for entry in islice(report.entries(), reached, None):
-            tally.add(entry.result, cut=entry.cut_after)
+            tally.add(entry.result, cut=entry.cut_after, unkept=entry.unkept)
     return CheckedSend(result=tally.report(report.job), all_sent=all_sent)
 
 

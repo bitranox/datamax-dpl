@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
     from click.testing import CliRunner, Result
 
+    from datamax_dpl.application.ports import JobSpool
     from datamax_dpl.application.use_cases import BatchEntry, BatchReport
 
 _TEXT = Label(elements=[Text(x=10, y=10, text="{a}")])
@@ -80,13 +81,17 @@ def test_a_private_target_s_job_is_never_readable_to_others(tmp_path: Path) -> N
     target.chmod(0o600)
     seen: list[int] = []
 
-    def check(write: Callable[[BatchEntry], None]) -> BatchReport:
-        def each(entry: BatchEntry) -> None:
+    def check(*, each: Callable[[BatchEntry], None] | None = None, spool: JobSpool | None = None) -> BatchReport:
+        assert each is not None
+        assert spool is None
+        write = each
+
+        def each_record(entry: BatchEntry) -> None:
             write(entry)
             temp = next(path for path in tmp_path.iterdir() if path.name.endswith(".tmp"))
             seen.append(stat.S_IMODE(temp.stat().st_mode))
 
-        return check_batch(_TEXT, [{"a": "r0"}, {"a": "r1"}], _DMX, each=each)
+        return check_batch(_TEXT, [{"a": "r0"}, {"a": "r1"}], _DMX, each=each_record)
 
     assert write_batch(str(target), check, open_spool=FileJobSpool).ok
     assert seen == [0o600, 0o600]
@@ -329,8 +334,8 @@ def test_a_ctrl_c_lost_in_the_last_record_replaces_nothing(tmp_path: Path) -> No
     target = tmp_path / "job.dpl"
     target.write_bytes(_BEFORE)
 
-    def check(write: Callable[[BatchEntry], None]) -> BatchReport:
-        report = check_batch(_TEXT, [{"a": "r0"}], _DMX, each=write)
+    def check(*, each: Callable[[BatchEntry], None] | None = None, spool: JobSpool | None = None) -> BatchReport:
+        report = check_batch(_TEXT, [{"a": "r0"}], _DMX, each=each, spool=spool)
         _lose_an_interrupt()
         return report
 

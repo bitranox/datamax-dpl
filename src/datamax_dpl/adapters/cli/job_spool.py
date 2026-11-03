@@ -2,8 +2,11 @@
 
 A batch is checked whole before any of it goes out, which renders every record once. Without a
 spool the send renders every record a second time; with one it reads the first render back, so a
-batch takes one render per record, plus the renders a label's printer read asks for. Memory holds
-one record either way: the spool costs disk, about the size of the job plus each record's findings.
+batch takes one render per record, plus the renders a label's printer read asks for, which fill
+from the values kept with it. Memory holds one record either way. The spool costs disk: per record
+its job, the record's values, and about 400 bytes of what the send reads besides (the render's
+fields as JSON), plus the text of each finding the batch's report keeps in full, which is at most
+the report's limit over the whole batch; the other findings are kept as counts by code.
 
 The file sits in a directory of its own in the system's temp directory, which only this user may
 enter (``mkdtemp``), and is created for this user alone. Both are removed when the spool closes,
@@ -20,8 +23,13 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, TypedDict
 
+from pydantic import BaseModel, ConfigDict
+
 from ...application.use_cases import BatchEntry
 from ...domain._invariants import require_update_fields
+from ...domain.enums import FindingCode
+from ...domain.errors import DatamaxDplError
+from ...domain.frozen_mapping import FrozenMapping
 from ...domain.render import RenderResult
 
 if TYPE_CHECKING:
@@ -46,7 +54,24 @@ class _DataUpdate(TypedDict):
 require_update_fields(_DataUpdate, RenderResult)
 
 
-class SpoolWriteError(OSError):
+class _Header(BaseModel):
+    """What a spool keeps of a record besides its job: what the send reads, and the values it may render again from.
+
+    Attributes:
+        result: The record's render without its job, holding only the findings the report kept.
+        record: The values the record was checked with.
+        unkept: How many findings of each code it has beyond ``result.findings``.
+    """
+
+    # Only keys are cached: a batch reads one header back per record, and its values are new strings.
+    model_config = ConfigDict(frozen=True, extra="forbid", cache_strings="keys")
+
+    result: RenderResult
+    record: dict[str, str] | None
+    unkept: dict[FindingCode, int]
+
+
+class SpoolWriteError(DatamaxDplError, OSError):
     """The spool's file could not be written or removed: the message names it, in the temp directory.
 
     Its own class, so that a caller naming the file it writes for the user leaves this one named.
@@ -106,11 +131,16 @@ class FileJobSpool:
             msg = "the spool is sealed: no record may be added after the check pass"
             raise RuntimeError(msg)
         result = entry.result
-        header = result.model_copy(update=_DataUpdate(data=b"")).model_dump_json().encode("utf-8")
+        header = _Header(
+            result=result.model_copy(update=_DataUpdate(data=b"")),
+            record=None if entry.record is None else dict(entry.record),
+            unkept=dict(entry.unkept),
+        )
+        header_bytes = header.model_dump_json().encode("utf-8")
         try:
             writer = self._writer or self._open_writer()
-            writer.write(_FRAME.pack(len(header), len(result.data), entry.cut_after))
-            writer.write(header)
+            writer.write(_FRAME.pack(len(header_bytes), len(result.data), entry.cut_after))
+            writer.write(header_bytes)
             writer.write(result.data)
         except OSError as exc:
             self._sealed = True
@@ -166,9 +196,14 @@ class FileJobSpool:
         try:
             while frame := stream.read(_FRAME.size):
                 header_size, data_size, cut = _FRAME.unpack(_exactly(stream, _FRAME.size, frame))
-                result = RenderResult.model_validate_json(_exactly(stream, header_size))
+                header = _Header.model_validate_json(_exactly(stream, header_size))
                 data = _exactly(stream, data_size)
-                yield BatchEntry(result=result.model_copy(update=_DataUpdate(data=data)), cut_after=cut)
+                yield BatchEntry(
+                    result=header.result.model_copy(update=_DataUpdate(data=data)),
+                    cut_after=cut,
+                    record=header.record,
+                    unkept=FrozenMapping(header.unkept),
+                )
         finally:
             self._readers.discard(stream)
             stream.close()

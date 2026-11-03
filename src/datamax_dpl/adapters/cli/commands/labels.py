@@ -284,8 +284,8 @@ def _rendered(
         return _batch_held_whole(label, records, options, settings)
     if output != STDIN:
 
-        def check(each: Callable[[BatchEntry], None]) -> BatchReport:
-            return check_loaded(label, records, options, settings, route=JobRoute(each=each))
+        def check(*, each: Callable[[BatchEntry], None] | None = None, spool: JobSpool | None = None) -> BatchReport:
+            return check_loaded(label, records, options, settings, route=JobRoute(each=each, spool=spool))
 
         return _RenderedJob(result=write_batch(output, check, open_spool=open_spool))
     with open_spool() as spool:

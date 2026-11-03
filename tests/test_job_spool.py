@@ -7,6 +7,7 @@ when the command ends, however it ends.
 
 from __future__ import annotations
 
+import dataclasses
 import errno
 import io
 import os
@@ -23,9 +24,12 @@ from printer_server import ImageModules, ModulePrinter
 from datamax_dpl import ReportLimits, check_batch, render_batch
 from datamax_dpl.adapters.cli.job_file import write_batch
 from datamax_dpl.adapters.cli.job_spool import FileJobSpool, SpoolWriteError
+from datamax_dpl.adapters.cli.main import main
+from datamax_dpl.adapters.memory import RecordingPrinter
 from datamax_dpl.adapters.memory.printer import open_recording_printer
 from datamax_dpl.application.upload_check import CheckedJob, UploadCheck, print_checked
 from datamax_dpl.application.use_cases import AnswerWait, BatchEntry, BatchReport
+from datamax_dpl.composition import AppServices, build_testing
 from datamax_dpl.domain.enums import ImageModule
 from datamax_dpl.domain.label import Cut, Image, Label, Qr, Text
 from datamax_dpl.domain.render_context import RenderOptions
@@ -130,8 +134,8 @@ def test_a_job_written_in_place_renders_each_record_once(tmp_path: Path) -> None
     records = _CountedRecords(_RECORDS)
     checked: list[int] = []
 
-    def check(each: Callable[[BatchEntry], None]) -> BatchReport:
-        report = check_batch(_TEXT, records, _DMX, each=each)
+    def check(*, each: Callable[[BatchEntry], None] | None = None, spool: JobSpool | None = None) -> BatchReport:
+        report = check_batch(_TEXT, records, _DMX, each=each, spool=spool)
         checked.extend(records.reads)
         return report
 
@@ -167,18 +171,84 @@ def test_a_two_way_send_renders_a_label_no_answer_changes_once(label: Label, opt
     assert sent == _sent_two_way(again, ModulePrinter(ImageModules()))
 
 
+class _ChangingRecords:
+    """Records that can be read again, and read otherwise each time: a query run again, say."""
+
+    def __init__(self, count: int) -> None:
+        self.count = count
+        self.reads = 0
+
+    def __iter__(self) -> Iterator[Mapping[str, str]]:
+        self.reads += 1
+        word = "CHECKED" if self.reads == 1 else "CHANGED"
+        return iter([{"a": f"{word}{number}"} for number in range(self.count)])
+
+
 @pytest.mark.os_agnostic
-def test_a_label_rendered_from_the_names_read_before_its_downloads_is_rendered_again_for_them() -> None:
-    """Its bytes depend on the answer, so the one render more is the read's own."""
-    records = _CountedRecords(_RECORDS)
+@pytest.mark.parametrize(
+    ("label", "options"),
+    [(_QR, _PLUG_IN), (_TEXT, _DMX), (_CLEARED_IMAGE, _ALLEGRO)],
+    ids=["no-clear-qr", "text", "cleared-image"],
+)
+def test_a_two_way_send_from_a_spool_sends_what_was_checked_and_never_reads_the_records_again(
+    label: Label, options: RenderOptions
+) -> None:
+    """A label rendered again for the names read before its downloads fills from the values that were checked."""
+    records = _ChangingRecords(_RECORDS)
     modules = ImageModules(held=[("B", "OTHER", 10)])
     with FileJobSpool() as spool:
-        report = check_batch(_QR, records, _PLUG_IN, read_names_at_send=True, spool=spool)
-        checked = list(records.reads)
-        _sent_two_way(report, ModulePrinter(modules))
-    assert records.reads == [2 * n for n in checked]
+        report = check_batch(label, records, options, read_names_at_send=True, spool=spool)
+        sent = _sent_two_way(report, ModulePrinter(modules))
+    assert records.reads == 1
     assert modules.placed_missing == []
     assert modules.downloaded_held == []
+    # The same batch from records that read the same each time: what the check saw, sent.
+    checked = [{"a": f"CHECKED{number}"} for number in range(_RECORDS)]
+    again = check_batch(label, checked, options, read_names_at_send=True)
+    assert sent == _sent_two_way(again, ModulePrinter(ImageModules(held=[("B", "OTHER", 10)])))
+
+
+#: Three fields of characters no code page of the model has: a warning on each, every record.
+_UNMAPPED = Label(elements=[Text(x=10, y=10 + 10 * row, text="{a}") for row in range(3)])
+_FEW_FINDINGS = ReportLimits(findings=4, downloads=1)
+
+
+@pytest.mark.os_agnostic
+def test_a_spool_keeps_counts_of_the_findings_the_report_does_not_keep_and_a_send_counts_them_all() -> None:
+    rows = [{"a": "\u20ac\u0101\u4e2d"} for _ in range(_RECORDS * 4)]
+    kept: list[BatchEntry] = []
+
+    class _Watching(FileJobSpool):
+        def add(self, entry: BatchEntry) -> None:
+            kept.append(entry)
+            super().add(entry)
+
+    with _Watching() as spool:
+        report = check_batch(_UNMAPPED, rows, _ALLEGRO, read_names_at_send=True, spool=spool, limits=_FEW_FINDINGS)
+        job = CheckedJob(renders=report.renders(), check=UploadCheck(wait=AnswerWait(seconds=1.0)), reset=None)
+        printer = ModulePrinter(ImageModules())
+        sent = print_checked(report, job, uri=_TCP, timeout=1.0, open_printer=open_recording_printer(printer)).result
+    assert report.findings_total > _FEW_FINDINGS.findings * 2
+    assert sum(len(entry.result.findings) for entry in kept) == len(report.findings)
+    assert sum(sum(entry.unkept.values()) for entry in kept) == report.findings_total - len(report.findings)
+    assert isinstance(sent, BatchReport)
+    assert (sent.findings_total, dict(sent.finding_counts)) == (report.findings_total, dict(report.finding_counts))
+    assert sent.findings == report.findings
+
+
+@pytest.mark.os_agnostic
+def test_a_spool_takes_records_that_can_be_read_only_once() -> None:
+    rows = ({"a": f"R{number}"} for number in range(_RECORDS))
+    with FileJobSpool() as spool:
+        report = check_batch(_TEXT, rows, _DMX, spool=spool)
+        sent = b"".join(report.record_jobs())
+    assert sent == render_batch(_TEXT, [{"a": f"R{n}"} for n in range(_RECORDS)], _DMX).data
+
+
+@pytest.mark.os_agnostic
+def test_with_no_spool_records_that_can_be_read_only_once_are_refused() -> None:
+    with pytest.raises(ValueError, match="give it a spool"):
+        check_batch(_TEXT, ({"a": "R"} for _ in range(2)), _DMX)
 
 
 @pytest.mark.os_agnostic
@@ -481,3 +551,51 @@ def _spools_of(spool: JobSpool) -> JobSpool:
 def test_the_file_spool_is_a_job_spool() -> None:
     with FileJobSpool() as spool:
         assert _spools_of(spool) is spool
+
+
+class _CountingSpool(FileJobSpool):
+    """A real spool that counts the records added to it and those read back from it."""
+
+    added = 0
+    read = 0
+
+    def add(self, entry: BatchEntry) -> None:
+        type(self).added += 1
+        super().add(entry)
+
+    def entries(self) -> Iterator[BatchEntry]:
+        for entry in super().entries():
+            type(self).read += 1
+            yield entry
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "target",
+    [
+        pytest.param(("print", "--printer", "file:{out}"), id="print-one-way"),
+        pytest.param(("print", "--printer", _TCP), id="print-two-way"),
+        pytest.param(("render", "-o", "-"), id="render-stdout"),
+        pytest.param(("render", "-o", "{linked}"), id="render-file-direct"),
+    ],
+)
+def test_each_cli_route_keeps_each_record_once_and_sends_it_from_the_spool(
+    tmp_path: Path, target: tuple[str, ...], capfdbinary: pytest.CaptureFixture[bytes]
+) -> None:
+    """One render per record from the command line too: a route handed no spool renders every record twice."""
+    label, data = _batch_files(tmp_path, [f"R{n}" for n in range(_RECORDS)])
+    linked = tmp_path / "linked.dpl"
+    linked.write_bytes(b"before")
+    (tmp_path / "other-name.dpl").hardlink_to(linked)
+
+    class _Counted(_CountingSpool):
+        added = 0
+        read = 0
+
+    def services() -> AppServices:
+        return dataclasses.replace(build_testing(printer=RecordingPrinter()), open_spool=_Counted)
+
+    verb, *rest = [word.format(out=tmp_path / "job.dpl", linked=linked) for word in target]
+    code = main([verb, str(label), "--data", str(data), "--model", "dmx-600", *rest], services_factory=services)
+    assert code == 0, capfdbinary.readouterr().err
+    assert (_Counted.added, _Counted.read) == (_RECORDS, _RECORDS)

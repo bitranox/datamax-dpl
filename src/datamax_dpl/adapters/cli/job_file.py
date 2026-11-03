@@ -16,7 +16,7 @@ import os
 import stat
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, BinaryIO, NamedTuple
+from typing import TYPE_CHECKING, BinaryIO, NamedTuple, Protocol
 
 from .interrupt import raise_if_interrupted
 from .job_spool import SpoolWriteError
@@ -24,7 +24,7 @@ from .job_spool import SpoolWriteError
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from ...application.ports import OpenJobSpool
+    from ...application.ports import JobSpool, OpenJobSpool
     from ...application.use_cases import BatchEntry, BatchReport
 
 #: Names tried beside the target before giving up on a file of our own: another run may hold one.
@@ -33,6 +33,18 @@ _TEMP_NAME_TRIES = 100
 _NEW_FILE_MODE = 0o666
 #: O_BINARY exists on Windows only, where a file opened without it rewrites line endings in the job.
 _TEMP_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+
+
+class BatchCheck(Protocol):
+    """Goes over a batch once (:func:`~datamax_dpl.application.use_cases.check_batch`) and returns its report.
+
+    ``each`` is called with every record as it is checked; ``spool`` keeps each record for the
+    write to read back.
+    """
+
+    def __call__(
+        self, *, each: Callable[[BatchEntry], None] | None = None, spool: JobSpool | None = None
+    ) -> BatchReport: ...
 
 
 class _Beside(NamedTuple):
@@ -118,7 +130,7 @@ def _closed(stream: BinaryIO) -> OSError | None:
 def _write_beside(
     target: Path,
     beside: _Beside,
-    check: Callable[[Callable[[BatchEntry], None]], BatchReport],
+    check: BatchCheck,
 ) -> BatchReport:
     """Render the batch into the new file, and put it in ``target``'s place if every record passed."""
     failed: list[OSError] = []
@@ -137,7 +149,7 @@ def _write_beside(
 
     try:
         try:
-            report = check(write)
+            report = check(each=write)
         finally:
             # Kept, not raised: a bad record or an exception on its way out says more than the disk
             # that also filled up.
@@ -157,31 +169,18 @@ def _write_beside(
         _remove(beside.path)
 
 
-def _write_direct(
-    output: str, check: Callable[[Callable[[BatchEntry], None]], BatchReport], *, open_spool: OpenJobSpool
-) -> BatchReport:
+def _write_direct(output: str, check: BatchCheck, *, open_spool: OpenJobSpool) -> BatchReport:
     """Check every record into a spool, then write the job from it to ``output``, which refuses or takes it."""
-    passed = [True]
-
-    def keep(entry: BatchEntry) -> None:
-        # A refused job is not written, so nothing past its first error is worth the disk.
-        passed[0] = passed[0] and entry.result.ok
-        if passed[0]:
-            spool.add(entry)
-
     with open_spool() as spool:
-        report = check(keep)
-        spool.seal()
+        report = check(spool=spool)
         if report.ok:
             with Path(output).open("wb") as stream:
-                for entry in spool.entries():
-                    stream.write(entry.job)
+                for job in report.record_jobs():
+                    stream.write(job)
     return report
 
 
-def _route(
-    output: str, check: Callable[[Callable[[BatchEntry], None]], BatchReport], *, open_spool: OpenJobSpool
-) -> BatchReport:
+def _route(output: str, check: BatchCheck, *, open_spool: OpenJobSpool) -> BatchReport:
     """Write beside the target where that leaves it what it was, else directly."""
     try:
         # The path as given: /dev/stdout on a pipe resolves to a name nothing can open.
@@ -200,15 +199,13 @@ def _route(
     return _write_beside(target, beside, check)
 
 
-def write_batch(
-    output: str, check: Callable[[Callable[[BatchEntry], None]], BatchReport], *, open_spool: OpenJobSpool
-) -> BatchReport:
+def write_batch(output: str, check: BatchCheck, *, open_spool: OpenJobSpool) -> BatchReport:
     """Write the job of a batch to the file ``output`` if every record passes; else leave it as it was.
 
     Args:
         output: The file.
-        check: Goes over the batch once, calling what it is given with each record
-            (:func:`~datamax_dpl.application.use_cases.check_batch`), and returns its report.
+        check: Goes over the batch once, with what it is given to call with each record or to
+            keep each in (:func:`~datamax_dpl.application.use_cases.check_batch`), and returns its report.
         open_spool: Makes the spool a target written directly is checked into first.
 
     Returns:
@@ -227,4 +224,4 @@ def write_batch(
         raise _named_for(exc, output) from exc
 
 
-__all__ = ["write_batch"]
+__all__ = ["BatchCheck", "write_batch"]
