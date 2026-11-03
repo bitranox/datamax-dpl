@@ -18,6 +18,7 @@ import serial
 from datamax_dpl.domain.errors import AnswerNotEndedError, PrinterProtocolError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.timing import DEFAULT_TRANSPORT_TUNING, TimeoutName, TransportTuning
 
+from ..error_text import os_reason
 from .tcp import MAX_ANSWER_BYTES, MAX_ANSWER_SECONDS, MAX_IDLE_ANSWER_BYTES
 from .uri import (
     NOTHING_SKIPPED,
@@ -185,7 +186,7 @@ class SerialTransport(ClosingTransport):
                 write_timeout=timeout,
             )
         except (OSError, ValueError) as exc:
-            raise TransportError(f"cannot open serial {uri.path}: {exc}") from exc
+            raise TransportError(f"cannot open serial {uri.path}: {os_reason(exc)}") from exc
         drain_timeout = timeout if _has_output_queue(port) else None
         return cls(port, uri=uri, drain_timeout=drain_timeout, tuning=tuning)
 
@@ -306,7 +307,7 @@ class SerialTransport(ClosingTransport):
         except OSError as exc:
             # A pulled USB adapter fails mid-job as a held line times out: the printer kept the start.
             advice = _job_advice(request=request, written=written, size=len(data))
-            raise TransportError(f"cannot write to serial {self._uri.path}: {exc}", advice=advice) from exc
+            raise TransportError(f"cannot write to serial {self._uri.path}: {os_reason(exc)}", advice=advice) from exc
         self._drain(size=len(data), request=request)
 
     def _drain(self, *, size: int, request: bool) -> None:
@@ -338,7 +339,7 @@ class SerialTransport(ClosingTransport):
                 waiting = still_waiting
         except OSError as exc:
             advice = _job_advice(request=request, written=max(0, size - waiting), size=size)
-            raise TransportError(f"cannot write to serial {self._uri.path}: {exc}", advice=advice) from exc
+            raise TransportError(f"cannot write to serial {self._uri.path}: {os_reason(exc)}", advice=advice) from exc
 
     def _drop_queued_output(self) -> None:
         """Discard what the port has not sent yet; a port that refuses has nothing to discard."""
@@ -350,7 +351,7 @@ class SerialTransport(ClosingTransport):
         try:
             self._port.reset_input_buffer()
         except _PORT_ERRORS as exc:
-            raise TransportError(f"cannot read from serial {self._uri.path}: {exc}") from exc
+            raise TransportError(f"cannot read from serial {self._uri.path}: {os_reason(exc)}") from exc
 
     def _read_start(self, wait: Wait) -> bytes:
         """Read until a byte other than flow control has come, before ``wait`` ends."""
@@ -395,7 +396,7 @@ class SerialTransport(ClosingTransport):
                 return b""
             return first + self._port.read(min(self._port.in_waiting, room - 1))
         except OSError as exc:
-            raise TransportError(f"cannot read from serial {self._uri.path}: {exc}") from exc
+            raise TransportError(f"cannot read from serial {self._uri.path}: {os_reason(exc)}") from exc
 
     def _read_lines(
         self, terminator: bytes, *, wait: Wait, lines: int, accept: Callable[[bytes], bool] | None
@@ -430,7 +431,7 @@ class SerialTransport(ClosingTransport):
             self._port.timeout = timeout
             return self._port.read_until(terminator, size)
         except OSError as exc:
-            raise TransportError(f"cannot read from serial {self._uri.path}: {exc}") from exc
+            raise TransportError(f"cannot read from serial {self._uri.path}: {os_reason(exc)}") from exc
 
 
 class _LinesRead(NamedTuple):

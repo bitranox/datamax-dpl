@@ -33,6 +33,7 @@ from lib_layered_config import Config, ConfigError
 
 from datamax_dpl.adapters.config.loader import validate_profile
 from datamax_dpl.adapters.config.overrides import apply_overrides, nest_overrides
+from datamax_dpl.adapters.error_text import error_text
 from datamax_dpl.adapters.logging.setup import InvalidLoggingConfigError
 
 from . import safe_console
@@ -183,7 +184,7 @@ def report_load_failure(error: Exception, *, show_traceback: bool) -> None:
         show_traceback: Whether ``--traceback`` was given.
     """
     echo_load_traceback(error, show_traceback=show_traceback)
-    problems = error.problems if isinstance(error, InvalidLoggingConfigError) else [str(error)]
+    problems = error.problems if isinstance(error, InvalidLoggingConfigError) else [error_text(error)]
     for problem in problems:
         safe_console.echo(f"Error: {problem}", err=True)
 

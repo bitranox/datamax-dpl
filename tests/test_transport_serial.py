@@ -138,6 +138,17 @@ def test_a_port_that_cannot_be_opened_is_a_transport_error(path: str) -> None:
         SerialTransport.open(SerialUri(path=path), timeout=1.0)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="pyserial on Windows builds its message from a WinError it never raises"
+)
+def test_a_missing_serial_port_is_named_once_with_its_reason(tmp_path: Path) -> None:
+    """pyserial wraps the OSError into its own text: the path three times, its errno twice."""
+    missing = tmp_path / "no-such-dir" / "ttyS9"
+    with pytest.raises(TransportError) as raised:
+        open_printer(f"serial://{missing}?baud=19200", timeout=1.0)
+    assert str(raised.value) == f"cannot open serial {missing}: No such file or directory"
+
+
 @pytest.mark.os_agnostic
 def test_open_printer_reports_a_missing_serial_port_as_a_transport_error() -> None:
     with pytest.raises(TransportError, match="cannot open serial /nonexistent-dir/ttyS99"):

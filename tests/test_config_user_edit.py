@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -191,6 +192,20 @@ def test_a_file_with_a_byte_order_mark_is_read_as_every_loader_reads_it(tmp_path
     written = path.read_text(encoding="utf-8")
     assert "scale_along = 0.98" in written
     assert "# the one in the stock room" in written
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows ignores the POSIX read bit, so the file stays readable")
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root reads a file whatever its mode")
+def test_a_file_that_cannot_be_read_is_named_once_with_its_reason(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text("[printer]\n", encoding="utf-8")
+    path.chmod(0)
+    try:
+        with pytest.raises(ConfigurationError) as raised:
+            write_printer_values([path], printer="", values=_ALONG)
+    finally:
+        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    assert str(raised.value) == f"cannot read {path}: Permission denied"
 
 
 @pytest.mark.os_agnostic

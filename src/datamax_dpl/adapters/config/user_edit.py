@@ -27,6 +27,7 @@ from tomlkit.items import Table
 from datamax_dpl import __init__conf__
 from datamax_dpl.adapters.config.loader import get_config, get_default_config_path
 from datamax_dpl.adapters.config.sections import printer_section
+from datamax_dpl.adapters.error_text import os_reason
 from datamax_dpl.domain.enums import DeployTarget
 from datamax_dpl.domain.errors import ConfigurationError
 
@@ -156,7 +157,7 @@ def _load(path: Path) -> TOMLDocument:
     try:
         return tomlkit.parse(path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, TOMLKitError) as exc:
-        msg = f"cannot read {path}: {exc}"
+        msg = f"cannot read {path}: {os_reason(exc)}"
         raise ConfigurationError(msg) from exc
 
 

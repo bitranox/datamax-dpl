@@ -32,6 +32,7 @@ from .envelope import (
     Outcome,
     OutputMode,
     envelope_started,
+    error_text,
     forget_started_envelope,
     write_envelope,
 )
@@ -205,7 +206,7 @@ def _flush_streams() -> _Flushed:
 def _report_lost_output(failure: OSError) -> None:
     """Say on stderr that the answer did not get out; stderr itself may be what failed."""
     try:
-        sys.stderr.write(f"Error: could not write the output: {failure}\n")
+        sys.stderr.write(f"Error: could not write the output: {error_text(failure)}\n")
         sys.stderr.flush()
     except OSError:
         # Nothing is left to tell; the exit code still says it.

@@ -11,7 +11,6 @@ keep their own codes (see :mod:`.exit_codes`).
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 from enum import Enum, IntEnum
@@ -20,6 +19,7 @@ from typing import Generic, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny
 
 from ...domain.printable import one_line
+from ..error_text import error_text
 from . import safe_console
 
 
@@ -158,32 +158,6 @@ def write_envelope(document: BaseModel, *, mode: OutputMode) -> None:
         sys.stdout.write(safe_console.encode_safe(text[start : start + _ENVELOPE_PIECE_CHARS], sys.stdout.encoding))
     sys.stdout.write("\n")
     sys.stdout.flush()
-
-
-def _file_name(name: object) -> str:
-    """A file name as the user gave it: one that is not UTF-8 keeps its bytes as surrogates."""
-    return os.fsdecode(name) if isinstance(name, (str, bytes)) else str(name)
-
-
-def error_text(exc: BaseException) -> str:
-    """The exception's message as a user reads it, or its class where it has none (a bare ``MemoryError()``).
-
-    An ``OSError`` naming a file says its reason and the file as given. Its ``str()`` quotes the
-    name with ``repr``, which doubles every backslash: on Windows each path read
-    ``C:\\\\Users\\\\...``, a path nobody typed.
-
-    Example:
-        >>> error_text(OSError(2, "No such file or directory", "C:\\\\temp\\\\job.dpl"))
-        'No such file or directory: C:\\\\temp\\\\job.dpl'
-        >>> error_text(OSError(28, "No space left on device"))
-        '[Errno 28] No space left on device'
-    """
-    if isinstance(exc, OSError) and exc.strerror and exc.filename is not None:
-        names = [_file_name(exc.filename)]
-        if exc.filename2 is not None:
-            names.append(_file_name(exc.filename2))
-        return f"{exc.strerror}: {' -> '.join(names)}"
-    return str(exc) or type(exc).__name__
 
 
 def write_error_envelope(exc: BaseException, *, command: CommandName | None, mode: OutputMode) -> None:

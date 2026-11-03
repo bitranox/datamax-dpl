@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A serial port that cannot be opened, written or read is named once with its reason (`cannot open serial
+  /dev/ttyS9: No such file or directory`): pyserial's own text repeated the path and its errno, the path quoted with
+  doubled backslashes. A user configuration file a calibration cannot read, a configuration that cannot be loaded,
+  and an answer that could not be written say the reason and the file as given.
 - `--json render -o -` is refused at once, as `ConfigurationError` like `print --printer -`, before the label or a
   record is read; it was refused only after the label was rendered, a `--data` batch's every record included, as
   `ValueError`, and a bad record was named in its place.
