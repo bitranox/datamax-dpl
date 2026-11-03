@@ -36,7 +36,7 @@ from ....application.use_cases import (
     send_command,
 )
 from ....domain.enums import MemoryKind, StatusProblem
-from ....domain.errors import PreviewTooLongError
+from ....domain.errors import AnswerNotEndedError, ConfigurationError, PreviewTooLongError
 from ....domain.held_images import READ_AT_SEND, HeldImages
 from ....domain.memory import NO_MODULES_MEANING, MemoryDirectory
 from ....domain.placeholders import fill_record
@@ -393,17 +393,51 @@ def cli_memory(ctx: click.Context, kind: str, idle: float | None, **given: Any) 
     def body(cli_ctx: CLIContext) -> CommandResult:
         settings = resolve_settings(cli_ctx, command_overrides(given))
         uri = _queryable_uri(settings)
-        directories = read_memory_directory(
-            kinds=KindChoice(kind).kinds,
-            endpoint=PrinterEndpoint(uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)),
-            idle=settings.directory_idle if idle is None else idle,
-            wait=_answer_wait(settings, cli_ctx),
-            read_limit=settings.directory_read_limit,
-        )
+        silence = settings.directory_idle if idle is None else _idle_within_read_limit(idle, settings)
+        try:
+            directories = read_memory_directory(
+                kinds=KindChoice(kind).kinds,
+                endpoint=PrinterEndpoint(
+                    uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)
+                ),
+                idle=silence,
+                wait=_answer_wait(settings, cli_ctx),
+                read_limit=settings.directory_read_limit,
+            )
+        except AnswerNotEndedError as exc:
+            raise _read_limit_advised(exc, settings) from None
         payload = MemoryPayload(printer=uri, directories=list(directories))
         return CommandResult(ok=True, payload=payload, human="\n".join(_directory_lines(directories)))
 
     run_command(ctx, command=CommandName.MEMORY, body=body)
+
+
+def _idle_within_read_limit(idle: float, settings: PrinterSettings) -> float:
+    """``--idle`` as given, refused when no answer ending on that much silence fits ``directory_read_limit``.
+
+    Raises:
+        ConfigurationError: ``idle`` is not shorter than the limit; the message names both.
+    """
+    limit = settings.directory_read_limit
+    if idle < limit:
+        return idle
+    key = printer_section(settings.name).setting("directory_read_limit")
+    msg = (
+        f"--idle {idle:g} s is no shorter than {key} ({limit:g} s), the longest one answer may take up to "
+        "that silence, so no answer could end within it"
+    )
+    raise ConfigurationError(msg)
+
+
+def _read_limit_advised(error: AnswerNotEndedError, settings: PrinterSettings) -> AnswerNotEndedError:
+    """``error`` advising the key that lengthens a memory answer: ``directory_read_limit`` of the section in use.
+
+    Example:
+        >>> str(_read_limit_advised(AnswerNotEndedError("the answer did not end"), PrinterSettings(name="lager")))
+        'the answer did not end; raise [printers.lager] directory_read_limit'
+    """
+    advice = f"raise {printer_section(settings.name).setting('directory_read_limit')}"
+    return AnswerNotEndedError(error.reason, advice=advice, unanswered=error.unanswered, attempts=error.attempts)
 
 
 def _directory_lines(directories: tuple[MemoryDirectory, ...]) -> list[str]:

@@ -398,7 +398,8 @@ def printer_settings(config: Config, overrides: PrinterOverrides) -> PrinterSett
     """Merge the ``[printer]`` section with command-line overrides.
 
     Raises:
-        ConfigurationError: A configured value is invalid; the message names the key.
+        ConfigurationError: A configured value is invalid, or two of them cannot hold together;
+            the message names each key.
     """
     name = overrides.printer if overrides.printer and not is_printer_uri(overrides.printer) else ""
     section = printer_section(name)
@@ -406,6 +407,7 @@ def printer_settings(config: Config, overrides: PrinterOverrides) -> PrinterSett
         base = PrinterSettings.model_validate({**_printer_input(config, name), "name": name})
     except ValidationError as exc:
         raise ConfigurationError(_describe(exc, section=section)) from None
+    _refuse_unreachable_read_limit(base, named=_named(config, name))
     _warn_of_replaced_characters(base, section=section)
     uri = overrides.printer if overrides.printer and is_printer_uri(overrides.printer) else None
     # model_copy, not a new PrinterSettings: the overrides are already typed, and re-validating
@@ -424,6 +426,31 @@ def printer_settings(config: Config, overrides: PrinterOverrides) -> PrinterSett
             options=base.options | overrides.options,
         )
     )
+
+
+def _refuse_unreachable_read_limit(settings: PrinterSettings, *, named: Mapping[str, Any]) -> None:
+    """Refuse a ``directory_read_limit`` no longer than ``directory_idle``.
+
+    The limit runs from the request to the silence that ends the answer, so one no longer than
+    that silence ends every read as not ended. Each key is named in the section that set it:
+    ``named``, the chosen printer's own table, or else ``[printer]``.
+
+    Raises:
+        ConfigurationError: The limit is at or below the silence; the message names both keys.
+    """
+    limit, idle = settings.directory_read_limit, settings.directory_idle
+    if limit > idle:
+        return
+    own = printer_section(settings.name)
+
+    def path(key: str) -> str:
+        return (own if key in named else PRINTER_SECTION).key_path(key)
+
+    msg = (
+        f"{path('directory_read_limit')}: {limit:g} s is no longer than {path('directory_idle')} ({idle:g} s), "
+        "the silence that ends a directory answer, so no answer could end within it"
+    )
+    raise ConfigurationError(msg)
 
 
 def _warn_of_replaced_characters(settings: PrinterSettings, *, section: SectionPath) -> None:

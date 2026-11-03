@@ -15,7 +15,8 @@ All notable changes to this project are documented here. The format follows
 - `[printer] directory_idle` (default `1.0` s): the silence that ends a `<STX>W` directory answer, for `print`'s
   names reads (which no setting reached before) and for `memory`, whose `--idle` now defaults to it and still wins.
   `[printer] directory_read_limit` (default `120.0` s): the longest one `memory` answer may take, so a slow serial line
-  or a long listing can be read. Library: `UploadCheck.idle`, `Link.read(idle=)`, `read_stored_names(idle=)` and
+  or a long listing can be read; one no longer than `directory_idle` (or `memory --idle`) is refused naming both, and
+  a `memory` answer that does not end within it names the key to raise. Library: `UploadCheck.idle`, `Link.read(idle=)`, `read_stored_names(idle=)` and
   `read_memory_directory(read_limit=)`.
 - `[printer] max_input_bytes` (default 16 MiB, at most 1 GiB): the largest label or data file `render`, `validate`,
   `print`, `preview` and `explain` read, so a CSV past 16 MiB can be printed without splitting it. Raising it raises

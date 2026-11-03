@@ -123,6 +123,8 @@ timeout = 10.0
 #          silence that ends it, per kind; one still running then is a timeout.
 #          120 s fits a 64 KiB listing at 9600 baud; 2400 baud needs about
 #          273 s for that. 'print' bounds its names reads by stored_names_wait.
+#          It must be longer than directory_idle, or no answer could end
+#          within it; such a value is refused.
 # Type: float, greater than 0, at most 2147483
 # Default: 120.0
 # Environment Variable: DATAMAX_DPL___PRINTER__DIRECTORY_READ_LIMIT=300

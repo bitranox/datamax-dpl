@@ -42,7 +42,7 @@ from datamax_dpl.application.use_cases import DIRECTORY_IDLE_SECONDS, render_lab
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.decoder import explain
 from datamax_dpl.domain.enums import FillPattern, FindingCode, Severity
-from datamax_dpl.domain.errors import ConfigurationError, LabelRejectedError
+from datamax_dpl.domain.errors import AnswerNotEndedError, ConfigurationError, LabelRejectedError
 from datamax_dpl.domain.label import MAX_POLYGON_POINTS, MAX_POLYGON_POINTS_LIMIT, Image, Label, Polygon, Text
 from datamax_dpl.domain.records import RecordPosition, polygon_record
 from datamax_dpl.domain.render import build_job, job_context, render
@@ -299,6 +299,83 @@ def test_memory_idle_on_the_command_line_wins_over_directory_idle(cli_runner: Cl
 def test_a_directory_key_out_of_range_is_refused_naming_it(key: str, value: float, reason: str) -> None:
     with pytest.raises(ConfigurationError, match=rf"^printer\.{key}: Input should be {reason}"):
         _settings({"printer": {key: value}})
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("idle", "read_limit"), [(2.0, 2.0), (2.0, 1.5)])
+def test_a_read_limit_no_longer_than_the_silence_that_ends_the_answer_is_refused_naming_both(
+    idle: float, read_limit: float
+) -> None:
+    """The limit runs from the request to that silence, so no answer could end within it."""
+    with pytest.raises(ConfigurationError) as refused:
+        _settings({"printer": {"directory_idle": idle, "directory_read_limit": read_limit}})
+
+    assert str(refused.value) == (
+        f"printer.directory_read_limit: {read_limit:g} s is no longer than printer.directory_idle "
+        f"({idle:g} s), the silence that ends a directory answer, so no answer could end within it"
+    )
+
+
+@pytest.mark.os_agnostic
+def test_the_read_limit_refusal_names_each_key_in_the_section_that_set_it() -> None:
+    config = {
+        "printer": {"directory_idle": 3.0},
+        "printers": {"lager": {"uri": URI, "directory_read_limit": 2.5}},
+    }
+
+    with pytest.raises(
+        ConfigurationError, match=r"^printers\.lager\.directory_read_limit: 2\.5 s .* printer\.directory_idle "
+    ):
+        _settings(config, printer="lager")
+
+
+@pytest.mark.os_agnostic
+def test_a_read_limit_just_past_the_silence_is_taken() -> None:
+    settings = _settings({"printer": {"directory_idle": 2.0, "directory_read_limit": 2.01}})
+
+    assert (settings.directory_idle, settings.directory_read_limit) == (2.0, 2.01)
+
+
+class _AnswerNeverEnds(_MemoryReadsRecorded):
+    """A printer whose directory answer is still arriving when the read's limit runs out."""
+
+    def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = MAX_ANSWER_SECONDS) -> bytes:
+        raise AnswerNotEndedError(f"tcp 192.0.2.60:9100: the answer did not end within {total:g} s (35 bytes read)")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("section", ["printer", "printers.lager"])
+def test_an_answer_past_the_read_limit_names_the_key_that_lengthens_it(cli_runner: CliRunner, section: str) -> None:
+    named = ["--set", f"printers.lager.uri={URI}"] if section != "printer" else []
+    printer_arg = URI if section == "printer" else "lager"
+    args = [*named, "--set", f"{section}.directory_read_limit=2", "memory", "--printer", printer_arg]
+
+    result = cli_runner.invoke(
+        cli_mod.cli, ["--json-bare", *args], obj=lambda: build_testing(printer=_AnswerNeverEnds())
+    )
+
+    assert result.exit_code != 0, result.output
+    envelope = json.loads(result.stdout)
+    assert envelope["error"] == "AnswerNotEndedError"
+    key = "[printers.lager] directory_read_limit" if section != "printer" else "[printer] directory_read_limit"
+    assert envelope["message"] == (
+        f"tcp 192.0.2.60:9100: the answer did not end within 2 s (35 bytes read); raise {key}"
+    )
+
+
+@pytest.mark.os_agnostic
+def test_memory_refuses_an_idle_no_shorter_than_the_read_limit_before_asking(cli_runner: CliRunner) -> None:
+    printer = _MemoryReadsRecorded()
+    args = ["--json-bare", "--set", "printer.directory_read_limit=2", "memory", "--idle", "2", "--printer", URI]
+
+    result = cli_runner.invoke(cli_mod.cli, args, obj=lambda: build_testing(printer=printer))
+
+    assert result.exit_code == 2, result.output
+    assert json.loads(result.stdout)["message"] == (
+        "--idle 2 s is no shorter than [printer] directory_read_limit (2 s), the longest one answer may take up "
+        "to that silence, so no answer could end within it"
+    )
+    assert printer.reads == []
 
 
 @pytest.mark.os_agnostic
