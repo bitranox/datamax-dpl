@@ -628,6 +628,16 @@ def test_a_refused_connection_is_a_transport_error() -> None:
         open_printer(f"tcp://127.0.0.1:{port}", timeout=1.0)
 
 
+@pytest.mark.os_agnostic
+def test_a_connection_refused_for_the_whole_window_counts_every_connect_tried() -> None:
+    """Each refusal inside the retry window is one more connect, which a caller's attempt count includes."""
+    port = _port_no_other_test_takes()
+    with pytest.raises(TransportError) as caught:
+        open_printer(f"tcp://127.0.0.1:{port}", timeout=1.0)
+
+    assert caught.value.attempts >= 2
+
+
 def _free_port() -> int:
     with socket.create_server(("127.0.0.1", 0)) as probe:
         return int(probe.getsockname()[1])

@@ -201,3 +201,24 @@ def test_memory_reports_the_answer_wait_the_transport_capped_not_the_wait_asked_
 
     assert str(caught.value).startswith(f"{PRINTER}: no answer in {MAX_ANSWER_SECONDS:.1f} s (1 attempt);")
     assert channel.closed
+
+
+@pytest.mark.os_agnostic
+def test_the_attempts_count_every_connect_a_transport_tried_within_one_opening() -> None:
+    """The TCP transport retries a refused connect itself; each of those connects is an attempt the message counts."""
+    clock = Clock()
+
+    def retrying_refusals(uri: str, *, timeout: float) -> PrinterTransport:
+        del uri
+        clock.now += timeout
+        raise TransportError(REFUSED, unanswered=True, attempts=4)
+
+    def sleep(seconds: float, /) -> None:
+        clock.now += seconds
+
+    wait = AnswerWait(seconds=1.0, retry_interval=0.25, clock=clock, sleep=sleep)
+
+    with pytest.raises(PrinterTimeoutError) as caught:
+        query_status(endpoint=PrinterEndpoint(uri=PRINTER, timeout=1.0, open_printer=retrying_refusals), wait=wait)
+
+    assert str(caught.value).startswith(f"{PRINTER}: no answer in 1.0 s (4 attempts);")

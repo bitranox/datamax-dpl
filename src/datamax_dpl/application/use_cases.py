@@ -1491,6 +1491,9 @@ class _Tries:
             TransportError: ``error`` itself, any other failure.
         """
         self.last = error
+        # One opening can have tried the channel several times (a TCP connect retries a refusal
+        # itself); each of those is an attempt the message counts.
+        self.attempts += error.attempts - 1
         if isinstance(error, AnswerNotEndedError):
             # The printer answered: "no answer in N s" would misreport it, and it took the request.
             raise error

@@ -89,8 +89,9 @@ class TcpTransport(ClosingTransport):
             TransportError: The host is unknown or kept refusing the connection.
         """
         check_timeout(timeout)
+        connects = _Connects()
         try:
-            sock = _connect_retrying_refusals(uri, timeout=timeout)
+            sock = _connect_retrying_refusals(uri, timeout=timeout, connects=connects)
         except OSError as exc:
             # Windows reports a refusal only after about 2 s of SYN retries, so under a short
             # timeout a refusing print server times out instead; neither took a request. A server
@@ -98,7 +99,10 @@ class TcpTransport(ClosingTransport):
             # the connect waits for the handshake and then reads the socket's error, which by then
             # is the reset. An unknown or unreachable host is not worth asking again.
             no_request = isinstance(exc, TimeoutError) or _is_hang_up(exc)
-            raise transport_error(uri, action=ChannelAction.CONNECT, error=exc, unanswered=no_request) from exc
+            error = transport_error(uri, action=ChannelAction.CONNECT, error=exc, unanswered=no_request)
+            # Every connect of the retry window was an attempt; transport_error knows of one only.
+            error.attempts = connects.tried
+            raise error from exc
         except UnicodeError as exc:
             # A host name that passed the URI check still goes through the socket's idna codec, and an
             # IPv6 zone id is free text it cannot always encode. No connection was attempted.
@@ -438,8 +442,15 @@ def _is_hang_up(error: OSError) -> bool:
     return isinstance(error, ConnectionError) or error.errno == errno.EPROTOTYPE
 
 
-def _connect_retrying_refusals(uri: TcpUri, *, timeout: float) -> socket.socket:
-    """Connect, retrying a refused connection while the retry window is open.
+class _Connects:
+    """How many connects one opening tried, so its failure can count each of them as an attempt."""
+
+    def __init__(self) -> None:
+        self.tried = 0
+
+
+def _connect_retrying_refusals(uri: TcpUri, *, timeout: float, connects: _Connects) -> socket.socket:
+    """Connect, retrying a refused connection while the retry window is open; count each connect in ``connects``.
 
     No attempt starts once the window has closed: the refusal of the last attempt inside it is
     raised as is. A host that keeps refusing is therefore reported after the window plus one
@@ -448,6 +459,7 @@ def _connect_retrying_refusals(uri: TcpUri, *, timeout: float) -> socket.socket:
     """
     deadline = time.monotonic() + min(timeout, REFUSED_RETRY_SECONDS)
     while True:
+        connects.tried += 1
         try:
             return socket.create_connection((uri.host, uri.port), timeout=timeout)
         except ConnectionRefusedError:

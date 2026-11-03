@@ -59,6 +59,10 @@ class TransportError(DatamaxDplError):
     ``advice`` is what the reader might do about it; the message ends with it, and ``reason`` is
     the message without it, for a caller that gives advice of its own.
 
+    ``attempts`` is how many times the channel was tried before this failure ended it: 1, unless
+    the transport tried again itself (a TCP connect retries a refusal), so a caller that counts
+    its attempts counts each one.
+
     Example:
         >>> str(TransportError("connection refused"))
         'connection refused'
@@ -69,12 +73,13 @@ class TransportError(DatamaxDplError):
         ('no answer; try again', 'no answer')
     """
 
-    def __init__(self, message: str, *, unanswered: bool = False, advice: str = "") -> None:
-        """Keep the message, the advice that ends it and whether the channel took no request."""
+    def __init__(self, message: str, *, unanswered: bool = False, advice: str = "", attempts: int = 1) -> None:
+        """Keep the message, the advice that ends it, whether the channel took no request, and the attempts."""
         super().__init__(f"{message}; {advice}" if advice else message)
         self.reason = message
         self.advice = advice
         self.unanswered = unanswered
+        self.attempts = attempts
 
 
 class PrinterTimeoutError(TransportError):
