@@ -8,8 +8,10 @@ batch whose labels need that is refused.
 
 from __future__ import annotations
 
+import gc
 import sys
 import tracemalloc
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -17,6 +19,9 @@ from datamax_dpl import ReportLimits, check_batch, iter_batch
 from datamax_dpl.domain.enums import FindingCode, ImageModule, Severity
 from datamax_dpl.domain.label import Label, Qr, Text
 from datamax_dpl.domain.render_context import RenderOptions
+
+if TYPE_CHECKING:
+    from datamax_dpl.application.use_cases import BatchEntry
 
 #: A plug-in module: no clear may run, so each label's bytes depend on what the printer holds. A
 #: model with no format length limit, so that four large codes fit one label.
@@ -29,33 +34,51 @@ _LONG = "x" * 200
 _FOUR_LARGE = Label(elements=[Qr(x=1, y=1 + 300 * n, data=f"{{a}}-{n}-{_LONG}") for n in range(4)])
 _SMALL = 20
 _LARGE = 160
-#: What the peak may grow by between the two sizes: a few small objects, no name per record. The
-#: digest map this replaced grew by about 150 bytes a name, 84 KB over these 560 names.
+#: What the memory held may grow by between the two sizes: a few small objects, no name per record.
+#: The digest map this replaced grew by about 150 bytes a name, 84 KB over these 560 names.
 _FLAT_BYTES = 16 * 1024
-#: Why the flat check skips 3.10: the interpreter itself holds up to about 100 KB more over the first
-#: ~2000 records of any batch, a text label's as well, then stays flat to 8000 (measured 2026-11-03).
-#: These sizes sit inside that ramp; 3.11 to 3.15 grow by at most 7 KB over it.
-_RAMP_310 = "3.10 holds up to about 100 KB more over the first ~2000 records of any batch, then stays flat"
+#: Why the check skips 3.10: there what is held at the last record, after a full collection, grew by
+#: 12 to 14 KB between these sizes (3.10.22, two runs, 2026-11-03), within 4 KB of the bound, so a
+#: hold of a name per label would show only at about twice these sizes. 3.11, 3.12 and 3.15 grew by
+#: under 2 KB, 3.13 by 11 KB.
+_RAMP_310 = "3.10 holds 12 to 14 KB more at 160 records than at 20 with nothing of the batch kept, near the bound"
 
 
-def _peak(records: int) -> int:
+def _held_at_the_last(records: int) -> int:
+    """The traced memory the batch holds while its last record is checked, its garbage collected first.
+
+    Read there rather than as the run's peak: whatever the batch kept of each label is all still held
+    at its last record, while the peak on 3.11 to 3.13 also counts what the interpreter keeps for
+    reuse (free lists) and garbage not yet collected, which grew by about 40 KB between these sizes
+    with nothing of the batch held (a full collection drops it to under 3 KB).
+    """
     rows = [{"a": str(number)} for number in range(records)]
+    seen = 0
+    held = 0
+
+    def measure(_entry: BatchEntry) -> None:
+        nonlocal seen, held
+        seen += 1
+        if seen == records:
+            gc.collect()
+            held = tracemalloc.get_traced_memory()[0]
+
     tracemalloc.start()
     try:
-        report = check_batch(_FOUR_LARGE, rows, _NO_CLEAR, read_names_at_send=True, limits=_FEW)
-        peak = tracemalloc.get_traced_memory()[1]
+        report = check_batch(_FOUR_LARGE, rows, _NO_CLEAR, read_names_at_send=True, limits=_FEW, each=measure)
     finally:
         tracemalloc.stop()
     assert report.ok
     assert report.downloads_total == 4 * records
-    return peak
+    assert held > 0, "the last record was never measured"
+    return held
 
 
 @pytest.mark.os_agnostic
 @pytest.mark.skipif(sys.version_info < (3, 11), reason=_RAMP_310)
-def test_a_no_clear_batch_s_peak_is_flat_however_many_distinct_images_it_downloads() -> None:
-    _peak(_SMALL)  # warms what is imported and cached once, which is no cost of the batch
-    small, large = _peak(_SMALL), _peak(_LARGE)
+def test_a_no_clear_batch_holds_no_more_however_many_distinct_images_it_downloads() -> None:
+    _held_at_the_last(_SMALL)  # warms what is imported and cached once, which is no cost of the batch
+    small, large = _held_at_the_last(_SMALL), _held_at_the_last(_LARGE)
     assert large - small < _FLAT_BYTES, f"{small} at {_SMALL} records, {large} at {_LARGE}"
 
 

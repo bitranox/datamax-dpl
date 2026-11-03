@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import errno
+import gc
 import io
 import os
 import stat
@@ -64,10 +65,10 @@ _LARGE = 800
 #: What the peak may grow by between the two sizes: a few small objects, nothing per record.
 #: Strings cached per record grew it by about 50 bytes a record, 37 KB over these 750 records.
 _FLAT_BYTES = 16 * 1024
-#: Why the check skips 3.10: the interpreter itself holds up to about 100 KB more over the first
-#: ~2000 records of any batch, a text label's as well, then stays flat to 8000 (measured 2026-11-03).
-#: These sizes sit inside that ramp; 3.11 to 3.15 grow by at most 7 KB over it.
-_RAMP_310 = "3.10 holds up to about 100 KB more over the first ~2000 records of any batch, then stays flat"
+#: Why the check skips 3.10: there what is held after reading back, after a full collection, grew by
+#: about 70 KB between these sizes (3.10.22, two runs, 2026-11-03), past the bound with nothing of
+#: the batch kept. 3.11 to 3.15 grew by under 2 KB.
+_RAMP_310 = "3.10 holds about 70 KB more at 800 records than at 50 after a full collection, with nothing kept"
 _TCP = "tcp://192.0.2.60:9100"
 
 
@@ -275,7 +276,10 @@ def _held_after_reading(records: int) -> int:
     """Traced memory still held once a batch, each record a distinct image, was checked and read back.
 
     What stays, not the peak: one record's render costs more than the strings a batch would keep,
-    so a peak taken over the run shows the first record and hides what piles up behind it.
+    so a peak taken over the run shows the first record and hides what piles up behind it. Read
+    after a full collection: on 3.11 to 3.13 what the interpreter keeps for reuse (free lists) and
+    garbage not yet collected grew by about 140 KB between these sizes with nothing of the batch
+    held, and a full collection drops all of it.
     """
     rows = [{"a": f"record-{number}-{'x' * 60}"} for number in range(records)]
     tracemalloc.start()
@@ -283,6 +287,7 @@ def _held_after_reading(records: int) -> int:
         with FileJobSpool() as spool:
             report = check_batch(_QR, rows, _PLUG_IN, read_names_at_send=True, spool=spool, limits=_FEW)
             read = sum(1 for _ in report.entries())
+            gc.collect()
             held = tracemalloc.get_traced_memory()[0]
     finally:
         tracemalloc.stop()
