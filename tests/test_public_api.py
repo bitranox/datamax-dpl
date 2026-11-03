@@ -176,10 +176,11 @@ def test_the_base_keeps_the_builtin_a_caller_may_already_catch(name: str, builti
 
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize(
-    "name", ["PrinterTransport", "TransportTuning", "HeldImages", "Explanation", "DplUnit", "print_checked"]
+    "name",
+    ["PrinterTransport", "TransportTuning", "HeldImages", "Explanation", "DplUnit", "print_checked", "JobSpool"],
 )
 def test_what_a_public_signature_names_can_be_imported_from_the_root(name: str) -> None:
-    """A strict-typing caller annotates with these, and builds ``tuning=`` and ``held=`` from them."""
+    """A strict-typing caller annotates with these, builds ``tuning=`` and ``held=``, and implements ``spool=``."""
     assert name in datamax_dpl.__all__
     assert getattr(datamax_dpl, name) is not None
 

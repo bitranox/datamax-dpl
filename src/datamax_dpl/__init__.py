@@ -25,7 +25,7 @@ from .__init__conf__ import print_info
 from .adapters.logging.setup import InvalidLoggingConfigError
 from .adapters.preview import pillow_available, preview_findings, render_preview_png
 from .adapters.transport import open_printer
-from .application.ports import PrinterTransport
+from .application.ports import JobSpool, PrinterTransport
 from .application.upload_check import CheckedJob, ResetCheck, UploadCheck, UploadRefusedError, print_checked
 from .application.use_cases import (
     AnswerWait,
@@ -148,6 +148,7 @@ __all__ = [
     "Image",
     "ImageModule",
     "InvalidLoggingConfigError",
+    "JobSpool",
     "Label",
     "LabelRejectedError",
     "Line",
