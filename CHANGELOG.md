@@ -6,151 +6,60 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Fixed
-
-- `explain` names every command a job sends around its format: `<STX>S` (feed rate), `<STX>V` (software switches),
-  `<STX>q` (clear memory module), the plain Prodigy's `<STX>R<name>` (remove stored image) and `<STX>RY`/`RN`
-  (ribbon saver) read as a bare `system command` letter.
-- `explain` exits 1 for a format line it cannot read, as the README says: a line no format command starts
-  (`format command not understood`) and a record line shorter than its 15-character header are problems now; both
-  passed as an `unknown format command` with exit 0.
-- A `name` key in `[printer]` or `[printers.<name>]` (`DATAMAX_DPL___PRINTER__NAME=xyz`) is refused like every
-  undeclared key (`printer.name: Extra inputs are not permitted`); it was accepted and dropped silently.
-- `image_upload_refused` names the rounds that ran where one was skipped between them (`not stored after 2 rounds,
-  1 and 3`, `after round 2`), and gives a skipped round's reason as such; it said `after 2 rounds` and called the
-  skip of round 2 the reason for "no further round" although round 3 had run (a model that can clear nothing and
-  a printer that does not answer).
-- The attempts a `status`, `memory` or upload-check give-up counts include every connect the TCP transport tried
-  itself: a refused connection is tried again every 0.25 s for up to 3 s within one opening, and a closed port with
-  `--timeout 2` reported `(1 attempt)` after 8 connects. `TransportError.attempts` carries the count.
-- A transport that got no complete answer shows its seconds to a tenth (`no complete answer within 2 s`, `the
-  answer did not end within 2.3 s`): what was left of a longer wait printed as `within 1.99752 s`.
-- The label schema's `Image` description (`datamax-dpl schema`) says a bitmap is downloaded under its content name;
-  it said under `name`.
-- A serial port that cannot be opened, written or read is named once with its reason (`cannot open serial
-  /dev/ttyS9: No such file or directory`): pyserial's own text repeated the path and its errno. On Windows a port
-  that cannot be opened still reads as pyserial words it, which it builds from an error it never raises. A user configuration file a calibration cannot read, a configuration that cannot be loaded,
-  and an answer that could not be written say the reason and the file as given.
-- `--json render -o -` is refused at once, as `ConfigurationError` like `print --printer -`, before the label or a
-  record is read; it was refused only after the label was rendered, a `--data` batch's every record included, as
-  `ValueError`, and a bad record was named in its place.
-- An envelope names the command on the line whenever there is one: after Ctrl-C, after a bad global option, and for
-  `calibrate` alone. `command` is null only when the line names no command.
-- Ctrl-C says "part of a job may already have been sent" only for commands that send one (`print`, `verify`,
-  `calibrate print`, `reset`, `cancel`, `pause`, `feed`, `cut`), and during the logging shutdown it no longer prints a
-  traceback after the answer.
-- A failure over a full disk says so once.
-- An error naming a file shows the path as it was typed: on Windows every backslash in it read doubled
-  (`C:\\Users\\...`), as Python's `repr` spells it. The envelope and the `Error:` line now say the reason and the
-  path, and a second path after `->`.
-- Human output reaches the console in pieces of 64 KiB: `render --data` with no `-o` held one more copy of its
-  readable job on Windows, where the stream turns each newline into two characters.
-- `explain` lists what is wrong in words (`record cut short`, `setting not understood`), not as a Python class name.
-- A `[printer] calibration_label_text` or a `ResetCheck(text=...)` that is not text, a value that was not UTF-8, is
-  refused up front and not when a printer reports a reset.
-- `print_checked`'s docs say what it does before the job: one status read, and on a reset one calibration label.
-- `docs/label-spec.md` states its limits for filled values per kind, and names the one example `validate` refuses.
-- A label far past the field limit is refused without encoding its QR Codes a second time.
-- `config` also masks a lone user name in a camera URL, the value of a parameter named with `auth`, `sig`, `cred` or
-  `session`,
-  a parameter after `;` or with a percent-encoded name, and the same in the fragment. A token in the path still shows.
-- A `device:` or `file:` write that fails says how much of the job went out. A descriptor numbered past 1023 no longer
-  raises `ValueError` from `send`, and a device whose write keeps returning 0 now times out.
-- A reset report that comes with a directory read of the first label, the status read having stayed silent, now gets
-  the calibration label too, once. Before, the report was taken and dropped, so the label printed shifted and nothing
-  said so. If the upload check refuses that label, it says `printer_reset_not_calibrated`.
-- `print_checked` refuses an unusable wait or a `rounds` outside 1 to 3 before anything goes out.
-- `print`, `verify` and `render -o -` now say why in human mode: errors on a refusal, warnings and errors on success,
-  on stderr where the job owns stdout. Before, a refusal printed `REFUSED` with no reason, and `render -o -` nothing.
-- Control characters from a label file, a printer or a camera no longer reach the terminal raw: C0, DEL and C1 print
-  as `\xNN`, line separators and bidi controls as `\uNNNN`, in the error line and every human view (a `memory` name,
-  an unknown label key, a reason phrase). The error line also escapes newline and tab, so that a label key or a file
-  name cannot forge a line after it; so do the `config` command's own error lines (a `--section` name, a
-  problem loading the configuration).
-- A refused `render` with no `-o` answers with no job: the envelope's `dpl` and `dpl_base64` are null.
-- A Ctrl-C landing where a library swallows it, while a record is filled, still ends a `--data` batch with exit 130 and
-  no job written, on every route and on the last record too; one a library turns into its own error (writing a
-  record to the spool gave exit 2 "Error serializing to JSON: KeyboardInterrupt") ends with 130 too. One lost while a
-  label renders again for the send (a two-way batch whose images no clear empties, a single label, `calibrate
-  print`) stops the job before its next byte goes out. A Ctrl-C after the envelope began adds no second envelope: stdout carries one, and exit 130 and the
-  stderr line say the rest.
-- Ctrl-Break on Windows ends a command as Ctrl-C does, with exit 130 and the `interrupted` line, and removes a
-  `--data` batch's spool; it ended the process at once, with no message.
-- `render -o -` and `print --printer -` exit 141 and say nothing when the reader of the job goes away, as the other
-  commands do; they exited 2 or 120.
-- A record's own failure names its record, counted from 0 as a finding's `record` is: `data record 7 has no field 'v'`,
-  and `data record 7` first in a `ValidationError`'s location. A JSON line still goes by its line in the file.
-- A printer that keeps sending no longer holds up a request: what is dropped before one stops at 1 MiB.
-- `ResetCheck.off_because` is what the finding says when `calibrate` is False; a library caller no longer reads of a
-  settings key it does not have.
-- `LabelRejectedError` from `print_checked` and `print_result` carries the job's error findings; it carried none.
-- A camera URL whose path is not ASCII gives `CameraError` instead of `UnicodeEncodeError`.
-- `preview` refuses more fields than the model takes before it letters any, and letters only what lands on the
-  canvas: 399 text fields of 255 characters at 24 times the size took more than 6.7 GB and 281 s, and now take about
-  a second. `render_preview_png` names the field limit under `Raises`.
-- A `--data` batch goes one record at a time: the memory of `print`, `validate` and `render -o` no longer grows with
-  the records. A 399-field label with 8000 records took 2.9 GB in `print`, and now takes 59 MB. Every record is still
-  checked before any byte goes out, so a batch with a bad record is refused as before, and each record is rendered
-  once for it: `print`, `render -o -` and an in-place `render -o` keep each checked record, with its values, in a
-  spool file in the system's temp directory, readable by this user alone (on Windows from Python 3.12.4) and removed
-  however the command ends (SIGTERM, SIGHUP and closing a Windows console window leave it), and send from it, never reading the records again. Per record the spool holds the
-  job, the values and about 0.5 KB besides; of the findings only those the answer keeps in full, the rest as counts. A
-  spool that fills the disk ends a batch that passed with an error naming it; a batch with a bad record is still
-  refused for that record. A label is rendered again only for what the printer answers: its names read, round
-  2's clear, or halved images. 4000 records of a 399-field label took 34 s in `print` and `render -o -`, and now take
-  17 s. On a two-way link each label with an image costs a directory read after its downloads, a reused logo
-  included, about 1 s plus the printer's answer (about 17 minutes per 1000 labels); with no clear before the
-  downloads a label with a new image costs one more read before them (about 35 minutes per 1000).
-  `render -o FILE` writes a file beside the target and replaces the target only when every record passed, and
-  `render -o -` checks all of them, then streams. A target that would not stay what it was if replaced (a device, a
-  pipe, a directory taking no new file, a file another user owns, with another hard link, or on Linux with an
-  extended attribute, such as a POSIX ACL of its own, that a new file beside it does not get with the same value)
-  is written in place after the check; a directory's default ACL or SELinux's label, which a new file gets alike,
-  does not count.
-- Library: `iter_batch` yields one `RenderResult` at a time, `check_batch` returns a `BatchReport` holding no job, and
-  `print_checked` takes the report with `report.renders()`, building each label when its turn comes. `render_batch`
-  stays as the way to hold a batch whole. `check_batch(spool=...)` keeps each record in a `JobSpool` as it is
-  checked, with the values it was checked with (`BatchEntry.record`), and the report sends from it alone, so its
-  records may be a generator; `JobSpool` (the protocol with `add`, `seal` and `entries`) imports from `datamax_dpl`.
-  Without a spool `check_batch` refuses a generator, and the send reads the records again: one now in error is
-  refused when its turn comes (`LabelRejectedError`), as is another number of records (`ConfigurationError`); one
-  that changed and still renders goes out as it now reads. `entries()`, `record_jobs()` and `renders()` of a report
-  refused at its check raise `LabelRejectedError` naming its errors before giving any record.
-- `[printer] max_reported_findings` and `max_reported_downloads` (default 1000 each): a batch's answer keeps that many
-  findings and image names in full, past that the first finding of each code, and always its first error. The JSON
-  envelope gains `findings_total`, `findings_by_code`, `downloads_total` and `report_note`, which names the key when
-  something was cut; human mode then prints the counts per code. An error still refuses the job whether or not its
-  text was kept.
-- `[printer] max_batch_job_bytes` (default 64 MiB): `render --data` with no `-o`, the one command that holds the whole
-  job, stops with exit 2 and `BatchTooLargeError` naming the key and `-o FILE`, before the memory goes. `render_batch` takes
-  `max_job_bytes`, no limit when it is left out: a library caller rendering records it did not write sets one.
-- A `--json` envelope goes to stdout in 64 KiB pieces, so `render --data` with no `-o` holds about 8 times its job
-  while it answers (about 10 times on Windows; 224 MB resident for a 27 MB job on Linux; written whole, the same
-  envelope took 357 MB).
-- `BatchResult.data` is joined when it is first read, so `print_result` holds one copy of the job. It is no longer a
-  model field: build a `BatchResult` from `results`, and its JSON holds the jobs in `results` only.
-  `BatchResult.job_bytes` gives the size without joining.
-- A QR Code with text outside ASCII now holds UTF-8. Before, segno chose Latin-1 or Shift JIS X 0213
-  with no marker and the reader guessed: the zxing-cpp decoder read a degree sign as a half-width
-  katakana and a run of `ä` as CJK characters. Such text now takes more room, 2 bytes for `ä` and 3
-  for a CJK character that went in kanji mode at 13 bits, so the same data can need a larger version
-  or be refused with `qr_data_too_long`. Digits and capitals are not affected.
-
 ### Added
 
-- `[printer]` and `[printers.<name>]` keys for the printer state each job sets, under the names and bounds
-  `RenderOptions` gives them: `send_settings` (list, unset sends every setting), `media`, `start_of_print_mm`
-  (12.7 to 2539.746 mm), `max_label_length_mm` (127 to 2539.746 mm), `feed_rate` (a speed letter) and
-  `label_present` (`yes`, `no` or `unknown`, default `unknown`). Unset, each takes the model's default, so a job's
-  bytes stay as they were; a label's own `media` wins. They were refused as undeclared keys, while
-  `printer_settings_unknown` told the reader to set them. That finding, `software_switches_not_sent`,
-  `max_label_length_too_short`, `feed_rate_out_of_range` and `label_setting_not_sent` now name the option
-  (`RenderOptions.<field>`), and on the command line the key of the printer section in use.
+- Every label's job sets the persistent printer state it relies on before its format, since another program or the
+  front panel may have changed it: `<STX>c` and, where the model can choose its sensor, `<STX>e` or `<STX>r` for the
+  media sensor (`<STX>c0000` when the label is not continuous), `<STX>O` start of print, `<STX>M` maximum label
+  length, `<STX>S` feed rate and `<STX>V` software switches, beside the stop position (`<STX>f`, `<STX>Kf`) it already
+  sent. `[printer]` and `[printers.<name>]` keys set them, under the names and bounds `RenderOptions` gives them:
+  `send_settings` (a list of `media`, `stop`, `start_of_print`, `max_label_length`, `feed_rate` and
+  `software_switches`; unset sends every one, `[]` none), `media` (`gap`, `reflective` or `continuous`; a label's own
+  `media` wins), `start_of_print_mm` (12.7 to 2539.746 mm), `max_label_length_mm` (127 to 2539.746 mm), `feed_rate` (a
+  speed letter `A` to `S`) and `label_present` (`yes`, `no` or `unknown`, default `unknown`). Unset, the last four
+  take the model's default from the manual. `<STX>V` goes out only when `cutter` and, on a model with that bit,
+  `label_present` are `yes` or `no`. New findings: `printer_settings_unknown` (the model has no known value: Prodigy
+  Max, `generic`, `permissive`; nothing sent), `software_switches_not_sent`, `max_label_length_too_short` (warning,
+  error under strict), `feed_rate_out_of_range`, `label_setting_not_sent` and `configured_sensor_select_unsupported`,
+  and for the image module clear `graphics_clear_skipped` and `graphics_clear_unsupported`, info otherwise; each that
+  points at a setting names the render option (`RenderOptions.<field>`) and on the command line the key of the printer
+  section in use. Library: `RenderOptions` gains `send_settings`, `media`, `start_of_print_mm`, `max_label_length_mm`,
+  `feed_rate` and `label_present`; `PrinterProfile` gains `start_of_print_mm`, `max_label_length_mm`, `feed_rate` and
+  `software_switches` (a `SoftwareSwitchBits`); `Feature` gains `clear_module` (`<STX>q`) and `remove_image`
+  (`<STX>R`); `PrinterSetting`, the enum `send_settings` holds, imports from `datamax_dpl`. CONFIG.md ("The printer
+  state each job sets") has the detail.
+- `[printer] clear_graphics_before` and `clear_graphics_after` (both `true`): clear the image module before each label
+  and again after it, on a model that can clear and a label without images included (`<STX>q` to the model's built-in
+  RAM, the plain Prodigy's `<STX>R` for each name the label downloads; a plug-in module, which may be flash, is never
+  cleared). `false` keeps what the printer stores; a `--data` batch whose label places a stored image (no bitmap)
+  needs both `false`, since the clear after a label removes it for the next, and is otherwise refused from its second
+  record on (`stored_image_cleared`). `RenderOptions.clear_graphics_before_label` and `clear_graphics_after_label`
+  carry them. Upgrading from 0.4.0, which never cleared: `<STX>q` empties the whole module, every image, font and
+  format stored there and not only the job's own images (manual p.35), so turn both keys off where the printer keeps
+  files another program stored; a label that places an image the printer stores (an `image` with no `bitmap`) is
+  refused on the defaults (`stored_image_cleared`) until the clear before is turned off, and a `--data` batch of them
+  until both are.
+- `[printer] max_format_rows` (unset: the model's limit) and the finding `format_past_max_length` (error under both
+  policies): a field reaching past the highest dot row one format may reach, at dot height 1 and as the job commands
+  it (scale and offset included), is refused, since the printer may cut the format there; a label `dot_size` of height
+  2 doubles it. Only the `allegro-2` has a limit: 1648 rows (about 201 mm at its `scale_along` 0.976), the lowest row
+  any test format was cut at. Where the printer cuts depends on the format's content (a tall element from the bottom
+  was cut at 1648 to 1652, a format with nothing tall printed to 1675), so the limit is conservative and the key
+  raises it. `RenderOptions.max_format_rows` and `PrinterProfile.max_format_rows` carry it.
+- `image_past_print_width` (error under both policies): an image with a bitmap, a raster fallback or a merged
+  transparency image that ends past the model's printable width, its width times its magnification counted from the
+  column it starts at, is refused; 0.4.0 sent it.
+- `"printer"` as a stop position: a label's `"stop_position": "printer"` and `[printer] stop_position = "printer"`
+  (also per named printer) send no `<STX>f`, so the printer keeps the stop set on it, the model's default included.
+  `PrinterStop` holds the value.
+- `[printer] refused_connect_wait` (default 3 s) and `refused_connect_retry_interval` (default 0.25 s), each above 0
+  and at most 2147483 s, also per named printer: how long one opening of a tcp connection retries a refused connect,
+  never longer than `timeout`, and the pause between two tries. Both were fixed at these values. `TransportTuning`
+  carries them.
 - The package root exports every type an exported signature or field names, so a caller can import what it
   annotates: `Axis`, `CalibrationDefaults`, `CalibrationKey`, `CheckedPrint`, `Clock`, `DecodedCommand`, `Feature`,
   `Firmware`, `ModelFamily`, `OpenPrinter`, `RecordRender`, `Sleep`, `SoftwareSwitchBits`, `Source`, `SpeedRange`,
-  `Support` and `UndescribedBit`. `CalibrationKey.scale` and `.offset` take an `Axis` or its value: `"across"` picks
-  the across key (it picked the along one).
+  `Support` and `UndescribedBit`. `CalibrationKey.scale` and `.offset` take an `Axis` or its value.
 - `docs/label-spec.md` lists the QR Code sizes and how they scanned on an Allegro 2.
 - A calibration label after a printer reset. Before the first label of a
   two-way `print`, `print --data`, `verify` or `print_checked`, the job reads
@@ -164,35 +73,48 @@ All notable changes to this project are documented here. The format follows
   takes the report, and a one-way link cannot see a reset; CONFIG.md has the
   detail. Library: `ResetCheck`, `CheckedJob.reset` (None asks nothing),
   `RecordRender.calibration`. `verify --json` now carries `findings`.
-- `print_checked`, `CheckedJob`, `UploadCheck`, `AnswerWait`,
+- `print_checked(job, checked, endpoint=PrinterEndpoint(uri=..., timeout=...,
+  open_printer=...))`, `CheckedJob`, `UploadCheck`, `AnswerWait`, `PrinterEndpoint`,
   `record_renders`, `PrinterTransport`, `TransportTuning`, `HeldImages`,
   `Explanation` and `DplUnit` import from the package root. README and the
   skill say what `send(job.data)` skips and spell the checked route.
+- Library: `iter_batch` yields one `RenderResult` at a time, `check_batch` returns a `BatchReport` holding no job
+  bytes, and `print_checked` takes the report with `report.renders()`, building each label when its turn comes.
+  `render_batch` stays as the way to hold a batch whole. `check_batch(spool=...)` keeps each record in a `JobSpool` as
+  it is checked, with the values it was checked with (`BatchEntry.record`), and the report sends from it alone, so its
+  records may be a generator; `JobSpool` (the protocol with `add`, `seal` and `entries`), `BatchReport`, `BatchEntry`,
+  `ReportLimits` and `ReportedFinding` import from `datamax_dpl`. Without a spool `check_batch` refuses a generator,
+  and the send reads the records again: one now in error is refused when its turn comes (`LabelRejectedError`), as is
+  another number of records (`ConfigurationError`); one that changed and still renders goes out as it now reads.
+  `entries()`, `record_jobs()` and `renders()` of a report refused at its check raise `LabelRejectedError` naming its
+  errors before giving any record.
+- `[printer] max_reported_findings` and `max_reported_downloads` (default 1000 each): a batch's answer keeps that many
+  findings and image names in full, past that the first finding of each code, and always its first error. The JSON
+  envelope gains `findings_total`, `findings_by_code`, `downloads_total` and `report_note`, which names the key when
+  something was cut; human mode then prints the counts per code. An error still refuses the job whether or not its
+  text was kept.
+- `[printer] max_batch_job_bytes` (default 64 MiB): `render --data` with no `-o`, the one command that holds the whole
+  job, stops with exit 2 and `BatchTooLargeError` naming the key and `-o FILE`, before the memory goes. `render_batch`
+  takes `max_job_bytes`, no limit when it is left out: a library caller rendering records it did not write sets one.
 - `[printer] max_batch_records` (default 100000): a `--data` batch with more
   records is refused with exit 2 before anything is rendered. A million
   records in a 2 MB file took 96 s and 4.3 GB.
-- `DatamaxDplError`, exported from the package root, is the base of every
-  exception the package raises; `UnknownModelError`, `MissingFieldError`,
-  `QrDataTooLongError` and `PreviewTooLongError` keep `LookupError` or
-  `ValueError` as a second base. `AnswerNotEndedError`, `CameraError`,
-  `InvalidLoggingConfigError`, `PrinterProtocolError`, `QrDataTooLongError`,
-  `UnsupportedOperationError` and `UploadRefusedError` can now be imported
-  from the root as well. The README states the contract.
-- `[printer] status_wait` (default 30 s, at most 2147483 s) and
-  `status_retry_interval` (0.25 s), also per named printer: `status` and
-  `memory` keep trying for the printer's first answer while a print server is
-  still busy with an earlier job. A connection that took no request - refused,
-  timed out while connecting, or closed or reset before the request was sent
-  or before a byte of answer - is tried again on a new one; an open but
-  silent connection is read until the wait ends and never asked a second
-  time, so no second request is left outstanding. A malformed answer is
-  reported, not asked again. When the wait runs out the error gives the
-  seconds actually waited (for `memory` at most 120 s, the cap on one
-  answer), counts the attempts, quotes the last failure and names
-  `status_wait` and `--timeout`. `TransportError.unanswered` marks the
-  failures that may be retried, and `TransportError.reason` is the message
-  without the transport's advice; `application.use_cases.AnswerWait`
-  carries the wait for library callers.
+- `DatamaxDplError`, exported from the package root, is the base of every exception the package raises;
+  `UnknownModelError`, `MissingFieldError`, `QrDataTooLongError` and `PreviewTooLongError` have `LookupError` or
+  `ValueError` as a second base. `AnswerNotEndedError`, `CameraError`, `InvalidLoggingConfigError`,
+  `PrinterProtocolError`, `UnsupportedOperationError` and `UploadRefusedError` can now be imported from the root as
+  well. The README states the contract.
+- `[printer] status_wait` (default 30 s, at most 2147483 s) and `status_retry_interval` (0.25 s), also per named
+  printer: `status` and `memory` keep trying for the printer's first answer while a print server is still busy with an
+  earlier job. A connection that took no request - refused, timed out while connecting, or closed or reset before the
+  request was sent or before a byte of answer - is tried again on a new one (a refused connect is first retried within
+  the opening, see `refused_connect_wait`); an open but silent connection is read until the wait ends and never asked
+  a second time, so no second request is left outstanding. A malformed answer is reported, not asked again. When the
+  wait runs out the error gives the seconds actually waited (for `memory` at most 120 s, the cap on one answer),
+  counts the attempts (each connect the tcp transport tried within an opening included, `TransportError.attempts`),
+  quotes the last failure and names `status_wait` and `--timeout`. `TransportError.unanswered` marks the failures that
+  may be retried, and `TransportError.reason` is the message without the transport's advice;
+  `application.use_cases.AnswerWait` carries the wait for library callers.
 - Upload check on a two-way link: `print` and `verify` send each label that
   downloads an image in two parts on one connection, its settings, clear and
   downloads first, then its format, cut and clear after only once the
@@ -241,7 +163,9 @@ All notable changes to this project are documented here. The format follows
 - `[printer] stored_names_wait` (default 30 s, more than 0, at most 2147483
   s): how long `print` and `verify` keep trying for each read of the printer's
   stored image names, before each label's downloads no clear precedes and in
-  every round of the upload check, pausing `status_retry_interval` between two connections. The
+  every round of the upload check, pausing `status_retry_interval` between two connections (a refused connect
+  within one opening is retried by `refused_connect_wait` and
+  `refused_connect_retry_interval`). The
   answer's last byte must arrive within it; the 1 s of silence that ends the
   answer comes on top. `--timeout` leaves it.
 - `[printer] held_image_severity` (`info`, `warning` or `error`, default
@@ -256,35 +180,18 @@ All notable changes to this project are documented here. The format follows
   earlier one stored places it with `image_name_held` too. The key sets the
   severity of both findings, and `error` refuses such a label whatever
   `policy` says. `RenderOptions.held_image_severity` carries it.
-- `batch_image_names_unread` (error): a `--data` batch whose labels download
-  images with no clear before them is refused before anything is sent or
-  written where no printer is read before each label: `render`, `validate`
-  with no tcp or serial printer named, and `print` to a file, stdout or a
-  device file. The finding goes on the second record and each later one; the
-  first, which no label of the batch precedes, gets `image_names_unread` as a
-  single label does, so a one-record batch is not refused. `validate --data` with a tcp or serial printer named is not
-  refused. Nor is a batch whose clear after each label (`clear_graphics_after`,
-  on by default) reaches the module: it removes every name the label before
-  downloaded, so each later record is judged as the first is. Library: `render_batch`, `iter_batch` and `check_batch` take
-  `read_names_at_send` (True where a two-way sender reads the names before
-  each label). Its message names the ways out: a tcp or serial printer, the
-  clear before each label, or on a plug-in module, which takes no clear,
-  leaving `image_module` unset where the model's built-in module takes one;
-  a model that can clear neither (`generic`, the Prodigy Plus) is told to use
-  one that can. A message that names a clear key names the key of the section
-  in use, `[printers.NAME]` under `--printer NAME`, beside the render option.
-- `[printer] clear_graphics_before` and `clear_graphics_after` (both `true`):
-  clear the image module before each label's downloads and again after the
-  label (`<STX>q` to the model's built-in RAM, the plain Prodigy's `<STX>R`
-  for each name it downloads; a plug-in module is never cleared). `false`
-  keeps what the printer stores; a `--data` batch whose label places a stored
-  image (no bitmap) needs both `false`, since the clear after a label removes
-  it for the next, and is otherwise refused from its second record on
-  (`stored_image_cleared`). `RenderOptions.clear_graphics_before_label` and
-  `clear_graphics_after_label` carry them. Upgrading from 0.4.0, which never
-  cleared: a label that places an image the printer stores (an `image` with
-  no `bitmap`) is refused on the defaults (`stored_image_cleared`) until the
-  clear before is turned off, and a `--data` batch of them until both are.
+- `batch_image_names_unread` (error): a `--data` batch whose labels download images with no clear before them is
+  refused before anything is sent or written where no printer is read before each label: `render`, `validate` with no
+  tcp or serial printer named, and `print` to a file, stdout or a device file. The finding goes on the second record
+  and each later one; the first, which no label of the batch precedes, gets `image_names_unread` as a single label
+  does, so a one-record batch is not refused. `validate --data` with a tcp or serial printer named is not refused. Nor
+  is a batch whose clear after each label (`clear_graphics_after`, on by default) reaches the module: it removes every
+  name the label before downloaded, so each later record is judged as the first is. Library: `render_batch`,
+  `iter_batch` and `check_batch` take `read_names_at_send` (True where a two-way sender reads the names before each
+  label). Its message names the ways out: a tcp or serial printer, the clear before each label, or on a plug-in
+  module, which takes no clear, leaving `image_module` unset where the model's built-in module takes one; a model that
+  can clear neither (`generic`, the Prodigy Plus) is told to use one that can. A message that names a clear key names
+  the key of the section in use, `[printers.NAME]` under `--printer NAME`, beside the render option.
 - `[printer] image_module` (`A` to `E`, unset by default): the memory module
   images are downloaded to. Unset takes the model's built-in module
   (`datamax-dpl capabilities MODEL` shows it): A on most models, E on the DMX
@@ -302,12 +209,10 @@ All notable changes to this project are documented here. The format follows
 - `[printer] one_way_settle` (default 5 s, 0 to 2147483 s): seconds `verify`
   waits after sending, instead of polling, on a channel that cannot read
   status (a file, a device file); fixed at 5 s in 0.4.0.
-- The seven keys above are read from a `[printers.<name>]` section and their
-  environment variables as well. A bad value is refused naming its key,
-  `printer.<key>: ...` or `printers.<name>.<key>: ...` (for example
-  `printer.upload_check_rounds: Input should be less than or equal to 3`),
-  with exit 2, by every command that reads the printer settings. 0.4.0
-  silently ignored these keys, so a value it accepted may now be refused.
+- Every `[printer]` key this release adds is read from a `[printers.<name>]` section and its environment variables as
+  well. A bad value is refused naming its key, `printer.<key>: ...` or `printers.<name>.<key>: ...` (for example
+  `printer.upload_check_rounds: Input should be less than or equal to 3`), with exit 2, by every command that reads
+  the printer settings. 0.4.0 silently ignored these keys, so a value it accepted may now be refused.
 - Library: `domain.geometry` (`DotPoint`, `Rect`, `Size`, `Span`),
   `domain.frozen_mapping.FrozenMapping`, `domain.status.parse_serial_test`
   (reads the `<STX>k` answer), the enums `domain.enums.StatusFlag`,
@@ -322,26 +227,52 @@ All notable changes to this project are documented here. The format follows
   `datamax_dpl`; `PrinterProfile.family` (a `ModelFamily`, None for `generic`
   and `permissive`), `PrinterProfile.image_module` and
   `PrinterProfile.ram_modules` (a frozenset of `ImageModule`) are new.
-- Library: `PrinterSetting` imports from `datamax_dpl`: the enum of persistent
-  printer settings a job can send before its format (`media`, `stop`,
-  `start_of_print`, `max_label_length`, `feed_rate`, `software_switches`), as
-  `RenderOptions.send_settings` holds them.
 - Library: `pillow_available()` imports from `datamax_dpl`: True when the
   `preview` extra (Pillow) is installed.
 - Library: `preview_findings(label)` imports from `datamax_dpl`: the findings
   for what the preview PNG of a label cannot show: one
   `preview_text_approximated` (info) when the label has text and Pillow is
   not installed, else none.
-- `[preview] max_length_mm` (default 2000.0): `preview` refuses a label whose
-  picture would be longer than this either way, exit 2, before drawing it, and
-  `verify` before printing it; `render_preview_png` takes `max_length_mm` and
-  raises `PreviewTooLongError`, exported from `datamax_dpl`. A height of
-  100000 mm took 118 s and 1.47 GB, and 1e9 raised `MemoryError`.
+- `[preview] max_length_mm` (default 2000.0, above 0, at most 100000): `preview` refuses a label whose picture would
+  be longer than this either way, exit 2, before drawing it, and `verify` before printing it; `render_preview_png`
+  takes `max_length_mm` and raises `PreviewTooLongError`, exported from `datamax_dpl`, and `check_preview_length`
+  raises `ValueError` for a limit that is not a finite length. A height of 100000 mm took 118 s and 1.47 GB, and 1e9
+  raised `MemoryError`.
 - `UnknownModelError`, `MissingFieldError`, `ConfigurationError` and
   `PrinterTimeoutError` can be imported from `datamax_dpl`.
 
 ### Changed
 
+- Every job is longer: each label's job sends the printer state listed under Added before its format, and on a model
+  that can clear its built-in RAM `<STX>q` before and after the label. A job for an Allegro 2 that 0.4.0 started
+  `<STX>n<STX>f265<STX>L` now starts `<STX>n<STX>c0000<STX>O0220<STX>M1200<STX>SC<STX>f263<STX>qA<STX>L` and ends
+  `E<CR><STX>qA`. Upgrading from 0.4.0: these settings override what the front panel or another program set, so set
+  `send_settings` to what the job may send, and the clear empties the whole module (see `clear_graphics_before` under
+  Added).
+- An image is downloaded under its content name: `D` plus 7 characters from the 62 symbols `0-9 A-Z a-z` (the leading
+  8 bytes of a sha256 of its size and bits, in base 62), the same name for the same picture in every job. 0.4.0
+  downloaded an `image` with a `bitmap` under its own `name`, and a drawn image (a raster fallback, a QR Code) as `D`
+  plus 7 hex digits. Two different images share a name about 1 in 62**7 (3.5e12) per pair instead of 1 in 2**28. Names
+  compare by exact letter case; lower case was measured kept and matched exactly on one Allegro 2 (firmware CA02
+  03.04) only, unverified on other models. The label schema (`datamax-dpl schema`) says so. Upgrading from 0.4.0: a
+  label that downloads `LOGO` no longer stores anything under `LOGO`, so a later label or another program that places
+  `LOGO` without a bitmap no longer finds that picture; give such a label the bitmap. A result's `downloads` and
+  `datamax-dpl memory` list the content names. An image a 0.4.0 job left on a module no clear empties is not
+  recognised by its old name and is downloaded once more: it costs module memory, never a wrong picture. On a nearly
+  full module that is never cleared that download can be lost with no error, and the label then prints without the
+  image; on a two-way link the upload check of `print` and `verify` catches that before the format goes out.
+- The `allegro-2` model's tear-off `stop_position` is 66.8 mm, sent as `<STX>f263`; 0.4.0 used 67.4 mm (`<STX>f265`).
+- `--timeout` on `status`, `memory` and `verify` is now the whole wait for the printer, retries included, in place of
+  `status_wait`; before, it bounded one connect and one answer wait. `verify` waits `status_wait` (30 s) in all for
+  the printer to finish its job, where 0.4.0 waited `timeout` (10 s). Without `wait`, `query_status` and
+  `read_memory_directory` keep trying for the endpoint's timeout in all.
+- A QR Code with text outside ASCII now holds UTF-8. Before, segno chose Latin-1 or Shift JIS X 0213 with no marker
+  and the reader guessed: the zxing-cpp decoder read a degree sign as a half-width katakana and a run of `ä` as CJK
+  characters. Such text now takes more room, 2 bytes for `ä` and 3 for a CJK character that went in kanji mode at 13
+  bits, so the same data can need a larger version or be refused with `qr_data_too_long`. Digits and capitals are not
+  affected.
+- Dependencies: `lib_layered_config>=7.7.0` (was 7.6.0) and a new direct dependency `pydantic-core>=2.50.1`; the `dev`
+  extra pins `certifi>=2026.10.23` (was 2026.10.19).
 - `R` (power-on) and `T` (software reset) in front of a status or directory
   answer are no longer a failure: one Allegro 2 sends `R` in front of its first
   answer after a power cycle, and `status` then exited 2 while a directory read
@@ -365,16 +296,10 @@ All notable changes to this project are documented here. The format follows
   refused with `needs a whole number`. An integer for a length
   stays fine. `{name}` placeholders fill text and `data` only, so `--data` is
   not affected.
-- A key the `[printer]`, `[printers.<name>]`, `[camera]` or `[preview]`
-  section does not declare is now refused naming it (`printer.timout: Extra
-  inputs are not permitted`, exit 2), and so is a section that is no table
-  (`printer = 5`). Both were dropped silently, so a typo left the setting at
-  its default. A named printer's section is checked when that printer is
-  chosen.
-- `--timeout` on `status` and `memory` is now the whole wait for the first
-  answer, retries included, in place of `status_wait`; before, it bounded
-  one connect and one answer wait. Without `wait`, `query_status` and
-  `read_memory_directory` keep trying for the endpoint's timeout in all.
+- A key the `[printer]`, `[printers.<name>]`, `[camera]` or `[preview]` section does not declare is now refused naming
+  it, a `name` key included (`printer.timout: Extra inputs are not permitted`, exit 2), and so is a section that is no
+  table (`printer = 5`). Both were dropped silently, so a typo left the setting at its default. A named printer's
+  section is checked when that printer is chosen.
 - A printer that refuses every connection, or that cannot be connected to in
   time, now makes `status` and `memory` fail only when their wait runs out:
   a mistyped port, or a printer switched off behind a print server that
@@ -383,27 +308,6 @@ All notable changes to this project are documented here. The format follows
   `TransportError`. An unknown or unreachable host still fails at once.
 - `read_memory_directory` with no kinds returns at once without opening the
   printer.
-- Every downloaded image is named `D` plus 7 characters from the 62 symbols
-  `0-9 A-Z a-z` (the leading 8 bytes of its sha256 in base 62) in place of
-  7 hex digits: two different images share a name about 1 in 62**7
-  (3.5e12) per pair instead of 1 in 2**28. Names compare by exact letter
-  case; lower case was measured kept and matched exactly on one Allegro 2
-  (firmware CA02 03.04) only, unverified on other models. An image a 0.4.0
-  job left on a module no clear empties is not recognised by its old name
-  and is downloaded once more: it costs module memory, never a wrong
-  picture. On a nearly full module that is never cleared that download can
-  be lost with no error, and the label then prints without the image; on a
-  two-way link the upload check of `print` and `verify` catches that before
-  the format goes out.
-- `allegro-2` model values measured on the printer: `max_format_rows` is
-  1648 (about 201 mm at `scale_along` 0.976), the lowest row any test
-  format was cut at; where the printer cuts depends on the format's
-  content (a tall element from the bottom was cut at 1648 to 1652, a
-  format with nothing tall printed to 1675), so the limit is conservative
-  and `max_format_rows` raises it. The tear-off `stop_position` is 66.8 mm,
-  sent as `<STX>f263`.
-- `format_past_max_length` says the model may cut a format past the row, not
-  that it cannot hold it.
 - `calibrate print` and `calibrate set` default `--along-length` to the
   longest bar in whole 10 mm, at most 200 mm, that one format holds at the
   printer's current calibration (190 mm on an Allegro 2 at 0.976), so the
@@ -503,33 +407,109 @@ All notable changes to this project are documented here. The format follows
 - The module-level tables `FONT_BYTES`, `SYMBOL_SET_CODECS`, `MODEL_PROFILES`
   and `PROFILES` are read-only `Mapping`s: a caller that wrote to one changed
   it for the whole process.
-- Library: `print_checked` takes the printer as one value,
-  `endpoint=PrinterEndpoint(uri=..., timeout=..., open_printer=...)` (exported
-  from `datamax_dpl`), in place of its `uri`, `timeout` and `open_printer`
-  keywords; the use cases in `application.use_cases` and `application.verify`
-  that reach a printer take it the same way, and `upload_check.Link` holds it
-  as `endpoint` in place of those three fields.
+- Library: `send_bytes`, `print_result`, `send_command`, `query_status`, `read_memory_directory` and `detect_printer`
+  in `application.use_cases`, and `verify_print` and `wait_idle` in `application.verify`, take the printer as one
+  value, `endpoint=PrinterEndpoint(uri=..., timeout=..., open_printer=...)` (exported from `datamax_dpl`), in place of
+  their `uri`, `timeout` and `open_printer` keywords; `wait_idle` takes an `IdleWait` in place of `timeout`, `sleep`
+  and `clock`.
+- Library: `verify_print` takes the model from `options` and has lost its `profile` and `clock` parameters: a profile
+  for another model drew the wrong expected picture. A `checked` job that is not exactly one label is refused with
+  `ConfigurationError` before anything is printed.
+- Library: `render_preview_png`, `domain.preview.preview_bitmap` and `canvas_for` take the job's `RenderOptions` as
+  `options=` (refusing options for another model), so a configured scale or offset reaches the picture;
+  `preview_bitmap` takes `masks`. `domain.preview.Canvas` holds the geometry, and `Canvas.dots(value)` became
+  `Canvas.length(value, axis=...)`.
+- Library: `BatchResult.data` is joined when it is first read, so `print_result` holds one copy of the job. It is no
+  longer a model field: build a `BatchResult` from `results`, and its JSON holds the jobs in `results` only.
+  `BatchResult.job_bytes` gives the size without joining.
 - Library: `adapters.config.deploy_configuration` and the
   `DeployConfiguration` port take the permission values as one
   `permissions=DeployPermissionRequest(...)` (from
   `datamax_dpl.application.ports`) in place of the `set_permissions`,
   `dir_mode`, `file_mode` and `permission_overrides` keywords.
 
-### Removed
-
-- Library: `BatchResult.findings()` (each of `BatchResult.results` carries its
-  `findings`); `cut_across_records` from `domain.batch` and
-  `application.use_cases` (`domain.batch.batch_cuts` returns `BatchCuts` with
-  the records a cut follows, and `BatchResult.joined` joins the jobs);
-  `adapters.camera.media_type_for` (`StoredImage.media_type` carries the
-  type); `adapters.camera.http.EXTENSION_BY_CONTENT_TYPE`;
-  `ImageBudget.source` (`ImageBudget.model`);
-  `adapters.cli.commands.printer.ALL_KINDS` (`KindChoice.ALL`).
-- Library: `build_job(filled=)`, `build_jobs(filled=)` and
-  `build_record(filled=)`; a label from `fill_label` carries it.
-
 ### Fixed
 
+- `explain` names every command a job sends around its format: `<STX>S` (feed rate), `<STX>V` (software switches),
+  `<STX>q` (clear memory module), the plain Prodigy's `<STX>R<name>` (remove stored image) and `<STX>RY`/`RN`
+  (ribbon saver) read as a bare `system command` letter.
+- `explain` exits 1 for a format line it cannot read, as the README says: a line no format command starts
+  (`format command not understood`) and a record line shorter than its 15-character header are problems now; both
+  passed as an `unknown format command` with exit 0.
+- A serial port that cannot be opened, written or read is named once with its reason (`cannot open serial /dev/ttyS9:
+  No such file or directory`): pyserial's own text repeated the path and its errno. On Windows a port that cannot be
+  opened still reads as pyserial words it, which it builds from an error it never raises. A user configuration file a
+  calibration cannot read, a configuration that cannot be loaded, and an answer that could not be written say the
+  reason and the file as given.
+- `--json render -o -` is refused at once, as `ConfigurationError` like `print --printer -`, before the label or a
+  record is read; it was refused only after the label was rendered, a `--data` batch's every record included, as
+  `ValueError`, and a bad record was named in its place.
+- An error naming a file shows the path as it was typed: on Windows every backslash in it read doubled
+  (`C:\\Users\\...`), as Python's `repr` spells it. The envelope and the `Error:` line now say the reason and the
+  path, and a second path after `->`.
+- Human output reaches the console in pieces of 64 KiB: `render --data` with no `-o` held one more copy of its
+  readable job on Windows, where the stream turns each newline into two characters.
+- `explain` lists what is wrong in words (`record cut short`, `setting not understood`), not as a Python class name.
+- `docs/label-spec.md` states its limits for filled values per kind, and names the one example `validate` refuses.
+- `config` shows secrets in the `[camera] url` as `***REDACTED***`, in human and JSON output and for `--section
+  camera` and `--section camera.url`: the password (`http://USER:PASSWORD@HOST/...`), a lone user name, and the value
+  of a query or fragment parameter whose name holds `pass`, `pwd`, `secret`, `token`, `key`, `auth`, `sig`, `cred` or
+  `session`, after `;` or with a percent-encoded name too. It printed the URL as written. A token in the path still
+  shows. The route and the redaction are in `CONFIG.md`.
+- `device:` and `file:` printers keep to `timeout` on POSIX: a stalled device or a FIFO nobody reads hung for ever,
+  and so did a device whose write keeps returning 0. Each piece of a job waits under `select`, and a FIFO with no
+  reader is refused at once. A write that fails says how much of the job went out. On Windows, and on `-` everywhere,
+  no timeout applies to a write.
+- `print`, `verify` and `render -o -` now say why in human mode: errors on a refusal, warnings and errors on success,
+  on stderr where the job owns stdout. Before, a refusal printed `REFUSED` with no reason, and `render -o -` nothing.
+- Control characters from a label file, a printer or a camera no longer reach the terminal raw: C0, DEL and C1 print
+  as `\xNN`, line separators and bidi controls as `\uNNNN`, in the error line and every human view (a `memory` name,
+  an unknown label key, a reason phrase). The error line also escapes newline and tab, so that a label key or a file
+  name cannot forge a line after it; so do the `config` command's own error lines (a `--section` name, a
+  problem loading the configuration).
+- A refused `render` with no `-o` answers with no job: the envelope's `dpl` and `dpl_base64` are null.
+- A record's own failure names its record, counted from 0 as a finding's `record` is: `data record 7 has no field 'v'`,
+  and `data record 7` first in a `ValidationError`'s location. A JSON line still goes by its line in the file.
+- A printer that keeps sending no longer holds up a request: what is dropped before one stops at 1 MiB.
+- `LabelRejectedError` from `print_result` carries the job's error findings; it carried none.
+- A camera URL whose path is not ASCII gives `CameraError` instead of `UnicodeEncodeError`.
+- `preview` refuses more fields than the model's format takes, as `render` does, before it letters any, and letters
+  only what lands on the canvas: 399 text fields of 255 characters at 24 times the size took more than 6.7 GB and 281
+  s, and now take about a second. `render_preview_png` names the field limit under `Raises`.
+- `preview` places each field at the dots the job sends (the DPL units and their rounding, the Allegro 2's 2 dots per
+  1/100 in, the scale and offset undone): a `generic` 10 mm field drew at dot 80 where its 39/100 in prints at 79. It
+  combines a text field by its glyph pixels, so a line crossing text gaps only under the strokes, as an Allegro 2
+  prints it, and draws an image without a bitmap whose name another element downloads as that bitmap.
+- Filling a placeholder stops one character past the field's limit (a QR repeating a 3 MiB value took 4.46 GB to be
+  refused), and `explain` stops at 100000 commands and reports the rest as not explained (16 MiB of CR took 15 GB).
+- A `--data` batch goes one record at a time: the memory of `print`, `validate` and `render -o` no longer grows with
+  the records. A 399-field label with 8000 records took 2.9 GB in `print`, and now takes 59 MB. Every record is still
+  checked before any byte goes out, so a batch with a bad record is refused as before, and each record is rendered
+  once for it: `print`, `render -o -` and an in-place `render -o` keep each checked record, with its values, in a
+  spool file in the system's temp directory, readable by this user alone (on Windows from Python 3.12.4) and removed
+  however the command ends (SIGTERM, SIGHUP and closing a Windows console window leave it), and send from it, never
+  reading the records again. Per record the spool holds the job, the values and about 0.5 KB besides; of the findings
+  only those the answer keeps in full, the rest as counts. A spool that fills the disk ends a batch that passed with
+  an error naming it; a batch with a bad record is still refused for that record. A label is rendered again only for
+  what the printer answers: its names read, round 2's clear, or halved images. 4000 records of a 399-field label took
+  34 s in `print` and `render -o -`, and now take 17 s. On a two-way link each label with an image costs a directory
+  read after its downloads, a reused logo included, about 1 s plus the printer's answer (about 17 minutes per 1000
+  labels); with no clear before the downloads a label with a new image costs one more read before them (about 35
+  minutes per 1000). `render -o FILE` writes a file beside the target and replaces the target only when every record
+  passed, and `render -o -` checks all of them, then streams. A target that would not stay what it was if replaced (a
+  device, a pipe, a directory taking no new file, a file another user owns, with another hard link, or on Linux with
+  an extended attribute, such as a POSIX ACL of its own, that a new file beside it does not get with the same value)
+  is written in place after the check; a directory's default ACL or SELinux's label, which a new file gets alike, does
+  not count.
+- A `--json` envelope goes to stdout in 64 KiB pieces, so `render --data` with no `-o` holds about 8 times its job
+  while it answers (about 10 times on Windows; 224 MB resident for a 27 MB job on Linux; written whole, the same
+  envelope took 357 MB).
+- `offset_along` and `offset_across` move a label in dots by millimetres, as in every other unit: `offset_along = 10`
+  moved a field of a dots label by 10 dots.
+- `model_offset_clamped` and `offset_past_label_edge` give the distance at the label unit's precision, whole dots and
+  at most two decimals in mm or in; they printed `1.99803 dots`.
+- A serial query that times out with part of a multi-line answer raises `PrinterTimeoutError`, as tcp does; it
+  returned the lines that had come, so `detect` over serial took half a memory report as evidence.
 - An answer that cannot be written (a full disk behind a redirect) is one line
   on stderr and exit 2, never a traceback. `calibrate` alone and `--json` with
   no command are usage errors with an envelope where one was asked for.
@@ -537,25 +517,6 @@ All notable changes to this project are documented here. The format follows
   `--destination` or `--section` no longer prints logging stacks.
 - `calibrate set` reads a config file that starts with a byte order mark, and
   a file it cannot read or write is a `ConfigurationError` naming that file.
-- `config` also masks the value of a camera URL query parameter whose name
-  holds `pass`, `pwd`, `secret`, `token` or `key`. `preview.max_length_mm` is
-  refused above 100000, and `check_preview_length` raises `ValueError` for a
-  limit that is not a finite length.
-- A status poll that opened a new connection closes it when the answer is not
-  a status string.
-- `verify_print` takes the model from `options` and has lost its `profile` and
-  `clock` parameters: a profile for another model drew the wrong expected
-  picture. A `checked` job that is not exactly one label is refused with
-  `ConfigurationError` before anything is printed.
-- Filling a placeholder stops one character past the field's limit (a QR
-  repeating a 3 MiB value took 4.46 GB to be refused), `explain` stops at
-  100000 commands and reports the rest as not explained (16 MiB of CR took 15
-  GB), and `preview` refuses more fields than the model's format takes, as
-  `render` does.
-- `device:` and `file:` printers keep to `timeout` on POSIX: a stalled device
-  or a FIFO nobody reads hung for ever. Each piece of a job waits under
-  `select`, and a FIFO with no reader is refused at once. On Windows, and on
-  `-` everywhere, no timeout applies to a write.
 - The HTTP camera's `timeout` holds for the whole capture: dripped headers or
   chunk sizes ran past it without bound, and it now shuts the socket at the
   deadline (a TLS handshake is still bound per receive only). A body shorter
@@ -563,8 +524,11 @@ All notable changes to this project are documented here. The format follows
   photo. A malformed camera URL and a NUL in a camera command's argument are
   `CameraError`s, and an interrupt sent to this process alone ends the camera
   program too.
-- Ctrl-C exits 130 with one line on stderr and, under `--json`, an error
-  envelope; it exited 1, which reads as a refusal with nothing printed.
+- Ctrl-C exits 130 with one line on stderr and, under `--json`, an error envelope naming the command; for a command
+  that sends (`print`, `verify`, `calibrate print`, `reset`, `cancel`, `pause`, `feed`, `cut`) the line says part of a
+  job may already have been sent. It exited 1, which reads as a refusal with nothing printed. Ctrl-Break on Windows
+  does the same; it ended the process at once with no message. An interrupted `--data` batch writes no job, on every
+  route, also where a library swallows the Ctrl-C while a record is filled.
 - The printer URI `-` keeps standard output to the job: `--json` and
   `--json-bare` refuse it on `print`, `verify`, `calibrate print` and the
   single printer commands, as `render -o -` does, and the human text goes to
@@ -604,8 +568,8 @@ All notable changes to this project are documented here. The format follows
   `element 3 (polygon) would be 2100 dots wide`, with no image name) or taller
   than a DPL row reaches (`distance_too_large`). A circle of radius 10000 mm
   took 2.2 GB in `validate`, and a slanted line 100000 mm long ran for
-  minutes. The check of the format length and the overlap check no longer draw
-  a field that large either; it takes part by its rectangle.
+  minutes. The overlap check no longer draws a field that large either; it takes
+  part by its rectangle.
 - A length in a label is refused naming its field when it is not finite or
   past 100000 in the label's unit (`domain.label.MAX_LENGTH`), so `x=1e308`,
   `"inf"` and `y=2**63` no longer escape from `build_job` and `render` as
@@ -635,10 +599,6 @@ All notable changes to this project are documented here. The format follows
 - A `counter` `fill` takes printable ASCII only: a `<CR>` split the counter
   record, `<SOH>` and `<STX>` went out raw, and a euro sign raised
   `UnicodeEncodeError`.
-- `config` shows a password in the `[camera] url`
-  (`http://USER:PASSWORD@HOST/...`) as `***REDACTED***`, in human and JSON
-  output and for `--section camera` and `--section camera.url`; it printed the
-  URL as written. The route and the redaction are in `CONFIG.md`.
 - A CSV data file with a field over the `csv` limit (131072 characters) or a
   stray quote is refused as `is not valid CSV`, exit 2 with an envelope: the
   first exited 1 with no envelope, and the second merged every following row
@@ -655,32 +615,21 @@ All notable changes to this project are documented here. The format follows
   `--json` and `--json-bare`: they printed text. They keep their exit codes
   13, 22, 78 and 1, now with an error envelope. `config` ignores `--format`
   there.
-- The wait hints of `status`, `memory`, `print` and `verify` name the section
-  in effect (`wait longer with [printers.lager] status_wait or --timeout`);
-  following the `[printer]` hint changed nothing for a named printer that sets
-  its own. A named printer with no `uri` says so (`printer 'lager' has no uri:
-  ...`) rather than `no printer given`.
+- A named printer with no `uri` says so (`printer 'lager' has no uri: ...`) rather than `no printer given`.
 - The sdist carries `tests/fixtures`, `scripts` and the root `conftest.py`:
   its test suite could not run from an unpacked sdist (43 failed, 49 errors).
 - `fill_label` then `render` or `build_job` on a label using the `{{ }}`
   escape no longer warns `placeholders_unfilled` about the literal braces: the
   label carries that it was filled (`Label.filled`).
-- `print_checked` and `send_checked` refuse a result and `job.renders` holding
-  different numbers of labels with `ConfigurationError` before the printer is
-  opened; `send_checked` raised a bare `ValueError` only after the labels went
-  out.
 - `status`, `memory` and `detect` on a one-way channel refuse without opening
   it: `--printer file:PATH` creates no empty file, and a missing folder gets
   the same refusal rather than "cannot open file".
-- A reader that goes away (`datamax-dpl schema | head -1`) is a quiet exit
-  with code 141 at any output size, with no "SystemExit: 1" line and no
-  "Exception ignored" at exit; a command that failed keeps its own exit code.
+- A reader that goes away (`datamax-dpl schema | head -1`) is a quiet exit with code 141 at any output size, `render
+  -o -` and `print --printer -` included, with no "SystemExit: 1" line and no "Exception ignored" at exit; a command
+  that failed keeps its own exit code.
 - `[camera] timeout` and `[camera] settle_seconds` above 2147483 seconds are
   refused naming the key, where they gave an `OverflowError` with no envelope;
   `[printer] timeout` past that bound names its key too.
-- `[camera] timeout` bounds the whole `http` capture: a camera dripping its
-  image is stopped at the timeout, where it could hold `verify` for as long as
-  it kept sending.
 - The `file` camera refuses an image over 50 MiB, as the `http` camera does; a
   symlink in the folder is followed and counts by its target.
 - A `file:`, `serial:` or `device:` URI holding `%00`, `%0A`, `%0D` or `%09`
@@ -699,6 +648,21 @@ All notable changes to this project are documented here. The format follows
 - `calibrate set` writes the user configuration through a temporary file and a
   rename, keeping its mode and following a symlink, so a crash mid-write loses
   no other setting; a file it creates is owner-only.
+
+### Removed
+
+- Library: `BatchResult.findings()` (each of `BatchResult.results` carries its
+  `findings`); `cut_across_records` from `domain.batch` and
+  `application.use_cases` (`domain.batch.batch_cuts` returns `BatchCuts` with
+  the records a cut follows, and `BatchResult.joined` joins the jobs);
+  `adapters.camera.media_type_for` (`StoredImage.media_type` carries the
+  type); `adapters.camera.http.EXTENSION_BY_CONTENT_TYPE`;
+  `ImageBudget.source` (`ImageBudget.model`);
+  `adapters.cli.commands.printer.ALL_KINDS` (`KindChoice.ALL`).
+- Library: `build_job(filled=)`, `build_jobs(filled=)` and
+  `build_record(filled=)`; a label from `fill_label` carries it.
+- Library: `adapters.transport.tcp.REFUSED_RETRY_SECONDS`; the value is `domain.timing.REFUSED_CONNECT_WAIT_SECONDS`,
+  the default of `[printer] refused_connect_wait`.
 
 ## [0.4.0] - 2026-10-30
 
