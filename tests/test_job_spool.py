@@ -32,6 +32,7 @@ from datamax_dpl.application.upload_check import CheckedJob, UploadCheck, Upload
 from datamax_dpl.application.use_cases import AnswerWait, BatchEntry, BatchReport, RecordRender, record_renders
 from datamax_dpl.composition import AppServices, build_testing
 from datamax_dpl.domain.enums import ImageModule
+from datamax_dpl.domain.errors import ConfigurationError
 from datamax_dpl.domain.label import Cut, Image, Label, Qr, Text
 from datamax_dpl.domain.render import RenderResult, build_job
 from datamax_dpl.domain.render_context import RenderOptions
@@ -272,6 +273,22 @@ def test_a_refused_batch_sends_from_no_spool_and_keeps_nothing_past_its_first_er
     assert len(kept) == 1
     assert report.job is not None
     assert report.job.spool is None
+
+
+@pytest.mark.os_agnostic
+def test_a_spool_that_drops_the_values_is_refused_before_its_record_renders_again() -> None:
+    """A caller's own spool may keep the renders and drop the values a send fills the label again from."""
+
+    class _Forgetting(FileJobSpool):
+        def add(self, entry: BatchEntry) -> None:
+            super().add(entry._replace(record=None))
+
+    with _Forgetting() as spool:
+        report = check_batch(_QR, [{"a": "one"}, {"a": "two"}], _ALLEGRO, spool=spool)
+        assert report.ok
+        renders = report.renders()
+        with pytest.raises(ConfigurationError, match="data record 0 without its values"):
+            next(iter(renders))
 
 
 def _held_after_reading(records: int) -> int:
