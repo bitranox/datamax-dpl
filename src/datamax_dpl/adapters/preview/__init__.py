@@ -100,7 +100,16 @@ def _pillow() -> _Pillow | None:
 
 
 def pillow_available() -> bool:
-    """True when the ``preview`` extra is installed."""
+    """Whether the ``preview`` extra (Pillow) is installed, which letters the text of a preview picture.
+
+    Returns:
+        True when Pillow can be imported; without it a preview approximates text and says so
+        (:func:`preview_findings`).
+
+    Example:
+        >>> isinstance(pillow_available(), bool)
+        True
+    """
     return _pillow() is not None
 
 

@@ -1145,7 +1145,17 @@ def get_profile(model: str) -> PrinterProfile:
 
 
 def list_profiles() -> list[PrinterProfile]:
-    """Return every profile, synthetic ones first."""
+    """Return every profile, synthetic ones first.
+
+    Returns:
+        A new list, which the caller may change: ``generic`` and ``permissive``, then the real
+        models.
+
+    Example:
+        >>> profiles = list_profiles()
+        >>> [profile.id for profile in profiles[:2]], all(not p.synthetic for p in profiles[2:])
+        (['generic', 'permissive'], True)
+    """
     return list(PROFILES.values())
 
 

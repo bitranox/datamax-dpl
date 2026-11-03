@@ -59,20 +59,14 @@ LAYEREDCONF_SLUG: str = "datamax-dpl"
 
 
 def print_info() -> None:
-    """Print the summarised metadata block used by the CLI ``info`` command.
+    """Print the summarised metadata block used by the CLI ``info`` command, on ``stdout``.
 
-    Why
-        Provides a single, auditable rendering function so documentation and
-        CLI output always match the system design reference.
+    One rendering function, so the documentation and the CLI output always match.
 
-    Side Effects
-        Writes to ``stdout``.
-
-    Examples
-    --------
-    >>> print_info()  # doctest: +ELLIPSIS
-    Info for datamax-dpl:
-    ...
+    Example:
+        >>> print_info()  # doctest: +ELLIPSIS
+        Info for datamax-dpl:
+        ...
     """
 
     fields = [
