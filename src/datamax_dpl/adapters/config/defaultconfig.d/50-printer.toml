@@ -67,7 +67,7 @@ policy = "degrade"
 #          job, an answer), in seconds. 'status' and 'memory' wait status_wait
 #          in all for their first answer, and 'verify' as long for the printer
 #          to finish its job.
-# Type: float, greater than 0
+# Type: float, greater than 0, at most 2147483
 # Default: 10.0
 # Environment Variable: DATAMAX_DPL___PRINTER__TIMEOUT=10.0
 timeout = 10.0
@@ -336,6 +336,7 @@ options = []
 # Purpose: Memory module the job's images are downloaded to (<STX>I), A to E.
 #          Unset takes the model's built-in RAM: module A on most models, E on the
 #          DMX 600/800 (there A and B are plug-in modules and D is non-volatile).
+#          generic and permissive use A too, which generic never clears.
 #          The Prodigy and Prodigy Plus have no built-in module: a job that
 #          downloads an image is refused (image_module_unknown) until this names
 #          the module fitted. C is the printer's default module on every model;
@@ -350,9 +351,10 @@ options = []
 # Environment Variable: DATAMAX_DPL___PRINTER__IMAGE_MODULE=B
 # image_module = "A"
 
-# Purpose: Clear the image module before each label's downloads: <STX>q to the
-#          model's built-in RAM, the plain Prodigy's <STX>R for each name the
-#          label downloads; a plug-in module is never cleared. false keeps what
+# Purpose: Clear the image module before each label and its downloads, a label
+#          without images included: <STX>q to the model's built-in RAM, the plain
+#          Prodigy's <STX>R for each name the label downloads; a plug-in module is
+#          never cleared. false keeps what
 #          the printer stores: a label may then place an image without a bitmap,
 #          and a download of a name the printer holds is left out
 #          (image_name_held), so 'print' and 'verify' read the names before each
@@ -503,7 +505,7 @@ options = []
 # Purpose: Longest side of a preview in mm. One number in a label decides how much
 #          memory the picture takes, so a label past this is refused before drawing;
 #          'verify' refuses it before printing, as its expected picture needs it too.
-# Type: float, above 0
+# Type: float, above 0, at most 100000
 # Default: 2000.0
 # Environment Variable: DATAMAX_DPL___PREVIEW__MAX_LENGTH_MM=3000
 max_length_mm = 2000.0

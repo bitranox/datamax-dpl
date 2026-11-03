@@ -56,11 +56,11 @@ directory = ""
 
 # Purpose: Seconds to wait after the printer reports it is done before the photo,
 #          so the label has stopped moving.
-# Type: float, 0 or greater
+# Type: float, 0 or greater, at most 2147483
 # Default: 1.0
 settle_seconds = 1.0
 
 # Purpose: Timeout for one capture, in seconds
-# Type: float, greater than 0
+# Type: float, greater than 0, at most 2147483
 # Default: 20.0
 timeout = 20.0
