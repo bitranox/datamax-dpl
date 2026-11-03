@@ -59,6 +59,7 @@ from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS, STATUS_REQUEST
 from datamax_dpl.domain.units import DplUnit
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from click.testing import CliRunner, Result
@@ -746,3 +747,55 @@ def test_micro_and_boost_error_take_a_json_boolean_only(field: str) -> None:
     with pytest.raises(ValidationError, match=field):
         Label.model_validate(qr("yes"))
     assert getattr(Label.model_validate(qr(True)).elements[0], field) is True
+
+
+# ======================== one encode per symbol and record ========================
+
+
+class _CountedEncodes:
+    """``segno.make`` with a count of the data it encoded: segno is the edge where a symbol is made."""
+
+    def __init__(self, make: Callable[..., segno.QRCode]) -> None:
+        self._make = make
+        self.data: list[str] = []
+
+    def __call__(self, content: str, **switches: object) -> segno.QRCode:
+        self.data.append(content)
+        return self._make(content, **switches)
+
+
+@pytest.fixture
+def encodes(monkeypatch: pytest.MonkeyPatch) -> _CountedEncodes:
+    counted = _CountedEncodes(segno.make)
+    monkeypatch.setattr(segno, "make", counted)
+    return counted
+
+
+@pytest.mark.os_agnostic
+def test_a_record_encodes_its_qr_code_once_for_the_job_and_the_length_check(encodes: _CountedEncodes) -> None:
+    """The Allegro 2 limits a format's rows, so the job asks every field's reach: the QR Code's is the job's symbol."""
+    result = build_job(qr_label(data="ONE"), _ALLEGRO)
+    assert result.ok, result.findings
+    assert encodes.data == ["ONE"]
+
+
+@pytest.mark.os_agnostic
+def test_a_symbol_is_kept_for_its_record_only(encodes: _CountedEncodes) -> None:
+    """Two records of the same data encode it twice: nothing a record built outlives it."""
+    label = qr_label(data="{a}")
+    batch = render_batch(label, [{"a": "SAME"}, {"a": "SAME"}], _ALLEGRO)
+    assert batch.ok, batch.batch_findings
+    assert encodes.data == ["SAME", "SAME"]
+
+
+@pytest.mark.os_agnostic
+def test_the_kept_symbol_is_the_one_the_job_sends() -> None:
+    """The reach is read from the symbol the download carries: its top row is that symbol's height up."""
+    element = Qr(x=0, y=0, data="KEPT", module_dots=2, quiet_zone=0)
+    ctx = job_context(Label(unit=Unit.DOTS, elements=[element]), _ALLEGRO)
+    symbol = ctx.qr_symbol(element)
+    assert symbol is ctx.qr_symbol(element)
+    assert symbol.rows() == qr_bitmap("KEPT", error=QrError.M).rows()
+    dots = printed_dots(element, ctx)
+    assert dots is not None
+    assert dots.bitmap.height == 2 * symbol.height

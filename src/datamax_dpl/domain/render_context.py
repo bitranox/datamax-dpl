@@ -33,6 +33,7 @@ from .image_budget import HALVING_FACTOR, halve, halved_magnification, image_dat
 from .image_records import CR, MAX_WIDTH, download_command
 from .label import MAX_HEAT, MAX_POLYGON_POINTS, MAX_POLYGON_POINTS_LIMIT, NonNegative, Positive, StopPosition
 from .profiles import Feature, ParsedFirmware
+from .qr import element_symbol
 from .raster import Bitmap
 from .records import MAX_IMAGE_MAGNIFICATION, Magnification
 from .units import (
@@ -53,8 +54,9 @@ from .units import (
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from .enums import QrError
     from .findings import FindingCollector
-    from .label import Image
+    from .label import Image, Qr
     from .profiles import Firmware, PrinterProfile
 
 #: Largest value of a four-digit DPL distance field.
@@ -638,6 +640,8 @@ class RenderContext:
         held_images: The image names the printer is known to hold in ``image_module``; a label
             no clear precedes leaves out the download of each one (see :attr:`sent_downloads`).
         held_image_severity: Severity of the findings about those names.
+        qr_symbols: The symbol of each QR Code this render encoded, by what makes it (see
+            :meth:`qr_symbol`); filled as the render goes and gone with it.
     """
 
     profile: PrinterProfile
@@ -669,6 +673,9 @@ class RenderContext:
     held_images: HeldImages = field(default_factory=HeldImages)
     held_image_severity: Severity = Severity.WARNING
     module_refused: bool = field(default=False, init=False)
+    qr_symbols: dict[tuple[str, QrError, bool, bool], Bitmap] = field(
+        default_factory=dict[tuple[str, "QrError", bool, bool], Bitmap], init=False, repr=False, compare=False
+    )
 
     def correction(self, axis: Axis) -> Correction:
         """Return how this printer prints lengths on ``axis``."""
@@ -765,6 +772,24 @@ class RenderContext:
     def printed_dots(self, units: int) -> int:
         """Return how many printhead dots ``units`` DPL distance units of this job print as."""
         return round(units * self.dots_per_unit)
+
+    def qr_symbol(self, element: Qr) -> Bitmap:
+        """Return the symbol of a ``qr`` element, encoded once for this render (:func:`~.qr.element_symbol`).
+
+        The job's download, the overlap check and the format length check each need it, and
+        encoding is most of a QR Code record's time: on a model whose format rows are limited,
+        every QR Code was encoded twice per record. Kept by the data and the switches the symbol
+        is made from, so the same code twice in a label is encoded once; kept in this context only,
+        so nothing outlives the record it was built for. Callers read the bitmap and never draw on it.
+
+        Raises:
+            QrDataTooLongError: As :func:`~.qr.qr_bitmap`; nothing is kept then.
+        """
+        key = (element.data, element.error, element.micro, element.boost_error)
+        symbol = self.qr_symbols.get(key)
+        if symbol is None:
+            symbol = self.qr_symbols[key] = element_symbol(element)
+        return symbol
 
     def distance(self, value: float, *, axis: Axis, element: int | None, what: str) -> int:
         """Convert a label length on ``axis`` to this job's DPL unit, refusing values past four digits."""

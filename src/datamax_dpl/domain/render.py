@@ -595,8 +595,8 @@ def _encode(label: Label, options: RenderOptions, *, halve: bool, held: HeldImag
             f"at least {record_count} fields; {ctx.profile.name} takes at most {ctx.profile.max_fields}",
         )
     else:
-        # Reading a QR Code's reach encodes it again, and the stop above saved exactly that work: a
-        # label of 2048 large codes would still take minutes to reach a refusal it already has.
+        # Reading every field's reach draws it again (a QR Code from its kept symbol, magnified), and
+        # the stop above saved exactly that work for a label already refused for its field count.
         _check_format_length(label, ctx, max_rows=_row_limit(options, ctx.profile))
     return _Job(ctx=ctx, prefix=prefix, body=body, record_count=record_count)
 
