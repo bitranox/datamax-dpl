@@ -199,6 +199,43 @@ def test_a_target_with_extended_attributes_keeps_them(cli_runner: CliRunner, tmp
     assert os.getxattr(target, "user.datamax-dpl-test") == b"kept"
 
 
+def _two_records(*, each: Callable[[BatchEntry], None] | None = None, spool: JobSpool | None = None) -> BatchReport:
+    return check_batch(_TEXT, [{"a": "r0"}, {"a": "r1"}], _DMX, each=each, spool=spool)
+
+
+def _labelled(names: frozenset[str] | None) -> Callable[[Path], frozenset[str] | None]:
+    """A lister that answers ``names`` for every file, as a system labelling each file alike would."""
+
+    def listed(path: Path) -> frozenset[str] | None:
+        del path
+        return names
+
+    return listed
+
+
+@pytest.mark.os_agnostic
+def test_a_label_every_new_file_gets_too_leaves_the_target_replaceable(tmp_path: Path) -> None:
+    """SELinux puts security.selinux on every file, the new one beside the target included."""
+    target = tmp_path / "job.dpl"
+    target.write_bytes(_BEFORE)
+    inode = target.stat().st_ino
+    listed = _labelled(frozenset({"security.selinux"}))
+    assert write_batch(str(target), _two_records, open_spool=FileJobSpool, list_attributes=listed).ok
+    assert target.stat().st_ino != inode
+    assert b"r1" in target.read_bytes()
+
+
+@pytest.mark.os_agnostic
+def test_unknown_extended_attributes_keep_the_target_in_place(tmp_path: Path) -> None:
+    """A target whose attributes cannot be listed may hold one a new file would lack, so it is not replaced."""
+    target = tmp_path / "job.dpl"
+    target.write_bytes(_BEFORE)
+    inode = target.stat().st_ino
+    assert write_batch(str(target), _two_records, open_spool=FileJobSpool, list_attributes=_labelled(None)).ok
+    assert target.stat().st_ino == inode
+    assert b"r1" in target.read_bytes()
+
+
 @pytest.mark.os_posix
 @pytest.mark.skipif(not _IS_ROOT, reason="only root can give a file to another user")
 def test_a_target_another_user_owns_stays_theirs(cli_runner: CliRunner, tmp_path: Path) -> None:

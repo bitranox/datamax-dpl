@@ -6,7 +6,8 @@ A target that would not stay what it was if replaced is written directly, after 
 every record first and keeps each in a spool (:mod:`.job_spool`), which the write then reads back
 rather than rendering every record again: a device or a pipe, a file in a directory that takes no new file, a file this
 user may not write (it refuses, as a single label's write does), one owned by someone else (who
-would lose it), or one with another hard link (which would keep the old bytes).
+would lose it), one with another hard link (which would keep the old bytes), or one with an
+extended attribute a new file beside it does not get (a POSIX ACL, a ``user.`` attribute).
 """
 
 from __future__ import annotations
@@ -68,24 +69,48 @@ def _named_for(exc: OSError, target: str) -> OSError:
     return OSError(exc.errno, exc.strerror, target)
 
 
-def _has_extended_attributes(path: Path) -> bool:
-    """Whether ``path`` carries extended attributes, a POSIX ACL among them, that a new file would not.
+class ListAttributes(Protocol):
+    """Lists the names of a file's extended attributes; None where they cannot be read."""
 
-    Linux alone, the one platform whose ``os`` lists them; a file system that keeps none says so.
+    def __call__(self, path: Path, /) -> frozenset[str] | None: ...
+
+
+def attribute_names(path: Path) -> frozenset[str] | None:
+    """The names of ``path``'s extended attributes, a POSIX ACL among them; None where unknown.
+
+    Linux alone, the one platform whose ``os`` lists them; elsewhere, and on a file system that
+    keeps none, the answer is none.
     """
     if sys.platform != "linux":
-        return False
+        return frozenset()
     try:
-        return bool(os.listxattr(path))
+        return frozenset(os.listxattr(path))
     except OSError as exc:
-        # A file system that keeps none answers ENOTSUP; any other error leaves it unknown, so the
-        # target is written in place rather than replaced by a file that may lack them.
-        return exc.errno not in {errno.ENOTSUP, errno.EOPNOTSUPP}
+        # A file system that keeps none answers ENOTSUP; any other error leaves them unknown.
+        return frozenset() if exc.errno in {errno.ENOTSUP, errno.EOPNOTSUPP} else None
+
+
+def _loses_attributes(target: Path, temp: Path, list_attributes: ListAttributes) -> bool:
+    """Whether the new file ``temp`` lacks an extended attribute ``target`` has, so replacing it would drop one.
+
+    Compared with a file just made beside it, not with none: a system that labels every file
+    (SELinux puts ``security.selinux`` on each) gives the new one the same names, and a target
+    written in place is truncated first, so a write that fails then leaves it cut. Unknown names
+    count as lost: the target is then written in place rather than replaced by a file that may
+    lack them.
+    """
+    kept = list_attributes(target)
+    if kept is None:
+        return True
+    if not kept:
+        return False
+    new = list_attributes(temp)
+    return new is None or not kept <= new
 
 
 def _replaceable(path: Path, found: os.stat_result) -> bool:
     """Whether a new file could take the place of the file ``path`` with nobody the worse for it."""
-    if not os.access(path, os.W_OK) or found.st_nlink > 1 or _has_extended_attributes(path):
+    if not os.access(path, os.W_OK) or found.st_nlink > 1:
         return False
     # No effective user id to compare on Windows, where st_uid reads 0 for every file.
     if sys.platform == "win32":
@@ -117,7 +142,7 @@ def _remove(temp: Path) -> None:
         temp.unlink(missing_ok=True)
 
 
-def _open_beside(target: Path, found: os.stat_result | None) -> _Beside | None:
+def _open_beside(target: Path, found: os.stat_result | None, list_attributes: ListAttributes) -> _Beside | None:
     """Make a new file beside ``target``, whose stat is ``found``, for the job; None for the direct route."""
     if found is not None and not _replaceable(target, found):
         return None
@@ -127,7 +152,8 @@ def _open_beside(target: Path, found: os.stat_result | None) -> _Beside | None:
         return None
     temp, descriptor = created
     # A directory can give a new file another group than the target's, whose members would lose it.
-    if found is not None and os.fstat(descriptor).st_gid != found.st_gid:
+    other_group = found is not None and os.fstat(descriptor).st_gid != found.st_gid
+    if other_group or (found is not None and _loses_attributes(target, temp, list_attributes)):
         os.close(descriptor)
         _remove(temp)
         return None
@@ -196,7 +222,7 @@ def _write_direct(output: str, check: BatchCheck, *, open_spool: OpenJobSpool) -
     return report
 
 
-def _route(output: str, check: BatchCheck, *, open_spool: OpenJobSpool) -> BatchReport:
+def _route(output: str, check: BatchCheck, *, open_spool: OpenJobSpool, list_attributes: ListAttributes) -> BatchReport:
     """Write beside the target where that leaves it what it was, else directly."""
     try:
         # The path as given: /dev/stdout on a pipe resolves to a name nothing can open.
@@ -209,13 +235,19 @@ def _route(output: str, check: BatchCheck, *, open_spool: OpenJobSpool) -> Batch
         return _write_direct(output, check, open_spool=open_spool)
     # A link is written through, not replaced by a file of its own.
     target = Path(os.path.realpath(output))
-    beside = _open_beside(target, found)
+    beside = _open_beside(target, found, list_attributes)
     if beside is None:
         return _write_direct(output, check, open_spool=open_spool)
     return _write_beside(target, beside, check)
 
 
-def write_batch(output: str, check: BatchCheck, *, open_spool: OpenJobSpool) -> BatchReport:
+def write_batch(
+    output: str,
+    check: BatchCheck,
+    *,
+    open_spool: OpenJobSpool,
+    list_attributes: ListAttributes = attribute_names,
+) -> BatchReport:
     """Write the job of a batch to the file ``output`` if every record passes; else leave it as it was.
 
     Args:
@@ -223,6 +255,8 @@ def write_batch(output: str, check: BatchCheck, *, open_spool: OpenJobSpool) -> 
         check: Goes over the batch once, with what it is given to call with each record or to
             keep each in (:func:`~datamax_dpl.application.use_cases.check_batch`), and returns its report.
         open_spool: Makes the spool a target written directly is checked into first.
+        list_attributes: Lists a file's extended attributes; a target with one a new file beside
+            it lacks is written directly, so that it keeps them.
 
     Returns:
         The report. Nothing was written unless its ``ok`` is True.
@@ -233,11 +267,11 @@ def write_batch(output: str, check: BatchCheck, *, open_spool: OpenJobSpool) -> 
         OSError: The file could not be written; the message names ``output``.
     """
     try:
-        return _route(output, check, open_spool=open_spool)
+        return _route(output, check, open_spool=open_spool, list_attributes=list_attributes)
     except SpoolWriteError:
         raise
     except OSError as exc:
         raise _named_for(exc, output) from exc
 
 
-__all__ = ["BatchCheck", "write_batch"]
+__all__ = ["BatchCheck", "ListAttributes", "attribute_names", "write_batch"]
