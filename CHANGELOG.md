@@ -66,7 +66,9 @@ All notable changes to this project are documented here. The format follows
   spool that fills the disk ends a batch that passed with an error naming it; a batch with a bad record is still
   refused for that record. A label is rendered again only for what the printer answers: its names read, round
   2's clear, or halved images. 4000 records of a 399-field label took 34 s in `print` and `render -o -`, and now take
-  17 s. On a two-way link each label with a new image costs its directory read, about 1 s plus the printer's answer.
+  17 s. On a two-way link each label with an image costs a directory read after its downloads, a reused logo
+  included, about 1 s plus the printer's answer (about 17 minutes per 1000 labels); with no clear before the
+  downloads a label with a new image costs one more read before them (about 35 minutes per 1000).
   `render -o FILE` writes a file beside the target and replaces the target only when every record passed, and
   `render -o -` checks all of them, then streams. A target that would not stay what it was if replaced (a device, a
   pipe, a directory taking no new file, a file another user owns or with another hard link) is written in place

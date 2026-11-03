@@ -153,9 +153,10 @@ timeout = 10.0
 
 # Purpose: Most records one --data batch of 'render', 'validate' or 'print' may
 #          hold; more is refused (exit 2) first. A bound on time, not on memory:
-#          each record is rendered once to check it and again to send it, and on
-#          a two-way link each label with a new image costs a directory read of
-#          about 1 s plus the printer's answer.
+#          each record is rendered once (again only where the printer's answer
+#          changes the label), and on a two-way link each label with an image
+#          costs a directory read of about 1 s plus the printer's answer, two
+#          for a new image with no clear before it.
 # Type: integer, greater than 0, at most 10000000
 # Default: 100000
 # Environment Variable: DATAMAX_DPL___PRINTER__MAX_BATCH_RECORDS=500000

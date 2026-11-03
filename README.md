@@ -138,9 +138,11 @@ and their totals; `limits=ReportLimits(findings=..., downloads=...)` says how mu
 record renders once to check and once more to send, unless `spool=` gets a `JobSpool` (`add`, `seal`,
 `entries`, the port in `datamax_dpl.application.ports`) to keep each record in, with its values, as it
 is checked: the send then reads it back and never reads the records again, so with a spool the records
-may be a generator. `print` and `render -o` keep theirs in a temp file. On a two-way link each label with a
-new image costs its directory read, about 1 s plus the printer's answer, about 17 minutes per 1000
-distinct codes. To send
+may be a generator. `print` and `render -o` keep theirs in a temp file. On a two-way link each label with an
+image costs a directory read after its downloads, a reused logo included, about 1 s plus the printer's
+answer: about 17 minutes per 1000 labels. With no clear before the downloads a label with a new image
+costs one more read before them (about 35 minutes per 1000), and a label whose images the printer
+already holds costs that read alone. To send
 bytes open a transport with `open_printer(uri, timeout=10)` and call `send(data)` on it. `explain(data)`
 reads DPL bytes back, as the command `datamax-dpl explain job.dpl` does. All of these are imported
 from `datamax_dpl`.
