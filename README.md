@@ -433,8 +433,8 @@ until it is idle, for up to `status_wait` seconds in all (or `--timeout`; on a o
 waits `[printer] one_way_settle` seconds instead), waits `settle_seconds`, takes one photo, and
 writes `expected-<time>.png` next to it. Before each label no clear precedes, `verify` and
 `print` may spend up to `[printer] stored_names_wait` seconds (30), plus the 1 s of silence that
-ends the printer's answer, reading the printer's stored image names; a `--data` batch of such
-labels needs a tcp or serial printer (`batch_image_names_unread`). On a two-way link both send a label's image downloads first and its format only
+ends the printer's answer, reading the printer's stored image names; a `--data` batch of more than
+one such label needs a tcp or serial printer (`batch_image_names_unread`). On a two-way link both send a label's image downloads first and its format only
 once the printer lists every one of them, clearing and uploading again, then uploading the images
 halved, before refusing the label (`[printer] upload_check_rounds`, see [CONFIG.md](CONFIG.md)).
 There the model's own image memory budget is left out, so images `validate` reports halved go at

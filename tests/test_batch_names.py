@@ -96,15 +96,30 @@ def test_a_later_label_downloads_the_image_an_earlier_one_downloaded_as_nothing_
 
 @pytest.mark.os_agnostic
 def test_a_no_clear_batch_with_images_is_refused_where_no_printer_is_read_before_each_label() -> None:
+    """From the second label on: a label before it in the batch may have left any of its names."""
     label = Label(elements=[Qr(x=1, y=1, data="{a}")])
-    jobs = list(iter_batch(label, [{"a": "A"}, {"a": "B"}], _NO_CLEAR))
-    refused = [f for job in jobs for f in job.findings if f.code is FindingCode.BATCH_IMAGE_NAMES_UNREAD]
-    assert len(refused) == 2
-    assert all(f.severity is Severity.ERROR for f in refused)
-    assert "two-way printer" in refused[0].message
-    assert "clear_graphics_before_label" in refused[0].message
+    jobs = list(iter_batch(label, [{"a": "A"}, {"a": "B"}, {"a": "C"}], _NO_CLEAR))
+    refused = [[f for f in job.findings if f.code is FindingCode.BATCH_IMAGE_NAMES_UNREAD] for job in jobs]
+    assert [len(found) for found in refused] == [0, 1, 1]
+    message = refused[1][0]
+    assert message.severity is Severity.ERROR
+    assert "two-way printer" in message.message
+    assert "clear_graphics_before_label" in message.message
     report = check_batch(label, [{"a": "A"}, {"a": "B"}], _NO_CLEAR)
     assert not report.ok
+
+
+@pytest.mark.os_agnostic
+def test_the_first_record_of_a_no_clear_batch_is_judged_as_a_single_label_is() -> None:
+    """No label of the batch precedes it, so the refusal's reason cannot hold: it says its names were not read."""
+    label = Label(elements=[Qr(x=1, y=1, data="{a}")])
+    [first] = list(iter_batch(label, [{"a": "A"}], _NO_CLEAR))
+    codes = [finding.code for finding in first.findings]
+    assert FindingCode.BATCH_IMAGE_NAMES_UNREAD not in codes
+    assert FindingCode.IMAGE_NAMES_UNREAD in codes
+    assert len(first.downloads) == 1, "it keeps its download, as a single label does"
+    report = check_batch(label, [{"a": "A"}], _NO_CLEAR)
+    assert report.ok
 
 
 @pytest.mark.os_agnostic

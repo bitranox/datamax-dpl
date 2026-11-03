@@ -828,6 +828,28 @@ def test_a_no_clear_image_batch_no_printer_is_read_for_is_refused_and_writes_not
 
 @pytest.mark.os_agnostic
 @pytest.mark.usefixtures("no_ambient_configuration")
+@pytest.mark.parametrize("command", ["print", "render", "validate"])
+def test_a_one_record_no_clear_image_batch_is_judged_as_a_single_label_is(
+    cli_runner: CliRunner, tmp_path: Path, command: str
+) -> None:
+    """No earlier label of the batch can have left a name, so it says its names were not read and goes out."""
+    target = tmp_path / "job.dpl"
+    where = (
+        ["--printer", f"file:{target}"] if command == "print" else ["-o", str(target)] if command == "render" else []
+    )
+    args = ["--json", command, _QR_LABEL.write(tmp_path), "--data", "-", "--model", "allegro-2", *where]
+
+    result = _run(cli_runner, args, stdin='[{"code": "A1"}]', DATAMAX_DPL___PRINTER__IMAGE_MODULE="B")
+
+    assert result.exit_code == 0, result.output
+    assert target.exists() == (command != "validate")
+    codes = {finding["code"] for finding in json.loads(result.stdout)["data"]["findings"]}
+    assert "batch_image_names_unread" not in codes
+    assert "image_names_unread" in codes
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.usefixtures("no_ambient_configuration")
 def test_validate_of_a_no_clear_image_batch_with_a_two_way_printer_named_is_not_refused(
     cli_runner: CliRunner, tmp_path: Path
 ) -> None:

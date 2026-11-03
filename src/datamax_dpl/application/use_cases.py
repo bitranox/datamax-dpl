@@ -7,8 +7,9 @@ A job that no clear precedes must not download an image name the printer already
 print nothing). Nothing about the printer's images is kept from one label to the next: on a two-way
 link the sender reads the printer's graphic directory right before each such label's downloads and
 renders that label again with what it lists (:mod:`~datamax_dpl.application.upload_check`). Where
-no printer can be asked before each label, a batch of such labels is refused
-(``batch_image_names_unread``); a single label keeps every download and says so.
+no printer can be asked before each label, a batch of such labels is refused from its second
+label on (``batch_image_names_unread``); a single label, and a batch's first, keeps every download
+and says so.
 """
 
 from __future__ import annotations
@@ -166,8 +167,10 @@ def render_batch(
         options: The model, fallback policy and job settings.
         read_names_at_send: True when the batch goes to a two-way printer whose stored image names
             are read right before each label's downloads (``print_checked`` does); False refuses
-            each record that downloads an image with no clear before it
-            (``batch_image_names_unread``), since nothing is kept from one label to the next.
+            each record after the first that downloads an image with no clear before it
+            (``batch_image_names_unread``), since nothing is kept from one label to the next; the
+            first record, which no label of the batch precedes, gets ``image_names_unread`` as a
+            single label does.
         max_job_bytes: Most bytes the records' jobs may come to, batch cuts left out. None sets no
             limit, and memory then grows with records times label size (390 PDF417 fields took
             1.1 MB per record), so a library caller rendering records it did not write sets one;
@@ -263,7 +266,9 @@ def _entries(
 
     held = READ_AT_SEND if read_names_at_send else None
     for number, result in enumerate(iter_jobs(labels(), options, held=held), start=1):
-        checked = result if read_names_at_send else _refused_unread(result)
+        # The first record has no label before it in the batch that could have left a name, so it
+        # is judged as a single label is: its names not read is a finding, not a refusal.
+        checked = result if read_names_at_send or number == 1 else _refused_unread(result)
         values, last = current.pop()
         yield BatchEntry(result=checked, cut_after=plan.follows(number, last=last), record=values)
 
@@ -278,7 +283,7 @@ require_update_fields(_FindingsUpdate, RenderResult)
 
 
 def _refused_unread(result: RenderResult) -> RenderResult:
-    """``result`` with ``batch_image_names_unread`` where its names would have to be known and cannot be.
+    """``result``, a record after the first, with ``batch_image_names_unread`` where its names would have to be known.
 
     A label with no clear before its downloads must leave out each name the printer holds, and an
     earlier label of the same batch may have left any of them: only a read of the printer right

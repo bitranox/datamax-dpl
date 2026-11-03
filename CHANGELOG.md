@@ -206,7 +206,9 @@ All notable changes to this project are documented here. The format follows
   images with no clear before them is refused before anything is sent or
   written where no printer is read before each label: `render`, `validate`
   with no tcp or serial printer named, and `print` to a file, stdout or a
-  device file. `validate --data` with a tcp or serial printer named is not
+  device file. The finding goes on the second record and each later one; the
+  first, which no label of the batch precedes, gets `image_names_unread` as a
+  single label does, so a one-record batch is not refused. `validate --data` with a tcp or serial printer named is not
   refused. Library: `render_batch`, `iter_batch` and `check_batch` take
   `read_names_at_send` (True where a two-way sender reads the names before
   each label). Its message names the ways out: a tcp or serial printer, the

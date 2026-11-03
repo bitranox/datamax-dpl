@@ -335,7 +335,7 @@ options = []
 #          and a download of a name the printer holds is left out
 #          (image_name_held), so 'print' and 'verify' read the names before each
 #          such label, and a --data batch with no printer to read is refused
-#          (batch_image_names_unread).
+#          from its second record on (batch_image_names_unread).
 # Type: boolean
 # Default: true
 # Environment Variable: DATAMAX_DPL___PRINTER__CLEAR_GRAPHICS_BEFORE=false
@@ -357,7 +357,8 @@ options = []
 #          (offline, a one-way link, no answer) a single label downloads every
 #          image (image_names_unread). A --data batch of such labels is refused
 #          where no printer is read before each label: render, validate with no
-#          tcp or serial printer, print to a file (batch_image_names_unread).
+#          tcp or serial printer, print to a file (batch_image_names_unread, from
+#          the second record on; the first is judged as a single label is).
 #          error refuses such a label under either policy, a later label of a
 #          batch whose image an earlier label stored included.
 # Type: string, "info", "warning" or "error"

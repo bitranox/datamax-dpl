@@ -548,8 +548,10 @@ within `stored_names_wait`; its answer did not list the job's module, which an a
 looks like; it answered `No Modules Available`, which the manual reads as a corrupt or worn-out
 module, not as an empty one. A `--data` batch whose labels download images with no clear before
 them is refused before anything is sent or written where no printer is read before each label
-(`batch_image_names_unread`, error): `render`, `validate` with no tcp or serial printer named, and
-`print` to a file, stdout or a device file. Print to a tcp or serial printer, or turn
+(`batch_image_names_unread`, error, on the second record and each later one): `render`, `validate`
+with no tcp or serial printer named, and `print` to a file, stdout or a device file. The first
+record, which no label of the batch precedes, is judged as a single label is: `image_names_unread`,
+so a one-record batch is not refused. Print to a tcp or serial printer, or turn
 `clear_graphics_before` on; a plug-in module takes no clear, so there leave `image_module` unset to
 use the model's built-in RAM, which is cleared. `validate --data` with a tcp or serial printer named reads
 nothing and is not refused, as `print` there reads the names before each label. Where the read
