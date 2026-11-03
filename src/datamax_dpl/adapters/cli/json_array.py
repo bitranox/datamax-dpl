@@ -179,19 +179,4 @@ def array_elements(data: bytes) -> Iterator[object]:
         raise MalformedArrayError(str(exc)) from None
 
 
-def is_one_array(data: bytes) -> bool:
-    """Whether ``data`` is exactly one JSON array, read to its end without holding its elements.
-
-    Example:
-        >>> is_one_array(b'[{"a": 1}]'), is_one_array(b'[{"a": 1}] [2]')
-        (True, False)
-    """
-    try:
-        for _ in array_elements(data):
-            pass
-    except MalformedArrayError:
-        return False
-    return True
-
-
-__all__ = ["MAX_DEPTH", "MalformedArrayError", "array_elements", "is_one_array", "starts_an_array"]
+__all__ = ["MAX_DEPTH", "MalformedArrayError", "array_elements", "starts_an_array"]

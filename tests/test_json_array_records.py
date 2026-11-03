@@ -20,6 +20,7 @@ from hypothesis import strategies as st
 from datamax_dpl.adapters.cli.label_io import LabelInputError, Records, load_records
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 _SOURCE = "d.json"
@@ -256,3 +257,47 @@ def test_streamed_records_equal_a_whole_parse(rows: list[dict[str, object]], ind
     expected = orjson.loads(data)
     records = list(Records(data, _SOURCE))
     assert records == [{key: "" if value is None else str(value) for key, value in row.items()} for row in expected]
+
+
+# ======================== one pass to check the array ========================
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("content", "says"),
+    [
+        pytest.param(
+            b'[{"a":"r0"}, 1, {"a" "r2"}]',
+            "line 1 is not JSON: unexpected character, expected ':' after key: line 1 column 22 (char 21)",
+            id="not-an-object-then-broken",
+        ),
+        pytest.param(b'[1, {"a":"r1"}, 2]', "record 0 is not an object", id="first-of-two-not-objects"),
+        pytest.param(b'[{"a":"r0"}, [1], "x"]', "record 1 is not an object", id="second-and-third-not-objects"),
+    ],
+)
+def test_a_record_that_is_no_object_is_refused_only_once_the_array_read_clean(content: bytes, says: str) -> None:
+    """The first such record is the refusal; a broken array after it is read as JSON lines instead, as before."""
+    with pytest.raises(LabelInputError) as refused:
+        Records(content, _SOURCE)
+    assert str(refused.value) == f"{_SOURCE} {says}"
+
+
+class _CountedLoads:
+    """``orjson.loads`` with a count of its calls: orjson is the edge where an element is parsed."""
+
+    def __init__(self, loads: Callable[[bytes], object]) -> None:
+        self._loads = loads
+        self.calls = 0
+
+    def __call__(self, data: bytes) -> object:
+        self.calls += 1
+        return self._loads(data)
+
+
+@pytest.mark.os_agnostic
+def test_checking_an_array_parses_each_element_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Knowing it is one array and counting its records is one pass: two passes cost twice the scan."""
+    counted = _CountedLoads(orjson.loads)
+    monkeypatch.setattr(orjson, "loads", counted)
+    records = Records(_array_of(10), _SOURCE)
+    assert (counted.calls, len(records)) == (10, 10)

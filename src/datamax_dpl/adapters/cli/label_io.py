@@ -24,7 +24,7 @@ from ...domain.errors import DatamaxDplError
 from ...domain.label import MAX_POLYGON_POINTS, MAX_POLYGON_POINTS_LIMIT, Label
 from ...domain.printable import printable
 from .interrupt import raise_if_interrupted
-from .json_array import array_elements, is_one_array, starts_an_array
+from .json_array import MalformedArrayError, array_elements, starts_an_array
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -186,9 +186,14 @@ def load_label(source: str, *, bounds: InputBounds = DEFAULT_INPUT_BOUNDS) -> La
     return parse_label(read_input(source, bounds=bounds), source=source, bounds=bounds)
 
 
+def _not_an_object(row: object, *, where: str) -> LabelInputError | None:
+    """The refusal of a record that is no JSON object, or None for one that is."""
+    return None if isinstance(row, dict) else LabelInputError(f"{where} is not an object")
+
+
 def _as_record(row: object, *, where: str) -> dict[str, str]:
-    if not isinstance(row, dict):
-        raise LabelInputError(f"{where} is not an object")
+    if (refusal := _not_an_object(row, where=where)) is not None:
+        raise refusal
     mapping = cast("dict[object, object]", row)
     return {str(key): "" if value is None else str(value) for key, value in mapping.items()}
 
@@ -254,10 +259,13 @@ class Records:
         self._source = source
         self._csv = source.lower().endswith(".csv")
         opens_an_array = not self._csv and starts_an_array(data)
-        self._array = opens_an_array and is_one_array(data)
+        array_records = _count_array(data, source) if opens_an_array else None
+        self._array = array_records is not None
         self._one: list[object] | None = None if self._csv or opens_an_array else _one_document(data)
-        counted_in_full = self._array or self._one is not None
-        checked = iter(self) if limit is None or counted_in_full else itertools.islice(self, limit + 1)
+        if array_records is not None:
+            self._count = array_records
+            return
+        checked = iter(self) if limit is None or self._one is not None else itertools.islice(self, limit + 1)
         self._count = sum(1 for _ in checked)
 
     def __iter__(self) -> Iterator[dict[str, str]]:
@@ -289,11 +297,42 @@ class Records:
         return self._count
 
 
+def _count_array(data: bytes, source: str) -> int | None:
+    """Count the records of the JSON array ``data`` holds, checking it in the same one pass.
+
+    Knowing the file is one array takes reading it to its end, as a whole parse did, so the count
+    comes from that same pass. A record that is no object is refused only once the array read
+    clean: an array broken after it is no array, and is read as JSON lines, as before.
+
+    Returns:
+        How many records the array holds, or None when ``data`` is no one JSON array.
+
+    Raises:
+        LabelInputError: A record is no object; the first such one is named.
+        KeyboardInterrupt: A Ctrl-C came and its raise was lost (see :mod:`.interrupt`); looked
+            for at each record and at the end, as a pass over the records does.
+    """
+    first_refusal: LabelInputError | None = None
+    count = 0
+    try:
+        for number, row in enumerate(array_elements(data)):
+            raise_if_interrupted()
+            if first_refusal is None:
+                first_refusal = _not_an_object(row, where=f"{source} record {number}")
+            count += 1
+    except MalformedArrayError:
+        return None
+    raise_if_interrupted()
+    if first_refusal is not None:
+        raise first_refusal
+    return count
+
+
 def _one_document(data: bytes) -> list[object] | None:
     """The one record of a JSON document that is no array, or None when ``data`` is no one document: JSON lines.
 
-    An array never comes here, whole or broken: :func:`.json_array.is_one_array` judged it, and a
-    broken one is read as JSON lines, whose refusal names the line that is not JSON.
+    An array never comes here, whole or broken: :func:`_count_array` judged it, and a broken one
+    is read as JSON lines, whose refusal names the line that is not JSON.
     """
     try:
         document: object = orjson.loads(data)
