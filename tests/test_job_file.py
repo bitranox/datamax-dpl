@@ -162,6 +162,24 @@ def test_a_hard_linked_target_keeps_its_other_name(cli_runner: CliRunner, tmp_pa
     assert target.stat().st_nlink == 2
 
 
+@pytest.mark.os_posix
+def test_a_target_whose_group_a_new_file_would_not_get_keeps_it(cli_runner: CliRunner, tmp_path: Path) -> None:
+    """A new file takes the directory's group, so the target's members would lose it: written in place."""
+    if sys.platform == "win32":
+        pytest.skip("Windows keeps no POSIX group")
+    others = [group for group in os.getgroups() if group != tmp_path.stat().st_gid]
+    if not others:
+        pytest.skip("this user is in no group but the temp directory's, so no target can have another")
+    label, data = _files(tmp_path, _TEXT, "r0\n")
+    target = tmp_path / "job.dpl"
+    target.write_bytes(_BEFORE)
+    os.chown(target, -1, others[0])
+    inode = target.stat().st_ino
+    assert _render(cli_runner, label, data, target).exit_code == 0
+    assert target.read_bytes() != _BEFORE
+    assert (target.stat().st_ino, target.stat().st_gid) == (inode, others[0])
+
+
 @pytest.mark.os_linux
 def test_a_target_with_extended_attributes_keeps_them(cli_runner: CliRunner, tmp_path: Path) -> None:
     """A POSIX ACL is one: a file put in the target's place would have none of them."""
