@@ -10,7 +10,12 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from json_depth import ORJSON_DEPTH, READER_STOPS_SHORT_OF_ORJSON
 
-from datamax_dpl.adapters.cli.json_array import MalformedArrayError, array_elements, starts_an_array
+from datamax_dpl.adapters.cli.json_array import (
+    ElementTooDeepError,
+    MalformedArrayError,
+    array_elements,
+    starts_an_array,
+)
 
 _TEXT = st.text(alphabet=st.characters(codec="utf-8"), max_size=12) | st.sampled_from(['"', "\\", "[", "]", "{", "}"])
 _SCALARS = st.none() | st.booleans() | st.integers(-(10**6), 10**6) | _TEXT
@@ -41,7 +46,7 @@ def _whole_parse(data: bytes) -> list[object] | None:
 def _scanned(data: bytes) -> list[object] | None:
     try:
         return list(array_elements(data))
-    except MalformedArrayError:
+    except (MalformedArrayError, ElementTooDeepError):
         return None
 
 

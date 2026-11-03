@@ -24,7 +24,7 @@ from ...domain.errors import DatamaxDplError
 from ...domain.label import MAX_POLYGON_POINTS, MAX_POLYGON_POINTS_LIMIT, Label
 from ...domain.printable import printable
 from .interrupt import raise_if_interrupted
-from .json_array import MalformedArrayError, array_elements, starts_an_array
+from .json_array import ElementTooDeepError, MalformedArrayError, array_elements, starts_an_array
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -284,7 +284,7 @@ class Records:
         if self._csv:
             return _records_from_csv(self._data, self._source)
         if self._array:
-            rows: Iterator[object] = array_elements(self._data)
+            rows: Iterator[object] = _array_rows(self._data, self._source)
         elif self._one is not None:
             rows = iter(self._one)
         else:
@@ -295,6 +295,22 @@ class Records:
     def __len__(self) -> int:
         """How many records were checked: all of them, unless the limit stopped it (see ``__init__``)."""
         return self._count
+
+
+def _array_rows(data: bytes, source: str) -> Iterator[object]:
+    """The elements of the JSON array ``data`` holds, an element too deep to read refused by name.
+
+    Both passes go through here: on Python 3.10 and 3.11 how deep the reader goes depends on the
+    call stack, so a later pass, started deeper, may stop where the check did not.
+
+    Raises:
+        MalformedArrayError: ``data`` is not one JSON array.
+        LabelInputError: An element nests deeper than Python's own JSON reader goes.
+    """
+    try:
+        yield from array_elements(data)
+    except ElementTooDeepError as exc:
+        raise LabelInputError(f"{source} {exc}") from None
 
 
 def _count_array(data: bytes, source: str) -> int | None:
@@ -308,14 +324,15 @@ def _count_array(data: bytes, source: str) -> int | None:
         How many records the array holds, or None when ``data`` is no one JSON array.
 
     Raises:
-        LabelInputError: A record is no object; the first such one is named.
+        LabelInputError: A record is no object, the first such one named; or one nests deeper than
+            Python's own JSON reader goes, which the array cannot be read past.
         KeyboardInterrupt: A Ctrl-C came and its raise was lost (see :mod:`.interrupt`); looked
             for at each record and at the end, as a pass over the records does.
     """
     first_refusal: LabelInputError | None = None
     count = 0
     try:
-        for number, row in enumerate(array_elements(data)):
+        for number, row in enumerate(_array_rows(data, source)):
             raise_if_interrupted()
             if first_refusal is None:
                 first_refusal = _not_an_object(row, where=f"{source} record {number}")

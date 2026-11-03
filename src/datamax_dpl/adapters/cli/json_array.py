@@ -9,6 +9,7 @@ what lies between the elements: whitespace, one comma, the closing bracket and n
 
 from __future__ import annotations
 
+import itertools
 import json
 import re
 from typing import TYPE_CHECKING, cast
@@ -37,6 +38,21 @@ class MalformedArrayError(DatamaxDplError, ValueError):
     """
 
 
+class ElementTooDeepError(DatamaxDplError):
+    """An element is nested deeper than Python's own JSON reader goes, so where it ends is not known.
+
+    Not a malformed array: a whole parse may take it, so the file is refused by name, never read
+    as JSON lines. The records reader puts the file's name in front; no library caller meets it.
+    """
+
+    def __init__(self, index: int) -> None:
+        """Name the element at ``index``, counted from 0 as a record is."""
+        super().__init__(
+            f"record {index} is nested deeper than this Python reads"
+            " (Python 3.10 and 3.11 read about 995 levels, 3.12 and later 1024)"
+        )
+
+
 def _token(text: str, position: int) -> int:
     """Where the first character at or after ``position`` that is not whitespace sits, or ``len(text)``."""
     found = _NOT_WHITESPACE.search(text, position)
@@ -54,20 +70,24 @@ def starts_an_array(data: bytes) -> bool:
     return first is not None and data[first.start()] == _OPEN_ARRAY
 
 
-def _element_end(text: str, start: int) -> int:
-    """Where the element starting at ``start`` ends, as Python's own JSON reader finds it.
+def _element_end(text: str, start: int, *, index: int) -> int:
+    """Where element ``index``, starting at ``start``, ends, as Python's own JSON reader finds it.
 
     Raises:
-        MalformedArrayError: No JSON value starts there, or it nests deeper than the reader goes.
+        MalformedArrayError: No JSON value starts there.
+        ElementTooDeepError: It nests deeper than the reader goes.
     """
     try:
         return _FINDER.raw_decode(text, start)[1]
-    # ValueError: the reader's own JSONDecodeError, and an integer of more digits than Python
-    # converts, which orjson refuses too. RecursionError: nested past the reader's own limit, far
-    # past orjson's from Python 3.12, but about 995 levels on 3.10 and 3.11, short of orjson's 1024
-    # (sys.getrecursionlimit). Raising that limit here would change it for the whole process.
-    except (ValueError, RecursionError) as exc:
+    # The reader's own JSONDecodeError, and an integer of more digits than Python converts, which
+    # orjson refuses too.
+    except ValueError as exc:
         raise MalformedArrayError(str(exc)) from None
+    # Past the reader's own limit: far past orjson's from Python 3.12, but about 995 levels on 3.10
+    # and 3.11, short of orjson's 1024 (sys.getrecursionlimit). Raising that limit here would change
+    # it for the whole process.
+    except RecursionError:
+        raise ElementTooDeepError(index) from None
 
 
 def _parsed(data: bytes, start: int, end: int) -> object:
@@ -105,6 +125,7 @@ def array_elements(data: bytes) -> Iterator[object]:
 
     Raises:
         MalformedArrayError: ``data`` is not one JSON array; orjson would refuse it whole.
+        ElementTooDeepError: An element nests deeper than Python's own JSON reader goes.
 
     Example:
         >>> list(array_elements(b'[{"a": "[1,"}, {"b": 2}]'))
@@ -127,8 +148,8 @@ def array_elements(data: bytes) -> Iterator[object]:
     if text[position : position + 1] == "]":
         _after_the_array(text, position)
         return
-    while True:
-        end = _element_end(text, position)
+    for index in itertools.count():
+        end = _element_end(text, position, index=index)
         yield _parsed(data, position, end)
         position = _token(text, end)
         follows = text[position : position + 1]
@@ -140,4 +161,4 @@ def array_elements(data: bytes) -> Iterator[object]:
         position = _token(text, position + 1)
 
 
-__all__ = ["MalformedArrayError", "array_elements", "starts_an_array"]
+__all__ = ["ElementTooDeepError", "MalformedArrayError", "array_elements", "starts_an_array"]
