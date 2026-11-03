@@ -18,8 +18,8 @@ All notable changes to this project are documented here. The format follows
   `media` wins), `start_of_print_mm` (12.7 to 2539.746 mm), `max_label_length_mm` (127 to 2539.746 mm), `feed_rate` (a
   speed letter `A` to `S`) and `label_present` (`yes`, `no` or `unknown`, default `unknown`). Unset, the last four
   take the model's default from the manual. `<STX>V` goes out only when `cutter` and, on a model with that bit,
-  `label_present` are `yes` or `no`. New findings: `printer_settings_unknown` (the model has no known value: Prodigy
-  Max, `generic`, `permissive`; nothing sent), `software_switches_not_sent`, `max_label_length_too_short` (warning,
+  `label_present` are `yes` or `no`. New findings: `printer_settings_unknown` (the model has no known value: the
+  Prodigy Max's start of print, the DMX 400's feed rate, `generic`, `permissive`; nothing sent), `software_switches_not_sent`, `max_label_length_too_short` (warning,
   error under strict), `feed_rate_out_of_range`, `label_setting_not_sent` and `configured_sensor_select_unsupported`,
   and for the image module clear `graphics_clear_skipped` and `graphics_clear_unsupported`, info otherwise; each that
   points at a setting names the render option (`RenderOptions.<field>`) and on the command line the key of the printer

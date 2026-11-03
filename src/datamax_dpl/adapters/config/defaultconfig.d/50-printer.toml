@@ -461,7 +461,9 @@ options = []
 # Purpose: Speed the feed button feeds at, sent as <STX>S. A letter outside the
 #          model's slew range sends the model's default instead
 #          (feed_rate_out_of_range, info). Unset takes the model's slew default
-#          (manual Appendix M).
+#          (manual Appendix M); the DMX 400 (whose listed default K lies outside
+#          its range), generic and permissive have none and send none
+#          (printer_settings_unknown).
 # Type: string, one speed letter "A" (1 in/s) to "S" (10 in/s)
 # Default: unset (the model's slew default)
 # Environment Variable: DATAMAX_DPL___PRINTER__FEED_RATE=C
