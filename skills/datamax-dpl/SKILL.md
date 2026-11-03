@@ -34,10 +34,14 @@ connection) is tried again, each time a connection is opened, every
 past `timeout`. `status` and
 `memory` instead keep trying for `[printer] status_wait` (30 s) while a print server is busy with an
 earlier job and then say how long they waited (`no answer in 30.0 s (4 attempts)`): raise
-`status_wait`, or pass `--timeout`, which is their whole wait. Before each label whose downloads no
-clear precedes, and after any downloads a label sends, `print` may spend up to
-`[printer] stored_names_wait` (30 s), plus the 1 s of silence that ends the answer, reading the
-printer's stored image names; `--timeout` leaves that wait. Nothing about them is kept from one
+`status_wait`, or pass `--timeout`, which replaces it. Before each label whose downloads no
+clear precedes, and (unless `upload_check_rounds` is 0) after any downloads a label sends, `print`
+may spend up to
+`[printer] stored_names_wait` (30 s), plus `[printer] directory_idle` (1 s), the silence that ends
+the answer, reading the printer's stored image names; `--timeout` does not change that wait.
+`memory` ends each listing on `directory_idle` too (`--idle` overrides it); `status_wait` or
+`--timeout` bounds the wait for an answer to begin, and once one has begun it may take at most
+`[printer] directory_read_limit` (120 s) to end. Nothing about them is kept from one
 label to the next: the printer may have been reset, or another program may have printed. So a
 `--data` batch whose labels download images with no clear before them is refused from its second
 record on (`batch_image_names_unread`) where no printer can be read before each label: `render`,
@@ -64,7 +68,8 @@ which may be waiting for the rest.
 1. Write the label JSON (format: `datamax-dpl schema`; example below).
 2. `datamax-dpl --json validate label.json --model MODEL [--data rows.csv] [--cutter yes]` (with
    `--data` every record is checked; `render`, `validate` and `print` refuse a batch of more than
-   `[printer] max_batch_records` (100000) records, exit 2, before anything renders). Read EVERY
+   `[printer] max_batch_records` (100000) records, exit 2, before anything renders; a label or data
+   file past `[printer] max_input_bytes` (16 MiB) is refused when read). Read EVERY
    finding in `data.findings` (`code`, `severity`, `message`, `element`, `record`, `fallback`):
    `error` will not print; `warning` with
    `fallback` says what prints instead; `info` notes an assumption. Fix and repeat. A batch keeps
@@ -114,7 +119,8 @@ which may be waiting for the rest.
   capitals only. Font 9 needs `points`. Umlauts work in fonts 1, 2 and 9, capital umlauts and
   sharp s also in 3-6; the euro sign in none.
 - Element types: `text`, `scalable_text`, `line`, `box`, `circle`, `polygon`, `barcode`, `image`,
-  `qr`. An `image` takes `magnification` 1-9 (printer dots per image dot).
+  `qr`. An `image` takes `magnification` 1-9 (printer dots per image dot). A `polygon` takes at
+  most `[printer] max_polygon_points` (60) points.
 - `{"type": "qr", "x": 3, "y": 3, "data": "{url}", "error": "M", "module_dots": 3, "quiet_zone": 4}`
   (defaults shown; `x`/`y` is the quiet zone's lower-left corner; no rotation). No model has a QR
   record, so it is downloaded as an image; the Prodigy and Prodigy Plus refuse it with
@@ -128,7 +134,9 @@ which may be waiting for the rest.
   UTF-8, so `ä` takes 2 bytes and `€` 3. On an Allegro 2 one phone read V13 at 3 dots and codes up
   to V20 at 4 dots fine and struggled with V29 at 3 dots and V40 at 2 dots; that is one phone, not
   a limit, so test denser codes with the real reader. Nothing checks a QR Code against the label
-  height: a code too tall for the label gets no finding. More sizes:
+  height: a code too tall for the label gets no finding. `"micro": true` allows a Micro QR where the
+  data fits one (else a full code), `"boost_error": true` raises the level where the version has
+  room; both default `false`. More sizes:
   <https://github.com/bitranox/datamax-dpl/blob/HEAD/docs/label-spec.md>.
 
 ## Models and fallbacks
@@ -163,21 +171,24 @@ which may be waiting for the rest.
   two-way `print` the model's budget is left out (the upload check decides,
   `image_budget_skipped`); a configured `image_memory_bytes` still applies.
 - Image module: downloads go to the model's built-in module (`image_module` in `capabilities`); a Prodigy/Prodigy Plus has none and refuses them (`image_module_unknown`) until `[printer] image_module` (A-E) names the module fitted. The module is cleared before each label's downloads and again after the label's format and any cut, on a label that downloads nothing too (`[printer] clear_graphics_before` and `clear_graphics_after`, both `true`; the library's `RenderOptions.clear_graphics_before_label` and `clear_graphics_after_label`); the clear (`<STX>q`) goes only to the model's built-in RAM module, never to a plug-in one, whatever the keys say, and the plain Prodigy removes each name a label downloads instead. `<STX>q` empties the whole module, the images the printer stores and any fonts and formats in it too, so a label that places a stored image (an `image` without `bitmap`) is refused (`stored_image_cleared`) while `clear_graphics_before` is on, and a `--data` batch of it from its second record while only `clear_graphics_after` is: keep a stored image usable with both keys `false`. The plain Prodigy's removes take only the label's own downloads.
-- Upload check (`print`, two-way link): a download into a full module is lost silently,
-  so a label's downloads go first, the printer's directory (`<STX>W`) is read within
-  `stored_names_wait` (plus the 1 s of silence that ends the answer), and its format follows only
-  once every downloaded name is listed. Else round 2 clears (`q` on built-in RAM, the Prodigy's `R`,
-  never a plug-in module) and uploads again (with no clear, only the names the directory did not
-  list; after a read with no answer it reads the names again first and uploads none of the same
-  names unless that read answers), round 3 uploads halved (`image_upload_retried`). With no clear
-  before a label, its names are read right before its downloads and only those not listed go; if
-  that read gets no answer the job's first label uploads every image (`image_names_unread`), and a
-  later label skips round 1 and uploads nothing until round 2's read answers. Still missing,
-  the label is refused and nothing more is sent (`image_upload_refused`), as when it is in error
-  once rendered again for a round (`image_upload_render_refused`). `[printer] upload_check_rounds`
-  (1-3, default 3). An `image_module` of `C` (no directory lists it) is refused before anything is sent
-  (`image_module_unlisted`); set the real letter (A on the Allegro 2) or use a one-way link.
-- Printer reset (`print`, two-way link): before the first label the job reads `<SOH>A` once within `reset_check_wait` (3 s; no answer means nothing), after that label's names read where one goes, whose answer can carry the report itself. On `R` or `T` in front of the answer (`reset_reported`) one calibration label goes first, because one Allegro 2 printed the first label after a power cycle about 12 mm shifted: the job's printer settings and size, `calibration_label_text` in the middle (`printer_reset_calibrated`: one extra label came out). `calibrate_after_reset = false` only reports it (`printer_reset_not_calibrated`). Two limits: a `status` or `memory` run before the job takes the report, so that job's first label can be shifted; a one-way link cannot see a reset.
+- Upload check (`print`, two-way link): a download into a full module is lost silently, so a label's
+  downloads go first, the printer's directory (`<STX>W`) is read within `stored_names_wait` (plus
+  the `directory_idle` silence that ends the answer), and its format follows only once every
+  downloaded name is listed. Else round 2 clears (`q` on built-in RAM, the Prodigy's `R`, never a
+  plug-in module) and uploads again (with no clear, only the names the directory did not list; after
+  a read with no answer it reads the names again first and uploads none of the same names unless
+  that read answers), round 3 uploads halved (`image_upload_retried`). With no clear before a label,
+  its names are read right before its downloads and only those not listed go; if that read gets no
+  answer the job's first label uploads every image (`image_names_unread`), and a later label skips
+  round 1 and uploads nothing until round 2's read answers. Still missing, the label is refused and
+  nothing more is sent (`image_upload_refused`), as when it is in error once rendered again for a
+  round (`image_upload_render_refused`). `[printer] upload_check_rounds` (0-3, default 3); 0 reads
+  nothing back after the downloads and retries nothing, so a lost download goes unseen (one Allegro
+  2 then printed the rest of the label with no error); the names read before a label's downloads,
+  where no clear precedes them, still runs. An `image_module` of `C` (no directory lists it) is
+  refused before anything is sent (`image_module_unlisted`); set the real letter (A on the Allegro
+  2) or use a one-way link.
+- Printer reset (`print`, two-way link): before the first label the job reads `<SOH>A` once within `reset_check_wait` (3 s; no answer means nothing), after that label's names read where one goes, whose answer can carry the report itself. On `R` or `T` in front of the answer (`reset_reported`) one calibration label goes first, because one Allegro 2 printed the first label after a power cycle about 12 mm shifted: the job's printer settings and size, `calibration_label_text` in the middle (`printer_reset_calibrated`: one extra label came out). `calibrate_after_reset = false` only reports it (`printer_reset_not_calibrated`); `[printer] reset_check = false` skips that read and also ignores a reset report a names read returns; `reset_check_wait`, `calibrate_after_reset` and `calibration_label_text` are `[printer]` keys too. Two limits: a `status` or `memory` run before the job takes the report, so that job's first label can be shifted; a one-way link cannot see a reset.
 - Every downloaded image goes under its content name (`D` + 7 characters from `0-9 A-Z a-z`, from
   its hash; letter case counts, measured kept and matched exactly on an Allegro 2 CA02 03.04 only),
   never the `image` element's `name`; only an `image` without `bitmap` that no element of the label
@@ -250,6 +261,12 @@ the model's default from the manual; a library caller sets the same fields in `R
   a model with a label-present bit, `[printer] label_present` (default `unknown`) are both `yes` or
   `no`; else `software_switches_not_sent` (info), whose message names the one missing. The Allegro
   and Allegro 2 have no such bit, so `--cutter` (or `[printer] cutter`) alone decides there.
+- `heat` (0-30; above the model's maximum it is clamped, `heat_out_of_range`), `print_speed`,
+  `slew_speed`, `backup_speed`, `column_offset`, `row_offset` and `present_distance` go out only
+  when the label sets them (at the top level of its JSON, beside `quantity`) or the same-named key
+  in `[printers.<name>]` or `[printer]` does (lengths in mm whatever the label's unit); the label's
+  own value wins and passes the same range checks. Unset, nothing is sent and the printer keeps its
+  own value.
 
 ## Reading a DPL file, and the printer's own controls
 
@@ -272,7 +289,10 @@ the model's default from the manual; a library caller sets the same fields in `R
   `--printer NAME` picks its model, address, size and scale factors; `--printer` also still takes
   a URI. `render` and `validate` take it too.
 - Lengths print slightly off nominal, and differently per printer (a scale is printed / nominal
-  length). The `allegro-2` model ships values
+  length). A printer that rounds 1/100 in to whole dots prints `[printer] inch_unit_dots` dots per
+  unit (a whole number above 0; unset: the model's, 2 on the Allegro 2); set it for another
+  firmware (`--set printer.inch_unit_dots=N` or the config), and let the scales
+  absorb what remains. The `allegro-2` model ships values
   calibrated on one Allegro 2 (`scale_along` 0.976, `offset_along` -0.25 mm, tear-off
   `stop_position` 66.8 mm), named in the info finding `model_defaults_applied`; every other model
   starts neutral. A value set in the config or with `--set printer.KEY=VALUE` (`scale_across`,
