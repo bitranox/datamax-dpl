@@ -308,18 +308,76 @@ def test_a_write_that_fails_leaves_the_target_and_names_it(tmp_path: Path) -> No
 @pytest.mark.os_posix
 @pytest.mark.skipif(_NOT_POSIX, reason="RLIMIT_FSIZE is POSIX")
 @pytest.mark.parametrize(
-    "target", [pytest.param(("-o", "-"), id="render-stdout"), pytest.param(("--printer", "file:{out}"), id="print")]
+    "target",
+    [
+        pytest.param(("-o", "-"), id="render-stdout"),
+        pytest.param(("--printer", "file:{out}"), id="print"),
+        pytest.param(("-o", "{linked}"), id="render-file-direct"),
+    ],
 )
 def test_a_spool_that_fills_the_disk_is_removed_and_named(tmp_path: Path, target: tuple[str, str]) -> None:
     temp = tmp_path / "temp"
     temp.mkdir()
     label, data = _files(tmp_path, _TEXT, _good_rows())
     out = tmp_path / "job.dpl"
+    # A second hard link keeps the target's inode, so render -o writes it in place, from the spool.
+    linked = tmp_path / "linked.dpl"
+    linked.write_bytes(_BEFORE)
+    (tmp_path / "other-name.dpl").hardlink_to(linked)
     verb = "print" if target[0] == "--printer" else "render"
-    args = [verb, label, "--data", data, "--model", "dmx-600", target[0], target[1].format(out=out)]
+    args = [verb, label, "--data", data, "--model", "dmx-600", target[0], target[1].format(out=out, linked=linked)]
     done = _limited(args, tmp_path=tmp_path, temp=temp)
     assert done.returncode == 2, done.stderr
     assert "File too large, writing the batch's spool: " + str(temp) in done.stderr
+    assert _names(temp) == []
+    assert not out.exists()
+    assert linked.read_bytes() == _BEFORE
+
+
+#: Runs the CLI with the spool it makes measured: its size once sealed goes to stderr.
+_MEASURED = """
+import dataclasses, sys
+from datamax_dpl.adapters.cli.job_spool import FileJobSpool
+from datamax_dpl.adapters.cli.main import main
+from datamax_dpl.composition import build_production
+
+
+class Measured(FileJobSpool):
+    def seal(self):
+        super().seal()
+        print("sealed at", self.path.stat().st_size, file=sys.stderr)
+
+
+sys.exit(main(sys.argv[1:], services_factory=lambda: dataclasses.replace(build_production(), open_spool=Measured)))
+"""
+#: Bytes short of the whole spool at which the limited run's file stops: inside the last buffer,
+#: so every add's write goes through and only the seal's flush fails.
+_SHORT_OF_THE_SPOOL = 10
+
+
+@pytest.mark.os_posix
+@pytest.mark.skipif(_NOT_POSIX, reason="RLIMIT_FSIZE is POSIX")
+@pytest.mark.parametrize(
+    "target", [pytest.param(("-o", "-"), id="render-stdout"), pytest.param(("--printer", "file:{out}"), id="print")]
+)
+def test_a_spool_that_fills_the_disk_as_it_is_sealed_lets_nothing_out(tmp_path: Path, target: tuple[str, str]) -> None:
+    """The last buffered bytes go to the file only at the seal; a check that misses that failure sends a cut job."""
+    temp = tmp_path / "temp"
+    temp.mkdir()
+    label, data = _files(tmp_path, _TEXT, _good_rows(300))
+    out = tmp_path / "job.dpl"
+    verb = "print" if target[0] == "--printer" else "render"
+    args = [verb, label, "--data", data, "--model", "dmx-600", target[0], target[1].format(out=out)]
+    env = {**os.environ, "XDG_CONFIG_HOME": str(tmp_path), "HOME": str(tmp_path), "TMPDIR": str(temp)}
+    measured = run_cli_text(args, entry=("-c", _MEASURED), env=env)
+    assert measured.returncode == 0, measured.stderr
+    out.unlink(missing_ok=True)
+    size = int(measured.stderr.split("sealed at ", 1)[1].split()[0])
+    limited = _LIMITED.format(limit=size - _SHORT_OF_THE_SPOOL)
+    done = run_cli(args, entry=("-c", limited), env={**env, "TEMP": str(temp), "TMP": str(temp)})
+    assert done.returncode == 2, done.stderr
+    assert b"File too large, writing the batch's spool: " + str(temp).encode() in done.stderr
+    assert done.stdout == b""
     assert _names(temp) == []
     assert not out.exists()
 

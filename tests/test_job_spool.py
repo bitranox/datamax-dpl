@@ -28,7 +28,7 @@ from datamax_dpl.adapters.cli.job_spool import FileJobSpool, SpoolWriteError
 from datamax_dpl.adapters.cli.main import main
 from datamax_dpl.adapters.memory import RecordingPrinter
 from datamax_dpl.adapters.memory.printer import open_recording_printer
-from datamax_dpl.application.upload_check import CheckedJob, UploadCheck, print_checked
+from datamax_dpl.application.upload_check import CheckedJob, UploadCheck, UploadRefusedError, print_checked
 from datamax_dpl.application.use_cases import AnswerWait, BatchEntry, BatchReport
 from datamax_dpl.composition import AppServices, build_testing
 from datamax_dpl.domain.enums import ImageModule
@@ -450,6 +450,63 @@ def test_a_refused_batch_is_refused_although_its_spool_filled_the_disk() -> None
     assert report.records == _PAST_THE_BUFFER + 1
 
 
+#: Bytes short of the whole spool at which its file fills: inside the last buffer, so every add
+#: goes through and only the seal's flush fails.
+_SHORT_OF_THE_SPOOL = 10
+
+
+def _sealed_size(args: list[str], tmp_path: Path) -> int:
+    """The size the spool of the CLI run ``args`` reaches once sealed, measured with nothing in its way."""
+    sizes: list[int] = []
+
+    class _Measured(FileJobSpool):
+        def seal(self) -> None:
+            super().seal()
+            assert self.path is not None
+            sizes.append(self.path.stat().st_size)
+
+    out = [word.format(out=tmp_path / "measured.dpl") for word in args]
+    assert main(out, services_factory=lambda: dataclasses.replace(build_testing(), open_spool=_Measured)) == 0
+    [size] = sizes
+    return size
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "target",
+    [
+        pytest.param(("render", "-o", "-"), id="render-stdout"),
+        pytest.param(("print", "--printer", "tcp://192.0.2.60:9100"), id="print-two-way"),
+        pytest.param(("print", "--printer", "file:{out}"), id="print-one-way"),
+    ],
+)
+def test_a_spool_that_fills_the_disk_as_it_is_sealed_sends_nothing(
+    target: tuple[str, ...], tmp_path: Path, capfdbinary: pytest.CaptureFixture[bytes]
+) -> None:
+    """A check that missed the seal's failure would send the records the file holds, a cut job."""
+    label = tmp_path / "label.json"
+    label.write_text(Label(elements=[Text(x=10, y=10, text="{a}")]).model_dump_json(), encoding="utf-8")
+    data = tmp_path / "data.csv"
+    data.write_text("a\n" + "".join(f"r{n}\n" for n in range(300)), encoding="utf-8")
+    verb, *rest = target
+    args = [verb, str(label), "--data", str(data), "--model", "dmx-600", *rest]
+    room = _sealed_size(args, tmp_path) - _SHORT_OF_THE_SPOOL
+    capfdbinary.readouterr()
+    printer = RecordingPrinter()
+    out = tmp_path / "job.dpl"
+
+    def services() -> AppServices:
+        return dataclasses.replace(build_testing(printer=printer), open_spool=lambda: _full_after(room))
+
+    code = main([word.format(out=out) for word in args], services_factory=services)
+    captured = capfdbinary.readouterr()
+    assert code == 2, captured.err
+    assert b"writing the batch's spool" in captured.err
+    assert captured.out == b""
+    assert printer.sent == []
+    assert not out.exists()
+
+
 class _AddFails:
     """A spool whose every add fails, as a library caller's own spool on a full disk would."""
 
@@ -620,3 +677,72 @@ def test_each_cli_route_keeps_each_record_once_and_sends_it_from_the_spool(
     code = main([verb, str(label), "--data", str(data), "--model", "dmx-600", *rest], services_factory=services)
     assert code == 0, capfdbinary.readouterr().err
     assert (_Counted.added, _Counted.read) == (_RECORDS, _RECORDS)
+
+
+#: Three fields a code page cannot hold each, so every record has more findings than the report keeps.
+_UNMAPPABLE = Label(
+    elements=[Image(x=1, y=1, name="LOGO", bitmap=_PATTERN), *(Text(x=10, y=40 + 10 * k, text="{a}") for k in range(3))]
+)
+_NO_CLEARS = RenderOptions(model="allegro-2", clear_graphics_before_label=False, clear_graphics_after_label=False)
+_FEW_KEPT = ReportLimits(findings=4, downloads=1)
+_UNMAPPABLE_ROWS = [{"a": "\u20ac\u0101\u4e2d"} for _ in range(8)]
+#: What the send's own rounds add to a no-clear batch's codes: the held logo, left out from record 1 on.
+_ROUND_CODES = {"image_name_held", "image_halved", "image_upload_retried", "image_upload_refused"}
+
+
+def _sent(printer: ModulePrinter) -> tuple[BatchReport, BatchReport]:
+    """The check's report of the unmappable batch and what its send reports, read through a real spool."""
+    with FileJobSpool() as spool:
+        checked = check_batch(
+            _UNMAPPABLE, _UNMAPPABLE_ROWS, _NO_CLEARS, read_names_at_send=True, spool=spool, limits=_FEW_KEPT
+        )
+        job = CheckedJob(renders=checked.renders(), check=UploadCheck(wait=AnswerWait(seconds=1.0)), reset=None)
+        try:
+            sent = print_checked(
+                checked, job, uri="tcp://192.0.2.60:9100", timeout=1.0, open_printer=open_recording_printer(printer)
+            ).result
+        except UploadRefusedError as refused:
+            assert isinstance(refused.result, BatchReport)
+            sent = refused.result
+    assert isinstance(sent, BatchReport)
+    return checked, sent
+
+
+def _codes_of_the_check(report: BatchReport) -> dict[str, int]:
+    return {code.value: count for code, count in report.finding_counts.items() if code.value not in _ROUND_CODES}
+
+
+@pytest.mark.os_agnostic
+def test_a_record_rendered_again_at_send_is_counted_once() -> None:
+    """Records 1 on render again for the held logo; their findings past the report cap stay counted once."""
+    checked, sent = _sent(ModulePrinter(ImageModules()))
+    assert checked.findings_total > len(checked.findings)
+    assert _codes_of_the_check(sent) == _codes_of_the_check(checked)
+    assert {code.value for code in sent.finding_counts} - {
+        code.value for code in checked.finding_counts
+    } <= _ROUND_CODES
+
+
+@pytest.mark.os_agnostic
+def test_a_send_refused_midway_still_counts_the_records_it_did_not_send() -> None:
+    """The records after the refusal are tallied from the spool, their unkept counts included."""
+    checked, sent = _sent(ModulePrinter(ImageModules(silent=range(3, 1000))))
+    assert any(code.value == "image_upload_refused" for code in sent.finding_counts)
+    assert _codes_of_the_check(sent) == _codes_of_the_check(checked)
+
+
+#: Spool bytes a record may take beyond its job: its header (the render without the job, its values,
+#: the findings the report keeps) measured at about 0.56 KB for this label at both sizes.
+_HEADER_ROOM = 1024
+_FORTY_FIELDS = Label(elements=[Text(x=10, y=10 + 5 * k, text="{a}") for k in range(40)])
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("records", [50, 400])
+def test_the_spool_holds_each_job_once_plus_a_header(records: int) -> None:
+    """A header that carried the job's bytes again would double the spool for a label of many fields."""
+    with FileJobSpool() as spool:
+        report = check_batch(_FORTY_FIELDS, [{"a": f"r{n}"} for n in range(records)], _DMX, spool=spool)
+        assert spool.path is not None
+        size = spool.path.stat().st_size
+    assert report.job_bytes < size <= report.job_bytes + records * _HEADER_ROOM
