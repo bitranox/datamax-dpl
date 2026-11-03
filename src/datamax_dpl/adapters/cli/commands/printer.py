@@ -14,7 +14,6 @@ from pydantic import BaseModel, ConfigDict
 from ....application.ports import PrinterEndpoint
 from ....application.upload_check import CheckedJob, ResetCheck, UploadCheck, UploadRefusedError, print_checked
 from ....application.use_cases import (
-    DIRECTORY_IDLE_SECONDS,
     ONE_WAY_LINK,
     AnswerWait,
     BatchReport,
@@ -152,12 +151,14 @@ def _upload_refused(exc: UploadRefusedError, *, uri: str, settings: PrinterSetti
 
 
 def _upload_check(settings: PrinterSettings, cli_ctx: CLIContext) -> UploadCheck:
-    """How ``print`` checks each label's image upload: ``stored_names_wait`` per read."""
-    return UploadCheck(wait=_stored_names_wait(settings, cli_ctx), rounds=settings.upload_check_rounds)
+    """How ``print`` checks each label's image upload: ``stored_names_wait`` per read, ending on ``directory_idle``."""
+    return UploadCheck(
+        wait=_stored_names_wait(settings, cli_ctx), rounds=settings.upload_check_rounds, idle=settings.directory_idle
+    )
 
 
 def _reset_check(settings: PrinterSettings) -> ResetCheck | None:
-    """How ``print`` asks for a reset report before a job, and what it does on one; None asks nothing (``reset_check``)."""
+    """How ``print`` asks for a reset report before a job and acts on one; None (``reset_check`` off) asks nothing."""
     if not settings.reset_check:
         return None
     return ResetCheck(
@@ -368,13 +369,12 @@ _KINDS: Mapping[KindChoice, tuple[MemoryKind, ...]] = MappingProxyType(
 @option(
     "--idle",
     type=float,
-    default=DIRECTORY_IDLE_SECONDS,
-    show_default=True,
-    help="Seconds of silence that end the printer's answer.",
+    default=None,
+    help="Seconds of silence that end the printer's answer [default: [printer] directory_idle, 1.0].",
 )
 @printer_options_decorator
 @click.pass_context
-def cli_memory(ctx: click.Context, kind: str, idle: float, **given: Any) -> None:
+def cli_memory(ctx: click.Context, kind: str, idle: float | None, **given: Any) -> None:
     """List the printer's memory modules (<STX>W): stored names and free bytes per module."""
 
     def body(cli_ctx: CLIContext) -> CommandResult:
@@ -383,8 +383,9 @@ def cli_memory(ctx: click.Context, kind: str, idle: float, **given: Any) -> None
         directories = read_memory_directory(
             kinds=KindChoice(kind).kinds,
             endpoint=PrinterEndpoint(uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)),
-            idle=idle,
+            idle=settings.directory_idle if idle is None else idle,
             wait=_answer_wait(settings, cli_ctx),
+            read_limit=settings.directory_read_limit,
         )
         payload = MemoryPayload(printer=uri, directories=list(directories))
         return CommandResult(ok=True, payload=payload, human="\n".join(_directory_lines(directories)))

@@ -1053,14 +1053,15 @@ def test_a_caller_who_asks_nothing_ignores_a_report_on_a_directory_read() -> Non
         UploadCheck(wait=AnswerWait(seconds=1.0, retry_interval=-1.0)),
         UploadCheck(wait=AnswerWait(seconds=1.0), rounds=-1),
         UploadCheck(wait=AnswerWait(seconds=1.0), rounds=4),
+        UploadCheck(wait=AnswerWait(seconds=1.0), idle=0.0),
     ],
-    ids=["no wait", "nan wait", "negative interval", "rounds -1", "rounds 4"],
+    ids=["no wait", "nan wait", "negative interval", "rounds -1", "rounds 4", "no idle"],
 )
 def test_an_unusable_upload_check_is_refused_before_a_byte_goes_out(check: UploadCheck) -> None:
     printer = ModulePrinter(ImageModules())
     label = Label(width=100, height=60, elements=[LOGO])
     job = CheckedJob(renders=record_renders(label, None, ALLEGRO), check=check)
-    with pytest.raises(ValueError, match=r"wait|interval|rounds|retry"):
+    with pytest.raises(ValueError, match=r"wait|interval|rounds|retry|idle"):
         print_checked(
             render_label(label, ALLEGRO),
             job,

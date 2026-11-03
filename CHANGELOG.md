@@ -12,6 +12,11 @@ All notable changes to this project are documented here. The format follows
   report before a job and act on none a names read carries, for a print server where the extra exchange costs. The
   first label after a power cycle may then print shifted with nothing said. The library already had it as
   `CheckedJob.reset=None`.
+- `[printer] directory_idle` (default `1.0` s): the silence that ends a `<STX>W` directory answer, for `print`'s
+  names reads (which no setting reached before) and for `memory`, whose `--idle` now defaults to it and still wins.
+  `[printer] directory_read_limit` (default `120.0` s): the longest one `memory` answer may take, so a slow serial line
+  or a long listing can be read. Library: `UploadCheck.idle`, `Link.read(idle=)`, `read_stored_names(idle=)` and
+  `read_memory_directory(read_limit=)`.
 - `[printer] upload_check_rounds` takes `0`: `print` uploads a label's images and sends its format with no read
   after the upload and no retry, as on a one-way link (`UploadCheck(rounds=0)` in the library;
   `MIN_UPLOAD_CHECK_ROUNDS` is 0). A lost download then goes unseen, and an Allegro 2 prints such a format without

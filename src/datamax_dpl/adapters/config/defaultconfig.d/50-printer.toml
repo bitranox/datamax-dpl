@@ -77,7 +77,7 @@ timeout = 10.0
 #          connecting, closed or reset before the request or a byte of answer)
 #          is tried again on a new one; an open but silent connection is read
 #          until the wait ends and never asked twice. 'memory' waits at most
-#          120 s on one connection. --timeout on those commands sets the whole
+#          directory_read_limit (120 s) per answer on one connection. --timeout on those commands sets the whole
 #          wait instead.
 # Type: float, greater than 0, at most 2147483
 # Default: 30.0
@@ -107,6 +107,26 @@ timeout = 10.0
 # Default: 30.0
 # Environment Variable: DATAMAX_DPL___PRINTER__STORED_NAMES_WAIT=10
 # stored_names_wait = 30.0
+
+# Purpose: Seconds of silence that end a <STX>W directory answer, which has
+#          no terminator: every names read of 'print' and every answer of
+#          'memory' (whose --idle wins). Raise it for a print server or a
+#          printer that pauses mid-listing, which otherwise cuts the listing
+#          short; lower it on a fast link, since each read ends this long after
+#          the last byte.
+# Type: float, greater than 0, at most 2147483
+# Default: 1.0
+# Environment Variable: DATAMAX_DPL___PRINTER__DIRECTORY_IDLE=2
+# directory_idle = 1.0
+
+# Purpose: Longest one 'memory' answer may take, from the request to the
+#          silence that ends it, per kind; one still running then is a timeout.
+#          120 s fits a 64 KiB listing at 9600 baud; 2400 baud needs about
+#          273 s for that. 'print' bounds its names reads by stored_names_wait.
+# Type: float, greater than 0, at most 2147483
+# Default: 120.0
+# Environment Variable: DATAMAX_DPL___PRINTER__DIRECTORY_READ_LIMIT=300
+# directory_read_limit = 120.0
 
 # Purpose: Whether 'print' asks the printer for a reset report (<SOH>A) before
 #          a job on a two-way link. false asks nothing and acts on no report,

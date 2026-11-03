@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 
 from ...application.upload_check import MAX_UPLOAD_CHECK_ROUNDS, MIN_UPLOAD_CHECK_ROUNDS, UPLOAD_CHECK_ROUNDS
 from ...application.use_cases import (
+    DIRECTORY_IDLE_SECONDS,
     RETRY_INTERVAL_SECONDS,
     STATUS_WAIT_SECONDS,
     STORED_NAMES_WAIT_SECONDS,
@@ -49,6 +50,7 @@ from ...domain.reset_label import (
     check_label_text,
 )
 from ...domain.timing import (
+    MAX_ANSWER_SECONDS,
     MAX_SEND_CHUNK_BYTES,
     MAX_TIMEOUT_SECONDS,
     REFUSED_CONNECT_RETRY_INTERVAL_SECONDS,
@@ -150,6 +152,11 @@ class PrinterSettings(BaseModel):
     # How long print keeps trying to read the stored image names before a job no clear
     # precedes; its own key, so a link that never answers can wait less without shortening status.
     stored_names_wait: float = Field(default=STORED_NAMES_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
+    # The silence that ends a <STX>W directory answer, which has no terminator: print's names reads
+    # and memory (whose --idle wins). And the overall bound of one memory answer, request to that
+    # silence; print's names reads are bounded by their wait instead.
+    directory_idle: float = Field(default=DIRECTORY_IDLE_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
+    directory_read_limit: float = Field(default=MAX_ANSWER_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
     # How many rounds print runs before refusing a label whose images the printer did not
     # list after the upload: 1 reads once, 2 adds a clear and a second upload, 3 the images halved;
     # 0 reads nothing after the upload, so a lost download goes unseen.
@@ -228,6 +235,8 @@ class PrinterSettings(BaseModel):
         "status_wait",
         "status_retry_interval",
         "stored_names_wait",
+        "directory_idle",
+        "directory_read_limit",
         "reset_check_wait",
         "upload_check_rounds",
         "max_batch_records",

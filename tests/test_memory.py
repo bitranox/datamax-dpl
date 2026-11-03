@@ -416,3 +416,16 @@ def test_a_module_dumps_its_letter_as_the_printer_sent_it_under_the_key_module(l
     assert entry.model_dump_json() == f'{{"module":"{letter}","names":["LOGO"],"available_bytes":49083}}'
     assert entry.model_dump(mode="json") == {"module": letter, "names": ["LOGO"], "available_bytes": 49083}
     assert MemoryModule.model_validate_json(entry.model_dump_json()) == entry
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("read_limit", [0.0, -1.0, float("inf")])
+def test_an_unusable_read_limit_is_refused_before_anything_is_opened(read_limit: float) -> None:
+    printer = RecordingPrinter(answers={b"\x02WG": MANUAL_SAMPLE})
+    with pytest.raises(ValueError, match=r"^total must be above 0"):
+        read_memory_directory(
+            kinds=(MemoryKind.GRAPHIC,),
+            endpoint=PrinterEndpoint(uri=PRINTER, timeout=2.0, open_printer=open_recording_printer(printer)),
+            read_limit=read_limit,
+        )
+    assert printer.opened == []

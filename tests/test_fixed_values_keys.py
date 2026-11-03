@@ -19,11 +19,13 @@ from printer_server import ImageModules, ModulePrinter
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.settings import PrinterOverrides, PrinterSettings, printer_settings
+from datamax_dpl.adapters.memory import RecordingPrinter
+from datamax_dpl.application.use_cases import DIRECTORY_IDLE_SECONDS
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.errors import ConfigurationError
 from datamax_dpl.domain.label import Image, Label, Text
 from datamax_dpl.domain.reset_label import CALIBRATION_LABEL_TEXT
-from datamax_dpl.domain.timing import TIMEOUT_SECONDS
+from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS, MAX_TIMEOUT_SECONDS, TIMEOUT_SECONDS
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -155,3 +157,128 @@ def test_upload_check_rounds_0_reaches_the_print_and_reads_nothing_after_the_upl
     assert result.exit_code == 0, result.output
     assert modules.requests == requests
     assert bool(modules.placed_missing) is lost_image_printed
+
+
+# ======================== directory_idle and directory_read_limit: the <STX>W reads ========================
+
+#: Answers a printer gives the three directory requests of ``memory --kind all``.
+_DIRECTORIES = {
+    b"\x02WF": b"No Modules Available\r",
+    b"\x02WG": b"MODULE: A\rAVAILABLE BYTES IN MODULE:00049083\r",
+    b"\x02WL": b"MODULE: C\rSHIP\r",
+}
+
+
+class _ReadsRecorded(ModulePrinter):
+    """Keeps the silence and the overall bound each directory read was given: the transport port's own arguments."""
+
+    def __init__(self, modules: ImageModules) -> None:
+        super().__init__(modules)
+        self.reads: list[tuple[float, float]] = []
+
+    def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = MAX_ANSWER_SECONDS) -> bytes:
+        self.reads.append((idle, total))
+        return super().read_answer(request, timeout=timeout, idle=idle, total=total)
+
+
+class _MemoryReadsRecorded(RecordingPrinter):
+    """A printer answering the three directories, keeping the silence and the bound of each read."""
+
+    def __init__(self) -> None:
+        super().__init__(answers=_DIRECTORIES)
+        self.reads: list[tuple[float, float]] = []
+
+    def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = MAX_ANSWER_SECONDS) -> bytes:
+        self.reads.append((idle, total))
+        return super().read_answer(request, timeout=timeout, idle=idle, total=total)
+
+
+def _print_reads(
+    cli_runner: CliRunner, tmp_path: Path, *setting: str, printer_arg: str = URI
+) -> list[tuple[float, float]]:
+    """The reads of a print whose names are read before its downloads and once after them."""
+    printer = _ReadsRecorded(ImageModules())
+    args = [*setting, "--set", "printer.clear_graphics_before=false", "print", _label_file(tmp_path, IMAGE_LABEL)]
+    result = _cli(cli_runner, printer, *args, "--model", "allegro-2", "--printer", printer_arg)
+    assert result.exit_code == 0, result.output
+    assert len(printer.reads) == 2
+    return printer.reads
+
+
+def _memory_reads(cli_runner: CliRunner, *args: str) -> list[tuple[float, float]]:
+    printer = _MemoryReadsRecorded()
+    result = cli_runner.invoke(
+        cli_mod.cli, [*args, "--kind", "all", "--printer", URI], obj=lambda: build_testing(printer=printer)
+    )
+    assert result.exit_code == 0, result.output
+    assert len(printer.reads) == 3
+    return printer.reads
+
+
+@pytest.mark.os_agnostic
+def test_the_directory_keys_default_to_the_values_the_code_fixed() -> None:
+    settings = PrinterSettings()
+    assert (settings.directory_idle, settings.directory_read_limit) == (DIRECTORY_IDLE_SECONDS, MAX_ANSWER_SECONDS)
+    assert (DIRECTORY_IDLE_SECONDS, MAX_ANSWER_SECONDS) == (1.0, 120.0)
+
+
+@pytest.mark.os_agnostic
+def test_by_default_every_print_names_read_ends_on_one_second_of_silence(cli_runner: CliRunner, tmp_path: Path) -> None:
+    assert [idle for idle, _ in _print_reads(cli_runner, tmp_path)] == [1.0, 1.0]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("section", ["printer", "printers.lager"])
+def test_directory_idle_reaches_every_names_read_of_print(cli_runner: CliRunner, tmp_path: Path, section: str) -> None:
+    named = ["--set", f"printers.lager.uri={URI}"] if section != "printer" else []
+    printer_arg = URI if section == "printer" else "lager"
+    reads = _print_reads(
+        cli_runner, tmp_path, *named, "--set", f"{section}.directory_idle=0.4", printer_arg=printer_arg
+    )
+    assert [idle for idle, _ in reads] == [0.4, 0.4]
+
+
+@pytest.mark.os_agnostic
+def test_the_print_names_reads_keep_their_wait_bound_whatever_directory_read_limit_says(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    """A names read ends within stored_names_wait plus the silence; directory_read_limit bounds memory only."""
+    reads = _print_reads(
+        cli_runner, tmp_path, "--set", "printer.directory_read_limit=250", "--set", "printer.stored_names_wait=7"
+    )
+    assert all(total <= 7.0 + 1.0 for _, total in reads), reads
+
+
+@pytest.mark.os_agnostic
+def test_memory_reads_with_the_defaults_end_on_one_second_and_are_bounded_by_120_s(cli_runner: CliRunner) -> None:
+    assert _memory_reads(cli_runner, "memory") == [(1.0, 120.0)] * 3
+
+
+@pytest.mark.os_agnostic
+def test_memory_takes_directory_idle_and_directory_read_limit_for_every_kind(cli_runner: CliRunner) -> None:
+    keys = ["--set", "printer.directory_idle=0.4", "--set", "printer.directory_read_limit=250"]
+    assert _memory_reads(cli_runner, *keys, "memory") == [(0.4, 250.0)] * 3
+
+
+@pytest.mark.os_agnostic
+def test_memory_idle_on_the_command_line_wins_over_directory_idle(cli_runner: CliRunner) -> None:
+    keys = ["--set", "printer.directory_idle=0.4", "--set", "printer.directory_read_limit=250"]
+    assert _memory_reads(cli_runner, *keys, "memory", "--idle", "0.7") == [(0.7, 250.0)] * 3
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("key", ["directory_idle", "directory_read_limit"])
+@pytest.mark.parametrize(
+    ("value", "reason"),
+    [(0, "greater than 0"), (-1, "greater than 0"), (MAX_TIMEOUT_SECONDS + 1, "less than or equal to 2147483")],
+)
+def test_a_directory_key_out_of_range_is_refused_naming_it(key: str, value: float, reason: str) -> None:
+    with pytest.raises(ConfigurationError, match=rf"^printer\.{key}: Input should be {reason}"):
+        _settings({"printer": {key: value}})
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("key", ["directory_idle", "directory_read_limit"])
+def test_a_directory_key_refuses_a_boolean(key: str) -> None:
+    with pytest.raises(ConfigurationError, match=rf"^printer\.{key}: needs a number, got true"):
+        _settings({"printer": {key: True}})

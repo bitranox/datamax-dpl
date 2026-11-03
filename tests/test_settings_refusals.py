@@ -112,6 +112,8 @@ PRINTER_NUMBERS = [
     "status_wait",
     "status_retry_interval",
     "stored_names_wait",
+    "directory_idle",
+    "directory_read_limit",
     "reset_check_wait",
     "upload_check_rounds",
     "max_batch_records",

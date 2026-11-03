@@ -324,8 +324,9 @@ is the module's free space, not a per-kind count. The three answers are kept byt
 `tests/fixtures/memory_allegro2_*.txt`.
 
 The answer has no terminator and no fixed length: it ends when the printer stops sending, so it is
-read until a pause (1 s by default, `--idle`; the Allegro 2 above answered completely with it).
-XON and XOFF alone do not start that clock. The whole answer may take 120 s, sized for a 64 KiB
+read until a pause (1 s by default, `[printer] directory_idle` or `--idle`; the Allegro 2 above answered
+completely with it).
+XON and XOFF alone do not start that clock. The whole answer may take 120 s (`[printer] directory_read_limit`), sized for a 64 KiB
 listing on a 9600 baud serial line; an answer still running then is a timeout, and one past 1 MiB
 is refused. The manual does not bound how many names a module lists.
 

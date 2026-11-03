@@ -275,7 +275,7 @@ bytes/s), so with a timeout well above that it fires only when the printer stops
 however long the whole job takes.
 
 Before each label no clear precedes, `print` may spend up to `[printer] stored_names_wait` seconds
-(30), plus the 1 s of silence that ends the printer's answer, reading the printer's stored image
+(30), plus the 1 s of silence that ends the printer's answer (`directory_idle`), reading the printer's stored image
 names; a `--data` batch of more than one such label needs a tcp or serial printer
 (`batch_image_names_unread`), unless the clear after each label (`[printer] clear_graphics_after`)
 reaches the module. On a two-way link `print` sends a label's image downloads first and its format

@@ -1099,6 +1099,12 @@ def unkept_of(render: RecordRender) -> Mapping[FindingCode, int]:
     return render.unkept_counts if isinstance(render, _SpooledRender) else NO_UNKEPT
 
 
+#: Seconds of silence that end a ``<STX>W`` directory answer, which has no terminator. A printer
+#: sends the listing in one go, so a pause this long means it is done; a serial line at 9600 baud
+#: moves about a thousand bytes in that time. Default of ``[printer] directory_idle``.
+DIRECTORY_IDLE_SECONDS = 1.0
+
+
 #: Why the stored names are unknown on a channel that cannot read the printer's answer.
 ONE_WAY_LINK = "the link to the printer is one-way"
 
@@ -1124,6 +1130,7 @@ def read_stored_names(
     module: ImageModule,
     endpoint: PrinterEndpoint,
     wait: AnswerWait | None = None,
+    idle: float = DIRECTORY_IDLE_SECONDS,
 ) -> StoredNamesRead:
     """Read the image names the printer holds in ``module`` (``<STX>W``), asking on ``printer`` first.
 
@@ -1141,8 +1148,9 @@ def read_stored_names(
             request.
         wait: How long to keep trying for the answer, as ``memory`` does, and by when its last
             byte must have arrived: an answer still coming when the wait ends counts as no
-            answer. The silence that ends the answer (:data:`DIRECTORY_IDLE_SECONDS`) comes on
-            top. None waits ``endpoint.timeout``.
+            answer. The silence that ends the answer (``idle``) comes on top. None waits
+            ``endpoint.timeout``.
+        idle: Seconds of silence that end the answer (``[printer] directory_idle``).
 
     Returns:
         The channel that answered and what it says ``module`` holds (see :class:`StoredNamesRead`).
@@ -1151,7 +1159,7 @@ def read_stored_names(
         asked = _ask_directories(
             kinds=(MemoryKind.GRAPHIC,),
             endpoint=endpoint if printer is None else _open_channel_first(printer, endpoint),
-            idle=DIRECTORY_IDLE_SECONDS,
+            idle=idle,
             wait=wait,
             answer_within_wait=True,
         )
@@ -1544,18 +1552,13 @@ def _ask_or_close(ask: Callable[[PrinterTransport, float], _T], printer: Printer
         raise
 
 
-#: Seconds of silence that end a ``<STX>W`` directory answer, which has no terminator. A printer
-#: sends the listing in one go, so a pause this long means it is done; a serial line at 9600 baud
-#: moves about a thousand bytes in that time.
-DIRECTORY_IDLE_SECONDS = 1.0
-
-
 def read_memory_directory(
     *,
     kinds: Sequence[MemoryKind],
     endpoint: PrinterEndpoint,
     idle: float = DIRECTORY_IDLE_SECONDS,
     wait: AnswerWait | None = None,
+    read_limit: float = MAX_ANSWER_SECONDS,
 ) -> tuple[MemoryDirectory, ...]:
     """Ask the printer for the memory module directory of each kind (``<STX>W``), in order.
 
@@ -1570,9 +1573,10 @@ def read_memory_directory(
             first byte of every answer after the first.
         idle: Seconds of silence that end an answer.
         wait: How long to keep trying for the first answer; None waits ``endpoint.timeout``
-            seconds in all.
-            An answer that began in time has the transport's own bound
-            (:data:`~datamax_dpl.domain.timing.MAX_ANSWER_SECONDS`).
+            seconds in all. An answer that began in time is bounded by ``read_limit``.
+        read_limit: Longest one answer may take from its request to the silence that ends it,
+            for every kind (``[printer] directory_read_limit``, default
+            :data:`~datamax_dpl.domain.timing.MAX_ANSWER_SECONDS`).
 
     Returns:
         One directory per kind, in the order of ``kinds``; none, and nothing opened, for no kinds.
@@ -1582,9 +1586,10 @@ def read_memory_directory(
         PrinterTimeoutError: The printer sent nothing in time, or its answer did not end.
         PrinterProtocolError: The answer ran past the transport's size bound.
         TransportError: The printer could not be reached.
-        ValueError: ``idle`` is not a usable number of seconds; nothing was opened.
+        ValueError: ``idle`` or ``read_limit`` is not a usable number of seconds; nothing was opened.
     """
     check_timeout(idle, name=TimeoutName.IDLE)
+    check_timeout(read_limit, name=TimeoutName.TOTAL)
     if not kinds:
         return ()
     asked = _ask_directories(
@@ -1593,6 +1598,7 @@ def read_memory_directory(
         idle=idle,
         wait=wait,
         answer_within_wait=False,
+        read_limit=read_limit,
     )
     asked.channel.close()
     return asked.answer
@@ -1605,11 +1611,13 @@ def _ask_directories(
     idle: float,
     wait: AnswerWait | None,
     answer_within_wait: bool,
+    read_limit: float = MAX_ANSWER_SECONDS,
 ) -> _Answered[tuple[MemoryDirectory, ...]]:
     """Ask for each directory of ``kinds`` (at least one) as :func:`read_memory_directory` does.
 
     ``answer_within_wait`` True makes the first answer's last byte arrive within ``wait`` too, so
-    the wait bounds the read up to the ``idle`` silence that ends it.
+    the wait bounds the read up to the ``idle`` silence that ends it; False bounds each answer by
+    ``read_limit``.
 
     Returns the channel that answered, still open, and the directories. A failure closes every
     channel it opened and raises as :func:`read_memory_directory` does.
@@ -1622,7 +1630,7 @@ def _ask_directories(
             idle=idle,
             # The wait bounds the answer's last byte: the silence that ends it comes on top, so a
             # wait no longer than that silence still reads a printer that answers at once.
-            total=left + idle if answer_within_wait else MAX_ANSWER_SECONDS,
+            total=left + idle if answer_within_wait else read_limit,
         ),
         endpoint=endpoint,
         wait=AnswerWait(seconds=endpoint.timeout) if wait is None else wait,
@@ -1630,7 +1638,8 @@ def _ask_directories(
     printer = answered.channel
     try:
         answers = [answered.answer] + [
-            printer.read_answer(MEMORY_DIRECTORY_REQUESTS[kind], timeout=endpoint.timeout, idle=idle) for kind in rest
+            printer.read_answer(MEMORY_DIRECTORY_REQUESTS[kind], timeout=endpoint.timeout, idle=idle, total=read_limit)
+            for kind in rest
         ]
     except BaseException:
         printer.close()

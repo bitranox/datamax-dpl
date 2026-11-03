@@ -89,6 +89,7 @@ from ..domain.reset_label import (
 )
 from ..domain.timing import TimeoutName, check_timeout
 from .use_cases import (
+    DIRECTORY_IDLE_SECONDS,
     NO_UNKEPT,
     AnswerWait,
     BatchReport,
@@ -141,10 +142,12 @@ class UploadCheck(NamedTuple):
             one-way link, so an image the printer lost prints as nothing (one Allegro 2,
             2026-11-01). The names read before downloads no clear precedes still runs: it keeps
             a held name from being downloaded again, which printed nothing (2026-10-30).
+        idle: Seconds of silence that end each directory answer (``directory_idle``).
     """
 
     wait: AnswerWait
     rounds: int = UPLOAD_CHECK_ROUNDS
+    idle: float = DIRECTORY_IDLE_SECONDS
 
 
 @dataclass(frozen=True)
@@ -317,10 +320,13 @@ class Link:
             self._hold_opened(self.printer)
         return self.printer
 
-    def read(self, module: ImageModule, *, wait: AnswerWait) -> HeldImages:
-        """Read what ``module`` holds on the open channel; keep the channel that answered."""
+    def read(self, module: ImageModule, *, wait: AnswerWait, idle: float = DIRECTORY_IDLE_SECONDS) -> HeldImages:
+        """Read what ``module`` holds on the open channel, the answer ending on ``idle`` seconds of silence.
+
+        Keeps the channel that answered.
+        """
         before = self.printer
-        read = read_stored_names(self.printer, module=module, endpoint=self.endpoint, wait=wait)
+        read = read_stored_names(self.printer, module=module, endpoint=self.endpoint, wait=wait, idle=idle)
         self.printer = read.channel
         if self.printer is not None and self.printer is not before:
             self._hold_opened(self.printer)
@@ -425,7 +431,7 @@ class _Record:
         """
         if not self.result.names_unread:
             return None
-        listed = self.link.read(self._module(), wait=self.check.wait)
+        listed = self.link.read(self._module(), wait=self.check.wait, idle=self.check.idle)
         if listed.listed is not None:
             return self._read_answered(listed.listed, when="from the names read before its downloads")
         self._unread_because = listed.unread_because
@@ -482,7 +488,7 @@ class _Record:
         if self.check.rounds < 1:
             # No round: nothing reads the upload back, so nothing can be missing.
             return ()
-        listed = self.link.read(module, wait=self.check.wait)
+        listed = self.link.read(module, wait=self.check.wait, idle=self.check.idle)
         if listed.listed is None:
             self._unsure |= frozenset(self.result.downloads)
             self._unread_because = listed.unread_because
@@ -566,7 +572,7 @@ class _Record:
             return again
         read_again = ""
         if twice := self._downloaded_again(self.result if again is None else again):
-            listed = self.link.read(self._module(), wait=self.check.wait)
+            listed = self.link.read(self._module(), wait=self.check.wait, idle=self.check.idle)
             if listed.listed is None:
                 skipped = _Skipped(
                     f"round 2 skipped, it would download again {self._unread(twice)}; the names read again got no "
@@ -1069,6 +1075,7 @@ def _refuse_bad_check(check: UploadCheck) -> None:
     """
     check_timeout(check.wait.seconds, name=TimeoutName.WAIT)
     check_timeout(check.wait.retry_interval, name=TimeoutName.RETRY_INTERVAL)
+    check_timeout(check.idle, name=TimeoutName.IDLE)
     if not MIN_UPLOAD_CHECK_ROUNDS <= check.rounds <= MAX_UPLOAD_CHECK_ROUNDS:
         msg = f"rounds must be {MIN_UPLOAD_CHECK_ROUNDS} to {MAX_UPLOAD_CHECK_ROUNDS}, got {check.rounds}"
         raise ValueError(msg)
