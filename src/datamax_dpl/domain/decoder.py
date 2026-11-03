@@ -63,6 +63,10 @@ _SYSTEM_NAMES = {
     "f": "stop position (backfeed)",
     "M": "maximum label length",
     "O": "start of print position",
+    "S": "feed rate",
+    "V": "software switches",
+    "q": "clear memory module",
+    "R": "ribbon saver",
     "E": "quantity for stored label",
     "G": "print last format",
     "v": "firmware version request",
@@ -214,8 +218,11 @@ def _system(data: bytes, pos: int, state: _State) -> int:
         end = _until_cr(data, pos)
         _add(state, CommandKind.SYSTEM, data[pos:end], "extended command")
         return end
-    end = _remove_image_end(data, pos) if letter == "R" else None
-    end = end or pos + 2 + _SYSTEM_WIDTHS.get(letter, 0)
+    removed = _remove_image_end(data, pos) if letter == "R" else None
+    if removed is not None:
+        _add(state, CommandKind.SYSTEM, data[pos:removed], "remove stored image")
+        return removed
+    end = pos + 2 + _SYSTEM_WIDTHS.get(letter, 0)
     _add(state, CommandKind.SYSTEM, data[pos:end], _SYSTEM_NAMES.get(letter, f"system command {letter}"))
     if letter == "m":
         state.metric = True

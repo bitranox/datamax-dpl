@@ -7,7 +7,7 @@ import string
 import pytest
 
 from datamax_dpl.domain.decoder import MAX_EXPLAINED_COMMANDS, explain, readable
-from datamax_dpl.domain.enums import CommandKind, Rotation, SpeedCode, Unit
+from datamax_dpl.domain.enums import CommandKind, ImageModule, Rotation, SpeedCode, Unit
 from datamax_dpl.domain.label import Barcode, Box, Circle, Counter, Cut, Image, Label, Line, Point, Polygon, Text
 from datamax_dpl.domain.render import render
 from datamax_dpl.domain.render_context import RenderOptions
@@ -299,3 +299,52 @@ def test_a_label_before_a_stream_past_the_limit_is_not_rebuilt() -> None:
     assert [problem for problem in result.problems if "not explained" in problem] == [
         f"{MAX_EXPLAINED_COMMANDS} commands, the rest not explained"
     ]
+
+
+# ======================== Every command a job's preamble and trailer send ========================
+
+#: The persistent settings and the clears a job sends around its format, one per system command
+#: letter, each with the meaning explain gives it.
+_PREAMBLE_MEANINGS = {
+    b"\x02n": "inch mode",
+    b"\x02c0000": "continuous label length",
+    b"\x02e": "gap sensor",
+    b"\x02r": "reflective sensor",
+    b"\x02f263": "stop position (backfeed)",
+    b"\x02Kf0100": "present distance",
+    b"\x02O0220": "start of print position",
+    b"\x02M1200": "maximum label length",
+    b"\x02SC": "feed rate",
+    b"\x02V5": "software switches",
+    b"\x02qA": "clear memory module",
+    b"\x02RDtLbYG5m\r": "remove stored image",
+    b"\x02RY": "ribbon saver",
+}
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("command", "meaning"), list(_PREAMBLE_MEANINGS.items()), ids=repr)
+def test_each_command_a_job_sends_around_its_format_is_explained_by_name(command: bytes, meaning: str) -> None:
+    [decoded] = explain(command).commands
+    assert decoded.kind is CommandKind.SYSTEM
+    assert decoded.meaning == meaning
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "options",
+    [
+        RenderOptions(model="allegro-2", cutter_installed=True),
+        RenderOptions(model="dmx-600", cutter_installed=True, label_present=True),
+        RenderOptions(model="prodigy", image_module=ImageModule.A),
+        RenderOptions(model="pe42", cutter_installed=False, label_present=False),
+    ],
+    ids=lambda options: options.model,
+)
+def test_no_command_of_a_rendered_job_is_explained_as_a_bare_letter(options: RenderOptions) -> None:
+    label = Label(elements=[Image(x=1, y=1, name="LOGO", bitmap=["#.", ".#"]), Text(x=5, y=5, text="Hi")])
+    job = render(label, options)
+    explained = explain(job.data)
+    bare = [c for c in explained.commands if c.meaning.startswith("system command") or c.kind is CommandKind.UNKNOWN]
+    assert bare == []
+    assert explained.problems == ()
