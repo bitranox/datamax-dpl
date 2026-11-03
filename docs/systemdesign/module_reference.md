@@ -3,13 +3,13 @@
 ## Status
 
 Describes the modules as they are in the source tree. Update it with every change that adds,
-moves or removes a module. Hardware behaviour is unverified: no real printer or camera has been
-attached yet.
+moves or removes a module. Hardware behaviour is checked on one Allegro 2 only: no other model
+and no camera has been attached.
 
 ## Links & References
 
 **Repository:** https://github.com/bitranox/datamax-dpl
-**PyPI:** https://pypi.org/project/datamax-dpl/ (not published yet)
+**PyPI:** https://pypi.org/project/datamax-dpl/
 **Documentation:** README.md, INSTALL.md, CONFIG.md, DEVELOPMENT.md, CONTRIBUTING.md,
 docs/label-spec.md, docs/capabilities.md, docs/dpl-reference.md
 
@@ -128,6 +128,7 @@ turn the outcome into output and an exit code.
 - `cli/commands/info.py` - info.
 - `cli/label_io.py` - reading labels and data records from files or stdin.
 - `cli/job_file.py` - writing a batch's job to a file as it is rendered, replacing the target only when every record passed.
+- `cli/job_spool.py` - keeping a batch's records on disk as the check pass rendered them, so the send reads them back instead of rendering again (`FileJobSpool`, a `JobSpool`).
 - `cli/interrupt.py` - noting a Ctrl-C before it is raised, so a pass over the records finds one a C extension swallowed.
 - `cli/gone_reader.py` - telling a reader of the output that went away from a failure that needs saying.
 - `cli/settings.py` - `[printer]` and `[camera]` settings with command-line overrides.
@@ -147,6 +148,7 @@ turn the outcome into output and an exit code.
 - `config/user_edit.py` - writes a printer's values into the user layer (`calibrate set`).
 - `config/defaultconfig.toml`, `config/defaultconfig.d/*.toml` - bundled defaults (`50-printer`, `60-camera`, `90-logging` ...).
 - `logging/setup.py` - lib_log_rich initialisation.
+- `error_text.py` - an exception's message as a user reads it, for every adapter that quotes one in its own message.
 - `memory/printer.py` (`RecordingPrinter`), `memory/camera.py` (`FakeCamera`), `memory/config.py`, `memory/logging.py` - in-memory doubles.
 
 ### Composition and entry points
@@ -154,7 +156,7 @@ turn the outcome into output and an exit code.
 - `composition/__init__.py` - `build_production()` and `build_testing()`.
 - `entry.py` - console script `datamax-dpl`.
 - `__main__.py` - `python -m datamax_dpl`.
-- `__init__.py` - package exports (`get_config`, `print_info`).
+- `__init__.py` - the package's public API (`datamax_dpl.__all__`, see Known Limitations).
 - `__init__conf__.py` - static package metadata.
 
 ### Outside the package
@@ -181,5 +183,6 @@ sockets on 127.0.0.1 and pseudo-terminals. Doctests in the modules run with the 
   sent as images.
 - Only an Allegro 2 has been checked on a real printer; no camera has been attached yet.
 - The package root exports the label model and its enums, `render`, `build_job`, `render_batch`,
-  `iter_batch`, `check_batch`, `fill_label`, `open_printer`, `explain`, the profiles and the preview (`datamax_dpl.__all__`);
+  `iter_batch`, `check_batch`, `record_renders`, `fill_label`, `open_printer`, `print_checked`,
+  `explain`, the profiles, the calibration labels, the preview and the errors (`datamax_dpl.__all__`);
   anything else is reached through module paths (`datamax_dpl.domain.render` and so on).

@@ -268,19 +268,19 @@ Fill patterns (for `box`, `circle` and `polygon`): 0 none, 1 solid, 2 6 %, 3 12 
 
 ### `barcode`
 
-| Key              | Type                 | Default | Meaning                                                                                |
-|------------------|----------------------|---------|----------------------------------------------------------------------------------------|
-| `x`, `y`         | number >= 0          | -       | Lower-left corner.                                                                     |
-| `rotation`       | 0, 90, 180, 270      | 0       | Rotation in degrees.                                                                   |
-| `symbology`      | name, see below      | -       | Barcode type.                                                                          |
-| `data`           | string, 1-3000 chars | -       | The data; may contain `{name}` placeholders. At most 255 characters except for PDF417. |
-| `height`         | number > 0           | none    | Bar height; none uses the printer's default.                                           |
-| `narrow_dots`    | integer 0-24         | 0       | Narrow bar width in dots; for module codes (Code 128, EAN, UPC, 2-D) the module width. |
-| `wide_dots`      | integer 0-24         | 0       | Wide bar width in dots for ratio codes; ignored for module codes.                      |
-| `human_readable` | boolean              | true    | Print the text line under the bars where the symbology has one.                        |
-| `pdf417`         | object               | none    | PDF417 parameters, see below.                                                          |
-| `datamatrix`     | object               | none    | DataMatrix parameters, see below.                                                      |
-| `counter`        | object               | none    | Count the data from label to label, as for `text`.                                     |
+| Key              | Type                 | Default | Meaning                                                                                                                                                                         |
+|------------------|----------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `x`, `y`         | number >= 0          | -       | Lower-left corner.                                                                                                                                                              |
+| `rotation`       | 0, 90, 180, 270      | 0       | Rotation in degrees.                                                                                                                                                            |
+| `symbology`      | name, see below      | -       | Barcode type.                                                                                                                                                                   |
+| `data`           | string, 1-3000 chars | -       | The data; may contain `{name}` placeholders. At most 255 characters, 3000 for PDF417; for PDF417 and DataMatrix the record's parameter header (8 and 10 characters) counts too. |
+| `height`         | number > 0           | none    | Bar height; none uses the printer's default.                                                                                                                                    |
+| `narrow_dots`    | integer 0-24         | 0       | Narrow bar width in dots; for module codes (Code 128, EAN, UPC, 2-D) the module width.                                                                                          |
+| `wide_dots`      | integer 0-24         | 0       | Wide bar width in dots for ratio codes; ignored for module codes.                                                                                                               |
+| `human_readable` | boolean              | true    | Print the text line under the bars where the symbology has one.                                                                                                                 |
+| `pdf417`         | object               | none    | PDF417 parameters, see below.                                                                                                                                                   |
+| `datamatrix`     | object               | none    | DataMatrix parameters, see below.                                                                                                                                               |
+| `counter`        | object               | none    | Count the data from label to label, as for `text`.                                                                                                                              |
 
 `narrow_dots` and `wide_dots` both 0 ask for the printer's default bar widths. Models without
 default widths get narrow 2 dots and ratio 3:1 instead. Data is checked before anything is sent:
@@ -289,32 +289,32 @@ the info finding `check_digit_added` names it. Every symbology refuses `<SOH>` (
 (0x02), `<ESC>` (0x1B) and `<CR>` in its data, whatever its character set says: the printer would
 read them as commands or as the end of the record, so binary data holding them is not supported.
 
-| `symbology`                | Data                                                  |
-|----------------------------|-------------------------------------------------------|
-| `code39`                   | 0-9 A-Z space - . $ / + % *                           |
-| `upc_a`                    | 11 digits, or 12 with check digit                     |
-| `upc_e`                    | 6 digits, or 7 with check digit                       |
-| `i2of5`                    | digits                                                |
-| `code128`                  | ASCII 32-127, optional subset prefix, `&` escapes     |
-| `ean13`                    | 12 digits, or 13 with check digit                     |
-| `ean8`                     | 7 digits, or 8 with check digit                       |
-| `hibc`                     | Code 39 characters, leading `+` from the host         |
-| `codabar`                  | 0-9 - $ : / . + with start/stop A-D                   |
-| `i2of5_mod10`              | digits                                                |
-| `plessey`                  | 1-14 digits                                           |
-| `i2of5_bearer`             | 13 digits                                             |
-| `addon2`                   | 2 digits                                              |
-| `addon5`                   | 5 digits                                              |
-| `code93`                   | 0-9 A-Z - . $ / + % space                             |
-| `postnet`                  | 5, 9 or 11 digits; no text line                       |
-| `ucc_ean128`               | 19 digits                                             |
-| `ucc_ean128_kmart`         | 18 digits                                             |
-| `ucc_ean128_random_weight` | 34 or more digits                                     |
-| `telepen`                  | ASCII 0-127                                           |
-| `maxicode`                 | ASCII 0-127, up to 84 characters                      |
-| `fim`                      | one of A B C D                                        |
-| `pdf417`                   | 8-bit characters, up to 3000                          |
-| `datamatrix`               | 8-bit characters; needs the DataMatrix printer option |
+| `symbology`                | Data                                                                                                                       |
+|----------------------------|----------------------------------------------------------------------------------------------------------------------------|
+| `code39`                   | 0-9 A-Z space - . $ / + % *                                                                                                |
+| `upc_a`                    | 11 digits, or 12 with check digit; a `V` in place of the digit at position 6 or 7 asks the printer for a price check digit |
+| `upc_e`                    | 6 digits, or 7 with check digit                                                                                            |
+| `i2of5`                    | digits                                                                                                                     |
+| `code128`                  | ASCII 32-127, optional subset prefix, `&` escapes                                                                          |
+| `ean13`                    | 12 digits, or 13 with check digit; a `V` in place of the digit at position 7 or 8 asks the printer for a price check digit |
+| `ean8`                     | 7 digits, or 8 with check digit                                                                                            |
+| `hibc`                     | Code 39 characters, leading `+` from the host                                                                              |
+| `codabar`                  | 0-9 - $ : / . + with start/stop A-D                                                                                        |
+| `i2of5_mod10`              | digits                                                                                                                     |
+| `plessey`                  | 1-14 digits                                                                                                                |
+| `i2of5_bearer`             | 13 digits                                                                                                                  |
+| `addon2`                   | 2 digits                                                                                                                   |
+| `addon5`                   | 5 digits                                                                                                                   |
+| `code93`                   | 0-9 A-Z - . $ / + % space                                                                                                  |
+| `postnet`                  | 5, 9 or 11 digits; no text line                                                                                            |
+| `ucc_ean128`               | 19 digits                                                                                                                  |
+| `ucc_ean128_kmart`         | 18 digits                                                                                                                  |
+| `ucc_ean128_random_weight` | 34 or more digits                                                                                                          |
+| `telepen`                  | ASCII 0-127                                                                                                                |
+| `maxicode`                 | ASCII 0-127, up to 84 characters                                                                                           |
+| `fim`                      | one of A B C D                                                                                                             |
+| `pdf417`                   | 8-bit characters, up to 2992 (3000 less the 8-character parameter header)                                                  |
+| `datamatrix`               | 8-bit characters, up to 245 (255 less the 10-character parameter header); needs the DataMatrix printer option              |
 
 The rules come from [dpl-reference.md](dpl-reference.md), section 7. For MaxiCode, datamax-dpl
 checks only the character set and the length; the structured message the printer expects is

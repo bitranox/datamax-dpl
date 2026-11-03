@@ -102,9 +102,10 @@ whose slew range ends at K is clamped by the range.
 ```
 [system commands]          e.g. <STX>m, <STX>V, <STX>Kf0100, <STX>f230
 <STX>L<CR>                 enter label formatting
+m<CR> / n<CR>              metric or inch units, first, on a model that has the choice
 Dwh<CR>                    dot size (D11, D22 ...); sent as D11 when the label sets none
                            and the model's default is D22
-Hnn<CR> Pa<CR> Sa<CR> pa<CR> Cnnnn<CR> Rnnnn<CR> An<CR> M<CR> m<CR> ySxx<CR> :nnnn<CR> / cnn<CR> z<CR>
+Hnn<CR> Pa<CR> Sa<CR> pa<CR> Cnnnn<CR> Rnnnn<CR> An<CR> M<CR> ySxx<CR> :nnnn<CR> / cnn<CR> z<CR> ^nn<CR>
 <records>...               one per line, each ending in <CR>
 Qnnnn<CR>                  quantity
 E<CR>                      end and print   (X: end without printing, s<mod><name>: store)
@@ -129,7 +130,7 @@ format, so a job that must end cut sends `<STX>o` after `E`.
 | eee   | 3     | `000` for fonts 0-8, X, Y; barcode height 001-999 (in/100 or mm/10, `000` default); font 9 size id                              |
 | ffff  | 4     | row 0000-9999, measured upward from the bottom of the label                                                                     |
 | gggg  | 4     | column 0000-max column, measured from the left edge                                                                             |
-| data  | -     | up to 255 characters (PDF417 up to 3000), ends with `<CR>`                                                                      |
+| data  | -     | up to 255 characters (PDF417 up to 3000), a 2-D code's parameter header included, ends with `<CR>`                              |
 
 Scalable font records add `hhhh iiii` after the column: height and width as `P004`-`P999` points
 or `0016`-`4163` dots, and `eee` is `S00`-`Szz` (binary data) or `s00`-`szz` (hex data); `S00` is
@@ -182,10 +183,10 @@ share a name only on a hash collision,
 about 1 in 62**7 (3.5e12, about 2**42) per pair. On a module no clear ever empties, where a job
 finds a name the printer lists and places it without downloading, the chance that any two of 10000
 different images ever sent there share a name is about 0.0014% (computed, k**2 / (2 * 62**7)), and
-such a pair prints the earlier picture. A name a job of 0.4.0 left on such a module (`D` and 7 hex
-digits for a drawn image, the element's own `name` for one with a `bitmap`) is not the name this
-version gives that image, so it is downloaded once more under its new name: it costs module memory,
-never a wrong picture. On a nearly full module that is never cleared that download can be lost with
+such a pair prints the earlier picture. A name an earlier release left on such a module (`D` and 7 hex
+digits for a drawn image, the element's own `name` for one with a `bitmap`) is not the content name
+a job gives that image, so it is downloaded once more under its content name: it costs module
+memory, never a wrong picture. On a nearly full module that is never cleared that download can be lost with
 no error, and the label then prints without that image (one Allegro 2, 2026-10-31); on a two-way
 link the upload check of `print` and `verify` catches that before the format goes out: where a clear
 may go it clears and uploads again, where none may go it uploads only the images the directory did
@@ -217,9 +218,11 @@ repeat record; its decoder still reads them.
 | 8    | OCR-B digits and a few symbols  | 28/15/5                        | 41/22/7    | 40/22/7       |
 | 9    | CG Triumvirate, size from `eee` | proportional                   |            |               |
 
-Character codes above 127 follow code page 437 for fonts 1, 2 and 9 (ä 132, ö 148, ü 129,
-Ä 142, Ö 153, Ü 154, ß 225); fonts 3-6 have upper case Ä Ö Ü and ß only. Scalable fonts use the
-symbol set chosen with `ySxx` (for example `PM` code page 850, `W1` Windows Latin 1, `E1` ISO 8859-1).
+Character codes above 127 follow code page 437 for fonts 1, 2 and 9 (ä 132, ö 148, ü 129, Ä 142, Ö
+153, Ü 154, ß 225); fonts 3-6 print capitals only, so a lower-case letter prints as its capital (an
+umlaut too), and above 127 they have codes 128, 142-144, 146, 153, 154, 156, 157, 165, 168 and 225,
+Ä Ö Ü and ß among them. Scalable fonts use the symbol set chosen with `ySxx` (for example `PM` code
+page 850, `W1` Windows Latin 1, `E1` ISO 8859-1).
 
 ## 7. Barcodes
 

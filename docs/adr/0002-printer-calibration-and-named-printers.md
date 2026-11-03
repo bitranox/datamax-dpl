@@ -26,7 +26,8 @@ its own label size. The configuration had a single `[printer]` section.
    starts with `tcp://`, `serial://`, `device://` or `file:`, so a name may contain neither
    `:` nor be `-`.
 2. **Scale factors.** `scale_across` and `scale_along` are printed length divided by nominal
-   length (1.0 by default; 0.977 along the feed on the measured Allegro 2). They reach the
+   length (1.0 by default; the measured Allegro 2 printed 0.977 of nominal along the feed
+   before calibration, and its model default after calibration is 0.976). They reach the
    renderer through `RenderOptions` and are applied where lengths become dots, so positions,
    line and box lengths, and shapes the library rasterises itself are corrected. Anything sized
    in dots (a user bitmap, a bitmap font) is not.
