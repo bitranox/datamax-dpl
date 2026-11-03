@@ -34,6 +34,15 @@ SEND_CHUNK_BYTES = 1024
 #: With pieces of at most 64 KiB a printer that stops reading fills the buffer, and a later piece
 #: times out.
 MAX_SEND_CHUNK_BYTES = 65536
+#: Default of ``[printer] refused_connect_wait``: longest one opening of a TCP connection retries a
+#: refused connect. A print server that just closed a job's connection refuses the next one for a
+#: moment (about 1-2 s measured on a SerComm PS301), so a status query sent right after a print would
+#: otherwise fail although nothing is wrong. Other connect errors (unknown host, unreachable,
+#: timeout) are not retried.
+REFUSED_CONNECT_WAIT_SECONDS = 3.0
+#: Default of ``[printer] refused_connect_retry_interval``: the pause before a refused connect is
+#: tried again within that window.
+REFUSED_CONNECT_RETRY_INTERVAL_SECONDS = 0.25
 
 
 class TransportTuning(BaseModel, frozen=True, extra="forbid"):
@@ -42,6 +51,9 @@ class TransportTuning(BaseModel, frozen=True, extra="forbid"):
     Attributes:
         send_chunk_bytes: Largest piece of a job one write call takes, at most
             :data:`MAX_SEND_CHUNK_BYTES`; the write timeout bounds each piece.
+        refused_connect_wait: Longest a TCP opening retries a refused connect, never longer
+            than its timeout.
+        refused_connect_retry_interval: Pause before a refused connect is tried again.
 
     Example:
         >>> TransportTuning().send_chunk_bytes
@@ -49,6 +61,10 @@ class TransportTuning(BaseModel, frozen=True, extra="forbid"):
     """
 
     send_chunk_bytes: int = Field(default=SEND_CHUNK_BYTES, gt=0, le=MAX_SEND_CHUNK_BYTES)
+    refused_connect_wait: float = Field(default=REFUSED_CONNECT_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
+    refused_connect_retry_interval: float = Field(
+        default=REFUSED_CONNECT_RETRY_INTERVAL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS
+    )
 
 
 #: The tuning a transport uses when it is given none.
@@ -108,6 +124,8 @@ __all__ = [
     "MAX_ANSWER_SECONDS",
     "MAX_SEND_CHUNK_BYTES",
     "MAX_TIMEOUT_SECONDS",
+    "REFUSED_CONNECT_RETRY_INTERVAL_SECONDS",
+    "REFUSED_CONNECT_WAIT_SECONDS",
     "SEND_CHUNK_BYTES",
     "TimeoutName",
     "TransportTuning",

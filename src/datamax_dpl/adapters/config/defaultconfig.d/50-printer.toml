@@ -87,7 +87,9 @@ timeout = 10.0
 # status_wait = 30.0
 
 # Purpose: Seconds 'status' and 'memory' pause between two connections within
-#          status_wait, and 'print' and 'verify' within stored_names_wait.
+#          status_wait, and 'print' and 'verify' within stored_names_wait. A
+#          refused connect within one connection's opening is retried by
+#          refused_connect_wait and refused_connect_retry_interval instead.
 # Type: float, greater than 0, at most 2147483
 # Default: 0.25
 # Environment Variable: DATAMAX_DPL___PRINTER__STATUS_RETRY_INTERVAL=0.5
@@ -203,6 +205,25 @@ timeout = 10.0
 # Default: 1024
 # Environment Variable: DATAMAX_DPL___PRINTER__SEND_CHUNK_BYTES=512
 # send_chunk_bytes = 1024
+
+# Purpose: Seconds one opening of a tcp connection keeps retrying a refused
+#          connect before it reports the refusal, never longer than timeout. A
+#          print server that just closed a job's connection refuses the next one
+#          for a moment (about 1-2 s measured on a SerComm PS301). Other connect
+#          errors (unknown host, unreachable, timeout) are not retried. A host
+#          that keeps refusing is reported after this plus one connect.
+# Type: float, greater than 0, at most 2147483
+# Default: 3.0
+# Environment Variable: DATAMAX_DPL___PRINTER__REFUSED_CONNECT_WAIT=5
+# refused_connect_wait = 3.0
+
+# Purpose: Seconds one opening of a tcp connection pauses before it tries a
+#          refused connect again within refused_connect_wait. No connect starts
+#          once the next one would fall past that wait.
+# Type: float, greater than 0, at most 2147483
+# Default: 0.25
+# Environment Variable: DATAMAX_DPL___PRINTER__REFUSED_CONNECT_RETRY_INTERVAL=0.5
+# refused_connect_retry_interval = 0.25
 
 # Purpose: Seconds between a busy answer and the next status poll while 'verify'
 #          waits for the printer to finish its job. That whole wait is

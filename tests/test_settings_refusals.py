@@ -132,6 +132,8 @@ PRINTER_NUMBERS = [
     "verify_poll_interval",
     "one_way_settle",
     "send_chunk_bytes",
+    "refused_connect_wait",
+    "refused_connect_retry_interval",
     "scale_across",
     "scale_along",
     "offset_across",

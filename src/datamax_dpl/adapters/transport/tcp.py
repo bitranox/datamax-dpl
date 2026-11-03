@@ -38,12 +38,6 @@ MAX_ANSWER_BYTES = 64 * 1024
 #: listing a 256K or 512K module can hold, while a printer streaming something endless is still
 #: cut off.
 MAX_IDLE_ANSWER_BYTES = 1024 * 1024
-#: Longest time a REFUSED connection is retried. A print server that just closed a job's
-#: connection refuses the next one for a moment (about 1-2 s measured on a SerComm PS301), so a
-#: status query sent right after a print would otherwise fail although nothing is wrong. Other
-#: connect errors (unknown host, unreachable, timeout) are not retried.
-REFUSED_RETRY_SECONDS = 3.0
-_REFUSED_RETRY_INTERVAL = 0.25
 _RECV_CHUNK = 4096
 #: Most bytes dropped before a request. An earlier answer is no longer than this, and a peer sending
 #: faster than this reads could otherwise keep the request from ever going out.
@@ -76,14 +70,16 @@ class TcpTransport(ClosingTransport):
         Args:
             uri: Host and port.
             timeout: Seconds for the connection and for every later write of one piece.
-            tuning: The piece size a job is written in.
+            tuning: The piece size a job is written in, and how a refused connect is retried.
 
         Returns:
             The connected transport.
 
-        A refused connection is retried for up to :data:`REFUSED_RETRY_SECONDS` (never longer than
-        ``timeout``) before it is reported. A refusal, a connect timeout and a reset while
-        connecting are ``unanswered``: no request went out.
+        A refused connection is retried every ``tuning.refused_connect_retry_interval`` seconds for
+        up to ``tuning.refused_connect_wait`` (never longer than ``timeout``) before it is reported.
+        A print server that just closed a job's connection refuses the next one for a moment (about
+        1-2 s measured on a SerComm PS301); other connect errors are not retried. A refusal, a
+        connect timeout and a reset while connecting are ``unanswered``: no request went out.
 
         Raises:
             PrinterTimeoutError: The connection was not made in time.
@@ -92,7 +88,7 @@ class TcpTransport(ClosingTransport):
         check_timeout(timeout)
         connects = _Connects()
         try:
-            sock = _connect_retrying_refusals(uri, timeout=timeout, connects=connects)
+            sock = _connect_retrying_refusals(uri, timeout=timeout, tuning=tuning, connects=connects)
         except OSError as exc:
             # Windows reports a refusal only after about 2 s of SYN retries, so under a short
             # timeout a refusing print server times out instead; neither took a request. A server
@@ -451,23 +447,29 @@ class _Connects:
         self.tried = 0
 
 
-def _connect_retrying_refusals(uri: TcpUri, *, timeout: float, connects: _Connects) -> socket.socket:
+def _connect_retrying_refusals(
+    uri: TcpUri, *, timeout: float, tuning: TransportTuning, connects: _Connects
+) -> socket.socket:
     """Connect, retrying a refused connection while the retry window is open; count each connect in ``connects``.
+
+    The window is ``tuning.refused_connect_wait`` (at most ``timeout``) and the pause between two
+    connects ``tuning.refused_connect_retry_interval``.
 
     No attempt starts once the window has closed: the refusal of the last attempt inside it is
     raised as is. A host that keeps refusing is therefore reported after the window plus one
     attempt, and an attempt is not instant everywhere - Windows retransmits the SYN and reports a
     refusal only after about 2 s.
     """
-    deadline = time.monotonic() + min(timeout, REFUSED_RETRY_SECONDS)
+    interval = tuning.refused_connect_retry_interval
+    deadline = time.monotonic() + min(timeout, tuning.refused_connect_wait)
     while True:
         connects.tried += 1
         try:
             return socket.create_connection((uri.host, uri.port), timeout=timeout)
         except ConnectionRefusedError:
-            if time.monotonic() + _REFUSED_RETRY_INTERVAL >= deadline:
+            if time.monotonic() + interval >= deadline:
                 raise
-        time.sleep(_REFUSED_RETRY_INTERVAL)
+        time.sleep(interval)
 
 
-__all__ = ["MAX_ANSWER_BYTES", "MAX_ANSWER_SECONDS", "MAX_IDLE_ANSWER_BYTES", "REFUSED_RETRY_SECONDS", "TcpTransport"]
+__all__ = ["MAX_ANSWER_BYTES", "MAX_ANSWER_SECONDS", "MAX_IDLE_ANSWER_BYTES", "TcpTransport"]

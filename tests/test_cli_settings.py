@@ -26,7 +26,14 @@ from datamax_dpl.domain.enums import ImageModule, PrinterStop, Severity
 from datamax_dpl.domain.errors import ConfigurationError
 from datamax_dpl.domain.raster import Bitmap
 from datamax_dpl.domain.render_context import drawn_image_name
-from datamax_dpl.domain.timing import MAX_SEND_CHUNK_BYTES, MAX_TIMEOUT_SECONDS, SEND_CHUNK_BYTES, TransportTuning
+from datamax_dpl.domain.timing import (
+    MAX_SEND_CHUNK_BYTES,
+    MAX_TIMEOUT_SECONDS,
+    REFUSED_CONNECT_RETRY_INTERVAL_SECONDS,
+    REFUSED_CONNECT_WAIT_SECONDS,
+    SEND_CHUNK_BYTES,
+    TransportTuning,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -566,6 +573,73 @@ def test_a_transport_tuning_refuses_a_piece_above_64_kib_as_the_settings_do() ->
         TransportTuning(send_chunk_bytes=MAX_SEND_CHUNK_BYTES + 1)
 
 
+_REFUSED_CONNECT_KEYS = ("refused_connect_wait", "refused_connect_retry_interval")
+
+
+@pytest.mark.os_agnostic
+def test_a_refused_connect_is_retried_every_quarter_second_for_three_seconds_by_default() -> None:
+    tuning = transport_tuning(_settings({}))
+
+    assert (tuning.refused_connect_wait, tuning.refused_connect_retry_interval) == (3.0, 0.25)
+    assert (REFUSED_CONNECT_WAIT_SECONDS, REFUSED_CONNECT_RETRY_INTERVAL_SECONDS) == (3.0, 0.25)
+
+
+@pytest.mark.os_agnostic
+def test_the_configured_refused_connect_keys_reach_the_transport_tuning() -> None:
+    config = {"printer": {"refused_connect_wait": 0.5, "refused_connect_retry_interval": 0.1}}
+
+    tuning = transport_tuning(_settings(config))
+
+    assert (tuning.refused_connect_wait, tuning.refused_connect_retry_interval) == (0.5, 0.1)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("key", _REFUSED_CONNECT_KEYS)
+def test_a_named_printers_refused_connect_key_wins_over_the_printer_section(key: str) -> None:
+    config = {"printer": {key: 1.5}, "printers": {"x": {key: 7.0}}}
+
+    assert getattr(transport_tuning(_settings(config, printer="x")), key) == 7.0
+    assert getattr(transport_tuning(_settings(config)), key) == 1.5
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("key", _REFUSED_CONNECT_KEYS)
+@pytest.mark.parametrize(
+    ("value", "reason"),
+    [(0, "greater than 0"), (-1, "greater than 0"), (MAX_TIMEOUT_SECONDS + 1, "less than or equal to 2147483")],
+)
+@pytest.mark.parametrize(("section", "printer"), [("printer", None), ("printers.x", "x")])
+def test_a_refused_connect_key_out_of_range_is_refused_with_the_key_named(
+    key: str, value: float, reason: str, section: str, printer: str | None
+) -> None:
+    config = {"printer": {key: value}} if printer is None else {"printers": {"x": {key: value}}}
+
+    with pytest.raises(ConfigurationError, match=rf"^{re.escape(section)}\.{key}: Input should be {reason}"):
+        _settings(config, printer=printer)
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printers_refused_connect_keys_reach_the_printer_opener(cli_runner: CliRunner, tmp_path: Path) -> None:
+    printer = RecordingPrinter()
+    label = tmp_path / "label.json"
+    label.write_text(json.dumps(_LINE), encoding="utf-8")
+    named = [
+        "--set",
+        "printers.lager.uri=tcp://192.0.2.60:9100",
+        "--set",
+        "printers.lager.refused_connect_wait=1.5",
+        "--set",
+        "printers.lager.refused_connect_retry_interval=0.5",
+    ]
+
+    result = cli_runner.invoke(
+        cli_mod.cli, [*named, "print", str(label), "--printer", "lager"], obj=lambda: build_testing(printer=printer)
+    )
+
+    assert result.exit_code == 0, result.output
+    assert [(t.refused_connect_wait, t.refused_connect_retry_interval) for t in printer.tunings] == [(1.5, 0.5)]
+
+
 #: Keys the shipped file documents with their default and leaves commented out, so a later layer's
 #: change of the default reaches every installation that never set them.
 _COMMENTED_OUT_DEFAULTS = (
@@ -578,6 +652,8 @@ _COMMENTED_OUT_DEFAULTS = (
     "max_reported_findings",
     "max_reported_downloads",
     "send_chunk_bytes",
+    "refused_connect_wait",
+    "refused_connect_retry_interval",
     "verify_poll_interval",
     "one_way_settle",
 )

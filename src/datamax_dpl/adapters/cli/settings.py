@@ -50,7 +50,14 @@ from ...domain.reset_label import (
     characters_replaced,
     check_label_text,
 )
-from ...domain.timing import MAX_SEND_CHUNK_BYTES, MAX_TIMEOUT_SECONDS, SEND_CHUNK_BYTES, TransportTuning
+from ...domain.timing import (
+    MAX_SEND_CHUNK_BYTES,
+    MAX_TIMEOUT_SECONDS,
+    REFUSED_CONNECT_RETRY_INTERVAL_SECONDS,
+    REFUSED_CONNECT_WAIT_SECONDS,
+    SEND_CHUNK_BYTES,
+    TransportTuning,
+)
 from ...domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
 from ..config.sections import (
     CAMERA_SECTION,
@@ -151,6 +158,12 @@ class PrinterSettings(BaseModel):
     # The largest piece of a job one write call takes: timeout bounds each piece (TransportTuning).
     # Bounded above as there, so a larger value is refused naming its key here.
     send_chunk_bytes: int = Field(default=SEND_CHUNK_BYTES, gt=0, le=MAX_SEND_CHUNK_BYTES)
+    # How long one TCP opening retries a refused connect, and the pause between two tries; status,
+    # memory and the name reads add their own retries across openings (status_retry_interval).
+    refused_connect_wait: float = Field(default=REFUSED_CONNECT_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
+    refused_connect_retry_interval: float = Field(
+        default=REFUSED_CONNECT_RETRY_INTERVAL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS
+    )
     cutter: CutterPresence = CutterPresence.UNKNOWN
     options: frozenset[HardwareOption] = Field(default_factory=frozenset[HardwareOption])
     # Same range as RenderOptions, so a bad value is refused here with its config key named. None
@@ -206,6 +219,8 @@ class PrinterSettings(BaseModel):
         "verify_poll_interval",
         "one_way_settle",
         "send_chunk_bytes",
+        "refused_connect_wait",
+        "refused_connect_retry_interval",
         "scale_across",
         "scale_along",
         "offset_across",
@@ -565,13 +580,17 @@ def with_setting_keys(message: str, settings: PrinterSettings) -> str:
 
 
 def transport_tuning(settings: PrinterSettings) -> TransportTuning:
-    """How the transports pace their writes for this printer configuration.
+    """How the transports pace their writes and retry a refused connect for this printer configuration.
 
     Example:
         >>> transport_tuning(PrinterSettings(send_chunk_bytes=512)).send_chunk_bytes
         512
     """
-    return TransportTuning(send_chunk_bytes=settings.send_chunk_bytes)
+    return TransportTuning(
+        send_chunk_bytes=settings.send_chunk_bytes,
+        refused_connect_wait=settings.refused_connect_wait,
+        refused_connect_retry_interval=settings.refused_connect_retry_interval,
+    )
 
 
 def require_uri(settings: PrinterSettings) -> str:

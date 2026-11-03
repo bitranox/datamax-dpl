@@ -21,13 +21,12 @@ from datamax_dpl.adapters.transport import open_printer
 from datamax_dpl.adapters.transport.tcp import (
     MAX_ANSWER_BYTES,
     MAX_IDLE_ANSWER_BYTES,
-    REFUSED_RETRY_SECONDS,
     TcpTransport,
 )
 from datamax_dpl.adapters.transport.uri import TcpUri
 from datamax_dpl.domain.errors import AnswerNotEndedError, PrinterProtocolError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.status import is_status_line
-from datamax_dpl.domain.timing import SEND_CHUNK_BYTES, TransportTuning
+from datamax_dpl.domain.timing import REFUSED_CONNECT_WAIT_SECONDS, SEND_CHUNK_BYTES, TransportTuning
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -723,7 +722,33 @@ def test_a_connection_refused_for_good_fails_within_the_retry_window() -> None:
     elapsed = time.monotonic() - started
     # the OS words the refusal in its own language, so the cause's TYPE says it was refused
     assert isinstance(caught.value.__cause__, ConnectionRefusedError)
-    assert elapsed < REFUSED_RETRY_SECONDS + one_attempt + 1.0, f"{elapsed=:.2f} {one_attempt=:.2f}"
+    assert elapsed < REFUSED_CONNECT_WAIT_SECONDS + one_attempt + 1.0, f"{elapsed=:.2f} {one_attempt=:.2f}"
+
+
+@pytest.mark.os_agnostic
+def test_a_shorter_refused_connect_wait_reports_a_refusal_sooner() -> None:
+    """The retry window is the tuning's ``refused_connect_wait``, not a fixed 3 s."""
+    port = _port_no_other_test_takes()
+    one_attempt = _seconds_for_one_refused_connect(port)
+    tuning = TransportTuning(refused_connect_wait=0.5, refused_connect_retry_interval=0.1)
+    started = time.monotonic()
+    with pytest.raises(TransportError) as caught:
+        TcpTransport.connect(TcpUri(host="127.0.0.1", port=port), timeout=30.0, tuning=tuning)
+    elapsed = time.monotonic() - started
+
+    assert isinstance(caught.value.__cause__, ConnectionRefusedError)
+    assert elapsed < 0.5 + one_attempt + 0.5, f"{elapsed=:.2f} {one_attempt=:.2f}"
+
+
+@pytest.mark.os_agnostic
+def test_a_retry_interval_past_the_refused_connect_wait_tries_the_connect_once() -> None:
+    """The pause between two connects is the tuning's ``refused_connect_retry_interval``."""
+    port = _port_no_other_test_takes()
+    tuning = TransportTuning(refused_connect_wait=1.0, refused_connect_retry_interval=5.0)
+    with pytest.raises(TransportError) as caught:
+        TcpTransport.connect(TcpUri(host="127.0.0.1", port=port), timeout=30.0, tuning=tuning)
+
+    assert caught.value.attempts == 1
 
 
 def _seconds_for_one_refused_connect(port: int) -> float:
