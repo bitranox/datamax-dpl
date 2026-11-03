@@ -12,6 +12,7 @@ from __future__ import annotations
 import itertools
 import json
 import re
+import sys
 from typing import TYPE_CHECKING, cast
 
 import orjson
@@ -28,6 +29,12 @@ _NOT_WHITESPACE = re.compile(r"[^ \t\n\r]")
 #: The same over the bytes, so finding the first token copies nothing.
 _NOT_WHITESPACE_BYTE = re.compile(rb"[^ \t\n\r]")
 _OPEN_ARRAY = ord("[")
+#: Whether Python's own reader can stop short of orjson's 1024 levels. On 3.10 and 3.11 it stops
+#: at the recursion limit, about 995 levels (997 at the default limit of 1000, measured). From 3.12
+#: it reads far more: on Linux at the default 8 MB stack 3.12 9997, 3.13 9998, 3.14 65164, 3.15
+#: 65167 levels; on Windows 3.12 to 3.15 at least 2000 (measured). From 3.14 the limit follows the
+#: real C stack. So there its RecursionError comes only where orjson refuses the element too.
+_READER_STOPS_SHORT_OF_ORJSON = sys.version_info < (3, 12)
 
 
 class MalformedArrayError(DatamaxDplError, ValueError):
@@ -39,7 +46,7 @@ class MalformedArrayError(DatamaxDplError, ValueError):
 
 
 class ElementTooDeepError(DatamaxDplError):
-    """An element is nested deeper than Python's own JSON reader goes, so where it ends is not known.
+    """On Python 3.10 or 3.11, an element is nested deeper than the interpreter's own JSON reader goes.
 
     Not a malformed array: a whole parse may take it, so the file is refused by name, never read
     as JSON lines. The records reader puts the file's name in front; no library caller meets it.
@@ -48,8 +55,8 @@ class ElementTooDeepError(DatamaxDplError):
     def __init__(self, index: int) -> None:
         """Name the element at ``index``, counted from 0 as a record is."""
         super().__init__(
-            f"record {index} is nested deeper than this Python reads"
-            " (Python 3.10 and 3.11 read about 995 levels, 3.12 and later 1024)"
+            f"record {index} is nested deeper than Python 3.10 and 3.11 read (about 995 levels);"
+            " Python 3.12 or later reads up to orjson's limit of 1024"
         )
 
 
@@ -75,7 +82,7 @@ def _element_end(text: str, start: int, *, index: int) -> int:
 
     Raises:
         MalformedArrayError: No JSON value starts there.
-        ElementTooDeepError: It nests deeper than the reader goes.
+        ElementTooDeepError: On Python 3.10 or 3.11, it nests deeper than the reader goes.
     """
     try:
         return _FINDER.raw_decode(text, start)[1]
@@ -83,11 +90,15 @@ def _element_end(text: str, start: int, *, index: int) -> int:
     # orjson refuses too.
     except ValueError as exc:
         raise MalformedArrayError(str(exc)) from None
-    # Past the reader's own limit: far past orjson's from Python 3.12, but about 995 levels on 3.10
-    # and 3.11, short of orjson's 1024 (sys.getrecursionlimit). Raising that limit here would change
-    # it for the whole process.
+    # Past the reader's own limit. On 3.10 and 3.11 that may be short of orjson's (see
+    # _READER_STOPS_SHORT_OF_ORJSON), so the element is refused by name; raising the recursion limit
+    # here would change it for the whole process. From 3.12 orjson refuses the element too, so it
+    # is malformed, and the file gets the refusal one level past orjson's limit gets, however far
+    # past it is and however deep this host's stack lets the reader go.
     except RecursionError:
-        raise ElementTooDeepError(index) from None
+        if _READER_STOPS_SHORT_OF_ORJSON:
+            raise ElementTooDeepError(index) from None
+        raise MalformedArrayError("nested past orjson's limit") from None
 
 
 def _parsed(data: bytes, start: int, end: int) -> object:
@@ -125,7 +136,8 @@ def array_elements(data: bytes) -> Iterator[object]:
 
     Raises:
         MalformedArrayError: ``data`` is not one JSON array; orjson would refuse it whole.
-        ElementTooDeepError: An element nests deeper than Python's own JSON reader goes.
+        ElementTooDeepError: On Python 3.10 or 3.11, an element nests deeper than the
+            interpreter's own JSON reader goes.
 
     Example:
         >>> list(array_elements(b'[{"a": "[1,"}, {"b": 2}]'))

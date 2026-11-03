@@ -305,7 +305,8 @@ def _array_rows(data: bytes, source: str) -> Iterator[object]:
 
     Raises:
         MalformedArrayError: ``data`` is not one JSON array.
-        LabelInputError: An element nests deeper than Python's own JSON reader goes.
+        LabelInputError: On Python 3.10 or 3.11, an element nests deeper than the interpreter's
+            own JSON reader goes.
     """
     try:
         yield from array_elements(data)
@@ -324,8 +325,9 @@ def _count_array(data: bytes, source: str) -> int | None:
         How many records the array holds, or None when ``data`` is no one JSON array.
 
     Raises:
-        LabelInputError: A record is no object, the first such one named; or one nests deeper than
-            Python's own JSON reader goes, which the array cannot be read past.
+        LabelInputError: A record is no object, the first such one named; or, on Python 3.10 or
+            3.11, one nests deeper than the interpreter's own JSON reader goes, which the array
+            cannot be read past.
         KeyboardInterrupt: A Ctrl-C came and its raise was lost (see :mod:`.interrupt`); looked
             for at each record and at the end, as a pass over the records does.
     """

@@ -12,7 +12,7 @@ ORJSON_DEPTH = 1024
 #: (sys.getrecursionlimit, 1000 by default, less the frames already on the stack): about 995 levels,
 #: short of orjson's. The element finder then stops with a RecursionError, and the file is refused
 #: by name. 3.12 and later read 2000 levels and more (measured 2026-11-04, 3.10 to 3.15, Linux and
-#: Windows).
+#: Windows), so their RecursionError comes only past orjson's limit and reads as orjson's refusal.
 READER_STOPS_SHORT_OF_ORJSON = sys.version_info < (3, 12)
 
 __all__ = ["ORJSON_DEPTH", "READER_STOPS_SHORT_OF_ORJSON"]

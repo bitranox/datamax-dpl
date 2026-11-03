@@ -26,8 +26,13 @@ if TYPE_CHECKING:
 
 _SOURCE = "d.json"
 
-#: The refusal of an element nested deeper than Python's own JSON reader goes, after "record N".
-_TOO_DEEP = "is nested deeper than this Python reads (Python 3.10 and 3.11 read about 995 levels, 3.12 and later 1024)"
+#: The refusal, after "record N", of an element nested deeper than Python 3.10 and 3.11 read.
+_TOO_DEEP = (
+    "is nested deeper than Python 3.10 and 3.11 read (about 995 levels);"
+    " Python 3.12 or later reads up to orjson's limit of 1024"
+)
+#: orjson's refusal of a one-line array nested past its limit, as the JSON lines reading gives it.
+_DEPTH_REFUSAL = "line 1 is not JSON: depth limit exceeded: line 1 column 1026 (char 1025)"
 
 _REFUSED = [
     pytest.param(
@@ -97,9 +102,7 @@ _REFUSED = [
     pytest.param(
         b"[" * 1025 + b"]" * 1025,
         # On 3.10 and 3.11 Python's own reader stops first, before orjson's limit is reached.
-        f"record 0 {_TOO_DEEP}"
-        if READER_STOPS_SHORT_OF_ORJSON
-        else "line 1 is not JSON: depth limit exceeded: line 1 column 1026 (char 1025)",
+        f"record 0 {_TOO_DEEP}" if READER_STOPS_SHORT_OF_ORJSON else _DEPTH_REFUSAL,
         id="one-level-too-deep",
     ),
     pytest.param(
@@ -108,15 +111,18 @@ _REFUSED = [
         id="deepest-taken",
     ),
     pytest.param(
-        # Deeper than Python's own JSON reader goes on any version: it stops with a RecursionError.
+        # Deeper than Python's own JSON reader goes on any version and stack: it stops with a
+        # RecursionError. On 3.12 and later that is past orjson's limit, so orjson's refusal.
         b"[" * 100_000 + b"]" * 100_000,
-        f"record 0 {_TOO_DEEP}",
+        f"record 0 {_TOO_DEEP}" if READER_STOPS_SHORT_OF_ORJSON else _DEPTH_REFUSAL,
         id="far-too-deep",
     ),
     pytest.param(
         b'[1, {"a":"r1"}, ' + b"[" * 100_000 + b"]" * 100_000 + b"]",
-        # Named, though an earlier record is no object: the array never read clean.
-        f"record 2 {_TOO_DEEP}",
+        # Named on 3.10 and 3.11, though an earlier record is no object: the array never read clean.
+        f"record 2 {_TOO_DEEP}"
+        if READER_STOPS_SHORT_OF_ORJSON
+        else "line 1 is not JSON: depth limit exceeded: line 1 column 1041 (char 1040)",
         id="far-too-deep-after-a-refused-record",
     ),
     pytest.param(
@@ -186,8 +192,36 @@ def test_an_array_gives_exactly_these_records(tmp_path: Path, content: bytes, re
     assert len(loaded) == len(records)
 
 
+def _refusal_of(data: bytes) -> str:
+    with pytest.raises(LabelInputError) as refused:
+        Records(data, _SOURCE)
+    return str(refused.value)
+
+
 @pytest.mark.os_agnostic
-def test_the_deepest_record_orjson_takes_is_read_or_refused_by_name() -> None:
+@pytest.mark.parametrize(
+    ("before", "open_already", "opener", "closer", "after"),
+    [
+        pytest.param(b"[", 1, b"[", b"]", b"]", id="arrays"),
+        pytest.param(b'[{"a":', 2, b"[", b"]", b"}]", id="a-record-s-value"),
+        pytest.param(b'[{"a":"r0"},\n', 1, b'{"k":', b"}", b"\n]\n", id="objects-after-a-record-on-lines"),
+    ],
+)
+def test_one_level_and_far_too_deep_read_alike(
+    before: bytes, open_already: int, opener: bytes, closer: bytes, after: bytes
+) -> None:
+    """One refusal for nesting past the limit, however far past and whatever the stack lets Python read.
+
+    From 3.14 Python's own reader goes as deep as the C stack lets it, so how far it reads differs
+    from host to host; 100000 levels may stop it there, 1025 never does on 3.12 and later.
+    """
+
+    def nested(levels: int) -> bytes:
+        inner = levels - open_already
+        return before + opener * inner + b"1" + closer * inner + after
+
+    assert _refusal_of(nested(1025)) == _refusal_of(nested(100_000))
+
     """1024 levels, the record's own counted: read on 3.12 and later; on 3.10 and 3.11 refused, not crashed.
 
     A whole parse took it there too, and then str() of the value crashed past the recursion limit.
