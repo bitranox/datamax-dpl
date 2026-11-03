@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import errno
+import math
 import re
 import select
 import socket
@@ -15,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from printer_server import JOIN_SECONDS, answering, reading_slowly, resetting, silent
+from printer_server import JOIN_SECONDS, answering, read_paced, resetting, silent
 
 from datamax_dpl.adapters.transport import open_printer
 from datamax_dpl.adapters.transport.tcp import (
@@ -26,7 +27,12 @@ from datamax_dpl.adapters.transport.tcp import (
 from datamax_dpl.adapters.transport.uri import TcpUri
 from datamax_dpl.domain.errors import AnswerNotEndedError, PrinterProtocolError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.status import is_status_line
-from datamax_dpl.domain.timing import REFUSED_CONNECT_WAIT_SECONDS, SEND_CHUNK_BYTES, TransportTuning
+from datamax_dpl.domain.timing import (
+    MAX_SEND_CHUNK_BYTES,
+    REFUSED_CONNECT_WAIT_SECONDS,
+    SEND_CHUNK_BYTES,
+    TransportTuning,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -295,65 +301,112 @@ def test_a_job_is_written_in_pieces_no_larger_than_the_send_chunk() -> None:
 
 #: Most bytes the slow printer below takes per read, and the seconds between two reads: at most
 #: 16 KB/s, paced by the clock, so no window from the start of the job moves more. A 1 KiB piece
-#: then waits about 1/16 s for room, far inside the 1 s timeout even on a loaded runner, and the
-#: whole job takes about 3.4 s (Linux, measured).
+#: then waits about 1/16 s for room, far inside the timeout even on a loaded runner.
 _SLOW_STEP = 1024
 _SLOW_EVERY = 1 / 16
-#: Sent as one 64 KiB piece, the job must not leave within the 1 s timeout: in that second the
-#: printer takes at most about 17 KB and the two buffers hold about 16 KB (Linux doubles each
-#: 4096 asked for; measured: 17408 bytes taken when the piece timed out), half the job.
-_SLOW_JOB = b"j" * (64 * 1024)
+_SLOW_TIMEOUT = 1.0
 #: Asked for on both ends. Set explicitly rather than as small as the OS allows: Linux clamps a
 #: 1-byte buffer to about 4.6 KB, but an OS that honoured it would hold the printer to a few bytes
 #: per second and fail the small-piece test too.
 _SMALL_BUFFER = 4096
 
 
-def _slow_printer_transport(server: PrinterServer, *, send_chunk_bytes: int) -> TcpTransport:
-    """A transport whose own send buffer is small, so the printer's pace shows.
+def _slow_job(buffered: int) -> bytes:
+    """A job that cannot leave in the largest pieces before one of them times out, twice over.
 
-    Loopback buffers hold hundreds of KB, so a job of tens of KB would sit in them whole and every
-    piece size would look alike; with small buffers on both ends the printer's reading decides how
-    fast the job leaves.
+    With no piece timing out, the bytes that left would be at most what the buffers hold, the
+    printer's first step, and what it reads at ``step / every`` while each of the job's pieces of
+    :data:`MAX_SEND_CHUNK_BYTES` spends under the timeout, so a job J leaves only while
+    ``J <= buffered + step + rate * timeout * J / piece``. Twice the largest such J, in whole pieces.
     """
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, _SMALL_BUFFER)
-    sock.settimeout(JOIN_SECONDS)
-    sock.connect((server.uri.host, server.uri.port))
-    tuning = TransportTuning(send_chunk_bytes=send_chunk_bytes)
-    return TcpTransport(sock, uri=server.uri, timeout=1.0, tuning=tuning)
+    rate = _SLOW_STEP / _SLOW_EVERY
+    piece = MAX_SEND_CHUNK_BYTES
+    most_that_leaves = (buffered + _SLOW_STEP) / (1 - rate * _SLOW_TIMEOUT / piece)
+    return b"j" * (math.ceil(2 * most_that_leaves / piece) * piece)
+
+
+class _SlowPrinter:
+    """A printer reading slowly at the far end of a socket pair, and a job sized from the buffers.
+
+    A socket pair, not a TCP connection to a server: what holds a job back must be the buffers the
+    test asked for, and on loopback TCP macOS does not keep them. XNU's ``tcp_mss()`` raises either
+    buffer to the loopback route's pipe size (3 x 16384) when that is larger than the one asked
+    for, so both ends hold most of a 64 KiB job (it left a 4 KB-buffered socket in one piece within
+    0.3 s on a macOS runner), and the initial window offered in the handshake cannot be shrunk
+    afterwards. A stream socket pair has no route: on macOS a sender's room is its own send buffer,
+    given back as the peer reads, and on Linux it is the send buffer too. Windows pairs two TCP
+    sockets on loopback; the one test that runs there needs no buffer to hold the job back.
+
+    The buffers are read again after the send: one that grew meanwhile would void the job's size,
+    so :meth:`check_buffers` fails the test on it rather than leaving it to read as a send that
+    should not have gone.
+    """
+
+    def __init__(self, *, send_chunk_bytes: int) -> None:
+        ours, self._theirs = socket.socketpair()
+        ours.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, _SMALL_BUFFER)
+        self._theirs.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, _SMALL_BUFFER)
+        self._ours = ours
+        self._buffers = self._buffers_now()
+        self.job = _slow_job(sum(self._buffers))
+        self.received = bytearray()
+        self._reader = threading.Thread(target=self._read, daemon=True)
+        self._reader.start()
+        tuning = TransportTuning(send_chunk_bytes=send_chunk_bytes)
+        self.transport = TcpTransport(ours, uri=TcpUri(host="127.0.0.1"), timeout=_SLOW_TIMEOUT, tuning=tuning)
+
+    def _read(self) -> None:
+        with self._theirs:
+            read_paced(self._theirs, step=_SLOW_STEP, every=_SLOW_EVERY, record=self.received.extend)
+
+    def _buffers_now(self) -> tuple[int, int]:
+        return (
+            self._ours.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF),
+            self._theirs.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF),
+        )
+
+    def check_buffers(self) -> None:
+        """Fail when either buffer grew during the send; call it before the transport closes."""
+        assert self._buffers_now() == self._buffers, "a buffer grew while the job was sent"
+
+    def join(self) -> None:
+        """Wait for the printer to read the rest; the transport must be closed first."""
+        self._reader.join(JOIN_SECONDS)
+        assert not self._reader.is_alive(), "the printer was still reading"
 
 
 @pytest.mark.os_agnostic
-def test_a_printer_slower_than_the_timeout_takes_a_job_sent_in_small_pieces(
-    serve: Callable[..., PrinterServer],
-) -> None:
+def test_a_printer_slower_than_the_timeout_takes_a_job_sent_in_small_pieces() -> None:
     """The timeout bounds each 1 KiB piece, so a printer that keeps taking data is never cut off."""
-    server = serve(reading_slowly(step=_SLOW_STEP, every=_SLOW_EVERY), receive_buffer=_SMALL_BUFFER)
+    slow = _SlowPrinter(send_chunk_bytes=SEND_CHUNK_BYTES)
 
-    with _slow_printer_transport(server, send_chunk_bytes=SEND_CHUNK_BYTES) as printer:
-        printer.send(_SLOW_JOB)
-    server.join()
+    with slow.transport as printer:
+        printer.send(slow.job)
+        slow.check_buffers()
+    slow.join()
 
-    assert bytes(server.received) == _SLOW_JOB
+    assert bytes(slow.received) == slow.job
 
 
 @pytest.mark.os_posix
 @pytest.mark.skipif(
     sys.platform == "win32", reason="Windows takes one send of any size whole while its buffer is not full"
 )
-def test_the_same_job_in_one_large_piece_times_out_against_the_same_printer(
-    serve: Callable[..., PrinterServer],
-) -> None:
-    """The control for the test above: one piece is one sendall, and the timeout bounds it whole."""
-    server = serve(reading_slowly(step=_SLOW_STEP, every=_SLOW_EVERY), receive_buffer=_SMALL_BUFFER)
+def test_the_same_job_in_one_large_piece_times_out_against_the_same_printer() -> None:
+    """The control for the test above: a piece is one sendall, and the timeout bounds it whole.
 
-    with (
-        _slow_printer_transport(server, send_chunk_bytes=64 * 1024) as printer,
-        pytest.raises(PrinterTimeoutError, match="cannot write to tcp"),
-    ):
-        printer.send(_SLOW_JOB)
-    server.join()
+    The same job in the largest pieces the transport takes: one of them cannot leave within the
+    timeout at the printer's pace, whatever the buffers hold (see :func:`_slow_job`).
+    """
+    slow = _SlowPrinter(send_chunk_bytes=MAX_SEND_CHUNK_BYTES)
+
+    with slow.transport as printer:
+        with pytest.raises(PrinterTimeoutError, match="cannot write to tcp"):
+            printer.send(slow.job)
+        slow.check_buffers()
+    slow.join()
+
+    assert len(slow.received) < len(slow.job), "the whole job went"
 
 
 @pytest.mark.os_agnostic

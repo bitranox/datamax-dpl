@@ -655,14 +655,12 @@ def serve() -> Iterator[Serve]:
         refuse_for: float = 0.0,
         queue_full_for: float = 0.0,
         next_connection_within: float = JOIN_SECONDS,
-        receive_buffer: int = 0,
     ) -> PrinterServer:
         server = PrinterServer(
             *plays,
             refuse_for=refuse_for,
             queue_full_for=queue_full_for,
             next_connection_within=next_connection_within,
-            receive_buffer=receive_buffer,
         )
         servers.append(server)
         return server
