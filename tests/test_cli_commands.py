@@ -745,3 +745,16 @@ def test_memory_closes_its_channel_when_a_later_directory_fails(cli_runner: CliR
     assert printer.queries[0] == MEMORY_DIRECTORY_REQUESTS[MemoryKind.FONT]
     assert len(printer.queries) > 1
     assert printer.closed
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "job", [b"\x02L\r1911A1000100010x\rZZZ\rE\r", b"\x02L\rgarbage!!\rE\r", b"\x02L\r1911\rE\r"], ids=repr
+)
+def test_explain_exits_1_for_a_format_line_it_cannot_read(cli_runner: CliRunner, tmp_path: Path, job: bytes) -> None:
+    path = tmp_path / "job.dpl"
+    path.write_bytes(job)
+    result = run(cli_runner, ["--json", "explain", str(path)])
+    document = envelope(result)
+    assert (result.exit_code, document["ok"]) == (1, False), result.output
+    assert len(document["data"]["problems"]) == 1

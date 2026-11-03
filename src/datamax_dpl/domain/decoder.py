@@ -270,10 +270,18 @@ def _format_line(text: bytes, state: _State) -> None:
     first = chr(text[0]) if text else ""
     if first in _RECORD_DIGITS and len(text) >= _HEADER_LENGTH:
         _add(state, CommandKind.RECORD, text, _record(text, state))
+    elif first in _RECORD_DIGITS:
+        # A rotation digit starts only a record, so a shorter line is a record cut short, not a setting.
+        state.problems.append(f"{readable(text)}: record shorter than its {_HEADER_LENGTH}-character header")
+        _add(state, CommandKind.RECORD, text, "record (not understood)")
     elif first in _COUNTER_SIGNS:
         _add(state, CommandKind.COUNTER, text, _counter(text, state))
-    else:
+    elif first in _FORMAT_NAMES:
         _add(state, CommandKind.FORMAT, text, _format_setting(first, text, state))
+    else:
+        # A line no format command starts could do anything to the label, so the job is not read whole.
+        state.problems.append(f"{readable(text)}: format command not understood")
+        _add(state, CommandKind.FORMAT, text, "unknown format command")
 
 
 def _format_setting(first: str, text: bytes, state: _State) -> str:
@@ -282,7 +290,7 @@ def _format_setting(first: str, text: bytes, state: _State) -> str:
     Reported the way an unreadable record is: the setting is ignored and the rest of the stream
     is still explained, so one bad line does not hide every command around it.
     """
-    meaning = _FORMAT_NAMES.get(first, "unknown format command")
+    meaning = _FORMAT_NAMES[first]
     try:
         _setting(first, text.decode("latin-1"), state)
     except ValueError:

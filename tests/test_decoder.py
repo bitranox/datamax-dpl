@@ -348,3 +348,34 @@ def test_no_command_of_a_rendered_job_is_explained_as_a_bare_letter(options: Ren
     bare = [c for c in explained.commands if c.meaning.startswith("system command") or c.kind is CommandKind.UNKNOWN]
     assert bare == []
     assert explained.problems == ()
+
+
+# ======================== A format line explain cannot read is a problem ========================
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("job", "problem"),
+    [
+        (b"\x02L\r1911A1000100010x\rZZZ\rE\r", "ZZZ: format command not understood"),
+        (b"\x02L\rgarbage!!\rE\r", "garbage!!: format command not understood"),
+        (b"\x02L\r1911\rE\r", "1911: record shorter than its 15-character header"),
+    ],
+    ids=repr,
+)
+def test_a_format_line_that_is_no_known_command_is_a_problem(job: bytes, problem: str) -> None:
+    result = explain(job)
+    assert result.problems == (problem,)
+    assert result.commands[-1].kind is CommandKind.END
+
+
+@pytest.mark.os_agnostic
+def test_a_label_with_every_format_command_the_encoder_writes_has_no_problem() -> None:
+    label = Label(
+        quantity=3,
+        heat=12,
+        print_speed=SpeedCode("C"),
+        cut=Cut(every=2),
+        elements=[Text(x=5, y=5, text="Hi", counter=Counter(step=1))],
+    )
+    assert explain(render(label, RenderOptions(model="dmx-600", cutter_installed=True)).data).problems == ()

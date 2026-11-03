@@ -11,6 +11,9 @@ All notable changes to this project are documented here. The format follows
 - `explain` names every command a job sends around its format: `<STX>S` (feed rate), `<STX>V` (software switches),
   `<STX>q` (clear memory module), the plain Prodigy's `<STX>R<name>` (remove stored image) and `<STX>RY`/`RN`
   (ribbon saver) read as a bare `system command` letter.
+- `explain` exits 1 for a format line it cannot read, as the README says: a line no format command starts
+  (`format command not understood`) and a record line shorter than its 15-character header are problems now; both
+  passed as an `unknown format command` with exit 0.
 - A serial port that cannot be opened, written or read is named once with its reason (`cannot open serial
   /dev/ttyS9: No such file or directory`): pyserial's own text repeated the path and its errno. On Windows a port
   that cannot be opened still reads as pyserial words it, which it builds from an error it never raises. A user configuration file a calibration cannot read, a configuration that cannot be loaded,
