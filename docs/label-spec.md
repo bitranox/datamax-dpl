@@ -253,10 +253,10 @@ Fill patterns (for `box`, `circle` and `polygon`): 0 none, 1 solid, 2 6 %, 3 12 
 
 ### `polygon`
 
-| Key      | Type                      | Default | Meaning                                            |
-|----------|---------------------------|---------|----------------------------------------------------|
-| `points` | list of 2-60 `{"x", "y"}` | -       | Vertices; the last one connects back to the first. |
-| `fill`   | 0-11                      | 0       | Fill pattern.                                      |
+| Key      | Type                      | Default | Meaning                                                                                                            |
+|----------|---------------------------|---------|--------------------------------------------------------------------------------------------------------------------|
+| `points` | list of 2-60 `{"x", "y"}` | -       | Vertices; the last one connects back to the first. More than 60 need `[printer] max_polygon_points` (up to 10000). |
+| `fill`   | 0-11                      | 0       | Fill pattern.                                                                                                      |
 
 ```json
 {

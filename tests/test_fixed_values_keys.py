@@ -16,6 +16,7 @@ import pytest
 import tomlkit
 from lib_layered_config import Config
 from printer_server import ImageModules, ModulePrinter
+from pydantic import ValidationError
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.label_io import MAX_INPUT_BYTES, MAX_INPUT_BYTES_LIMIT, load_records
@@ -29,9 +30,12 @@ from datamax_dpl.adapters.cli.settings import (
 from datamax_dpl.adapters.memory import RecordingPrinter
 from datamax_dpl.application.use_cases import DIRECTORY_IDLE_SECONDS, render_label
 from datamax_dpl.composition import build_testing
-from datamax_dpl.domain.errors import ConfigurationError
-from datamax_dpl.domain.label import Image, Label, Text
-from datamax_dpl.domain.render import job_context
+from datamax_dpl.domain.decoder import explain
+from datamax_dpl.domain.enums import FillPattern, FindingCode, Severity
+from datamax_dpl.domain.errors import ConfigurationError, LabelRejectedError
+from datamax_dpl.domain.label import MAX_POLYGON_POINTS, MAX_POLYGON_POINTS_LIMIT, Image, Label, Polygon, Text
+from datamax_dpl.domain.records import RecordPosition, polygon_record
+from datamax_dpl.domain.render import build_job, job_context, render
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.reset_label import CALIBRATION_LABEL_TEXT
 from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS, MAX_TIMEOUT_SECONDS, TIMEOUT_SECONDS
@@ -490,3 +494,96 @@ def test_a_polygon_of_60_points_passes(cli_runner: CliRunner, tmp_path: Path) ->
     result = _cli(cli_runner, None, "validate", _polygon_file(tmp_path, 60), "--model", "allegro-2")
 
     assert result.exit_code == 0, result.output
+
+
+@pytest.mark.os_agnostic
+def test_max_polygon_points_defaults_to_60_and_the_shipped_file_says_the_same() -> None:
+    text = _shipped_printer_toml()
+    [documented] = re.findall(
+        r"^# Default: (\S+)\n# Environment Variable: DATAMAX_DPL___PRINTER__MAX_POLYGON_POINTS=", text, re.M
+    )
+
+    assert PrinterSettings().max_polygon_points == MAX_POLYGON_POINTS == 60
+    assert RenderOptions(model="allegro-2").max_polygon_points == MAX_POLYGON_POINTS
+    assert int(documented) == MAX_POLYGON_POINTS
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("setting", "printer_arg"),
+    [
+        (["--set", "printer.max_polygon_points=61"], None),
+        (["--set", f"printers.lager.uri={URI}", "--set", "printers.lager.max_polygon_points=61"], "lager"),
+    ],
+)
+def test_a_raised_max_polygon_points_takes_61_points_and_refuses_62_naming_the_key(
+    cli_runner: CliRunner, tmp_path: Path, setting: list[str], printer_arg: str | None
+) -> None:
+    printer = ["--printer", printer_arg] if printer_arg else []
+    key = "[printers.lager] max_polygon_points" if printer_arg else "[printer] max_polygon_points"
+    source = _polygon_file(tmp_path, 62)
+
+    taken = _cli(cli_runner, None, *setting, "validate", _polygon_file(tmp_path, 61), "--model", "allegro-2", *printer)
+    refused = _cli(cli_runner, None, *setting, "validate", source, "--model", "allegro-2", *printer)
+
+    assert taken.exit_code == 0, taken.output
+    assert refused.exit_code == 2, refused.output
+    assert json.loads(refused.stdout)["message"] == (
+        f"{source} is not a valid label: elements.0.polygon.points: List should have at most 61 items after "
+        f"validation, not 62; more points need {key}"
+    )
+
+
+@pytest.mark.os_agnostic
+def test_the_default_refusal_names_the_key_that_takes_more_points(cli_runner: CliRunner, tmp_path: Path) -> None:
+    result = _cli(cli_runner, None, "render", _polygon_file(tmp_path, 61), "--model", "allegro-2")
+
+    assert json.loads(result.stdout)["message"].endswith("not 61; more points need [printer] max_polygon_points")
+
+
+@pytest.mark.os_agnostic
+def test_the_library_refuses_a_polygon_past_its_render_options_limit() -> None:
+    label = Label.model_validate(_polygon(61))
+
+    refused = build_job(label, RenderOptions(model="allegro-2"))
+    taken = build_job(label, RenderOptions(model="allegro-2", max_polygon_points=61))
+
+    [finding] = [f for f in refused.findings if f.code is FindingCode.POLYGON_TOO_MANY_POINTS]
+    assert (finding.severity, finding.element) == (Severity.ERROR, 0)
+    assert finding.message == "the polygon has 61 points, more than 60 (RenderOptions.max_polygon_points)"
+    assert not [f for f in taken.findings if f.severity is Severity.ERROR]
+    assert FindingCode.POLYGON_TOO_MANY_POINTS not in {f.code for f in taken.findings}
+    with pytest.raises(LabelRejectedError, match="polygon has 61 points"):
+        render(label, RenderOptions(model="allegro-2"))
+
+
+@pytest.mark.os_agnostic
+def test_a_polygon_past_the_schema_ceiling_is_refused_whatever_the_setting() -> None:
+    with pytest.raises(ValidationError, match=f"at most {MAX_POLYGON_POINTS_LIMIT} items"):
+        Label.model_validate(_polygon(MAX_POLYGON_POINTS_LIMIT + 1))
+    assert len(Polygon.model_validate(_polygon(MAX_POLYGON_POINTS_LIMIT)["elements"][0]).points) == 10_000
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("value", "reason"),
+    [(0, "greater than 0"), (-3, "greater than 0"), (10_001, "less than or equal to 10000"), (True, "needs a number")],
+)
+def test_max_polygon_points_out_of_range_is_refused_naming_it(value: object, reason: str) -> None:
+    with pytest.raises(ConfigurationError, match=rf"^printer\.max_polygon_points: .*{reason}"):
+        _settings({"printer": {"max_polygon_points": value}})
+
+
+@pytest.mark.os_agnostic
+def test_explain_rebuilds_a_dpl_polygon_of_more_than_60_points() -> None:
+    """The manual sets no vertex limit, so a stream holding a longer polygon is still a label."""
+    corners = [RecordPosition(row=10 + index, column=10 + (index * 7) % 40) for index in range(61)]
+    stream = b"\x02L\rD11\r" + polygon_record(corners, fill=FillPattern.NONE) + b"\rE\r"
+
+    explanation = explain(stream)
+
+    assert explanation.problems == ()
+    assert explanation.label is not None
+    [polygon] = explanation.label.elements
+    assert isinstance(polygon, Polygon)
+    assert len(polygon.points) == 61

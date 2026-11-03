@@ -14,7 +14,7 @@ Text fields may contain ``{name}`` placeholders, filled per record by
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, TypeVar
+from typing import TYPE_CHECKING, Annotated, Literal, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -41,6 +41,9 @@ from .enums import (
 from .records import MAX_IMAGE_MAGNIFICATION
 from .symbology import Symbology
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator, Sequence
+
 MAX_FIELD_DATA = 255
 MAX_PDF417_DATA = 3000
 MAX_MULTIPLIER = 24
@@ -62,6 +65,14 @@ MAX_LENGTH = 100_000.0
 #: takes is 399 records, and every per-element cost (drawing, encoding, comparing fields for
 #: transparency) would otherwise scale with whatever a document can hold, about 190,000 in 16 MiB.
 MAX_ELEMENTS = 2048
+#: Most vertices one polygon takes unless the render options set another (``max_polygon_points``).
+#: The manual sets no vertex limit for the polygon record (p.105), so this one is ours: a job is
+#: checked against it when it is rendered, which the schema cannot do because it reads no setting.
+MAX_POLYGON_POINTS = 60
+#: Most vertices the schema lets one polygon hold, whatever the setting. A sanity limit, so no
+#: settings key: every vertex costs eight bytes of record and a step of every drawing and overlap
+#: check, which would otherwise scale with whatever the file holds.
+MAX_POLYGON_POINTS_LIMIT = 10_000
 
 NonNegative = Annotated[float, Field(ge=0, le=MAX_LENGTH, strict=True, allow_inf_nan=False)]
 Positive = Annotated[float, Field(gt=0, le=MAX_LENGTH, strict=True, allow_inf_nan=False)]
@@ -290,13 +301,16 @@ class Point(_Frozen):
 class Polygon(_Frozen):
     """A closed polygon through ``points`` (the last point connects back to the first).
 
+    The schema takes up to ``MAX_POLYGON_POINTS_LIMIT`` points; a job refuses more than the render
+    options' ``max_polygon_points`` (``MAX_POLYGON_POINTS`` by default).
+
     Example:
         >>> len(Polygon(points=[Point(x=0, y=0), Point(x=10, y=0), Point(x=5, y=8)]).points)
         3
     """
 
     type: Literal["polygon"] = "polygon"
-    points: list[Point] = Field(min_length=2, max_length=60)
+    points: list[Point] = Field(min_length=2, max_length=MAX_POLYGON_POINTS_LIMIT)
     fill: _Coded[FillPattern] = FillPattern.NONE
 
 
@@ -499,6 +513,19 @@ class Label(_Frozen):
         return copied
 
 
+def long_polygons(elements: Sequence[Element], *, limit: int) -> Iterator[tuple[int, int]]:
+    """Yield ``(index, points)`` of each polygon in ``elements`` with more than ``limit`` points.
+
+    Example:
+        >>> triangle = Polygon(points=[Point(x=0, y=0), Point(x=10, y=0), Point(x=5, y=8)])
+        >>> list(long_polygons([Circle(x=5, y=5, radius=3), triangle], limit=2))
+        [(1, 3)]
+    """
+    for index, element in enumerate(elements):
+        if isinstance(element, Polygon) and len(element.points) > limit:
+            yield index, len(element.points)
+
+
 __all__ = [
     "FONT_9",
     "MAX_ELEMENTS",
@@ -508,6 +535,8 @@ __all__ = [
     "MAX_LENGTH",
     "MAX_MULTIPLIER",
     "MAX_PDF417_DATA",
+    "MAX_POLYGON_POINTS",
+    "MAX_POLYGON_POINTS_LIMIT",
     "MAX_QR_DATA",
     "MAX_QUANTITY",
     "MAX_QUIET_ZONE",
@@ -530,5 +559,6 @@ __all__ = [
     "ScalableText",
     "StopPosition",
     "Text",
+    "long_polygons",
     "stop_position_or_printer",
 ]

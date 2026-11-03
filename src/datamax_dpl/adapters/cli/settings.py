@@ -38,7 +38,7 @@ from ...domain.enums import (
 )
 from ...domain.errors import ConfigurationError
 from ...domain.job import MAX_STOP_POSITION_MM
-from ...domain.label import MAX_LENGTH, stop_position_or_printer
+from ...domain.label import MAX_LENGTH, MAX_POLYGON_POINTS, MAX_POLYGON_POINTS_LIMIT, stop_position_or_printer
 from ...domain.preview import DEFAULT_PREVIEW_MAX_LENGTH_MM
 from ...domain.profiles import Firmware, ParsedFirmware
 from ...domain.render_context import OPTION_NAME, MaxLabelLengthMm, RenderOptions, StartOfPrintMm
@@ -224,6 +224,9 @@ class PrinterSettings(BaseModel):
     # None takes the model's measured rounding (2 dots a unit on the Allegro 2), for another firmware
     # or a second printer that rounds differently.
     inch_unit_dots: int | None = Field(default=None, gt=0)
+    # Most vertices one polygon may have: the manual sets no limit, so 60 is ours. Checked when a
+    # label is read and again when it is rendered; the schema itself takes up to 10000.
+    max_polygon_points: int = Field(default=MAX_POLYGON_POINTS, gt=0, le=MAX_POLYGON_POINTS_LIMIT)
     # A label no clear precedes: a download left out for a held name, or names that could not be read.
     held_image_severity: Severity = Severity.WARNING
     # The persistent printer settings each label's job sets, under the render options' names and
@@ -266,6 +269,7 @@ class PrinterSettings(BaseModel):
         "image_memory_bytes",
         "max_format_rows",
         "inch_unit_dots",
+        "max_polygon_points",
         "start_of_print_mm",
         "max_label_length_mm",
         "label_width",
@@ -544,6 +548,7 @@ def render_options(settings: PrinterSettings, *, model_image_budget: bool = True
         clear_graphics_after_label=settings.clear_graphics_after,
         max_format_rows=settings.max_format_rows,
         inch_unit_dots=settings.inch_unit_dots,
+        max_polygon_points=settings.max_polygon_points,
         held_image_severity=settings.held_image_severity,
         send_settings=settings.send_settings,
         media=settings.media,
@@ -576,6 +581,7 @@ OPTION_KEYS: Mapping[str, str] = MappingProxyType(
         "clear_graphics_after_label": "clear_graphics_after",
         "max_format_rows": "max_format_rows",
         "inch_unit_dots": "inch_unit_dots",
+        "max_polygon_points": "max_polygon_points",
         "held_image_severity": "held_image_severity",
         "send_settings": "send_settings",
         "media": "media",
@@ -638,14 +644,24 @@ def require_uri(settings: PrinterSettings) -> str:
 
 
 def input_bounds(settings: PrinterSettings) -> InputBounds:
-    """How large a label or data file a command reads: ``max_input_bytes``, named for the section in use.
+    """How much of a label or data file a command reads, each limit's key named for the section in use.
+
+    ``max_input_bytes`` bounds the file, ``max_polygon_points`` each polygon of a label.
 
     Example:
-        >>> input_bounds(PrinterSettings(name="lager", max_input_bytes=512))
-        InputBounds(max_bytes=512, max_bytes_key='[printers.lager] max_input_bytes')
+        >>> bounds = input_bounds(PrinterSettings(name="lager", max_input_bytes=512, max_polygon_points=80))
+        >>> bounds.max_bytes, bounds.max_bytes_key
+        (512, '[printers.lager] max_input_bytes')
+        >>> bounds.max_polygon_points, bounds.max_polygon_points_key
+        (80, '[printers.lager] max_polygon_points')
     """
-    key = printer_section(settings.name).setting("max_input_bytes")
-    return InputBounds(max_bytes=settings.max_input_bytes, max_bytes_key=key)
+    section = printer_section(settings.name)
+    return InputBounds(
+        max_bytes=settings.max_input_bytes,
+        max_bytes_key=section.setting("max_input_bytes"),
+        max_polygon_points=settings.max_polygon_points,
+        max_polygon_points_key=section.setting("max_polygon_points"),
+    )
 
 
 def report_limits(settings: PrinterSettings) -> ReportLimits:

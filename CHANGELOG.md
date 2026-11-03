@@ -25,6 +25,12 @@ All notable changes to this project are documented here. The format follows
 - `[printer] inch_unit_dots` (also in `[printers.<name>]`, unset by default): the whole dots one 1/100 in prints
   as, for a firmware or a printer that rounds the unit differently from the measured Allegro 2 (2). Unset keeps the
   model's value, so every job is as before. Library: `RenderOptions.inch_unit_dots`.
+- `[printer] max_polygon_points` (also in `[printers.<name>]`, default 60, at most 10000): the most points one
+  polygon may have. The limit left the label schema, which now takes up to 10000; at the default a 61-point polygon
+  is refused on reading exactly as before (exit 2, the same message), now naming the key that allows more. Library:
+  `RenderOptions.max_polygon_points`, a job past it gets the error finding `polygon_too_many_points`;
+  `MAX_POLYGON_POINTS`, `MAX_POLYGON_POINTS_LIMIT` and `long_polygons` in `datamax_dpl.domain.label`; `explain`
+  now rebuilds a DPL polygon of more than 60 points instead of reporting the record as not understood.
 - The `qr` element takes `micro` and `boost_error` (both `false` by default, so every label prints as before):
   `micro` allows a Micro QR where the data fits, `boost_error` raises the error level where the version has room.
   The job, the preview and the overlap check draw the same symbol. Library: `Qr.micro`, `Qr.boost_error`,

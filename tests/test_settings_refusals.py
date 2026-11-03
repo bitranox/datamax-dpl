@@ -133,6 +133,7 @@ PRINTER_NUMBERS = [
     "image_memory_bytes",
     "max_format_rows",
     "inch_unit_dots",
+    "max_polygon_points",
     "start_of_print_mm",
     "max_label_length_mm",
     "label_width",

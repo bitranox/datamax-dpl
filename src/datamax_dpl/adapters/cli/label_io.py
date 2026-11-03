@@ -21,7 +21,7 @@ import orjson
 from pydantic import ValidationError
 
 from ...domain.errors import DatamaxDplError
-from ...domain.label import Label
+from ...domain.label import MAX_POLYGON_POINTS, Label, long_polygons
 from ...domain.printable import printable
 from .interrupt import raise_if_interrupted
 
@@ -50,6 +50,9 @@ class InputBounds:
     Attributes:
         max_bytes: The largest file accepted (``[printer] max_input_bytes``).
         max_bytes_key: The setting a refusal names, as the section in use spells it; empty names none.
+        max_polygon_points: The most vertices one polygon of a label may have
+            (``[printer] max_polygon_points``).
+        max_polygon_points_key: The setting that refusal names, spelled the same way; empty names none.
 
     Example:
         >>> InputBounds().max_bytes == MAX_INPUT_BYTES
@@ -58,6 +61,8 @@ class InputBounds:
 
     max_bytes: int = MAX_INPUT_BYTES
     max_bytes_key: str = ""
+    max_polygon_points: int = MAX_POLYGON_POINTS
+    max_polygon_points_key: str = ""
 
 
 #: The bounds of a reader given none: the defaults, naming no setting.
@@ -109,8 +114,12 @@ def validation_lines(exc: ValidationError) -> str:
     return printable("; ".join(lines))
 
 
-def parse_label(data: bytes, *, source: str = "label") -> Label:
-    """Parse a JSON label document.
+def parse_label(data: bytes, *, source: str = "label", bounds: InputBounds = DEFAULT_INPUT_BOUNDS) -> Label:
+    """Parse a JSON label document, refusing a polygon with more points than ``bounds`` allow.
+
+    The schema takes far more points than the setting allows by default, and cannot read the
+    setting; the check here keeps a long polygon a refusal of the file, as it was while the
+    schema held the limit, rather than an error finding of the job.
 
     Raises:
         LabelInputError: Not JSON, or not a valid label.
@@ -120,14 +129,32 @@ def parse_label(data: bytes, *, source: str = "label") -> Label:
     except orjson.JSONDecodeError as exc:
         raise LabelInputError(f"{source} is not valid JSON: {exc}") from None
     try:
-        return Label.model_validate(document)
+        label = Label.model_validate(document)
     except ValidationError as exc:
         raise LabelInputError(f"{source} is not a valid label: {validation_lines(exc)}") from None
+    _refuse_long_polygons(label, source=source, bounds=bounds)
+    return label
+
+
+def _refuse_long_polygons(label: Label, *, source: str, bounds: InputBounds) -> None:
+    """Refuse ``label`` when a polygon has more points than ``bounds.max_polygon_points``.
+
+    The message reads as the schema's did when it held the limit, plus the setting that allows more.
+    """
+    limit = bounds.max_polygon_points
+    lines = [
+        f"elements.{index}.polygon.points: List should have at most {limit} items after validation, not {points}"
+        for index, points in long_polygons(label.elements, limit=limit)
+    ]
+    if not lines:
+        return
+    advice = f"; more points need {bounds.max_polygon_points_key}" if bounds.max_polygon_points_key else ""
+    raise LabelInputError(f"{source} is not a valid label: {'; '.join(lines)}{advice}")
 
 
 def load_label(source: str, *, bounds: InputBounds = DEFAULT_INPUT_BOUNDS) -> Label:
     """Read and parse the label at ``source`` (path or ``-``), within ``bounds``."""
-    return parse_label(read_input(source, bounds=bounds), source=source)
+    return parse_label(read_input(source, bounds=bounds), source=source, bounds=bounds)
 
 
 def _as_record(row: object, *, where: str) -> dict[str, str]:

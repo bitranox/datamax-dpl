@@ -352,6 +352,7 @@ class FindingCode(str, Enum):
     PAUSE_EACH_LABEL_UNSUPPORTED = "pause_each_label_unsupported"
     PAUSE_PERSISTS = "pause_persists"
     PLACEHOLDERS_UNFILLED = "placeholders_unfilled"
+    POLYGON_TOO_MANY_POINTS = "polygon_too_many_points"
     PRESENT_DISTANCE_TOO_LARGE = "present_distance_too_large"
     PRESENT_DISTANCE_UNSUPPORTED = "present_distance_unsupported"
     PRINTER_RESET_CALIBRATED = "printer_reset_calibrated"

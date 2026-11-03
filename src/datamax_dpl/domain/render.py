@@ -40,12 +40,12 @@ from .job import (
     stops_at_tear_off,
     system_prefix,
 )
-from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText, Text
+from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText, Text, long_polygons
 from .overlap import inexact_rectangle, printed_dots
 from .placeholders import label_placeholders
 from .preview import SentAs
 from .profiles import CalibrationDefaults, CalibrationKey, Feature, get_profile
-from .render_context import RenderContext, RenderOptions, resolved_image_module, resolved_printer_state
+from .render_context import RenderContext, RenderOptions, option_name, resolved_image_module, resolved_printer_state
 from .transparency import Emulation, emulate_transparency
 from .units import MM_PER_INCH, Axis, Correction, DplUnit, to_inches
 
@@ -420,6 +420,16 @@ def _check_qr_dot_size(label: Label, ctx: RenderContext) -> None:
             )
 
 
+def _check_polygon_points(label: Label, ctx: RenderContext, *, limit: int) -> None:
+    """Refuse each polygon with more than ``limit`` points, under either policy."""
+    for index, points in long_polygons(label.elements, limit=limit):
+        ctx.findings.refuse(
+            FindingCode.POLYGON_TOO_MANY_POINTS,
+            f"the polygon has {points} points, more than {limit} ({option_name('max_polygon_points')})",
+            element=index,
+        )
+
+
 def _reach(element: Element, ctx: RenderContext) -> int | None:
     """Return the highest dot row a field reaches along the feed, or None when it prints nothing.
 
@@ -567,6 +577,7 @@ def _encode(label: Label, options: RenderOptions, *, halve: bool, held: HeldImag
     ctx = _context(label, options, halve=halve, held=held)
     _check_label_level(label, ctx)
     _check_qr_dot_size(label, ctx)
+    _check_polygon_points(label, ctx, limit=options.max_polygon_points)
     prefix = system_prefix(label, ctx)
     body = _encode_elements(label.elements, ctx, emulate_transparency(label, ctx))
     record_count = _count_records(body)

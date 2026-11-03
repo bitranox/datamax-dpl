@@ -30,7 +30,7 @@ from .geometry import Size
 from .held_images import HeldImages
 from .image_budget import HALVING_FACTOR, halve, halved_magnification, image_data_bytes
 from .image_records import CR, MAX_WIDTH, download_command
-from .label import Positive, StopPosition
+from .label import MAX_POLYGON_POINTS, MAX_POLYGON_POINTS_LIMIT, Positive, StopPosition
 from .profiles import Feature, ParsedFirmware
 from .raster import Bitmap
 from .records import MAX_IMAGE_MAGNIFICATION, Magnification
@@ -189,6 +189,9 @@ class RenderOptions(BaseModel):
         inch_unit_dots: Whole printer dots one 1/100 in prints as, for a printer that rounds the
             unit to whole dots; None takes the model's (``PrinterProfile.inch_unit_dots``: 2 on the
             Allegro 2, measured on one CA02 03.04, none elsewhere). Applies to a job in 1/100 in.
+        max_polygon_points: Most vertices one polygon of the job may have; a polygon with more
+            is refused (``polygon_too_many_points``) under either policy. The manual sets no
+            limit, so the default (``MAX_POLYGON_POINTS``, 60) is ours.
         send_settings: Persistent printer settings a job sends before its format; None sends
             every one. A setting left out keeps whatever the printer holds.
         media: Media sensor a job sets when the label names none; the label's own ``media``
@@ -246,6 +249,7 @@ class RenderOptions(BaseModel):
     image_module: ImageModule | None = None
     max_format_rows: int | None = Field(default=None, gt=0, strict=True)
     inch_unit_dots: int | None = Field(default=None, gt=0, strict=True)
+    max_polygon_points: int = Field(default=MAX_POLYGON_POINTS, gt=0, le=MAX_POLYGON_POINTS_LIMIT, strict=True)
     send_settings: frozenset[PrinterSetting] | None = None
     media: MediaSensor | None = None
     # A library caller passes numbers, so text and booleans are refused here; the settings key of

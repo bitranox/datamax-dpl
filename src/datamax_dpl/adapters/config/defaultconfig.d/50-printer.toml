@@ -454,6 +454,15 @@ options = []
 # Environment Variable: DATAMAX_DPL___PRINTER__INCH_UNIT_DOTS=2
 # inch_unit_dots = 2
 
+# Purpose: Most points one polygon of a label may have. The manual sets no
+#          limit for the polygon record, so this one is ours: a label with a
+#          longer polygon is refused when it is read (exit 2). Every point is
+#          eight bytes of the record.
+# Type: integer, greater than 0, at most 10000
+# Default: 60
+# Environment Variable: DATAMAX_DPL___PRINTER__MAX_POLYGON_POINTS=120
+# max_polygon_points = 60
+
 # The printer state each label's job sets before its format. Another program or
 # the front panel may have changed any of it, so the job sends what it relies on.
 # The keys below ship unset (commented out): unset means the model's default, and
