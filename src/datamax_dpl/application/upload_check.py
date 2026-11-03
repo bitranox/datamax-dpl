@@ -894,27 +894,13 @@ def _send_labels(link: Link, job: CheckedJob, *, cuts: Iterable[bool], sink: _La
     Returns:
         True when every label was sent; False when one was refused, which nothing after it follows.
     """
-    told: tuple[Finding, ...] = ()
     first = True
     for cut, render in zip(cuts, job.renders, strict=False):
         record = _Record(render=render, link=link, check=job.check, first=first)
-        if not record.result.ok:
-            sink.add(record.result, cut=cut)
+        if (refused := _refused_as_rendered(record.result)) is not None:
+            sink.add(refused, cut=cut)
             return False
-        if (unlisted := _unlisted_module(record.result)) is not None:
-            sink.add(unlisted, cut=cut)
-            return False
-        checked = bool(record.result.downloads)
-        # The first label's names are read before the reset check: a label that the listing makes
-        # an error is refused before anything, a calibration label included, goes out.
-        before = record.read_before() if checked else None
-        if first and not isinstance(before, _Refused):
-            told = _after_reset(link, render, job)
-            record.findings.extend(told)
-        passed = not checked or _check_label(record, before)
-        if first and not told:
-            record.findings.extend(_reset_in_rounds(link, render, job, passed=passed))
-        if not passed:
+        if not _checked_with_reset(link, job, record, render, first=first):
             sink.add(record.as_sent(), cut=cut, unkept=record.unkept())
             return False
         # Built after the check: a round may have rendered the label again.
@@ -923,6 +909,31 @@ def _send_labels(link: Link, job: CheckedJob, *, cuts: Iterable[bool], sink: _La
         sink.add(record.as_sent(), cut=cut, unkept=record.unkept())
         first = False
     return True
+
+
+def _refused_as_rendered(result: RenderResult) -> RenderResult | None:
+    """``result`` refused as rendered, before anything of it goes out: its errors, or a module no directory lists."""
+    if not result.ok:
+        return result
+    return _unlisted_module(result)
+
+
+def _checked_with_reset(link: Link, job: CheckedJob, record: _Record, render: RecordRender, *, first: bool) -> bool:
+    """Run the upload check of ``record``, and for the first label the reset check; True when it passed.
+
+    The first label's names are read before the reset check: a label that the listing makes an
+    error is refused before anything, a calibration label included, goes out.
+    """
+    checked = bool(record.result.downloads)
+    before = record.read_before() if checked else None
+    told: tuple[Finding, ...] = ()
+    if first and not isinstance(before, _Refused):
+        told = _after_reset(link, render, job)
+        record.findings.extend(told)
+    passed = not checked or _check_label(record, before)
+    if first and not told:
+        record.findings.extend(_reset_in_rounds(link, render, job, passed=passed))
+    return passed
 
 
 def send_checked_label(link: Link, job: CheckedJob) -> CheckedSend[RenderResult]:
