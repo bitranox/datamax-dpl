@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict
 from ....application.use_cases import BatchReport, check_batch, render_label
 from ....domain.decoder import DecodedCommand, explain
 from ....domain.enums import ImageModule
-from ....domain.errors import BatchTooLargeError
+from ....domain.errors import BatchTooLargeError, ConfigurationError
 from ....domain.held_images import READ_AT_SEND, HeldImages
 from ....domain.label import Label
 from ....domain.profiles import Feature, PrinterProfile, SpeedRange, get_profile, list_profiles
@@ -249,10 +249,14 @@ def cli_render(ctx: click.Context, label_source: str, data: str | None, output: 
     """
 
     def body(cli_ctx: CLIContext) -> CommandResult:
+        machine = cli_ctx.mode.machine
+        if output == STDIN and machine:
+            # Refused before the label and the records are read: no record can change the answer.
+            msg = "--output - cannot be combined with --json: stdout carries the envelope"
+            raise ConfigurationError(msg)
         settings = resolve_settings(cli_ctx, command_overrides(given))
         label = load_label(label_source)
         records = None if data is None else load_batch(data, settings)
-        machine = cli_ctx.mode.machine
         rendered = _rendered(label, records, settings, output=output, cli_ctx=cli_ctx)
         result = rendered.result
         written = output if output is not None and result.ok else None
@@ -272,13 +276,11 @@ def _rendered(
 ) -> _RenderedJob:
     """Render for ``render``, writing the job when it is ok: as it goes for a batch that has somewhere to go."""
     options = render_options(settings)
-    # Raw bytes on stdout only in human mode: in JSON mode stdout carries the envelope.
-    raw_stdout_allowed = not cli_ctx.mode.machine
     open_spool = cli_ctx.services.open_spool
     if records is None:
         result = check_loaded(label, None, options, settings)
         if output is not None and result.ok:
-            _write_output(output, (result.data,), raw_stdout_allowed=raw_stdout_allowed)
+            _write_output(output, (result.data,))
         return _RenderedJob(result=result, job=result.data if output is None and result.ok else None)
     if output is None:
         return _batch_held_whole(label, records, options, settings)
@@ -291,15 +293,13 @@ def _rendered(
     with open_spool() as spool:
         report = check_loaded(label, records, options, settings, route=JobRoute(spool=spool))
         if report.ok:
-            _write_output(output, report.record_jobs(), raw_stdout_allowed=raw_stdout_allowed)
+            _write_output(output, report.record_jobs())
     return _RenderedJob(result=report)
 
 
-def _write_output(output: str, jobs: Iterable[bytes], *, raw_stdout_allowed: bool) -> None:
+def _write_output(output: str, jobs: Iterable[bytes]) -> None:
+    """Write ``jobs`` to ``output``; ``render`` has refused ``-`` under ``--json`` before anything was read."""
     if output == STDIN:
-        if not raw_stdout_allowed:
-            msg = "--output - cannot be combined with --json: stdout carries the envelope"
-            raise ValueError(msg)
         for job in jobs:
             sys.stdout.buffer.write(job)
         sys.stdout.buffer.flush()

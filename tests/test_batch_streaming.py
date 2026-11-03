@@ -474,6 +474,19 @@ def test_render_to_stdout_with_an_envelope_is_refused_before_writing_anything(
     assert "stdout carries the envelope" in json.loads(result.stdout)["message"]
 
 
+@pytest.mark.os_agnostic
+def test_render_to_stdout_with_an_envelope_is_refused_before_any_input_is_read(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    """No label or record can change the answer, so neither is read: missing files show it."""
+    label, data = str(tmp_path / "no-label.json"), str(tmp_path / "no-data.csv")
+    result = _run(cli_runner, "--json-bare", "render", label, "--data", data, "--model", "dmx-600", "-o", "-")
+    assert result.exit_code == 2, result.output
+    document = json.loads(result.stdout)
+    assert document["error"] == "ConfigurationError", document
+    assert "stdout carries the envelope" in document["message"]
+
+
 # ======================== reading the records ========================
 
 

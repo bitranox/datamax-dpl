@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `--json render -o -` is refused at once, as `ConfigurationError` like `print --printer -`, before the label or a
+  record is read; it was refused only after the label was rendered, a `--data` batch's every record included, as
+  `ValueError`, and a bad record was named in its place.
 - An envelope names the command on the line whenever there is one: after Ctrl-C, after a bad global option, and for
   `calibrate` alone. `command` is null only when the line names no command.
 - Ctrl-C says "part of a job may already have been sent" only for commands that send one (`print`, `verify`,
