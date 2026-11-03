@@ -355,7 +355,8 @@ options = []
 #          and double magnification (image_halved); strict refuses the job
 #          (image_memory_exceeded). `datamax-dpl memory` shows the free bytes.
 #          'print' on a two-way link leaves the model's budget out
-#          and let the upload check decide (image_budget_skipped); a value set
+#          and lets the upload check decide (image_budget_skipped), unless
+#          upload_check_rounds is 0, which reads nothing back; a value set
 #          here applies there too.
 # Type: integer, greater than 0
 # Default: unset (the model's budget: 44535 for the Allegro 2, none elsewhere)

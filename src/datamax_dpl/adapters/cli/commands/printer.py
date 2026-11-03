@@ -12,7 +12,14 @@ import rich_click as click
 from pydantic import BaseModel, ConfigDict
 
 from ....application.ports import PrinterEndpoint
-from ....application.upload_check import CheckedJob, ResetCheck, UploadCheck, UploadRefusedError, print_checked
+from ....application.upload_check import (
+    MIN_UPLOAD_CHECK_ROUNDS,
+    CheckedJob,
+    ResetCheck,
+    UploadCheck,
+    UploadRefusedError,
+    print_checked,
+)
 from ....application.use_cases import (
     ONE_WAY_LINK,
     AnswerWait,
@@ -252,7 +259,8 @@ def _print_options(settings: PrinterSettings, *, link: _Link) -> RenderOptions:
 
     A two-way link leaves out the model's own image memory budget: its upload check reads whether
     the printer stored the images, which says more than a count of dot data can (user decision
-    D63). An ``image_memory_bytes`` configured applies on every link.
+    D63). With ``upload_check_rounds`` 0 no round reads them back, so the budget applies as on a
+    one-way link. An ``image_memory_bytes`` configured applies on every link.
 
     Example:
         >>> settings = PrinterSettings(model="allegro-2")
@@ -260,8 +268,12 @@ def _print_options(settings: PrinterSettings, *, link: _Link) -> RenderOptions:
         False
         >>> _print_options(settings, link=_Link(uri="file:job.dpl", one_way=True)).model_image_budget
         True
+        >>> unchecked = PrinterSettings(model="allegro-2", upload_check_rounds=0)
+        >>> _print_options(unchecked, link=_Link(uri="tcp://192.0.2.60:9100", one_way=False)).model_image_budget
+        True
     """
-    return render_options(settings, model_image_budget=link.one_way)
+    unchecked = settings.upload_check_rounds == MIN_UPLOAD_CHECK_ROUNDS
+    return render_options(settings, model_image_budget=link.one_way or unchecked)
 
 
 def wait_longer_hint(settings: PrinterSettings) -> str:

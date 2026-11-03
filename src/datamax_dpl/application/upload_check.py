@@ -141,7 +141,9 @@ class UploadCheck(NamedTuple):
             0 uploads and reads nothing back: the format follows the upload unchecked, as on a
             one-way link, so an image the printer lost prints as nothing (one Allegro 2,
             2026-11-01). The names read before downloads no clear precedes still runs: it keeps
-            a held name from being downloaded again, which printed nothing (2026-10-30).
+            a held name from being downloaded again, which printed nothing (2026-10-30). No round
+            halves an image then, so render with the model's image budget
+            (``model_image_budget`` True), as ``print`` does.
         idle: Seconds of silence that end each directory answer (``directory_idle``).
     """
 
@@ -202,8 +204,9 @@ class CheckedJob(NamedTuple):
     """A job to send with its upload check, and how to render each of its labels again.
 
     The renders and the job they rebuild are rendered with the same options; with
-    ``model_image_budget`` False, as ``print`` renders for a two-way link, the images
-    go at full size and the check, not the model's budget, decides whether they are halved.
+    ``model_image_budget`` False, as ``print`` renders for a two-way link with at least one
+    round, the images go at full size and the check, not the model's budget, decides whether
+    they are halved.
 
     Attributes:
         renders: One render per label, in the order they are sent: ``record_renders``, or

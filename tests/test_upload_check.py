@@ -1138,6 +1138,27 @@ def test_print_over_tcp_sends_images_past_the_model_budget_at_full_size_while_va
 
 @pytest.mark.os_agnostic
 @pytest.mark.usefixtures("no_ambient_configuration")
+def test_print_over_tcp_with_upload_check_rounds_0_keeps_the_model_budget_as_a_one_way_link_does(
+    cli_runner: CliRunner, tmp_path: Path, serve: Callable[[Play], PrinterServer]
+) -> None:
+    """No round reads the upload back, so nothing but the model's budget halves an image past it."""
+    modules = ImageModules()
+    server = serve(module_printer(modules))
+    [halved] = render_label(Label(elements=[BIG]), ALLEGRO).downloads
+    args = ["--json", "print", _big_label_file(tmp_path), "--model", "allegro-2", "--printer", server.address]
+
+    printed = _run(cli_runner, args, DATAMAX_DPL___PRINTER__UPLOAD_CHECK_ROUNDS="0")
+    server.join()
+
+    assert printed.exit_code == 0, printed.output
+    assert modules.downloads == [halved]
+    print_codes = [finding["code"] for finding in json.loads(printed.stdout)["data"]["findings"]]
+    assert "image_halved" in print_codes
+    assert "image_budget_skipped" not in print_codes
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.usefixtures("no_ambient_configuration")
 def test_print_to_a_file_keeps_the_model_budget_and_halves_images_past_it(
     cli_runner: CliRunner, tmp_path: Path
 ) -> None:

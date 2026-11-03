@@ -169,7 +169,8 @@ which may be waiting for the rest.
   (`image_halved`; `preview` shows it). Refused (`image_memory_exceeded`): still past it after
   halving, any job past it under `strict`, a halved image at `magnification` 5 or more. On a
   two-way `print` the model's budget is left out (the upload check decides,
-  `image_budget_skipped`); a configured `image_memory_bytes` still applies.
+  `image_budget_skipped`) unless `upload_check_rounds` is 0; a configured `image_memory_bytes`
+  still applies.
 - Image module: downloads go to the model's built-in module (`image_module` in `capabilities`); a Prodigy/Prodigy Plus has none and refuses them (`image_module_unknown`) until `[printer] image_module` (A-E) names the module fitted. The module is cleared before each label's downloads and again after the label's format and any cut, on a label that downloads nothing too (`[printer] clear_graphics_before` and `clear_graphics_after`, both `true`; the library's `RenderOptions.clear_graphics_before_label` and `clear_graphics_after_label`); the clear (`<STX>q`) goes only to the model's built-in RAM module, never to a plug-in one, whatever the keys say, and the plain Prodigy removes each name a label downloads instead. `<STX>q` empties the whole module, the images the printer stores and any fonts and formats in it too, so a label that places a stored image (an `image` without `bitmap`) is refused (`stored_image_cleared`) while `clear_graphics_before` is on, and a `--data` batch of it from its second record while only `clear_graphics_after` is: keep a stored image usable with both keys `false`. The plain Prodigy's removes take only the label's own downloads.
 - Upload check (`print`, two-way link): a download into a full module is lost silently, so a label's
   downloads go first, the printer's directory (`<STX>W`) is read within `stored_names_wait` (plus

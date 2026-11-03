@@ -100,11 +100,13 @@ only places (no `bitmap`) costs nothing. Past the budget, `degrade` halves every
 downloads from a bitmap or draws (each 2x2 block of dots becomes one, black if any was, so a
 one-dot line survives) and places it at double magnification; a QR Code is never halved, since
 that would merge its modules. Halving happens once: a job still past the budget, and under
-`strict` any job past it, is refused. Unverified on paper. `print` and `verify` on a two-way link
-leave the model's budget out: they send the images at full size, read whether the printer stored
-them, and halve them only when it did not (`image_budget_skipped` says when the model's budget
-would have halved them). So the `image_halved` that `validate`, `render` and `preview` report for
-a model's budget describes a one-way print. A budget set in `image_memory_bytes` applies everywhere.
+`strict` any job past it, is refused. Unverified on paper. `print` on a two-way link leaves the
+model's budget out: it sends the images at full size, reads whether the printer stored them, and
+halves them only when it did not (`image_budget_skipped` says when the model's budget would have
+halved them). So the `image_halved` that `validate`, `render` and `preview` report for a model's
+budget describes a one-way print. With `upload_check_rounds = 0` nothing is read back, so `print`
+keeps to the model's budget on a two-way link too. A budget set in `image_memory_bytes` applies
+everywhere.
 
 Images download to the memory module the "Image module" column of the Limits table names, the
 model's built-in RAM (manual, Appendix L): module A on most models, E on the DMX 600/800 (where A

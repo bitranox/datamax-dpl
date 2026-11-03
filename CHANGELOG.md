@@ -46,7 +46,8 @@ All notable changes to this project are documented here. The format follows
   after the upload and no retry, as on a one-way link (`UploadCheck(rounds=0)` in the library;
   `MIN_UPLOAD_CHECK_ROUNDS` is 0). A lost download then goes unseen, and an Allegro 2 prints such a format without
   the image and with no error. The names read before downloads no clear precedes still runs, so a held name is
-  still placed rather than downloaded again.
+  still placed rather than downloaded again. As on a one-way link, the model's image memory budget then applies,
+  since no round halves an image past it.
 
 ### Fixed
 
