@@ -53,15 +53,20 @@ All notable changes to this project are documented here. The format follows
   a second. `render_preview_png` names the field limit under `Raises`.
 - A `--data` batch goes one record at a time: the memory of `print`, `validate` and `render -o` no longer grows with
   the records. A 399-field label with 8000 records took 2.9 GB in `print`, and now takes 59 MB. Every record is still
-  checked before any byte goes out, so a batch with a bad record is refused as before; `print` renders each record
-  twice for that, and on a two-way link each label with a new image costs its directory read, about 1 s plus the
-  printer's answer. `render -o FILE` writes a file beside the target and replaces the target only when every record
-  passed, and `render -o -` checks all of them, then streams. A target that would not stay what it was if replaced
-  (a device, a pipe, a directory taking no new file, a file another user owns or with another hard link) is written in
-  place after the check.
+  checked before any byte goes out, so a batch with a bad record is refused as before, and each record is rendered
+  once for it: `print`, `render -o -` and an in-place `render -o` keep each checked record in a spool file in the
+  system's temp directory, readable by this user alone and removed however the command ends (SIGTERM and SIGHUP
+  leave it), and send from it. A label is rendered again only for what the printer answers: its names read, round
+  2's clear, or halved images. 4000 records of a 399-field label took 34 s in `print` and `render -o -`, and now take
+  17 s. On a two-way link each label with a new image costs its directory read, about 1 s plus the printer's answer.
+  `render -o FILE` writes a file beside the target and replaces the target only when every record passed, and
+  `render -o -` checks all of them, then streams. A target that would not stay what it was if replaced (a device, a
+  pipe, a directory taking no new file, a file another user owns or with another hard link) is written in place
+  after the check.
 - Library: `iter_batch` yields one `RenderResult` at a time, `check_batch` returns a `BatchReport` holding no job, and
   `print_checked` takes the report with `report.renders()`, building each label when its turn comes. `render_batch`
-  stays as the way to hold a batch whole. Records that come back different on the second read are refused when their
+  stays as the way to hold a batch whole. `check_batch(spool=...)` keeps each record in a `JobSpool` as it is
+  checked, and the report sends from it. Records that come back different on the second read are refused when their
   turn comes: `LabelRejectedError` for one gone bad, `ConfigurationError` for another number.
 - `[printer] max_reported_findings` and `max_reported_downloads` (default 1000 each): a batch's answer keeps that many
   findings and image names in full, past that the first finding of each code, and always its first error. The JSON

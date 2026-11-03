@@ -135,8 +135,11 @@ to `print_checked` and `record_jobs()` yields the job's pieces, memory not growi
 report has `records`, `job_bytes`, `findings` (`ReportedFinding` pairs of `record` and `finding`), `downloads`
 and their totals; `limits=ReportLimits(findings=..., downloads=...)` says how much of those it keeps, and
 `each=` gets a `BatchEntry` for each record as it is rendered. Time does grow: each
-record renders once to check and once to send, and on a two-way link each label with a new image costs
-its directory read, about 1 s plus the printer's answer, about 17 minutes per 1000 distinct codes. To send
+record renders once to check and once more to send, unless `spool=` gets a `JobSpool` (`add`, `seal`,
+`entries`, the port in `datamax_dpl.application.ports`) to keep each record in as it is checked, which
+the send then reads back; `print` and `render -o` keep theirs in a temp file. On a two-way link each label with a
+new image costs its directory read, about 1 s plus the printer's answer, about 17 minutes per 1000
+distinct codes. To send
 bytes open a transport with `open_printer(uri, timeout=10)` and call `send(data)` on it. `explain(data)`
 reads DPL bytes back, as the command `datamax-dpl explain job.dpl` does. All of these are imported
 from `datamax_dpl`.
