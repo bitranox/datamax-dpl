@@ -37,7 +37,6 @@ from ....domain.memory import NO_MODULES_MEANING, MemoryDirectory
 from ....domain.placeholders import fill_record
 from ....domain.preview import canvas_for, check_preview_length
 from ....domain.profiles import get_profile
-from ....domain.render import RenderResult
 from ....domain.status import PrinterStatus
 from ...camera import require_camera
 from ...config.sections import CAMERA_SECTION, PREVIEW_SECTION, printer_section
@@ -75,6 +74,7 @@ if TYPE_CHECKING:
     from ....application.ports import JobSpool
     from ....domain.camera import CameraSettings
     from ....domain.label import Label
+    from ....domain.render import RenderResult
     from ....domain.render_context import RenderOptions
     from ..context import CLIContext
 

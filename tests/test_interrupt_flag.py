@@ -164,7 +164,9 @@ def test_a_ctrl_c_lost_on_the_last_record_sends_nothing(
     (tmp_path / "other-name.dpl").hardlink_to(linked)
     printer = RecordingPrinter()
     verb, *rest = [word.format(out=out, linked=linked) for word in command]
-    code = main([verb, label, "--data", data, "--model", "dmx-600", *rest], services_factory=_losing_at_the_last(printer))
+    code = main(
+        [verb, label, "--data", data, "--model", "dmx-600", *rest], services_factory=_losing_at_the_last(printer)
+    )
     captured = capfdbinary.readouterr()
     assert code == _INTERRUPTED_EXIT, captured.err
     assert printer.sent == []

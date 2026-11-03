@@ -36,7 +36,7 @@ from .model_options import command_overrides, printer_choice_decorator, render_o
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-    from ....application.ports import JobSpool, OpenJobSpool
+    from ....application.ports import JobSpool
     from ....application.use_cases import BatchEntry
     from ....domain.render import RenderResult
     from ....domain.render_context import RenderOptions
@@ -253,9 +253,7 @@ def cli_render(ctx: click.Context, label_source: str, data: str | None, output: 
         label = load_label(label_source)
         records = None if data is None else load_batch(data, settings)
         machine = cli_ctx.mode.machine
-        rendered = _rendered(
-            label, records, settings, output=output, raw_stdout_allowed=not machine, open_spool=cli_ctx.services.open_spool
-        )
+        rendered = _rendered(label, records, settings, output=output, cli_ctx=cli_ctx)
         result = rendered.result
         written = output if output is not None and result.ok else None
         shown = None if rendered.job is None else ShownJob(rendered.job, with_base64=machine)
@@ -270,16 +268,13 @@ def cli_render(ctx: click.Context, label_source: str, data: str | None, output: 
 
 
 def _rendered(
-    label: Label,
-    records: Records | None,
-    settings: PrinterSettings,
-    *,
-    output: str | None,
-    raw_stdout_allowed: bool,
-    open_spool: OpenJobSpool,
+    label: Label, records: Records | None, settings: PrinterSettings, *, output: str | None, cli_ctx: CLIContext
 ) -> _RenderedJob:
     """Render for ``render``, writing the job when it is ok: as it goes for a batch that has somewhere to go."""
     options = render_options(settings)
+    # Raw bytes on stdout only in human mode: in JSON mode stdout carries the envelope.
+    raw_stdout_allowed = not cli_ctx.mode.machine
+    open_spool = cli_ctx.services.open_spool
     if records is None:
         result = check_loaded(label, None, options, settings)
         if output is not None and result.ok:
