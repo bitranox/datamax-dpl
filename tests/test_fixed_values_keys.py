@@ -24,12 +24,15 @@ from datamax_dpl.adapters.cli.settings import (
     PrinterOverrides,
     PrinterSettings,
     printer_settings,
+    render_options,
 )
 from datamax_dpl.adapters.memory import RecordingPrinter
-from datamax_dpl.application.use_cases import DIRECTORY_IDLE_SECONDS
+from datamax_dpl.application.use_cases import DIRECTORY_IDLE_SECONDS, render_label
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.errors import ConfigurationError
 from datamax_dpl.domain.label import Image, Label, Text
+from datamax_dpl.domain.render import job_context
+from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.reset_label import CALIBRATION_LABEL_TEXT
 from datamax_dpl.domain.timing import MAX_ANSWER_SECONDS, MAX_TIMEOUT_SECONDS, TIMEOUT_SECONDS
 
@@ -397,3 +400,52 @@ def test_max_batch_records_ceiling_still_means_no_limit_at_the_largest_input(tmp
     assert _settings({"printer": {"max_batch_records": MAX_BATCH_RECORDS_LIMIT}}).max_batch_records == (
         MAX_BATCH_RECORDS_LIMIT
     )
+
+
+# ======================== inch_unit_dots: the whole dots one 1/100 in prints as ========================
+
+
+def _options(config: dict[str, Any], printer: str | None = None) -> RenderOptions:
+    return render_options(_settings(config, printer))
+
+
+@pytest.mark.os_agnostic
+def test_inch_unit_dots_unset_takes_the_models_value() -> None:
+    assert PrinterSettings().inch_unit_dots is None
+    assert _options({}).inch_unit_dots is None
+    assert job_context(TEXT_LABEL, _options({"printer": {"model": "allegro-2"}})).dots_per_unit == 2.0
+    assert job_context(TEXT_LABEL, RenderOptions(model="allegro-2")).dots_per_unit == 2.0
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("config", "printer"),
+    [({"printer": {"inch_unit_dots": 3}}, None), ({"printers": {"lager": {"inch_unit_dots": 3}}}, "lager")],
+)
+def test_a_configured_inch_unit_dots_wins_over_the_models_and_moves_every_distance(
+    config: dict[str, Any], printer: str | None
+) -> None:
+    allegro = {**config, "printer": {**config.get("printer", {}), "model": "allegro-2"}}
+    options = _options(allegro, printer)
+    measured = _options({"printer": {"model": "allegro-2"}})
+
+    assert options.inch_unit_dots == 3
+    assert job_context(TEXT_LABEL, options).dots_per_unit == 3.0
+    assert render_label(TEXT_LABEL, options).data != render_label(TEXT_LABEL, measured).data
+
+
+@pytest.mark.os_agnostic
+def test_the_library_sets_inch_unit_dots_on_the_render_options() -> None:
+    label = Label(elements=[Text(x=10, y=10, text="A")])
+    two, three = (render_label(label, RenderOptions(model="allegro-2", inch_unit_dots=n)).data for n in (2, 3))
+
+    assert two == render_label(label, RenderOptions(model="allegro-2")).data
+    # 10 mm is 39.37/100 in: at 2 dots a unit that is 101.5 units per inch, at 3 it is 67.67.
+    assert b"0040" in two and b"0027" in three
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("value", "reason"), [(0, "greater than 0"), (-2, "greater than 0"), (True, "needs a number")])
+def test_inch_unit_dots_out_of_range_is_refused_naming_it(value: object, reason: str) -> None:
+    with pytest.raises(ConfigurationError, match=rf"^printer\.inch_unit_dots: .*{reason}"):
+        _settings({"printer": {"inch_unit_dots": value}})

@@ -443,6 +443,17 @@ options = []
 # Environment Variable: DATAMAX_DPL___PRINTER__MAX_FORMAT_ROWS=1700
 # max_format_rows = 1648
 
+# Purpose: Whole printhead dots one 1/100 in prints as, on a printer that rounds
+#          the inch unit to whole dots: every distance of a job in 1/100 in is
+#          worked out from it. Unset takes the model's: 2 on the Allegro 2 (a
+#          787/100 in line printed as 1574 dot rows on one CA02 03.04, not
+#          2.03 per unit), the exact unit on every other model. Set it for
+#          another firmware or a printer that rounds differently.
+# Type: integer, > 0 (dots)
+# Default: unset (the model's)
+# Environment Variable: DATAMAX_DPL___PRINTER__INCH_UNIT_DOTS=2
+# inch_unit_dots = 2
+
 # The printer state each label's job sets before its format. Another program or
 # the front panel may have changed any of it, so the job sends what it relies on.
 # The keys below ship unset (commented out): unset means the model's default, and

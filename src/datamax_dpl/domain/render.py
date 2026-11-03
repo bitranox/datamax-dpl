@@ -339,6 +339,7 @@ def _context(label: Label, options: RenderOptions, *, halve: bool, held: HeldIma
     calibration = _resolve(options, profile.calibration)
     from_model = _model_defaults_used(options, calibration)
     bitmap_rows = _bitmap_rows(label)
+    unit_dots = profile.inch_unit_dots if options.inch_unit_dots is None else options.inch_unit_dots
     probe = RenderContext(
         profile=profile,
         firmware=options.firmware,
@@ -351,8 +352,8 @@ def _context(label: Label, options: RenderOptions, *, halve: bool, held: HeldIma
         cutter_installed=options.cutter_installed,
         symbol_set=label.symbol_set,
         default_attribute=label.attribute or Attribute.XOR,
-        across=Correction(scale=calibration.scale_across, unit_dots=profile.inch_unit_dots),
-        along=Correction(scale=calibration.scale_along, unit_dots=profile.inch_unit_dots),
+        across=Correction(scale=calibration.scale_across, unit_dots=unit_dots),
+        along=Correction(scale=calibration.scale_along, unit_dots=unit_dots),
         offset_across=calibration.offset_across,
         offset_along=calibration.offset_along,
         model_offset_axes=frozenset(default.offset_axis for default in from_model if default.offset_axis is not None),

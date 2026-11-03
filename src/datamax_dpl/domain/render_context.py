@@ -186,6 +186,9 @@ class RenderOptions(BaseModel):
             the encoder commands them; None takes the model's limit
             (``PrinterProfile.max_format_rows``), which most models do not have. A field past it
             is refused (``format_past_max_length``) under either policy.
+        inch_unit_dots: Whole printer dots one 1/100 in prints as, for a printer that rounds the
+            unit to whole dots; None takes the model's (``PrinterProfile.inch_unit_dots``: 2 on the
+            Allegro 2, measured on one CA02 03.04, none elsewhere). Applies to a job in 1/100 in.
         send_settings: Persistent printer settings a job sends before its format; None sends
             every one. A setting left out keeps whatever the printer holds.
         media: Media sensor a job sets when the label names none; the label's own ``media``
@@ -242,6 +245,7 @@ class RenderOptions(BaseModel):
     model_image_budget: bool = Field(default=True, strict=True)
     image_module: ImageModule | None = None
     max_format_rows: int | None = Field(default=None, gt=0, strict=True)
+    inch_unit_dots: int | None = Field(default=None, gt=0, strict=True)
     send_settings: frozenset[PrinterSetting] | None = None
     media: MediaSensor | None = None
     # A library caller passes numbers, so text and booleans are refused here; the settings key of

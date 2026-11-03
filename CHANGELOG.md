@@ -22,6 +22,9 @@ All notable changes to this project are documented here. The format follows
   the peak memory by the file's size (a JSON array: about 35 times it). The refusal names the key of the section in
   use. `max_batch_records` now takes up to 536870912, more records than a file of the largest `max_input_bytes`
   holds. Library (CLI adapter): `InputBounds`, and `bounds=` on `read_input`, `load_label` and `load_records`.
+- `[printer] inch_unit_dots` (also in `[printers.<name>]`, unset by default): the whole dots one 1/100 in prints
+  as, for a firmware or a printer that rounds the unit differently from the measured Allegro 2 (2). Unset keeps the
+  model's value, so every job is as before. Library: `RenderOptions.inch_unit_dots`.
 - `[printer] upload_check_rounds` takes `0`: `print` uploads a label's images and sends its format with no read
   after the upload and no retry, as on a one-way link (`UploadCheck(rounds=0)` in the library;
   `MIN_UPLOAD_CHECK_ROUNDS` is 0). A lost download then goes unseen, and an Allegro 2 prints such a format without

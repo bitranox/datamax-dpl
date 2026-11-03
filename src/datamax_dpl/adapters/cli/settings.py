@@ -221,6 +221,9 @@ class PrinterSettings(BaseModel):
     clear_graphics_after: bool = True
     # None is not "no limit": it takes the model's, which only the Allegro 2 has so far.
     max_format_rows: int | None = Field(default=None, gt=0)
+    # None takes the model's measured rounding (2 dots a unit on the Allegro 2), for another firmware
+    # or a second printer that rounds differently.
+    inch_unit_dots: int | None = Field(default=None, gt=0)
     # A label no clear precedes: a download left out for a held name, or names that could not be read.
     held_image_severity: Severity = Severity.WARNING
     # The persistent printer settings each label's job sets, under the render options' names and
@@ -262,6 +265,7 @@ class PrinterSettings(BaseModel):
         "cutter_stop_position",
         "image_memory_bytes",
         "max_format_rows",
+        "inch_unit_dots",
         "start_of_print_mm",
         "max_label_length_mm",
         "label_width",
@@ -539,6 +543,7 @@ def render_options(settings: PrinterSettings, *, model_image_budget: bool = True
         clear_graphics_before_label=settings.clear_graphics_before,
         clear_graphics_after_label=settings.clear_graphics_after,
         max_format_rows=settings.max_format_rows,
+        inch_unit_dots=settings.inch_unit_dots,
         held_image_severity=settings.held_image_severity,
         send_settings=settings.send_settings,
         media=settings.media,
@@ -570,6 +575,7 @@ OPTION_KEYS: Mapping[str, str] = MappingProxyType(
         "clear_graphics_before_label": "clear_graphics_before",
         "clear_graphics_after_label": "clear_graphics_after",
         "max_format_rows": "max_format_rows",
+        "inch_unit_dots": "inch_unit_dots",
         "held_image_severity": "held_image_severity",
         "send_settings": "send_settings",
         "media": "media",
