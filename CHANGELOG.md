@@ -347,7 +347,7 @@ All notable changes to this project are documented here. The format follows
 - `--timeout` on `status` and `memory` is now the whole wait for the first
   answer, retries included, in place of `status_wait`; before, it bounded
   one connect and one answer wait. Without `wait`, `query_status` and
-  `read_memory_directory` keep trying for `timeout` seconds in all.
+  `read_memory_directory` keep trying for the endpoint's timeout in all.
 - A printer that refuses every connection, or that cannot be connected to in
   time, now makes `status` and `memory` fail only when their wait runs out:
   a mistyped port, or a printer switched off behind a print server that
@@ -480,7 +480,13 @@ All notable changes to this project are documented here. The format follows
   `endpoint=PrinterEndpoint(uri=..., timeout=..., open_printer=...)` (exported
   from `datamax_dpl`), in place of its `uri`, `timeout` and `open_printer`
   keywords; the use cases in `application.use_cases` and `application.verify`
-  that reach a printer take it the same way.
+  that reach a printer take it the same way, and `upload_check.Link` holds it
+  as `endpoint` in place of those three fields.
+- Library: `adapters.config.deploy_configuration` and the
+  `DeployConfiguration` port take the permission values as one
+  `permissions=DeployPermissionRequest(...)` (from
+  `datamax_dpl.application.ports`) in place of the `set_permissions`,
+  `dir_mode`, `file_mode` and `permission_overrides` keywords.
 
 ### Removed
 
