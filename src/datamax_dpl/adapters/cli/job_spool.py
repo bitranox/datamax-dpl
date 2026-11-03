@@ -107,6 +107,8 @@ class FileJobSpool:
         self._writer: BinaryIO | None = None
         self._readers: set[BinaryIO] = set()
         self._sealed = False
+        # Closing removes the file, so a closed spool must not read as a sealed one with nothing in it.
+        self._closed = False
 
     @property
     def path(self) -> Path | None:
@@ -123,10 +125,11 @@ class FileJobSpool:
         """Write ``entry`` to the end of the file: its render without the job, then the job's bytes.
 
         Raises:
-            RuntimeError: The spool was sealed.
+            RuntimeError: The spool was sealed or closed.
             SpoolWriteError: The file could not be made or written (a full disk); nothing more can
                 be added then, and the spool takes no more disk than it has.
         """
+        self._refuse_closed()
         if self._sealed:
             msg = "the spool is sealed: no record may be added after the check pass"
             raise RuntimeError(msg)
@@ -149,6 +152,11 @@ class FileJobSpool:
             # check pass still owes its caller.
             self._drop_writer()
             raise _named(exc, self._where(), "writing") from exc
+
+    def _refuse_closed(self) -> None:
+        if self._closed:
+            msg = "the spool was closed and its file removed: it holds no records any more"
+            raise RuntimeError(msg)
 
     def _where(self) -> Path:
         """The spool's file, or the temp directory where it was to be made."""
@@ -180,8 +188,9 @@ class FileJobSpool:
         """Read the records back from the first, each call on a handle of its own.
 
         Raises:
-            RuntimeError: The spool is not sealed yet.
+            RuntimeError: The spool is not sealed yet, or was closed.
         """
+        self._refuse_closed()
         if not self._sealed:
             msg = "the spool is read only once the check pass has sealed it"
             raise RuntimeError(msg)
@@ -215,6 +224,7 @@ class FileJobSpool:
             SpoolWriteError: A handle could not be closed (its last bytes would not go), or the file
                 or its directory could not be removed; the first of these, naming the file.
         """
+        self._closed = True
         failed: list[SpoolWriteError] = []
         where = self._where()
         writer, self._writer = self._writer, None

@@ -340,6 +340,19 @@ def test_the_spool_refuses_a_read_before_it_is_sealed_and_an_add_after() -> None
 
 
 @pytest.mark.os_agnostic
+def test_a_closed_spool_refuses_a_read_and_an_add_rather_than_reading_as_empty() -> None:
+    """Its file is gone: an empty read would tell the send the batch had no records."""
+    spool = FileJobSpool()
+    spool.add(_entry("one", cut=False))
+    spool.seal()
+    spool.close()
+    with pytest.raises(RuntimeError, match="closed"):
+        spool.entries()
+    with pytest.raises(RuntimeError, match="closed"):
+        spool.add(_entry("two", cut=False))
+
+
+@pytest.mark.os_agnostic
 def test_a_spool_cut_short_is_refused_naming_the_file() -> None:
     with FileJobSpool() as spool:
         spool.add(_entry("one", cut=False))
