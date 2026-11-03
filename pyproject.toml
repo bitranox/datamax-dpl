@@ -187,13 +187,12 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 "tests/*.py" = ["T20", "S101", "S105", "S106", "S108", "FBT001", "FBT003", "PLR0913", "PLR2004", "PLC0415"]
 # CLI: Click framework injects boolean params; commands have many options
 "src/datamax_dpl/adapters/cli/**/*.py" = ["FBT001", "FBT002"]
-# Protocols/adapters: many-param signatures by design
+# PLR0913: a Click command takes each of its options as a parameter (calibrate set, config-deploy,
+# the root group); check_batch and verify_print take a label, its records or render and its options
+# plus independent keyword settings, with no value they always travel in.
 "src/datamax_dpl/adapters/cli/commands/calibrate.py" = ["PLR0913"]
 "src/datamax_dpl/adapters/cli/commands/config.py" = ["PLR0913"]
 "src/datamax_dpl/adapters/cli/root.py" = ["PLR0913"]
-"src/datamax_dpl/adapters/config/deploy.py" = ["PLR0913"]
-"src/datamax_dpl/adapters/memory/config.py" = ["PLR0913"]
-"src/datamax_dpl/application/ports.py" = ["PLR0913"]
 "src/datamax_dpl/application/use_cases.py" = ["PLR0913"]
 "src/datamax_dpl/application/verify.py" = ["PLR0913"]
 

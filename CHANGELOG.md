@@ -476,6 +476,11 @@ All notable changes to this project are documented here. The format follows
 - The module-level tables `FONT_BYTES`, `SYMBOL_SET_CODECS`, `MODEL_PROFILES`
   and `PROFILES` are read-only `Mapping`s: a caller that wrote to one changed
   it for the whole process.
+- Library: `print_checked` takes the printer as one value,
+  `endpoint=PrinterEndpoint(uri=..., timeout=..., open_printer=...)` (exported
+  from `datamax_dpl`), in place of its `uri`, `timeout` and `open_printer`
+  keywords; the use cases in `application.use_cases` and `application.verify`
+  that reach a printer take it the same way.
 
 ### Removed
 
