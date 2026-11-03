@@ -32,7 +32,33 @@ LINE_RECORD = re.compile(rb"1X11000(\d{4})(\d{4})[Ll](\d{3,4}?)(\d{3,4})\r")
 
 
 def black_set(bitmap: Bitmap) -> set[tuple[int, int]]:
+    """Every black pixel as ``(x, y)``, read a whole packed row at a time: a get() per pixel took seconds."""
+    pad = -bitmap.width % 8
+    black: set[tuple[int, int]] = set()
+    for y, row in enumerate(bitmap.rows()):
+        bits = int.from_bytes(row, "big") >> pad
+        while bits:
+            lowest = bits & -bits
+            black.add((bitmap.width - lowest.bit_length(), y))
+            bits ^= lowest
+    return black
+
+
+def _black_set_pixel_by_pixel(bitmap: Bitmap) -> set[tuple[int, int]]:
     return {(x, y) for y in range(bitmap.height) for x in range(bitmap.width) if bitmap.get(x, y)}
+
+
+def _fixture_bitmaps() -> list[Bitmap]:
+    label = mm_label(Box(x=2, y=2, width=18, height=10, thickness=0.5), Text(x=5, y=15, text="AbC"))
+    stripes = Bitmap.from_rows(["#.#.#.#.#", ".#.#.#.#.", "#########", "........."])
+    return [Bitmap(1, 1), Bitmap.from_rows(["#"]), stripes, preview_bitmap(label, get_profile(MODEL))]
+
+
+@pytest.mark.os_agnostic
+def test_black_set_reads_the_pixels_a_pixel_by_pixel_reading_reads() -> None:
+    for bitmap in _fixture_bitmaps():
+        assert black_set(bitmap) == _black_set_pixel_by_pixel(bitmap)
+    assert black_set(_fixture_bitmaps()[-1]), "the preview fixture has pixels to compare"
 
 
 def framed(label: Label, model: str = MODEL) -> Bitmap:

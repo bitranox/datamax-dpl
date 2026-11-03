@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import re
 import subprocess
 import sys
 import textwrap
@@ -29,13 +30,45 @@ def _huge_fields(count: int) -> Label:
     return Label(unit=Unit.DOTS, width=800, height=800, elements=[_HUGE] * count)
 
 
+#: A grey level below this reads as dark: the preview PNG is mode "1", so its pixels are 0 or 255.
+_DARK_BELOW = 128
+#: The pixels darker than :data:`_DARK_BELOW` in a mode "L" row of bytes.
+_DARK_BYTE = re.compile(rb"[\x00-\x7f]")
+
+
 def _dark_pixels(label: Label) -> set[tuple[int, int]]:
-    """Dark pixels of the lettered preview PNG, its one-dot frame left out."""
+    """Dark pixels of the lettered preview PNG, its one-dot frame left out, read a whole row at a time."""
+    image_module = pytest.importorskip("PIL.Image")
+    with image_module.open(io.BytesIO(render_preview_png(label, get_profile(_MODEL)))) as image:
+        grey = image.convert("L")
+    width, height = grey.size
+    data = grey.tobytes()
+    return {
+        (found.start() - y * width, y)
+        for y in range(1, height - 1)
+        for found in _DARK_BYTE.finditer(data, y * width + 1, (y + 1) * width - 1)
+    }
+
+
+def _dark_pixels_pixel_by_pixel(label: Label) -> set[tuple[int, int]]:
     image_module = pytest.importorskip("PIL.Image")
     with image_module.open(io.BytesIO(render_preview_png(label, get_profile(_MODEL)))) as image:
         image.load()
         width, height = image.size
-        return {(x, y) for y in range(1, height - 1) for x in range(1, width - 1) if image.getpixel((x, y)) < 128}
+        return {
+            (x, y) for y in range(1, height - 1) for x in range(1, width - 1) if image.getpixel((x, y)) < _DARK_BELOW
+        }
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("rotation", list(Rotation))
+def test_dark_pixels_reads_the_pixels_a_pixel_by_pixel_reading_reads(rotation: Rotation) -> None:
+    label = Label(
+        unit=Unit.DOTS, width=120, height=90, elements=[Text(x=3, y=40, text="iIlW gq", font=2, rotation=rotation)]
+    )
+    dark = _dark_pixels(label)
+    assert dark, "the fixture letters something"
+    assert dark == _dark_pixels_pixel_by_pixel(label)
 
 
 class _PillowCalls:
