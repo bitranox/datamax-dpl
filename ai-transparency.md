@@ -15,7 +15,7 @@ general reasoning is in [ai-stance.md](ai-stance.md).
   one profile per model from the 1998 DPL manual, with `generic` and `permissive` beside them;
   a documented fallback per missing feature and a policy to choose between degrading and
   refusing; JSON envelopes and three exit codes for machine callers; tcp, serial, device file,
-  file and stdout transports; a preview and a camera loop to check output without guessing.
+  file and stdout transports; a preview to check output without guessing.
 - The layering (domain, application, adapters, composition, enforced by import-linter), strict
   typing, the test rules (real sockets and pseudo-terminals instead of patched internals), and the
   release pipeline.
@@ -41,9 +41,9 @@ including the doctests in the source.
 
 What has been checked on paper: one real printer, an Allegro 2 (text, lines, boxes, images,
 rotation, four barcode types, label lengths). What has NOT been checked: every other model, halved
-images, merged fields and which stop setting wins. No camera has been attached yet. Everything else
-the code writes follows the manual and passes the tests against simulated printers. The README
-says so too, and this page changes when that does.
+images, merged fields and which stop setting wins. Everything else the code writes follows the
+manual and passes the tests against simulated printers. The README says so too, and this page
+changes when that does.
 
 ## Checking it yourself
 

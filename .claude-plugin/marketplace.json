@@ -10,7 +10,7 @@
     {
       "name": "datamax-dpl",
       "source": ".",
-      "description": "Use the datamax-dpl CLI and library: label JSON, model profiles and fallbacks, cutter jobs, data-driven batches, preview, print and camera verification."
+      "description": "Use the datamax-dpl CLI and library: label JSON, model profiles and fallbacks, cutter jobs, data-driven batches, preview and print."
     }
   ]
 }

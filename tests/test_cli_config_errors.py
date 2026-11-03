@@ -67,7 +67,6 @@ NEEDS_CONFIG_ENVELOPE: dict[str, list[str]] = {
         "render": ["label.json"],
         "validate": ["label.json"],
         "print": ["label.json"],
-        "verify": ["label.json"],
         "preview": ["label.json", "-o", "out.png"],
         "status": [],
         "detect": [],
@@ -77,7 +76,6 @@ NEEDS_CONFIG_ENVELOPE: dict[str, list[str]] = {
         "reset": [],
         "cancel": [],
         "pause": [],
-        "capture": [],
         "calibrate": ["print"],
     }.items()
 }

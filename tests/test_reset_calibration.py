@@ -16,7 +16,7 @@ from printer_server import ImageModules, ModulePrinter, module_printer
 
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.settings import PrinterOverrides, PrinterSettings, printer_settings
-from datamax_dpl.adapters.memory import FakeCamera, RecordingPrinter, open_recording_printer
+from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
 from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.upload_check import (
     CheckedJob,
@@ -36,9 +36,7 @@ from datamax_dpl.application.use_cases import (
     render_batch,
     render_label,
 )
-from datamax_dpl.application.verify import verify_print
 from datamax_dpl.composition import build_production, build_testing
-from datamax_dpl.domain.camera import CameraKind, CameraSettings
 from datamax_dpl.domain.enums import (
     Attribute,
     FallbackPolicy,
@@ -137,7 +135,7 @@ def _label_file(tmp_path: Path, label: Label) -> str:
 
 
 def _cli(runner: CliRunner, printer: RecordingPrinter | None, *args: str) -> Result:
-    return runner.invoke(cli_mod.cli, list(args), obj=lambda: build_testing(printer=printer, camera=FakeCamera()))
+    return runner.invoke(cli_mod.cli, list(args), obj=lambda: build_testing(printer=printer))
 
 
 def _data(result: Result) -> dict[str, Any]:
@@ -478,46 +476,6 @@ def test_after_the_report_the_first_image_job_needs_no_retry() -> None:
 
 
 @pytest.mark.os_agnostic
-def test_verify_sends_the_calibration_label_before_its_label_and_photographs_once(tmp_path: Path) -> None:
-    modules = ImageModules(reset=POWER_ON)
-    printer = ModulePrinter(modules)
-    camera = FakeCamera()
-    result = render_label(TEXT_LABEL, ALLEGRO)
-    job = CheckedJob(renders=record_renders(TEXT_LABEL, None, ALLEGRO), check=_check())
-
-    report = verify_print(
-        result,
-        TEXT_LABEL,
-        options=ALLEGRO,
-        endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer)),
-        camera=CameraSettings(kind=CameraKind.FILE),
-        output_dir=tmp_path,
-        capture=camera,
-        sleep=lambda _seconds: None,
-        checked=job,
-    )
-
-    calibration = calibration_job(TEXT_LABEL, ALLEGRO, text=CALIBRATION_LABEL_TEXT)
-    assert printer.sent[:3] == [STATUS_REQUEST, calibration.data, result.data]
-    assert camera.calls == 1
-    assert report.result is not None
-    assert _codes(report.result) == [FindingCode.PRINTER_RESET_CALIBRATED]
-    assert report.bytes_sent == len(calibration.data) + len(result.data)
-
-
-@pytest.mark.os_agnostic
-def test_the_verify_command_reports_the_calibration_label(cli_runner: CliRunner, tmp_path: Path) -> None:
-    printer = ModulePrinter(ImageModules(reset=POWER_ON))
-    args = ["--json", "--set", "camera.kind=file", "verify", _label_file(tmp_path, TEXT_LABEL)]
-
-    result = _cli(cli_runner, printer, *args, "--printer", URI, "--output-dir", str(tmp_path), "--model", "allegro-2")
-
-    assert result.exit_code == 0, result.output
-    assert printer.data.count(CALIBRATION_TEXT) == 1
-    assert FindingCode.PRINTER_RESET_CALIBRATED.value in {f["code"] for f in _data(result)["findings"]}
-
-
-@pytest.mark.os_agnostic
 def test_the_print_command_tells_a_person_one_extra_label_came_out(cli_runner: CliRunner, tmp_path: Path) -> None:
     printer = ModulePrinter(ImageModules(reset=POWER_ON))
     args = ["print", _label_file(tmp_path, TEXT_LABEL), "--model", "allegro-2", "--printer", URI]
@@ -719,29 +677,6 @@ def test_the_print_command_on_stdout_writes_exactly_the_job(cli_runner: CliRunne
     assert result.exit_code == 0, result.output
     assert result.stdout_bytes.startswith(render_label(TEXT_LABEL, ALLEGRO).data)
     assert CALIBRATION_TEXT not in result.stdout_bytes
-
-
-@pytest.mark.os_agnostic
-def test_verify_on_a_one_way_link_reads_nothing_and_prints_nothing_extra(tmp_path: Path) -> None:
-    printer = RecordingPrinter(bidirectional=False)
-    camera = FakeCamera()
-    result = render_label(TEXT_LABEL, ALLEGRO)
-
-    report = verify_print(
-        result,
-        TEXT_LABEL,
-        options=ALLEGRO,
-        endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer)),
-        camera=CameraSettings(kind=CameraKind.FILE),
-        output_dir=tmp_path,
-        capture=camera,
-        sleep=lambda _seconds: None,
-        checked=CheckedJob(renders=record_renders(TEXT_LABEL, None, ALLEGRO), check=_check()),
-    )
-
-    assert printer.queries == []
-    assert printer.sent == [result.data]
-    assert report.status is None
 
 
 @pytest.mark.os_agnostic

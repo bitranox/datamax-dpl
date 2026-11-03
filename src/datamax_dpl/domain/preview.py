@@ -17,7 +17,7 @@ Text is drawn as one grey block per character cell, sized from the font tables i
 ``docs/dpl-reference.md`` section 6; barcodes as a hatched area of their estimated size. The
 picture answers "does everything sit where I meant and fit the label", not "what does the text
 look like": the optional Pillow renderer in ``adapters/preview`` hands in each field's lettering
-as a mask (``preview_bitmap``'s ``masks``), and the camera photo of a real print is the final check.
+as a mask (``preview_bitmap``'s ``masks``), and a real print is the final check.
 A mask takes the place of a text field's cells, so an overlapping field combines with the letters'
 dots: an Allegro 2 printed a line through text with gaps only under the strokes (2026-10-30). A
 barcode's mask is its data lettered in the top quarter of its hatched area (``mask_area``).

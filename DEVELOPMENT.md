@@ -38,12 +38,12 @@ The targets used day to day:
 | CI                     | All tests EXCEPT those marked `local_only` (`-m "not local_only"`) |
 | `pytest tests/`        | ALL tests (no marker filter)                                       |
 
-No test needs a real printer or camera yet. The transports are tested against real sockets on
-127.0.0.1 and pseudo-terminals, the CLI against the in-memory `RecordingPrinter` and `FakeCamera`
-from `datamax_dpl.adapters.memory`. A future test that talks to real hardware carries both
+No test needs a real printer yet. The transports are tested against real sockets on 127.0.0.1 and
+pseudo-terminals, the CLI against the in-memory `RecordingPrinter` from
+`datamax_dpl.adapters.memory`. A future test that talks to real hardware carries both
 `@pytest.mark.integration` (so `make test` skips it and `make testintegration` runs it) and
-`@pytest.mark.local_only` (so CI skips it), and reads the printer from the `[printer]` section,
-for example from a `.env` in the project root (copy `.env.example`):
+`@pytest.mark.local_only` (so CI skips it), and reads the printer from the `[printer]` section, for
+example from a `.env` in the project root (copy `.env.example`):
 
 ```bash
 # .env

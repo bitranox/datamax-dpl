@@ -7,105 +7,20 @@ configuration display.
 
 from __future__ import annotations
 
-import re
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, cast
-from urllib.parse import unquote
+from typing import TYPE_CHECKING, Any
 
 import lib_log_rich.runtime
 from lib_layered_config import Config
 from lib_layered_config import OutputFormat as LibOutputFormat
 from lib_layered_config import display_config as _lib_display
-from lib_layered_config.domain.redaction import REDACTED_PLACEHOLDER
 
 from datamax_dpl.domain.enums import OutputFormat
-
-from .overrides import with_data
-from .sections import CAMERA_SECTION
 
 if TYPE_CHECKING:
     from rich.console import Console
 
-_URL_KEY = "url"
 # What Config.get returns for a missing key, as a key may hold None.
 _ABSENT = object()
-#: A query parameter whose name holds one of these is taken for a secret.
-_SECRET_QUERY_WORDS = ("pass", "pwd", "secret", "token", "key", "auth", "sig", "cred", "session")
-#: Both separate parameters: ``&`` by the URL standard, ``;`` on older servers and cameras.
-_PARAMETER_SEPARATOR = re.compile(r"([&;])")
-
-
-def _redact_parameters(parameters: str) -> str:
-    """Mask each value in ``parameters`` whose name, percent-decoded, holds a secret's word."""
-    parts = _PARAMETER_SEPARATOR.split(parameters)
-    for position, pair in enumerate(parts):
-        name, equals, value = pair.partition("=")
-        if equals and value and any(word in unquote(name).lower() for word in _SECRET_QUERY_WORDS):
-            parts[position] = f"{name}{equals}{REDACTED_PLACEHOLDER}"
-    return "".join(parts)
-
-
-def _redact_query(rest: str) -> str:
-    """Mask the secret values in the query and the fragment of ``rest``, the part after the authority."""
-    head, hash_mark, fragment = rest.partition("#")
-    before, mark, query = head.partition("?")
-    return f"{before}{mark}{_redact_parameters(query)}{hash_mark}{_redact_parameters(fragment)}"
-
-
-def _redact_userinfo(userinfo: str) -> str:
-    """Mask the password of ``userinfo``, or the name when it has none: a token alone sits there."""
-    user, colon, password = userinfo.partition(":")
-    return f"{user}{colon}{REDACTED_PLACEHOLDER}" if password else f"{REDACTED_PLACEHOLDER}{colon}"
-
-
-def redact_url_secrets(url: str) -> str:
-    """Return ``url`` with the secrets of its userinfo, query and fragment masked, the rest as written.
-
-    Splits by hand the way ``urlsplit`` finds the password the HTTP camera uses, rather than by
-    calling it: ``urlsplit`` raises on a malformed host, and a display must still mask that.
-
-    A parameter counts as secret when its name holds one of ``_SECRET_QUERY_WORDS``: a camera behind
-    a token takes it there, and a wrongly masked value costs only what ``config`` shows. A name
-    alone before the ``@`` is masked too, because the HTTP camera sends it as the basic-auth user.
-    A token in the path cannot be told from any other path and stays as written.
-
-    Args:
-        url: The configured value, which need not be a valid URL.
-
-    Returns:
-        The value with each non-empty secret replaced by the redaction placeholder.
-
-    Example:
-        >>> redact_url_secrets("http://u:secret@192.0.2.9/snap.jpg")
-        'http://u:***REDACTED***@192.0.2.9/snap.jpg'
-        >>> redact_url_secrets("http://192.0.2.9/a:b@c")
-        'http://192.0.2.9/a:b@c'
-        >>> redact_url_secrets("http://192.0.2.9/s.jpg?size=1&api_token=abc#top")
-        'http://192.0.2.9/s.jpg?size=1&api_token=***REDACTED***#top'
-        >>> redact_url_secrets("http://abc@192.0.2.9/s.jpg?a=1;p%77d=x#auth=y")
-        'http://***REDACTED***@192.0.2.9/s.jpg?a=1;p%77d=***REDACTED***#auth=***REDACTED***'
-    """
-    scheme, slashes, rest = url.partition("//")
-    # The authority ends at the first of these; an "@" further on belongs to the path or the query.
-    end = min((rest.find(mark) for mark in "/?#" if mark in rest), default=len(rest))
-    userinfo, at, host = rest[:end].rpartition("@")
-    tail = _redact_query(rest[end:])
-    if not (slashes and userinfo):
-        return f"{scheme}{slashes}{rest[:end]}{tail}"
-    return f"{scheme}{slashes}{_redact_userinfo(userinfo)}{at}{host}{tail}"
-
-
-def _shown_config(config: Config) -> Config:
-    """``config`` with the camera URL's secrets masked; the library redacts by key name only."""
-    camera: object = config.get(CAMERA_SECTION.dotted)
-    if not isinstance(camera, Mapping):
-        return config
-    url = cast("Mapping[str, Any]", camera).get(_URL_KEY)
-    if not isinstance(url, str) or redact_url_secrets(url) == url:
-        return config
-    data = config.as_dict()
-    data[CAMERA_SECTION.dotted][_URL_KEY] = redact_url_secrets(url)
-    return with_data(config, data)
 
 
 def config_view(config: Config, *, section: str | None = None) -> dict[str, Any]:
@@ -122,15 +37,14 @@ def config_view(config: Config, *, section: str | None = None) -> dict[str, Any]
         ValueError: If a section was requested that doesn't exist.
 
     Example:
-        >>> config_view(Config({"camera": {"password": "x", "kind": "http"}}, {}), section="camera")
-        {'camera': {'password': '***REDACTED***', 'kind': 'http'}}
+        >>> config_view(Config({"printer": {"token": "x", "model": "allegro-2"}}, {}), section="printer")
+        {'printer': {'token': '***REDACTED***', 'model': 'allegro-2'}}
     """
-    shown = _shown_config(config)
     if section is None:
-        return shown.as_dict(redact=True)
-    if shown.get(section, default=_ABSENT) is _ABSENT:
+        return config.as_dict(redact=True)
+    if config.get(section, default=_ABSENT) is _ABSENT:
         raise ValueError(f"Section '{section}' not found")
-    return {section: shown.get_redacted(section)}
+    return {section: config.get_redacted(section)}
 
 
 def display_config(
@@ -170,7 +84,7 @@ def display_config(
         lib_log_rich.runtime.flush()
 
     lib_format = LibOutputFormat(output_format.value)
-    _lib_display(_shown_config(config), output_format=lib_format, section=section, profile=profile, console=console)
+    _lib_display(config, output_format=lib_format, section=section, profile=profile, console=console)
 
 
-__all__ = ["config_view", "display_config", "redact_url_secrets"]
+__all__ = ["config_view", "display_config"]

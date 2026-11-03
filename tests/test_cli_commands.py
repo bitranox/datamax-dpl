@@ -1,7 +1,7 @@
 """The label and printer commands end to end: argv in, stdout/stderr/exit code and printer bytes out.
 
-Every printer command runs against the recording printer and the fake camera the testing
-composition wires, so the bytes a real printer would receive are asserted exactly.
+Every printer command runs against the recording printer the testing composition wires, so the
+bytes a real printer would receive are asserted exactly.
 """
 
 from __future__ import annotations
@@ -20,14 +20,11 @@ import datamax_dpl
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.commands.printer import KindChoice
 from datamax_dpl.adapters.cli.envelope import CommandName
-from datamax_dpl.adapters.config.sections import CAMERA_SECTION
-from datamax_dpl.adapters.memory import FakeCamera, PrinterOpen, RecordingPrinter
+from datamax_dpl.adapters.memory import PrinterOpen, RecordingPrinter
 from datamax_dpl.adapters.preview import render_preview_png
 from datamax_dpl.composition import build_testing
 from datamax_dpl.domain.enums import MemoryKind
 from datamax_dpl.domain.label import Label
-from datamax_dpl.domain.png import encode_png
-from datamax_dpl.domain.preview import preview_bitmap
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.render import render
 from datamax_dpl.domain.render_context import RenderOptions
@@ -53,8 +50,8 @@ def write_json(path: Path, document: object) -> str:
     return str(path)
 
 
-def factory(printer: RecordingPrinter | None = None, camera: FakeCamera | None = None) -> Callable[[], AppServices]:
-    return lambda: build_testing(printer=printer, camera=camera)
+def factory(printer: RecordingPrinter | None = None) -> Callable[[], AppServices]:
+    return lambda: build_testing(printer=printer)
 
 
 def run(runner: CliRunner, args: list[str], services: Callable[[], AppServices] | None = None) -> Result:
@@ -186,12 +183,9 @@ def test_print_without_a_printer_is_a_configuration_error(cli_runner: CliRunner,
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("command", ["print", "verify"])
-def test_a_malformed_printer_uri_is_refused_before_anything_is_sent(
-    cli_runner: CliRunner, tmp_path: Path, command: str
-) -> None:
+def test_a_malformed_printer_uri_is_refused_before_anything_is_sent(cli_runner: CliRunner, tmp_path: Path) -> None:
     printer = RecordingPrinter()
-    args = ["--json", command, write_json(tmp_path / "l.json", SIMPLE), "--printer", "tcp://192.0.2.60:port"]
+    args = ["--json", "print", write_json(tmp_path / "l.json", SIMPLE), "--printer", "tcp://192.0.2.60:port"]
     result = run(cli_runner, args, factory(printer))
     assert result.exit_code == 2
     document = envelope(result)
@@ -445,76 +439,11 @@ def test_preview_places_fields_where_the_configured_calibration_sends_them(
 
 
 @pytest.mark.os_agnostic
-def test_capture_takes_one_photo(cli_runner: CliRunner, tmp_path: Path) -> None:
-    camera = FakeCamera()
-    result = run(cli_runner, ["--json", "capture", "--output-dir", str(tmp_path)], factory(camera=camera))
-    assert result.exit_code == 0, result.output
-    assert camera.calls == 1
-    assert (tmp_path / envelope(result)["data"]["path"]).exists()
-
-
-@pytest.mark.os_agnostic
-def test_verify_prints_waits_photographs_and_writes_the_expected_preview(cli_runner: CliRunner, tmp_path: Path) -> None:
-    printer = RecordingPrinter(answers={b"\x01A": IDLE})
-    camera = FakeCamera()
-    args = [
-        "--json",
-        "--set",
-        "camera.kind=file",
-        "verify",
-        write_json(tmp_path / "l.json", SIMPLE),
-        "--printer",
-        PRINTER,
-        "--output-dir",
-        str(tmp_path),
-    ]
-    result = run(cli_runner, args, factory(printer, camera))
-    assert result.exit_code == 0, result.output
-    data = envelope(result)["data"]
-    assert printer.data.startswith(STATUS_REQUEST + render(Label.model_validate(SIMPLE), RenderOptions()).data)
-    assert data["status"]["busy_printing"] is False
-    assert camera.calls == 1
-    assert (tmp_path / data["expected"]).read_bytes().startswith(b"\x89PNG")
-
-
-@pytest.mark.os_agnostic
-def test_status_and_verify_skip_a_line_left_over_from_an_earlier_query(cli_runner: CliRunner, tmp_path: Path) -> None:
+def test_status_skips_a_line_left_over_from_an_earlier_query(cli_runner: CliRunner) -> None:
     printer = RecordingPrinter(answers={b"\x01A": b"AVAILABLE BYTES IN MODULE : 00048631\r" + IDLE})
     status = run(cli_runner, ["--json", "status", "--printer", PRINTER], factory(printer))
     assert status.exit_code == 0, status.output
     assert envelope(status)["data"]["idle"] is True
-    label = write_json(tmp_path / "l.json", SIMPLE)
-    args = ["--json", "--set", "camera.kind=file", "verify", label, "--printer", PRINTER, "--output-dir", str(tmp_path)]
-    verify = run(cli_runner, args, factory(printer, FakeCamera()))
-    assert verify.exit_code == 0, verify.output
-    assert envelope(verify)["data"]["status"]["busy_printing"] is False
-
-
-@pytest.mark.os_agnostic
-def test_verify_writes_the_expected_preview_for_the_configured_calibration(
-    cli_runner: CliRunner, tmp_path: Path
-) -> None:
-    printer = RecordingPrinter(answers={b"\x01A": IDLE})
-    label = write_json(tmp_path / "l.json", SIMPLE)
-    args = ["--json", *CALIBRATED, "--set", "camera.kind=file", "verify", label, "--printer", PRINTER]
-    result = run(cli_runner, [*args, "--output-dir", str(tmp_path)], factory(printer, FakeCamera()))
-    assert result.exit_code == 0, result.output
-    expected = (tmp_path / envelope(result)["data"]["expected"]).read_bytes()
-    picture = preview_bitmap(
-        Label.model_validate(SIMPLE), get_profile("generic"), options=RenderOptions(offset_across=0.2)
-    )
-    assert expected == encode_png(picture)
-    assert expected != encode_png(preview_bitmap(Label.model_validate(SIMPLE), get_profile("generic")))
-
-
-@pytest.mark.os_agnostic
-def test_verify_reads_a_label_from_stdin_once(cli_runner: CliRunner, tmp_path: Path) -> None:
-    # stdin can be read only once: a second load of LABEL '-' would see an empty stream.
-    printer = RecordingPrinter(answers={b"\x01A": IDLE})
-    args = ["--json", "--set", "camera.kind=file", "verify", "-", "--printer", PRINTER, "--output-dir", str(tmp_path)]
-    result = cli_runner.invoke(cli_mod.cli, args, obj=factory(printer, FakeCamera()), input=json.dumps(SIMPLE))
-    assert result.exit_code == 0, result.output
-    assert printer.data.startswith(STATUS_REQUEST + render(Label.model_validate(SIMPLE), RenderOptions()).data)
 
 
 @pytest.mark.os_agnostic
@@ -544,19 +473,6 @@ def test_a_batch_cut_on_a_model_without_cut_now_falls_back(cli_runner: CliRunner
     assert result.exit_code == 0, result.output
     assert "batch_cut_unsupported" in {f["code"] for f in envelope(result)["data"]["findings"]}
     assert b"\x02o" not in base64.b64decode(envelope(result)["data"]["dpl_base64"])
-
-
-@pytest.mark.os_agnostic
-def test_verify_without_a_camera_prints_nothing(cli_runner: CliRunner, tmp_path: Path) -> None:
-    printer = RecordingPrinter(answers={b"\x01A": IDLE})
-    label = write_json(tmp_path / "l.json", SIMPLE)
-    result = run(cli_runner, ["--json", "verify", label, "--printer", PRINTER], factory(printer))
-    assert result.exit_code == 2
-    assert envelope(result)["error"] == "CameraError"
-    # The one key spelling lives in the camera adapter, so a renamed section cannot leave this behind.
-    key = CAMERA_SECTION.setting("kind")
-    assert envelope(result)["message"] == f"no camera configured: set {key}; nothing was printed"
-    assert printer.data == b""
 
 
 @pytest.mark.os_agnostic

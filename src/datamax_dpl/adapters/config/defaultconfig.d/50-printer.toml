@@ -65,16 +65,14 @@ policy = "degrade"
 
 # Purpose: Timeout for one transport operation (connect, write one piece of a
 #          job, an answer), in seconds. 'status' and 'memory' wait status_wait
-#          in all for their first answer, and 'verify' as long for the printer
-#          to finish its job.
+#          in all for their first answer.
 # Type: float, greater than 0, at most 2147483
 # Default: 10.0
 # Environment Variable: DATAMAX_DPL___PRINTER__TIMEOUT=10.0
 timeout = 10.0
 
 # Purpose: Seconds 'status' and 'memory' keep trying for the printer's first
-#          answer while a print server is still busy with an earlier job, and
-#          'verify' waits in all for the printer to finish its job. A
+#          answer while a print server is still busy with an earlier job. A
 #          connection that took no request (refused, timed out while
 #          connecting, closed or reset before the request or a byte of answer)
 #          is tried again on a new one; an open but silent connection is read
@@ -87,7 +85,7 @@ timeout = 10.0
 # status_wait = 30.0
 
 # Purpose: Seconds 'status' and 'memory' pause between two connections within
-#          status_wait, and 'print' and 'verify' within stored_names_wait. A
+#          status_wait, and 'print' within stored_names_wait. A
 #          refused connect within one connection's opening is retried by
 #          refused_connect_wait and refused_connect_retry_interval instead.
 # Type: float, greater than 0, at most 2147483
@@ -95,12 +93,12 @@ timeout = 10.0
 # Environment Variable: DATAMAX_DPL___PRINTER__STATUS_RETRY_INTERVAL=0.5
 # status_retry_interval = 0.25
 
-# Purpose: Seconds 'print' and 'verify' keep trying for each read of the
+# Purpose: Seconds 'print' keeps trying for each read of the
 #          printer's stored image names (<STX>W): right before each label's
 #          downloads no clear precedes, and in each round of the upload check
 #          after a label's downloads. The answer's last byte must arrive within it (the 1 s of
-#          silence that ends the answer comes on top); 'status', 'memory' and
-#          verify's wait for the printer use status_wait. A printer was measured
+#          silence that ends the answer comes on top); 'status' and 'memory'
+#          use status_wait. A printer was measured
 #          silent for 10-20 s after an image job, so a repeat print right after
 #          one still reads the names. On a link that never answers, each read
 #          waits this long, and the upload check refuses the label after its
@@ -110,8 +108,8 @@ timeout = 10.0
 # Environment Variable: DATAMAX_DPL___PRINTER__STORED_NAMES_WAIT=10
 # stored_names_wait = 30.0
 
-# Purpose: Seconds 'print' and 'verify' wait for the one status read (<SOH>A)
-#          they make before a job on a two-way link: the printer's first answer
+# Purpose: Seconds 'print' waits for the one status read (<SOH>A)
+#          it makes before a job on a two-way link: the printer's first answer
 #          after a power cycle or a software reset reports it, once. One try, no
 #          retry. No answer means nothing: the job goes on as it would have.
 #          --timeout leaves it.
@@ -141,7 +139,7 @@ timeout = 10.0
 # Environment Variable: DATAMAX_DPL___PRINTER__CALIBRATION_LABEL_TEXT="Feed"
 # calibration_label_text = "Printer Reset - Calibration Feed"
 
-# Purpose: How many rounds the upload check of 'print' and 'verify' runs on a
+# Purpose: How many rounds the upload check of 'print' runs on a
 #          two-way link before it refuses a label whose images the printer's
 #          directory does not list (image_upload_refused): a download into a
 #          full module is lost with no error. 1 uploads and reads once; 2 then
@@ -224,22 +222,6 @@ timeout = 10.0
 # Default: 0.25
 # Environment Variable: DATAMAX_DPL___PRINTER__REFUSED_CONNECT_RETRY_INTERVAL=0.5
 # refused_connect_retry_interval = 0.25
-
-# Purpose: Seconds between a busy answer and the next status poll while 'verify'
-#          waits for the printer to finish its job. That whole wait is
-#          status_wait (or --timeout), waited as 'status' waits: a silent printer
-#          is read until it ends and never asked twice.
-# Type: float, greater than 0, at most 2147483
-# Default: 0.5
-# Environment Variable: DATAMAX_DPL___PRINTER__VERIFY_POLL_INTERVAL=1.0
-# verify_poll_interval = 0.5
-
-# Purpose: Seconds 'verify' waits after sending, instead of polling, on a channel
-#          that cannot read the printer's status (file, device file).
-# Type: float, 0 or more, at most 2147483
-# Default: 5.0
-# Environment Variable: DATAMAX_DPL___PRINTER__ONE_WAY_SETTLE=10
-# one_way_settle = 5.0
 
 # Purpose: Whether the printer has its cutter installed and enabled.
 #          yes:     cut commands are sent as the label asks
@@ -325,7 +307,7 @@ options = []
 #          it, policy degrade sends every image but a QR Code at half resolution
 #          and double magnification (image_halved); strict refuses the job
 #          (image_memory_exceeded). `datamax-dpl memory` shows the free bytes.
-#          'print' and 'verify' on a two-way link leave the model's budget out
+#          'print' on a two-way link leaves the model's budget out
 #          and let the upload check decide (image_budget_skipped); a value set
 #          here applies there too.
 # Type: integer, greater than 0
@@ -340,7 +322,7 @@ options = []
 #          The Prodigy and Prodigy Plus have no built-in module: a job that
 #          downloads an image is refused (image_module_unknown) until this names
 #          the module fitted. C is the printer's default module on every model;
-#          'print' and 'verify' on a two-way link refuse a job that downloads into
+#          'print' on a two-way link refuses a job that downloads into
 #          it before sending anything (image_module_unlisted), since no directory
 #          lists it by that letter.
 #          `datamax-dpl capabilities MODEL` shows the model's module. Only the
@@ -357,7 +339,7 @@ options = []
 #          never cleared. false keeps what
 #          the printer stores: a label may then place an image without a bitmap,
 #          and a download of a name the printer holds is left out
-#          (image_name_held), so 'print' and 'verify' read the names before each
+#          (image_name_held), so 'print' reads the names before each
 #          such label, and a --data batch with no printer to read is refused
 #          from its second record on (batch_image_names_unread), unless
 #          clear_graphics_after clears the module after each label. Keeping a
@@ -381,7 +363,7 @@ options = []
 
 # Purpose: Severity of the findings of a label whose image downloads no clear
 #          precedes (a module that is not the model's built-in RAM, a model that
-#          can clear nothing). 'print' and 'verify' then read the printer's stored
+#          can clear nothing). 'print' then reads the printer's stored
 #          image names right before each such label's downloads and leave out the
 #          download of each one it holds (image_name_held), since downloading a
 #          held name again prints nothing; where the names cannot be read
@@ -500,13 +482,12 @@ options = []
 # Environment Variable: DATAMAX_DPL___PRINTERS__LAGER__SCALE_ALONG=0.977
 
 # -------------------------------------------------------------------------------
-# [preview]: how large a picture 'preview' and 'verify' draw
+# [preview]: how large a picture 'preview' draws
 # -------------------------------------------------------------------------------
 [preview]
 
 # Purpose: Longest side of a preview in mm. One number in a label decides how much
-#          memory the picture takes, so a label past this is refused before drawing;
-#          'verify' refuses it before printing, as its expected picture needs it too.
+#          memory the picture takes, so a label past this is refused before drawing.
 # Type: float, above 0, at most 100000
 # Default: 2000.0
 # Environment Variable: DATAMAX_DPL___PREVIEW__MAX_LENGTH_MM=3000

@@ -188,7 +188,7 @@ digits for a drawn image, the element's own `name` for one with a `bitmap`) is n
 a job gives that image, so it is downloaded once more under its content name: it costs module
 memory, never a wrong picture. On a nearly full module that is never cleared that download can be lost with
 no error, and the label then prints without that image (one Allegro 2, 2026-10-31); on a two-way
-link the upload check of `print` and `verify` catches that before the format goes out: where a clear
+link the upload check of `print` catches that before the format goes out: where a clear
 may go it clears and uploads again, where none may go it uploads only the images the directory did
 not list (a name the module holds is never downloaded again: each label of a `--data` batch reads
 the names before its downloads; after a read with no answer it reads the names again before

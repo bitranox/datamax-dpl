@@ -175,7 +175,7 @@ class RenderOptions(BaseModel):
             models do not have. A budget set here applies on every path, ``model_image_budget``
             or not.
         model_image_budget: Whether the model's own image memory budget applies when
-            ``image_memory_bytes`` sets none. False for a two-way print or verify, whose upload
+            ``image_memory_bytes`` sets none. False for a two-way print, whose upload
             check reads whether the printer stored the images: they go at full size and are
             halved only when the printer did not store them (``image_budget_skipped`` says when
             the model's budget would have halved them).

@@ -101,10 +101,6 @@ class PrinterProtocolError(TransportError):
     """The printer answered something the DPL manual does not describe for that request."""
 
 
-class CameraError(DatamaxDplError):
-    """The camera could not take or deliver a photo."""
-
-
 class BatchTooLargeError(DatamaxDplError, ValueError):
     """A batch's jobs passed the byte limit it was rendered under; the records after that were not rendered."""
 
@@ -116,7 +112,6 @@ class PreviewTooLongError(DatamaxDplError, ValueError):
 __all__ = [
     "AnswerNotEndedError",
     "BatchTooLargeError",
-    "CameraError",
     "ConfigurationError",
     "DatamaxDplError",
     "LabelRejectedError",

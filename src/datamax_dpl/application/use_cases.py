@@ -1,6 +1,6 @@
-"""Use cases: render labels (one or a batch of data records), print, query and verify printers.
+"""Use cases: render labels (one or a batch of data records), print to and query printers.
 
-Every use case takes its collaborators (printer opener, camera, clock) as keyword arguments, so
+Every use case takes its collaborators (printer opener, clock) as keyword arguments, so
 the CLI wires production adapters and the tests wire in-memory ones.
 
 A job that no clear precedes must not download an image name the printer already holds (it would
@@ -1249,7 +1249,7 @@ def send_command(command: PrinterCommand, *, endpoint: PrinterEndpoint) -> Print
 #: answer. Measured once on a SerComm print server feeding an Allegro 2 at 9600 baud: after a
 #: 13.6 KB image job it refused connections for at least 7 s and kept the next one silent past 10 s.
 STATUS_WAIT_SECONDS = 30.0
-#: Default of ``[printer] stored_names_wait``: seconds ``print`` and ``verify`` keep trying to read
+#: Default of ``[printer] stored_names_wait``: seconds ``print`` keeps trying to read
 #: the printer's stored image names before a job no clear precedes. Thirty, like status_wait but a
 #: key of its own (user decision): one Allegro 2 stayed silent 10-20 s after an image job, so a
 #: repeat print right after one still reads the names instead of downloading a held one again.

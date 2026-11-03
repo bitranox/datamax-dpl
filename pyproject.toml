@@ -188,13 +188,12 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 # CLI: Click framework injects boolean params; commands have many options
 "src/datamax_dpl/adapters/cli/**/*.py" = ["FBT001", "FBT002"]
 # PLR0913: a Click command takes each of its options as a parameter (calibrate set, config-deploy,
-# the root group); check_batch and verify_print take a label, its records or render and its options
-# plus independent keyword settings, with no value they always travel in.
+# the root group); check_batch takes a label, its records and its options plus independent
+# keyword settings, with no value they always travel in.
 "src/datamax_dpl/adapters/cli/commands/calibrate.py" = ["PLR0913"]
 "src/datamax_dpl/adapters/cli/commands/config.py" = ["PLR0913"]
 "src/datamax_dpl/adapters/cli/root.py" = ["PLR0913"]
 "src/datamax_dpl/application/use_cases.py" = ["PLR0913"]
-"src/datamax_dpl/application/verify.py" = ["PLR0913"]
 
 [tool.pyright]
 typeCheckingMode = "strict"
@@ -215,7 +214,7 @@ markers = [
   "os_posix: test exercises behavior requiring POSIX semantics",
   "os_linux: test exercises Linux-only behavior",
   "local_only: tests that require the local dev environment (external resources, script composition); skipped in CI",
-  "integration: tests requiring external resources (a real printer, camera or network); run via 'bmk ti'",
+  "integration: tests requiring external resources (a real printer or network); run via 'bmk ti'",
 ]
 timeout = 300 # a hung test fails with a stack dump instead of holding a CI runner for hours
 testpaths = ["src", "tests"]
@@ -326,7 +325,7 @@ allow_indirect_imports = true
 [[tool.importlinter.contracts]]
 name = "Adapters of different kinds do not know each other"
 type = "independence"
-modules = ["datamax_dpl.adapters.transport", "datamax_dpl.adapters.camera", "datamax_dpl.adapters.preview", "datamax_dpl.adapters.memory"]
+modules = ["datamax_dpl.adapters.transport", "datamax_dpl.adapters.preview", "datamax_dpl.adapters.memory"]
 
 [tool.bashate]
 # bashate style settings for .sh files (E003 excluded: indent handled by shfmt)

@@ -21,12 +21,8 @@ You can expect a first answer within 72 hours.
   change coordinates or job settings.
 - A printer URI decides where bytes go: a TCP host, a serial port, a device file, a file, or
   stdout. Whoever controls the configuration or the `--printer` flag controls that target.
-- The `command` camera runs the configured program as an argument list, without a shell. The
-  configuration that names the program is trusted like any other program you run.
-- The camera password, the password or lone user name in its URL and a URL query or fragment value
-  named like a secret are redacted in `config` output, and log events pass through the lib_log_rich
-  scrubber. A token in the URL's path and the `command` camera's command line are shown as written,
-  so a secret does not belong in either.
+- A configuration value whose key is named like a secret (a password, a token) is redacted in
+  `config` output, and log events pass through the lib_log_rich scrubber.
 
 ## Security Tooling
 

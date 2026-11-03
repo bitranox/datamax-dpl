@@ -30,17 +30,6 @@ def _command(name: str, tmp_path: Path) -> list[str]:
     """The command line of one sending command, with printer ``-`` and what it needs to run."""
     if name == "print":
         return ["print", _label(tmp_path), "--printer", "-"]
-    if name == "verify":
-        return [
-            "--set",
-            "camera.kind=file",
-            "verify",
-            _label(tmp_path),
-            "--printer",
-            "-",
-            "--output-dir",
-            str(tmp_path),
-        ]
     if name == "calibrate print":
         return ["calibrate", "print", "--width", "50", "--height", "50", "--axis", "across", "--printer", "-"]
     return [name, "--printer", "-"]
@@ -52,7 +41,7 @@ def _invoke(cli_runner: CliRunner, args: list[str]) -> Result:
 
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("flag", ["--json", "--json-bare"])
-@pytest.mark.parametrize("name", ["print", "verify", "calibrate print", *_SINGLE_COMMANDS])
+@pytest.mark.parametrize("name", ["print", "calibrate print", *_SINGLE_COMMANDS])
 def test_machine_mode_refuses_a_job_on_stdout(cli_runner: CliRunner, tmp_path: Path, name: str, flag: str) -> None:
     """Stdout parses as the one envelope, and not a byte of the job goes out."""
     result = _invoke(cli_runner, [flag, *_command(name, tmp_path)])

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from datamax_dpl.adapters.cli import root as cli_mod
-from datamax_dpl.adapters.memory import FakeCamera, RecordingPrinter, open_recording_printer
+from datamax_dpl.adapters.memory import RecordingPrinter, open_recording_printer
 from datamax_dpl.application.ports import PrinterEndpoint
 from datamax_dpl.application.upload_check import CheckedJob, UploadCheck, print_checked
 from datamax_dpl.application.use_cases import AnswerWait, print_result, record_renders, render_batch
@@ -43,7 +43,7 @@ def _label(tmp_path: Path, document: object = CIRCLE) -> str:
 
 
 def _run(runner: CliRunner, *args: str, printer: RecordingPrinter | None = None) -> Result:
-    return runner.invoke(cli_mod.cli, list(args), obj=lambda: build_testing(printer=printer, camera=FakeCamera()))
+    return runner.invoke(cli_mod.cli, list(args), obj=lambda: build_testing(printer=printer))
 
 
 # ======================== Findings in human mode ========================
@@ -82,15 +82,6 @@ def test_print_with_a_job_on_stdout_keeps_its_findings_off_stdout(cli_runner: Cl
     assert result.exit_code == 0, result.output
     assert WARNED in result.stderr
     assert WARNED not in result.stdout
-
-
-@pytest.mark.os_agnostic
-def test_verify_refused_says_why(cli_runner: CliRunner, tmp_path: Path) -> None:
-    printer = ["--printer", f"file:{tmp_path / 'job.dpl'}"]
-    result = _run(cli_runner, "--set", "camera.kind=file", "verify", _label(tmp_path), *STRICT, *printer)
-    assert result.exit_code == 1
-    assert "REFUSED" in result.stdout
-    assert WARNED in result.stdout
 
 
 @pytest.mark.os_agnostic

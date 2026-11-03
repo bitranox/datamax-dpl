@@ -1,4 +1,4 @@
-"""Printer and camera settings: the ``[printer]`` and ``[camera]`` sections plus command-line overrides.
+"""Printer and preview settings: the ``[printer]`` and ``[preview]`` sections plus command-line overrides.
 
 Command-line flags win over every configuration layer. The models refuse unknown values here, at
 the boundary, so a typo in a config file is reported as a configuration error with the key named.
@@ -20,10 +20,8 @@ from ...application.use_cases import (
     STORED_NAMES_WAIT_SECONDS,
     ReportLimits,
 )
-from ...application.verify import ONE_WAY_SETTLE_SECONDS, POLL_SECONDS
 from ...domain._invariants import require_update_fields
 from ...domain.batch import MAX_REPORTED_DOWNLOADS, MAX_REPORTED_FINDINGS
-from ...domain.camera import CameraSettings, refuse_boolean
 from ...domain.enums import (
     CutterPresence,
     FallbackPolicy,
@@ -60,7 +58,6 @@ from ...domain.timing import (
 )
 from ...domain.units import MAX_OFFSET_MM, MAX_SCALE, MIN_SCALE
 from ..config.sections import (
-    CAMERA_SECTION,
     PREVIEW_SECTION,
     PRINTER_SECTION,
     ConfigSection,
@@ -100,6 +97,28 @@ MAX_BATCH_JOB_BYTES_LIMIT = 1_099_511_627_776
 MAX_REPORTED_LIMIT = 100_000_000
 
 
+def _refuse_boolean(value: object) -> object:
+    """Pass ``value`` on unless it is a boolean, for a number in a settings section.
+
+    A setting stays lax otherwise, since ``.env`` delivers ``1.50`` as text and strict mode would
+    refuse it. A boolean is never deliberate, and read as 1 or 0 it silently changes behaviour.
+
+    Raises:
+        ValueError: ``value`` is a boolean.
+
+    Example:
+        >>> _refuse_boolean("1.50")
+        '1.50'
+        >>> _refuse_boolean(True)
+        Traceback (most recent call last):
+        ...
+        ValueError: needs a number, got true
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"needs a number, got {str(value).lower()}")
+    return value
+
+
 class PrinterSettings(BaseModel):
     """The ``[printer]`` section, merged with a ``[printers.<name>]`` section when one is chosen.
 
@@ -122,21 +141,20 @@ class PrinterSettings(BaseModel):
     policy: FallbackPolicy = FallbackPolicy.DEGRADE
     timeout: float = Field(default=10.0, gt=0, le=MAX_TIMEOUT_SECONDS)
     # How long status and memory keep trying for the first answer while a print server is still
-    # busy with an earlier job (and verify waits for the printer to finish), and the pause between
-    # two of their connections.
+    # busy with an earlier job, and the pause between two of their connections.
     # Bounded above too, so an infinite or oversized value is refused naming its key here rather
     # than as a nameless "wait" when status runs.
     status_wait: float = Field(default=STATUS_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
     status_retry_interval: float = Field(default=RETRY_INTERVAL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
-    # How long print and verify keep trying to read the stored image names before a job no clear
+    # How long print keeps trying to read the stored image names before a job no clear
     # precedes; its own key, so a link that never answers can wait less without shortening status.
     stored_names_wait: float = Field(default=STORED_NAMES_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
-    # How many rounds print and verify run before refusing a label whose images the printer did not
+    # How many rounds print runs before refusing a label whose images the printer did not
     # list after the upload: 1 reads once, 2 adds a clear and a second upload, 3 the images halved.
     upload_check_rounds: int = Field(
         default=UPLOAD_CHECK_ROUNDS, ge=MIN_UPLOAD_CHECK_ROUNDS, le=MAX_UPLOAD_CHECK_ROUNDS
     )
-    # How long print and verify wait for the one status read before a job that asks for a reset
+    # How long print waits for the one status read before a job that asks for a reset
     # report: it runs before every job, so it has its own short wait and a printer that stays
     # silent costs only this. What a report triggers, and what that label says.
     reset_check_wait: float = Field(default=RESET_CHECK_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
@@ -151,10 +169,6 @@ class PrinterSettings(BaseModel):
     # How many findings and image names a batch's answer keeps in full; the totals count them all.
     max_reported_findings: int = Field(default=MAX_REPORTED_FINDINGS, gt=0, le=MAX_REPORTED_LIMIT)
     max_reported_downloads: int = Field(default=MAX_REPORTED_DOWNLOADS, gt=0, le=MAX_REPORTED_LIMIT)
-    # verify waits status_wait in all for the printer to finish its job, polling at this interval;
-    # a one-way channel cannot poll, so verify waits one_way_settle instead (0 waits not at all).
-    verify_poll_interval: float = Field(default=POLL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
-    one_way_settle: float = Field(default=ONE_WAY_SETTLE_SECONDS, ge=0, le=MAX_TIMEOUT_SECONDS)
     # The largest piece of a job one write call takes: timeout bounds each piece (TransportTuning).
     # Bounded above as there, so a larger value is refused naming its key here.
     send_chunk_bytes: int = Field(default=SEND_CHUNK_BYTES, gt=0, le=MAX_SEND_CHUNK_BYTES)
@@ -216,8 +230,6 @@ class PrinterSettings(BaseModel):
         "max_batch_job_bytes",
         "max_reported_findings",
         "max_reported_downloads",
-        "verify_poll_interval",
-        "one_way_settle",
         "send_chunk_bytes",
         "refused_connect_wait",
         "refused_connect_retry_interval",
@@ -234,7 +246,7 @@ class PrinterSettings(BaseModel):
         "label_width",
         "label_height",
         mode="before",
-    )(refuse_boolean)
+    )(_refuse_boolean)
 
     @field_validator("calibration_label_text")
     @classmethod
@@ -362,7 +374,7 @@ def printer_settings(config: Config, overrides: PrinterOverrides) -> PrinterSett
             uri=_given(uri, base.uri),
             policy=_given(overrides.policy, base.policy),
             timeout=_given(overrides.timeout, base.timeout),
-            # --timeout is the whole wait where one applies: status, memory and verify wait for it.
+            # --timeout is the whole wait where one applies: status and memory wait for it.
             status_wait=_given(overrides.timeout, base.status_wait),
             cutter=_given(overrides.cutter, base.cutter),
             # Options add up instead of replacing: --option names one more installed option.
@@ -432,18 +444,6 @@ def _given(override: _T | None, configured: _T) -> _T:
     return configured if override is None else override
 
 
-def camera_settings(config: Config) -> CameraSettings:
-    """Read the ``[camera]`` section.
-
-    Raises:
-        ConfigurationError: A configured value is invalid; the message names the key.
-    """
-    try:
-        return CameraSettings.model_validate(dict(_section(config, ConfigSection.CAMERA)))
-    except ValidationError as exc:
-        raise ConfigurationError(_describe(exc, section=CAMERA_SECTION)) from None
-
-
 class PreviewSettings(BaseModel):
     """The ``[preview]`` section.
 
@@ -458,7 +458,7 @@ class PreviewSettings(BaseModel):
     # what the key exists to prevent, and 1e308 overflows on its way to dots.
     max_length_mm: float = Field(default=DEFAULT_PREVIEW_MAX_LENGTH_MM, gt=0, le=MAX_LENGTH, allow_inf_nan=False)
 
-    _numbers_are_no_booleans = field_validator("max_length_mm", mode="before")(refuse_boolean)
+    _numbers_are_no_booleans = field_validator("max_length_mm", mode="before")(_refuse_boolean)
 
 
 def preview_settings(config: Config) -> PreviewSettings:
@@ -620,7 +620,6 @@ __all__ = [
     "PreviewSettings",
     "PrinterOverrides",
     "PrinterSettings",
-    "camera_settings",
     "check_printer_values",
     "preview_settings",
     "printer_settings",

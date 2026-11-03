@@ -28,12 +28,11 @@ prints on all 18 models; the Prodigy and Prodigy Plus need `image_module` set fi
 Allegro 2 a phone read the printed codes fine up to version 20 at 4 dots per module.
 
 It is a Python library and a command line tool. Every command can answer with a JSON envelope
-and meaningful exit codes, so scripts and LLM agents can drive it. With a camera configured,
-`verify` prints a label, photographs it and puts the photo next to the expected preview.
+and meaningful exit codes, so scripts and LLM agents can drive it.
 
 **Status:** built from the manual and tested against simulated printers; one real printer, an
 Allegro 2, has been checked on paper (text, lines, boxes, images, rotation, four barcode types,
-lengths). Other models and the camera are still unverified on hardware.
+lengths). Other models are still unverified on hardware.
 
 ## Install
 
@@ -180,12 +179,12 @@ goes out before the job, and `CheckedJob(reset=None)` asks nothing.
 Everything the package raises on purpose derives from `DatamaxDplError`, also imported from
 `datamax_dpl`, so `except DatamaxDplError` catches it all. Below it, `TransportError` covers what a
 printer channel does (a timeout, a refused connection, a bad answer), `ConfigurationError` a bad URI
-or setting, `LabelRejectedError` a refused label, and `CameraError` a capture. `UnknownModelError`
-and `MissingFieldError` are `LookupError`s too, `QrDataTooLongError` and `PreviewTooLongError`
-`ValueError`s too. Three things stay outside the base: pydantic's `ValidationError` for a label or
-options document that does not validate, `lib_layered_config.ConfigError` from `get_config` for a
-configuration file it cannot read, and a plain `ValueError` for an argument out of range (a timeout,
-a calibration size), as each function's `Raises` section says.
+or setting, and `LabelRejectedError` a refused label. `UnknownModelError` and `MissingFieldError`
+are `LookupError`s too, `QrDataTooLongError` and `PreviewTooLongError` `ValueError`s too. Three
+things stay outside the base: pydantic's `ValidationError` for a label or options document that does
+not validate, `lib_layered_config.ConfigError` from `get_config` for a configuration file it cannot
+read, and a plain `ValueError` for an argument out of range (a timeout, a calibration size), as each
+function's `Raises` section says.
 
 ## The label format
 
@@ -258,9 +257,9 @@ too, and a FIFO nobody reads is refused at once. A write to `device:` or `file:`
 `status` and `memory` keep trying for `[printer] status_wait` seconds (default 30) while a print
 server is still busy with an earlier job: a connection that took no request (refused, timed out
 while connecting, or closed before answering) is tried again on a new one, and a silent one is read
-until the wait ends, never asked twice. `verify` waits as long in all for the printer to finish
-its job. `--timeout` sets that whole wait instead. A printer that refuses every connection, such
-as one asked on a mistyped port, therefore takes the whole wait to report.
+until the wait ends, never asked twice. `--timeout` sets that whole wait instead. A printer that
+refuses every connection, such as one asked on a mistyped port, therefore takes the whole wait to
+report.
 Within one connection's opening a refused tcp connect is tried again every `[printer]
 refused_connect_retry_interval` seconds (0.25) for up to `refused_connect_wait` seconds (3, never
 longer than `--timeout`): a print server refuses the next connection for a moment after it closed
@@ -270,6 +269,21 @@ A job goes out in pieces of `[printer] send_chunk_bytes` (default 1024, at most 
 piece needs its size over the line's speed, about 1.07 s for 1024 bytes at 9600 baud (about 960
 bytes/s), so with a timeout well above that it fires only when the printer stops taking data,
 however long the whole job takes.
+
+Before each label no clear precedes, `print` may spend up to `[printer] stored_names_wait` seconds
+(30), plus the 1 s of silence that ends the printer's answer, reading the printer's stored image
+names; a `--data` batch of more than one such label needs a tcp or serial printer
+(`batch_image_names_unread`), unless the clear after each label (`[printer] clear_graphics_after`)
+reaches the module. On a two-way link `print` sends a label's image downloads first and its format
+only once the printer lists every one of them, clearing and uploading again, then uploading the
+images halved, before refusing the label (`[printer] upload_check_rounds`, see
+[CONFIG.md](CONFIG.md)). There the model's own image memory budget is left out, so images `validate`
+reports halved go at full size unless the printer did not store them (`image_budget_skipped`), and a
+job whose images go to the default module `C`, which no directory lists, is refused before anything
+is sent. Before the first label of a two-way job `print` reads the printer's status once, for up to
+`[printer] reset_check_wait` seconds (3): on a reported reset one calibration label goes first
+(`printer_reset_calibrated`), see [CONFIG.md](CONFIG.md).
+
 `reset`, `cancel`, `pause`, `feed` and `cut` send single printer commands.
 
 `memory` lists what the printer's memory modules hold and how many bytes each has free
@@ -429,7 +443,7 @@ instead of `data`.
 |-----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 0         | Done.                                                                                                                                                                                                                                                                                                                                                          |
 | 1         | Refused: at least one finding is an error. Nothing more was printed or written; a `--data` batch may have printed earlier labels, and the `record` of the finding says where it stopped. `status` also exits 1 when the printer reports a problem (paper out, for example), `explain` when it could not read part of the job, and `detect` when no model fits. |
-| 2         | Could not run: unreadable or invalid label, unknown model, bad configuration, printer or camera not reachable.                                                                                                                                                                                                                                                 |
+| 2         | Could not run: unreadable or invalid label, unknown model, bad configuration, printer not reachable.                                                                                                                                                                                                                                                           |
 | 130       | Interrupted (Ctrl-C, or Ctrl-Break on Windows). For a command that sends, part of a job may already have been sent. On Windows a Ctrl-C during a wait on a silent socket takes effect only when that wait ends, up to its timeout.                                                                                                                             |
 | 141       | The reader of the output went away (`datamax-dpl schema \| head -1`); nothing more is said.                                                                                                                                                                                                                                                                    |
 
@@ -443,36 +457,6 @@ command line named none.
 
 Finding codes are stable, so a script can react to `circle_rasterized` without parsing the
 message.
-
-## Camera verification
-
-The `[camera]` configuration section names a camera; see [CONFIG.md](CONFIG.md). Four kinds
-exist: `none` (default), `command` (run a capture program such as `fswebcam`), `http` (fetch a
-snapshot URL) and `file` (take the newest image a camera drops into a folder).
-
-```bash
-datamax-dpl capture --output-dir photos
-datamax-dpl verify examples/product-label.json --model dmx-600 --printer tcp://192.0.2.60:9100 --output-dir photos
-```
-
-`verify` sends the job, polls the printer status every `[printer] verify_poll_interval` seconds
-until it is idle, for up to `status_wait` seconds in all (or `--timeout`; on a one-way channel it
-waits `[printer] one_way_settle` seconds instead), waits `settle_seconds`, takes one photo, and
-writes `expected-<time>.png` next to it. Before each label no clear precedes, `verify` and
-`print` may spend up to `[printer] stored_names_wait` seconds (30), plus the 1 s of silence that
-ends the printer's answer, reading the printer's stored image names; a `--data` batch of more than
-one such label needs a tcp or serial printer (`batch_image_names_unread`), unless the clear after
-each label (`[printer] clear_graphics_after`) reaches the module. On a two-way link both send a label's image downloads first and its format only
-once the printer lists every one of them, clearing and uploading again, then uploading the images
-halved, before refusing the label (`[printer] upload_check_rounds`, see [CONFIG.md](CONFIG.md)).
-There the model's own image memory budget is left out, so images `validate` reports halved go at
-full size unless the printer did not store them (`image_budget_skipped`), and a job whose images go
-to the default module `C`, which no directory lists, is refused before anything is sent. Before the
-first label of a two-way job both read the printer's status once, for up to `[printer]
-reset_check_wait` seconds (3): on a reported reset one calibration label goes first
-(`printer_reset_calibrated`), see [CONFIG.md](CONFIG.md).
-It does not judge the photo; a person, or an LLM given both pictures, compares them.
-This loop has only run against a simulated printer and camera so far.
 
 ## Claude Code skill
 
@@ -490,7 +474,7 @@ datamax-dpl. Inside Claude Code:
   commands that came later are not supported. QR codes are printed as downloaded images, in
   every version from 1 to 40; [the label spec](docs/label-spec.md#sizes) lists their sizes and how
   they scanned on an Allegro 2.
-- Only an Allegro 2 has been checked on a real printer; no camera has been attached yet.
+- Only an Allegro 2 has been checked on a real printer.
 - An Allegro 2 cuts a long format off, at a row that depends on the format's content in a way
   that is not understood: a tall element from the bottom was cut at rows 1648 to 1652, a format
   with nothing tall printed to row 1675. A label reaching past row 1648 (about 201 mm), the lowest
@@ -505,9 +489,9 @@ datamax-dpl. Inside Claude Code:
 Defaults for the printer (model, firmware, URI, policy, timeout, cutter, options, scale factors,
 label size, the waits and retries of a printer exchange, `refused_connect_wait` and
 `refused_connect_retry_interval` among them, and the printer state keys `send_settings`, `media`,
-`start_of_print_mm`, `max_label_length_mm`, `feed_rate` and `label_present`), named printers and the
-camera live in a layered configuration: bundled defaults, system, host and user files, `.env`,
-environment variables and `--set`. [CONFIG.md](CONFIG.md) explains every key.
+`start_of_print_mm`, `max_label_length_mm`, `feed_rate` and `label_present`) and named printers live
+in a layered configuration: bundled defaults, system, host and user files, `.env`, environment
+variables and `--set`. [CONFIG.md](CONFIG.md) explains every key.
 
 Every label's job sets the persistent printer state it relies on before its format (media sensor,
 start of print, maximum label length, feed rate, software switches, stop position), since another

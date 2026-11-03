@@ -1,7 +1,7 @@
 # Label format
 
 A label is one JSON document: job settings plus a list of `elements`. The same document drives
-`validate`, `render`, `preview`, `print` and `verify`, and the library reads it with
+`validate`, `render`, `preview` and `print`, and the library reads it with
 `Label.model_validate()`. The machine-readable JSON Schema comes from the CLI:
 
 ```bash
@@ -381,9 +381,9 @@ label (`clear_graphics_after`, the render option `clear_graphics_after_label`) r
 way once the label printed, so in a `--data` batch every record after the first is refused with
 `stored_image_cleared` too: keeping a stored image across a batch needs both clear keys off.
 Where no clear runs before the downloads, the printer's stored names decide instead: a printer
-that already holds a name prints nothing for a second download of it, so `print` and `verify`
-read its names right before each such label's downloads and leave out the download of each held
-one (`image_name_held`), or keep every download of a single label when they cannot be read
+that already holds a name prints nothing for a second download of it, so `print` reads its names
+right before each such label's downloads and leaves out the download of each held one
+(`image_name_held`), or keeps every download of a single label when they cannot be read
 (`image_names_unread`). A `--data` batch of such labels is refused where no printer is read before
 each label: `render`, `validate` with no tcp or serial printer named, and `print` to a file
 (`batch_image_names_unread`, from the second record on; the first is judged as a single label is),

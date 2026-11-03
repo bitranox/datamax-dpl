@@ -1,6 +1,6 @@
 """Text from outside the program, made safe to show on a terminal.
 
-Label files and data are untrusted, and a printer or camera on the network answers what it likes.
+Label files and data are untrusted, and a printer on the network answers what it likes.
 Shown raw, a control sequence in one of them can move the cursor and overwrite the line that said a
 label was refused, or set the window title; JSON output escapes them already.
 """

@@ -85,7 +85,6 @@ class TimeoutName(str, Enum):
     WAIT = "wait"
     RESET_CHECK_WAIT = "reset check wait"
     RETRY_INTERVAL = "retry interval"
-    POLL_INTERVAL = "poll interval"
 
 
 def check_timeout(timeout: float, *, name: TimeoutName = TimeoutName.TIMEOUT) -> float:

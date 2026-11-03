@@ -48,7 +48,7 @@
 #   Examples as environment variables:
 #     DATAMAX_DPL___MY_SECTION__SOME_KEY=some_value
 #     DATAMAX_DPL___LIB_LOG_RICH__CONSOLE_LEVEL=DEBUG
-#     DATAMAX_DPL___CAMERA__PASSWORD=secret
+#     DATAMAX_DPL___PRINTER__URI=tcp://192.0.2.60:9100
 #
 # Value conversion (.env and environment alike): an unquoted value converts - true/false
 # become booleans, null/none become None (except for secret keys such as passwords), a JSON

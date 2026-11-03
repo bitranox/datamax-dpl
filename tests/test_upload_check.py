@@ -1,4 +1,4 @@
-"""print and verify send a label's format only once the printer lists every image it downloaded.
+"""print sends a label's format only once the printer lists every image it downloaded.
 
 A download into a full image module is lost with no error (one Allegro 2, 2026-10-31), and the
 format then prints without it. So on a two-way link each label that downloads an image goes out
@@ -11,7 +11,6 @@ stores a download only while its module has room and answers the directory from 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -36,19 +35,14 @@ from datamax_dpl.application.use_cases import (
     render_batch,
     render_label,
 )
-from datamax_dpl.application.verify import verify_print
 from datamax_dpl.composition import build_production, build_testing
-from datamax_dpl.domain.camera import CameraKind, CameraSettings, CapturedImage
-from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, MediaType, MemoryKind, Severity
+from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, ImageModule, MemoryKind, Severity
 from datamax_dpl.domain.errors import ConfigurationError, LabelRejectedError, PrinterTimeoutError, TransportError
 from datamax_dpl.domain.held_images import READ_AT_SEND
 from datamax_dpl.domain.label import Image, Label, Qr, Text
-from datamax_dpl.domain.png import encode_png
-from datamax_dpl.domain.preview import preview_bitmap
-from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.render import RenderResult, build_record
 from datamax_dpl.domain.render_context import RenderOptions
-from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS, STATUS_REQUEST
+from datamax_dpl.domain.status import MEMORY_DIRECTORY_REQUESTS
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -810,35 +804,6 @@ def test_a_connect_refused_for_longer_than_the_wait_ends_the_job_with_the_wait_n
 
 
 @pytest.mark.os_agnostic
-def test_verify_refused_by_the_upload_check_sends_no_format_and_takes_no_photo(tmp_path: Path) -> None:
-    label = Label(elements=[LOGO])
-    printer = ModulePrinter(ImageModules(capacity=1), answers={STATUS_REQUEST: b"NNNNNNNN\r"})
-    photos: list[Path] = []
-
-    def capture(settings: CameraSettings, *, output_dir: Path) -> CapturedImage:
-        photos.append(output_dir)
-        return CapturedImage(path=output_dir, media_type=MediaType.PNG, captured_at=datetime.now(tz=timezone.utc))
-
-    result, job = _job(label, ALLEGRO, None, 3)
-    with pytest.raises(UploadRefusedError):
-        verify_print(
-            _single(result),
-            label,
-            options=ALLEGRO,
-            endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer)),
-            camera=CameraSettings(kind=CameraKind.FILE),
-            output_dir=tmp_path,
-            capture=capture,
-            sleep=lambda _seconds: None,
-            checked=job,
-        )
-
-    assert FORMAT not in printer.data
-    assert STATUS_REQUEST not in printer.data
-    assert photos == []
-
-
-@pytest.mark.os_agnostic
 def test_a_one_way_channel_reads_nothing_and_gets_the_whole_job_in_one_send() -> None:
     printer = RecordingPrinter(bidirectional=False)
     result, job = _job(Label(elements=[LOGO]), ALLEGRO, None, 3)
@@ -925,41 +890,6 @@ def test_a_refused_record_ends_the_batch_and_the_records_after_it_are_not_sent()
     sent = caught.value.result
     assert isinstance(sent, BatchResult)
     assert [result.ok for result in sent.results] == [True, False, True]
-
-
-@pytest.mark.os_agnostic
-def test_verify_checks_the_upload_and_draws_the_expected_picture_from_the_halved_label(tmp_path: Path) -> None:
-    label = Label(elements=[LOGO])
-    printer = ModulePrinter(ImageModules(capacity=HALF_ROOM), answers={STATUS_REQUEST: b"NNNNNNNN\r"})
-    photo = tmp_path / "photo.png"
-
-    def capture(settings: CameraSettings, *, output_dir: Path) -> CapturedImage:
-        assert (settings.kind, output_dir) == (CameraKind.FILE, tmp_path)
-        return CapturedImage(path=photo, media_type=MediaType.PNG, captured_at=datetime.now(tz=timezone.utc))
-
-    result, job = _job(label, ALLEGRO, None, 3)
-    report = verify_print(
-        _single(result),
-        label,
-        options=ALLEGRO,
-        endpoint=PrinterEndpoint(uri=URI, timeout=5.0, open_printer=open_recording_printer(printer)),
-        camera=CameraSettings(kind=CameraKind.FILE),
-        output_dir=tmp_path,
-        capture=capture,
-        sleep=lambda _seconds: None,
-        checked=job,
-    )
-
-    assert report.result is not None
-    assert report.result.halved_elements == (0,)
-    assert printer.data.count(FORMAT) == 1
-    assert printer.queries[-1] == STATUS_REQUEST
-    profile = get_profile("allegro-2")
-    as_first_rendered = encode_png(preview_bitmap(label, profile, sent_as=_single(result).sent_as, options=ALLEGRO))
-    assert report.expected_png != as_first_rendered
-    assert report.expected_png == encode_png(
-        preview_bitmap(label, profile, sent_as=report.result.sent_as, options=ALLEGRO)
-    )
 
 
 # ======================== the model's image budget on a two-way print ========================
@@ -1142,35 +1072,6 @@ def test_print_over_tcp_refuses_a_label_the_printer_never_lists_and_sends_no_for
     errors = [finding for finding in data["findings"] if finding["severity"] == "error"]
     assert [finding["code"] for finding in errors] == ["image_upload_refused"]
     assert "after 2 rounds" in errors[0]["message"]
-
-
-@pytest.mark.os_agnostic
-@pytest.mark.usefixtures("no_ambient_configuration")
-def test_verify_over_tcp_refuses_a_label_the_printer_never_lists_and_sends_no_format(
-    cli_runner: CliRunner, tmp_path: Path, serve: Callable[[Play], PrinterServer]
-) -> None:
-    server = serve(module_printer(ImageModules(capacity=1)))
-    output_dir = tmp_path / "out"
-    args = ["--json", "verify", _label_file(tmp_path), "--output-dir", str(output_dir)]
-
-    result = _run(
-        cli_runner,
-        [*args, "--model", "allegro-2", "--printer", server.address],
-        DATAMAX_DPL___PRINTER__UPLOAD_CHECK_ROUNDS="2",
-        DATAMAX_DPL___CAMERA__KIND="file",
-        DATAMAX_DPL___CAMERA__DIRECTORY=str(tmp_path),
-    )
-    server.join()
-
-    assert result.exit_code == 1, result.output
-    assert FORMAT not in bytes(server.received)
-    assert bytes(server.received).count(WG) == 2
-    envelope = json.loads(result.stdout)
-    assert envelope["ok"] is False
-    errors = [finding for finding in envelope["data"]["findings"] if finding["severity"] == "error"]
-    assert [finding["code"] for finding in errors] == ["image_upload_refused"]
-    assert "after 2 rounds" in errors[0]["message"]
-    assert list(output_dir.glob("expected-*.png")) == []
 
 
 @pytest.mark.os_agnostic

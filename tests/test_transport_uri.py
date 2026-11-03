@@ -236,7 +236,6 @@ def test_an_unusable_timeout_is_refused(timeout: float) -> None:
         (TimeoutName.TOTAL, "total"),
         (TimeoutName.WAIT, "wait"),
         (TimeoutName.RETRY_INTERVAL, "retry interval"),
-        (TimeoutName.POLL_INTERVAL, "poll interval"),
     ],
 )
 def test_a_refused_timeout_is_named_as_the_seconds_it_is(name: TimeoutName, spelled: str) -> None:

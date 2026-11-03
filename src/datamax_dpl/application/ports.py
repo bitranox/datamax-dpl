@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 
     from lib_layered_config import Config
 
-    from ..domain.camera import CameraSettings, CapturedImage
     from ..domain.enums import DeployTarget, OutputFormat
     from ..domain.profiles import CalibrationKey
     from ..domain.timing import TransportTuning
@@ -251,15 +250,6 @@ class OpenTunablePrinter(Protocol):
     def __call__(self, uri: str, *, timeout: float, tuning: TransportTuning = ...) -> PrinterTransport: ...
 
 
-class CaptureImage(Protocol):
-    """Take one photo with the configured camera and store it in ``output_dir``.
-
-    Raises ``CameraError`` when no image could be taken.
-    """
-
-    def __call__(self, settings: CameraSettings, *, output_dir: Path) -> CapturedImage: ...
-
-
 class JobSpool(Protocol):
     """Where a batch's check pass keeps each record as it was rendered, for the send to read back.
 
@@ -305,7 +295,6 @@ class Clock(Protocol):
 
 __all__ = [
     "CONFIGURED_PERMISSIONS",
-    "CaptureImage",
     "CheckLoggingConfig",
     "Clock",
     "DeployConfiguration",

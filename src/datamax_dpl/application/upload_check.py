@@ -4,7 +4,7 @@ A download into a full image module is lost with no error, and the printer answe
 next directory request on that connection (one Allegro 2, 2026-10-31). How much of a module an
 image takes depends on its content, not on its dot count (a random 4096-byte image took 16582
 bytes, a striped one of the same size 281), so no count made before sending can tell. On a two-way
-link ``print`` and ``verify`` therefore send each label that downloads an image in two parts: first
+link ``print`` therefore sends each label that downloads an image in two parts: first
 everything up to and including its downloads, then, once the printer's graphic directory
 (``<STX>W``) lists every name the label downloaded, the rest (its format, any cut, the clear
 after). A name missing, or no answer within ``stored_names_wait``, starts the next round, up to
@@ -130,7 +130,7 @@ MAX_UPLOAD_CHECK_ROUNDS = HALVING_ROUND
 
 
 class UploadCheck(NamedTuple):
-    """How ``print`` and ``verify`` check each label's image upload on a two-way link.
+    """How ``print`` checks each label's image upload on a two-way link.
 
     Attributes:
         wait: How long each read of the directory keeps trying (``stored_names_wait``).
@@ -144,7 +144,7 @@ class UploadCheck(NamedTuple):
 
 @dataclass(frozen=True)
 class ResetCheck:
-    """How ``print`` and ``verify`` ask for a reset report before a job, and what they do on one.
+    """How ``print`` asks for a reset report before a job, and what it does on one.
 
     Attributes:
         wait: Seconds the one status read waits (``reset_check_wait``). It runs before every job.
@@ -194,7 +194,7 @@ class CheckedJob(NamedTuple):
     """A job to send with its upload check, and how to render each of its labels again.
 
     The renders and the job they rebuild are rendered with the same options; with
-    ``model_image_budget`` False, as ``print`` and ``verify`` render for a two-way link, the images
+    ``model_image_budget`` False, as ``print`` renders for a two-way link, the images
     go at full size and the check, not the model's budget, decides whether they are halved.
 
     Attributes:

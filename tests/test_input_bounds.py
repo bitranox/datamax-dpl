@@ -195,19 +195,6 @@ def test_the_library_preview_refuses_too_and_takes_its_own_limit() -> None:
 
 
 @pytest.mark.os_agnostic
-def test_verify_refuses_a_huge_label_before_anything_is_printed(cli_runner: CliRunner, tmp_path: Path) -> None:
-    """The expected picture comes after the print, so the refusal must come before it."""
-    label = _write_label(tmp_path, {"height": 100000, "elements": [{"type": "text", "x": 5, "y": 5, "text": "A"}]})
-    target = f"file:{tmp_path / 'x.dpl'}"
-    printer = RecordingPrinter()
-    args = ["--json-bare", "--set", "camera.kind=file", "verify", label, "--printer", target]
-    result = _invoke(cli_runner, *args, printer=printer)
-    assert result.exit_code == 2, result.output
-    assert "[preview] max_length_mm" in json.loads(result.stdout)["message"]
-    assert printer.sent == []
-
-
-@pytest.mark.os_agnostic
 @pytest.mark.parametrize("value", [0, -1, "x", float("inf")])
 def test_a_bad_preview_limit_is_refused_naming_its_key(value: object) -> None:
     """A typo in the file is a configuration error naming preview.max_length_mm."""

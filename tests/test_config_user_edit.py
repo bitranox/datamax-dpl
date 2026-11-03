@@ -112,12 +112,12 @@ def test_the_user_layer_is_the_base_file_then_its_existing_toml_drop_ins_by_name
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     dot_d = tmp_path / "datamax-dpl" / "config.d"
     dot_d.mkdir(parents=True)
-    for name in ("60-camera.toml", "50-printer.toml", "70-extra.yaml", "README.md"):
+    for name in ("60-local.toml", "50-printer.toml", "70-extra.yaml", "README.md"):
         (dot_d / name).write_text("", encoding="utf-8")
 
     files = user_layer_files(platform="linux")
 
-    assert files == [tmp_path / "datamax-dpl" / "config.toml", dot_d / "50-printer.toml", dot_d / "60-camera.toml"]
+    assert files == [tmp_path / "datamax-dpl" / "config.toml", dot_d / "50-printer.toml", dot_d / "60-local.toml"]
 
 
 @pytest.mark.os_agnostic
@@ -133,12 +133,12 @@ def test_the_written_value_is_what_the_next_configuration_load_reads(clear_confi
 
 @pytest.mark.os_agnostic
 def test_the_config_sections_are_spelled_as_the_file_spells_them() -> None:
-    assert [section.value for section in ConfigSection] == ["printer", "printers", "camera", "preview"]
+    assert [section.value for section in ConfigSection] == ["printer", "printers", "preview"]
 
 
 @pytest.mark.os_agnostic
 def test_a_written_file_is_replaced_whole_and_no_temp_file_stays(tmp_path: Path) -> None:
-    """A write in place truncates first: a crash then loses every other setting, a camera password included."""
+    """A write in place truncates first: a crash then loses every other setting, a secret included."""
     target = tmp_path / "config.toml"
     target.write_text('[printer]\nmodel = "allegro-2"\n', encoding="utf-8")
     before = target.stat().st_ino

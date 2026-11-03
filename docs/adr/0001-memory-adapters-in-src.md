@@ -5,11 +5,10 @@
 ## Context
 
 Testing the application requires in-memory implementations of adapter
-interfaces (configuration loaders, the printer transport, the camera) that
-avoid real I/O: `RecordingPrinter` records what is sent and answers
-queries from a table, `FakeCamera` stores a given image as the photo. The
-question is whether these belong under `tests/` or under the production
-source tree in `src/datamax_dpl/adapters/memory/`.
+interfaces (configuration loaders, the printer transport) that avoid real
+I/O: `RecordingPrinter` records what is sent and answers queries from a
+table. The question is whether these belong under `tests/` or under the
+production source tree in `src/datamax_dpl/adapters/memory/`.
 
 ## Decision
 

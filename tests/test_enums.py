@@ -24,7 +24,6 @@ _PUBLIC_ENUMS = (
     "HardwareOption",
     "ImageModule",
     "MediaSensor",
-    "MediaType",
     "PrinterSetting",
     "PrinterStop",
     "QrError",

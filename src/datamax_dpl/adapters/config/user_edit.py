@@ -109,7 +109,7 @@ def _replace_file(target: Path, text: str) -> None:
     """Write ``text`` to ``target`` whole or not at all, keeping its mode and following a symlink.
 
     A write in place truncates first, so a crash would lose every other setting of the user's file.
-    A new file stays at the temporary file's owner-only mode: it may come to hold a camera password.
+    A new file stays at the temporary file's owner-only mode: it may come to hold a secret.
     """
     final = target.resolve()
     final.parent.mkdir(parents=True, exist_ok=True)

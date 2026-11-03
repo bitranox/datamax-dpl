@@ -1,9 +1,9 @@
-"""The configuration sections the printer and camera settings are read from and written to.
+"""The configuration sections the printer and preview settings are read from and written to.
 
 The CLI settings read them and ``calibrate set`` writes a printer's values into one, so both name
 a section from here, and a refusal names a key under the same spelling the file uses. Every
 header (``[printers.lager]``), dotted key (``printer.status_wait``) and key hint
-(``[camera] kind``) is rendered by :class:`SectionPath`, so no message spells a section by hand.
+(``[preview] max_length_mm``) is rendered by :class:`SectionPath`, so no message spells a section by hand.
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ class ConfigSection(str, Enum):
 
     PRINTER = "printer"
     PRINTERS = "printers"
-    CAMERA = "camera"
     PREVIEW = "preview"
 
 
@@ -52,7 +51,7 @@ class SectionPath:
         Raises:
             ValueError: ``name`` is set for a section other than ``PRINTERS``.
         """
-        # Only [printers] holds sub-tables; a named [camera.x] would render a header no reader uses.
+        # Only [printers] holds sub-tables; a named [preview.x] would render a header no reader uses.
         if self.name and self.section != ConfigSection.PRINTERS:
             named, given = SectionPath(ConfigSection.PRINTERS).header, SectionPath(self.section).header
             msg = f"only {named} holds named tables, not {given}"
@@ -96,8 +95,8 @@ class SectionPath:
             key: The key, or a dotted path below the table.
 
         Example:
-            >>> SectionPath(ConfigSection.CAMERA).key_path("kind")
-            'camera.kind'
+            >>> SectionPath(ConfigSection.PREVIEW).key_path("max_length_mm")
+            'preview.max_length_mm'
         """
         return f"{self.dotted}.{key}"
 
@@ -108,17 +107,14 @@ class SectionPath:
             key: The key.
 
         Example:
-            >>> SectionPath(ConfigSection.CAMERA).setting("kind")
-            '[camera] kind'
+            >>> SectionPath(ConfigSection.PREVIEW).setting("max_length_mm")
+            '[preview] max_length_mm'
         """
         return f"{self.header} {key}"
 
 
 #: The ``[printer]`` section: every printer's settings, and the only ones when no name is chosen.
 PRINTER_SECTION: Final = SectionPath(ConfigSection.PRINTER)
-
-#: The ``[camera]`` section.
-CAMERA_SECTION: Final = SectionPath(ConfigSection.CAMERA)
 
 #: The ``[preview]`` section.
 PREVIEW_SECTION: Final = SectionPath(ConfigSection.PREVIEW)
@@ -140,4 +136,4 @@ def printer_section(name: str) -> SectionPath:
     return SectionPath(ConfigSection.PRINTERS, name) if name else PRINTER_SECTION
 
 
-__all__ = ["CAMERA_SECTION", "PREVIEW_SECTION", "PRINTER_SECTION", "ConfigSection", "SectionPath", "printer_section"]
+__all__ = ["PREVIEW_SECTION", "PRINTER_SECTION", "ConfigSection", "SectionPath", "printer_section"]

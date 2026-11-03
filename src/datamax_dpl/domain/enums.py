@@ -615,18 +615,6 @@ class ValidationErrorType(str, Enum):
     VALUE_ERROR = "value_error"
 
 
-class MediaType(str, Enum):
-    """Image format of a camera capture.
-
-    Example:
-        >>> MediaType.PNG.value
-        'image/png'
-    """
-
-    PNG = "image/png"
-    JPEG = "image/jpeg"
-
-
 __all__ = [
     "SPEED_IPS",
     "Attribute",
@@ -643,7 +631,6 @@ __all__ = [
     "ImageModule",
     "LabelPresence",
     "MediaSensor",
-    "MediaType",
     "MemoryKind",
     "ModelFamily",
     "OutputFormat",

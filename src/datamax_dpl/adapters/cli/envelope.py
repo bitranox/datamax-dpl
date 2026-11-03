@@ -46,7 +46,6 @@ class CommandName(str, Enum):
     CALIBRATE_PRINT = "calibrate print"
     CALIBRATE_SET = "calibrate set"
     CANCEL = "cancel"
-    CAPTURE = "capture"
     CONFIG = "config"
     CONFIG_DEPLOY = "config-deploy"
     CONFIG_GENERATE_EXAMPLES = "config-generate-examples"
@@ -65,7 +64,6 @@ class CommandName(str, Enum):
     SCHEMA = "schema"
     STATUS = "status"
     VALIDATE = "validate"
-    VERIFY = "verify"
 
 
 class OutputMode(BaseModel):

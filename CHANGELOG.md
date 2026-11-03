@@ -6,6 +6,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Removed
+
+- The camera verification, which was never tested with a real camera: the `verify` and `capture` commands, the camera
+  adapters (`command`, `http`, `file`) and the `[camera]` settings with their `config.d/60-camera.toml`, which
+  `config-deploy` no longer writes.
+- `[printer]` and `[printers.<name>]` keys `verify_poll_interval` and `one_way_settle` (and their
+  `DATAMAX_DPL___PRINTER__...` variables), which only `verify` read. A configuration that still sets one is refused
+  naming the key; delete it.
+- A leftover `[camera]` section, a deployed `config.d/60-camera.toml` or a `DATAMAX_DPL___CAMERA__...` variable is
+  ignored and can be deleted. `config` no longer masks a password or token inside a leftover `camera.url`; only a key
+  named like a secret, such as `camera.password`, stays redacted.
+- Library: `datamax_dpl.CameraError` and `datamax_dpl.MediaType` (also `domain.errors.CameraError` and
+  `domain.enums.MediaType`); `application.verify` (`verify_print`, `VerifyReport`, `IdleWait`, `check_idle_wait`,
+  `wait_idle`, `POLL_SECONDS`, `ONE_WAY_SETTLE_SECONDS`); `domain.camera` (`CameraSettings`, `CameraKind`,
+  `CapturedImage`, `OUTPUT_PLACEHOLDER`, `refuse_boolean`); `adapters.camera` (`capture_image`, `require_camera`,
+  `capture_with_command`, `capture_with_http`, `capture_from_directory`, `CAPTURE_STAMP_FORMAT`, and in its submodules
+  `MEDIA_TYPE_BY_SUFFIX`, `MEDIA_TYPE_BY_CONTENT_TYPE`, `EXTENSION_BY_MEDIA_TYPE`, `MAX_IMAGE_BYTES`, `StoredImage`,
+  `DEFAULT_EXTENSION`, `STDERR_TAIL_CHARS`, `MTIME_GRACE_SECONDS`, `POLL_INTERVAL_SECONDS`);
+  `adapters.memory.FakeCamera` (and `adapters.memory.camera` with `JPEG_SIGNATURE`, `PNG_SIGNATURE`, `TINY_PNG`);
+  `application.ports.CaptureImage`, `AppServices.capture_image` and the `camera` argument of `build_testing`;
+  `adapters.cli.settings.camera_settings`; `adapters.config.sections.CAMERA_SECTION` and `ConfigSection.CAMERA`;
+  `adapters.config.display.redact_url_secrets`; `adapters.config.overrides.with_data`;
+  `domain.timing.TimeoutName.POLL_INTERVAL`; `PrinterSettings.verify_poll_interval` and
+  `PrinterSettings.one_way_settle`.
+
 ## [0.5.0] - 2026-11-03
 
 ### Added

@@ -17,7 +17,7 @@ import click
 import lib_cli_exit_tools
 from pydantic import BaseModel, ValidationError
 
-from ...domain.errors import CameraError, ConfigurationError, LabelRejectedError, TransportError
+from ...domain.errors import ConfigurationError, LabelRejectedError, TransportError
 from ...domain.placeholders import MissingFieldError
 from ...domain.profiles import UnknownModelError
 from . import safe_console
@@ -40,7 +40,6 @@ REFUSALS: tuple[type[BaseException], ...] = (LabelRejectedError,)
 ERRORS: tuple[type[BaseException], ...] = (
     ConfigurationError,
     TransportError,
-    CameraError,
     UnknownModelError,
     MissingFieldError,
     ValueError,

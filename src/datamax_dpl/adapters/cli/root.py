@@ -132,7 +132,6 @@ def _register_commands() -> None:
         cli_calibrate,
         cli_cancel,
         cli_capabilities,
-        cli_capture,
         cli_config,
         cli_config_deploy,
         cli_config_generate_examples,
@@ -151,7 +150,6 @@ def _register_commands() -> None:
         cli_schema,
         cli_status,
         cli_validate,
-        cli_verify,
     )
 
     for cmd in (
@@ -159,7 +157,6 @@ def _register_commands() -> None:
         cli_validate,
         cli_preview,
         cli_print,
-        cli_verify,
         cli_calibrate,
         cli_explain,
         cli_schema,
@@ -173,7 +170,6 @@ def _register_commands() -> None:
         cli_reset,
         cli_cancel,
         cli_pause,
-        cli_capture,
         cli_info,
         cli_config,
         cli_config_deploy,

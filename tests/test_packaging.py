@@ -54,7 +54,6 @@ REQUIRED_WHEEL_DATA = (
     f"{PACKAGE}/adapters/config/defaultconfig.toml",
     f"{PACKAGE}/adapters/config/defaultconfig.d/40-layered-config.toml",
     f"{PACKAGE}/adapters/config/defaultconfig.d/50-printer.toml",
-    f"{PACKAGE}/adapters/config/defaultconfig.d/60-camera.toml",
     f"{PACKAGE}/adapters/config/defaultconfig.d/90-logging.toml",
 )
 

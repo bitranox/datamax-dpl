@@ -4,7 +4,7 @@
 
 Describes the modules as they are in the source tree. Update it with every change that adds,
 moves or removes a module. Hardware behaviour is checked on one Allegro 2 only: no other model
-and no camera has been attached.
+has been attached.
 
 ## Links & References
 
@@ -30,8 +30,8 @@ another. Scripts and LLM agents need a format they can write safely and an answe
    and `permissive`.
 3. Encoders that write the DPL records and record a finding for every deviation; the fallback
    policy (`degrade` or `strict`) decides whether a deviation is a warning or an error.
-4. Transports (tcp, serial, device file, file, stdout), status and model detection, a preview
-   PNG, and a camera loop (`verify`).
+4. Transports (tcp, serial, device file, file, stdout), status and model detection, and a preview
+   PNG.
 5. A CLI whose label and printer commands answer with a JSON envelope `{ok, command, data,
    skipped}` and exit 0 / 1 / 2.
 
@@ -39,7 +39,7 @@ another. Scripts and LLM agents need a format they can write safely and an answe
 
 ```
 composition/   wires production or in-memory adapters into AppServices
-adapters/      CLI, configuration, logging, transports, cameras, preview lettering, memory doubles
+adapters/      CLI, configuration, logging, transports, preview lettering, memory doubles
 application/   use cases and ports (Protocols)
 domain/        label model, profiles, encoders, decoder, preview, status parsing; no I/O
 ```
@@ -104,16 +104,14 @@ turn the outcome into output and an exit code.
 - `timing.py` - the seconds rule for timeouts (`check_timeout`, named by `TimeoutName`) and the
   read-until-silence deadline.
 - `detect.py` - suggests model profiles from printer answers.
-- `camera.py` - camera settings and captured images.
 - `errors.py` - domain exception types.
 
 ### Application (`src/datamax_dpl/application/`)
 
-- `ports.py` - Protocols the adapters implement (printer, camera, clock, configuration, logging), and
+- `ports.py` - Protocols the adapters implement (printer, clock, configuration, logging), and
   the values they take as one: `PrinterEndpoint` (printer URI, timeout and opener) and
   `DeployPermissionRequest` (the permission values a config deploy hands to lib_layered_config).
 - `use_cases.py` - render one label or a batch, print, send commands, query status, detect, read the memory directory.
-- `verify.py` - print, wait for the printer, photograph, return photo and expected preview.
 - `upload_check.py` - check a job's images reached the printer before the format that places them.
 
 ### Adapters (`src/datamax_dpl/adapters/`)
@@ -121,7 +119,7 @@ turn the outcome into output and an exit code.
 - `cli/main.py` - entry point and execution wrapper.
 - `cli/root.py` - root command group and global options (`--json`, `--set`, `--profile` ...).
 - `cli/commands/labels.py` - render, validate, explain, schema, models, capabilities.
-- `cli/commands/printer.py` - print, status, detect, memory, reset/cancel/pause/feed/cut, preview, capture, verify.
+- `cli/commands/printer.py` - print, status, detect, memory, reset/cancel/pause/feed/cut, preview.
 - `cli/commands/model_options.py` - options shared by rendering and printer commands.
 - `cli/commands/calibrate.py` - print the calibration labels, store what was measured on them.
 - `cli/commands/config.py` - config, config-deploy, config-generate-examples.
@@ -131,7 +129,7 @@ turn the outcome into output and an exit code.
 - `cli/job_spool.py` - keeping a batch's records on disk as the check pass rendered them, so the send reads them back instead of rendering again (`FileJobSpool`, a `JobSpool`).
 - `cli/interrupt.py` - noting a Ctrl-C before it is raised, so a pass over the records finds one a C extension swallowed.
 - `cli/gone_reader.py` - telling a reader of the output that went away from a failure that needs saying.
-- `cli/settings.py` - `[printer]` and `[camera]` settings with command-line overrides.
+- `cli/settings.py` - `[printer]` and `[preview]` settings with command-line overrides.
 - `cli/runner.py` - runs a command body, maps outcomes to output and exit codes.
 - `cli/envelope.py` - the JSON envelope and the command names it carries (`CommandName`).
 - `cli/payloads.py` - per-command JSON payloads.
@@ -140,16 +138,14 @@ turn the outcome into output and an exit code.
 - `transport/uri.py` - printer URI parsing.
 - `transport/tcp.py`, `transport/serial.py`, `transport/device.py`, `transport/file.py` - the transports.
 - `transport/__init__.py` - `open_printer(uri, timeout=...)`.
-- `camera/command.py`, `camera/http.py`, `camera/file.py` - the camera kinds; `camera/__init__.py` picks one.
-- `camera/stored.py` - the image a camera kind stored and its media type (`StoredImage`).
 - `preview/__init__.py` - lettered preview with Pillow when the `preview` extra is installed.
 - `config/loader.py`, `config/deploy.py`, `config/display.py`, `config/overrides.py` - layered configuration.
-- `config/sections.py` - the `[printer]`, `[printers.<name>]` and `[camera]` section names (`ConfigSection`).
+- `config/sections.py` - the `[printer]`, `[printers.<name>]` and `[preview]` section names (`ConfigSection`).
 - `config/user_edit.py` - writes a printer's values into the user layer (`calibrate set`).
-- `config/defaultconfig.toml`, `config/defaultconfig.d/*.toml` - bundled defaults (`50-printer`, `60-camera`, `90-logging` ...).
+- `config/defaultconfig.toml`, `config/defaultconfig.d/*.toml` - bundled defaults (`50-printer`, `90-logging` ...).
 - `logging/setup.py` - lib_log_rich initialisation.
 - `error_text.py` - an exception's message as a user reads it, for every adapter that quotes one in its own message.
-- `memory/printer.py` (`RecordingPrinter`), `memory/camera.py` (`FakeCamera`), `memory/config.py`, `memory/logging.py` - in-memory doubles.
+- `memory/printer.py` (`RecordingPrinter`), `memory/config.py`, `memory/logging.py` - in-memory doubles.
 
 ### Composition and entry points
 
@@ -174,14 +170,14 @@ turn the outcome into output and an exit code.
 ## Testing Approach
 
 Tests drive public functions and the CLI. Collaborators are injected: the CLI tests wire
-`build_testing()` with a `RecordingPrinter` and a `FakeCamera`; transports are tested against real
-sockets on 127.0.0.1 and pseudo-terminals. Doctests in the modules run with the suite.
+`build_testing()` with a `RecordingPrinter`; transports are tested against real sockets on
+127.0.0.1 and pseudo-terminals. Doctests in the modules run with the suite.
 
 ## Known Limitations
 
 - Only the 1998 DPL manual is covered; later models and commands are not. QR codes are drawn and
   sent as images.
-- Only an Allegro 2 has been checked on a real printer; no camera has been attached yet.
+- Only an Allegro 2 has been checked on a real printer.
 - The package root exports the label model and its enums, `render`, `build_job`, `render_batch`,
   `iter_batch`, `check_batch`, `record_renders`, `fill_label`, `open_printer`, `print_checked`,
   `explain`, the profiles, the calibration labels, the preview and the errors (`datamax_dpl.__all__`);

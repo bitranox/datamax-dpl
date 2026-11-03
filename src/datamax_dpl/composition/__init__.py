@@ -6,8 +6,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-# Printer and camera
-from ..adapters.camera import capture_image
+# Printer
 from ..adapters.cli.job_spool import FileJobSpool
 from ..adapters.config.deploy import deploy_configuration
 from ..adapters.config.display import display_config
@@ -23,9 +22,8 @@ from ..adapters.transport import open_printer
 # Static conformance assertions - pyright verifies that each adapter function
 # structurally satisfies its corresponding Protocol at type-check time.
 if TYPE_CHECKING:
-    from ..adapters.memory import FakeCamera, RecordingPrinter
+    from ..adapters.memory import RecordingPrinter
     from ..application.ports import (
-        CaptureImage,
         CheckLoggingConfig,
         Clock,
         DeployConfiguration,
@@ -49,7 +47,6 @@ if TYPE_CHECKING:
     _assert_init_logging: InitLogging = init_logging
     _assert_check_logging_config: CheckLoggingConfig = check_logging_config
     _assert_open_printer: OpenTunablePrinter = open_printer
-    _assert_capture_image: CaptureImage = capture_image
     _assert_set_printer_values: SetPrinterValues = set_user_printer_values
     _assert_sleep: Sleep = time.sleep
     _assert_clock: Clock = time.monotonic
@@ -68,7 +65,6 @@ class AppServices:
     init_logging: InitLogging
     check_logging_config: CheckLoggingConfig
     open_printer: OpenTunablePrinter
-    capture_image: CaptureImage
     sleep: Sleep
     clock: Clock
     open_spool: OpenJobSpool
@@ -121,7 +117,6 @@ def build_production() -> AppServices:
         init_logging=init_logging,
         check_logging_config=check_logging_config,
         open_printer=open_printer,
-        capture_image=capture_image,
         sleep=time.sleep,
         clock=time.monotonic,
         open_spool=FileJobSpool,
@@ -131,19 +126,16 @@ def build_production() -> AppServices:
 def build_testing(
     *,
     printer: RecordingPrinter | None = None,
-    camera: FakeCamera | None = None,
 ) -> AppServices:
     """Wire in-memory adapters into an AppServices container.
 
     Args:
         printer: Recording printer every printer URI opens; a fresh one when None.
-        camera: Camera double; a fresh one when None.
 
     Returns:
         AppServices container with in-memory adapters.
     """
     from ..adapters.memory import (  # noqa: PLC0415 - deferred: keeps in-memory test doubles out of the production import path
-        FakeCamera,
         RecordingPrinter,
         check_logging_config_in_memory,
         deploy_configuration_in_memory,
@@ -165,7 +157,6 @@ def build_testing(
         init_logging=init_logging_in_memory,
         check_logging_config=check_logging_config_in_memory,
         open_printer=open_recording_printer(printer or RecordingPrinter()),
-        capture_image=camera or FakeCamera(),
         sleep=clock.sleep,
         clock=clock.now,
         # The real spool: it is a temp file of this process's own, and tests check what it leaves.

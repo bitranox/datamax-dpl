@@ -15,19 +15,17 @@ from datamax_dpl.adapters.cli.settings import (
     PreviewSettings,
     PrinterOverrides,
     PrinterSettings,
-    camera_settings,
     preview_settings,
     printer_settings,
 )
 from datamax_dpl.composition import build_production, build_testing
-from datamax_dpl.domain.camera import CameraSettings
 from datamax_dpl.domain.errors import ConfigurationError
 
 if TYPE_CHECKING:
     from click.testing import CliRunner
 
 REPO = Path(__file__).resolve().parent.parent
-MODELS: dict[str, Any] = {"printer": PrinterSettings, "camera": CameraSettings, "preview": PreviewSettings}
+MODELS: dict[str, Any] = {"printer": PrinterSettings, "preview": PreviewSettings}
 
 
 def _printer(section: dict[str, Any], *, name: str | None = None) -> PrinterSettings:
@@ -50,13 +48,6 @@ def test_a_misspelled_key_of_a_named_printer_is_refused_naming_it() -> None:
 
 
 @pytest.mark.os_agnostic
-def test_a_misspelled_camera_key_is_refused_naming_it() -> None:
-    with pytest.raises(ConfigurationError) as caught:
-        camera_settings(Config({"camera": {"timout": 5}}, {}))
-    assert str(caught.value) == "camera.timout: Extra inputs are not permitted"
-
-
-@pytest.mark.os_agnostic
 def test_a_misspelled_preview_key_is_refused_naming_it() -> None:
     with pytest.raises(ConfigurationError) as caught:
         preview_settings(Config({"preview": {"max_length": 5}}, {}))
@@ -69,8 +60,6 @@ def test_a_section_that_is_no_table_is_refused_naming_it(value: object) -> None:
     """``printer = 5`` was dropped silently, so every key the user meant to set stayed at its default."""
     with pytest.raises(ConfigurationError, match=r"^printer: needs a table of settings"):
         printer_settings(Config({"printer": value}, {}), PrinterOverrides())
-    with pytest.raises(ConfigurationError, match=r"^camera: needs a table of settings"):
-        camera_settings(Config({"camera": value}, {}))
     with pytest.raises(ConfigurationError, match=r"^preview: needs a table of settings"):
         preview_settings(Config({"preview": value}, {}))
     with pytest.raises(ConfigurationError, match=r"^printers: needs a table of settings"):
@@ -110,7 +99,7 @@ def test_every_key_the_shipped_files_name_is_declared() -> None:
 @pytest.mark.os_agnostic
 def test_every_key_env_example_names_is_declared() -> None:
     text = (REPO / ".env.example").read_text(encoding="utf-8")
-    found = re.findall(r"^#?\s*(?:[A-Z_]+___)?(PRINTER|CAMERA|PREVIEW)__([A-Z_0-9]+)=", text, flags=re.MULTILINE)
+    found = re.findall(r"^#?\s*(?:[A-Z_]+___)?(PRINTER|PREVIEW)__([A-Z_0-9]+)=", text, flags=re.MULTILINE)
     assert found
     for section, key in found:
         assert key.lower() in MODELS[section.lower()].model_fields, f"{section}__{key}"
@@ -129,8 +118,6 @@ PRINTER_NUMBERS = [
     "max_batch_job_bytes",
     "max_reported_findings",
     "max_reported_downloads",
-    "verify_poll_interval",
-    "one_way_settle",
     "send_chunk_bytes",
     "refused_connect_wait",
     "refused_connect_retry_interval",
@@ -147,7 +134,6 @@ PRINTER_NUMBERS = [
     "label_width",
     "label_height",
 ]
-CAMERA_NUMBERS = ["settle_seconds", "timeout"]
 
 
 @pytest.mark.os_agnostic
@@ -158,14 +144,6 @@ def test_a_printer_number_refuses_a_boolean(key: str, value: bool, word: str) ->
     with pytest.raises(ConfigurationError) as caught:
         _printer({key: value})
     assert str(caught.value) == f"printer.{key}: needs a number, got {word}"
-
-
-@pytest.mark.os_agnostic
-@pytest.mark.parametrize("key", CAMERA_NUMBERS)
-def test_a_camera_number_refuses_a_boolean(key: str) -> None:
-    with pytest.raises(ConfigurationError) as caught:
-        camera_settings(Config({"camera": {key: True}}, {}))
-    assert str(caught.value) == f"camera.{key}: needs a number, got true"
 
 
 @pytest.mark.os_agnostic
@@ -195,14 +173,6 @@ def test_the_list_above_is_every_number_of_the_settings() -> None:
 def test_a_printer_number_refuses_infinity_as_text_or_number(key: str, value: object) -> None:
     with pytest.raises(ConfigurationError, match=f"printer\\.{key}"):
         _printer({key: value})
-
-
-@pytest.mark.os_agnostic
-@pytest.mark.parametrize("key", CAMERA_NUMBERS)
-@pytest.mark.parametrize("value", ["inf", "nan"])
-def test_a_camera_number_refuses_infinity_as_text(key: str, value: str) -> None:
-    with pytest.raises(ConfigurationError, match=f"camera\\.{key}"):
-        camera_settings(Config({"camera": {key: value}}, {}))
 
 
 @pytest.mark.os_agnostic

@@ -4,7 +4,7 @@ One Allegro 2 printed nothing for a format that downloaded a name it held (0 of 
 2026-11-01) and printed a format that only referred to the held name (3 of 3). So where no clear
 runs before a label's downloads (the clear key is off, the module is a plug-in one a clear would
 wear, or the model has no clear) the job leaves out each held name's download and places the
-stored image. ``print`` and ``verify`` read the names (``<STX>W``) before rendering; every offline
+stored image. ``print`` reads the names (``<STX>W``) before rendering; every offline
 render knows none and keeps every download. A clear (``<STX>q``) goes only to a model's built-in
 RAM (manual, Appendix L p.189), and a stored-only image the clear before removes is refused.
 """
@@ -66,7 +66,7 @@ _L = LOGO_SENT.encode("ascii")
 _I = ICON_SENT.encode("ascii")
 _WG = MEMORY_DIRECTORY_REQUESTS[MemoryKind.GRAPHIC]
 _HOLDS_LOGO = b"MODULE: A\r" + _L + b"\rAVAILABLE BYTES IN MODULE : 00049083\r"
-#: How ``print`` and ``verify`` say to lengthen the names read, as their wait carries it.
+#: How ``print`` says to lengthen the names read, as its wait carries it.
 _WAIT_LONGER = "wait longer with [printer] stored_names_wait"
 _LOGO_HELD = HeldImages(listed=frozenset({LOGO_SENT}))
 _NOTHING_HELD = HeldImages(listed=frozenset())

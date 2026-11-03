@@ -33,7 +33,7 @@ kind of evidence the project lacks most right now.
 ## 4. Coding standards
 
 - Keep the layers: `domain` (pure label model, profiles, encoders) imports nothing from
-  `application` or `adapters`; adapters (CLI, transports, cameras, configuration) may import both.
+  `application` or `adapters`; adapters (CLI, transports, configuration) may import both.
   import-linter enforces this.
 - Small, single-purpose functions; pyright in strict mode with zero errors; Google-style
   docstrings; an `__all__` in every module.
@@ -44,8 +44,8 @@ kind of evidence the project lacks most right now.
 - `make test` runs Ruff, Bandit, import-linter, pip-audit, Pyright and Pytest with coverage. See
   [DEVELOPMENT.md](DEVELOPMENT.md).
 - Drive the real code through its public functions. Inject collaborators (printer opener,
-  camera, clock) through parameters, use the in-memory adapters in `datamax_dpl.adapters.memory`,
-  and do not monkeypatch the module under test.
+  clock) through parameters, use the in-memory adapters in `datamax_dpl.adapters.memory`, and do
+  not monkeypatch the module under test.
 - Mark every test `@pytest.mark.os_agnostic` or with the `os_*` marker it needs.
 - A regression test must fail once on the old code before it counts.
 - After changing a printer profile, run `.venv/bin/python scripts/gen_capabilities.py --write`.
@@ -59,5 +59,4 @@ kind of evidence the project lacks most right now.
 
 ## 7. Secrets
 
-Tokens (Codecov, PyPI) and camera passwords belong in `.env` (ignored by git) or CI secrets,
-never in a tracked file.
+Tokens (Codecov, PyPI) belong in `.env` (ignored by git) or CI secrets, never in a tracked file.

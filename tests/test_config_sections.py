@@ -14,30 +14,26 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from lib_layered_config import Config
 
-from datamax_dpl.adapters.camera import capture_image
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.adapters.cli.commands.printer import stored_names_wait_longer_hint, wait_longer_hint
 from datamax_dpl.adapters.cli.settings import (
+    PreviewSettings,
     PrinterOverrides,
     PrinterSettings,
-    camera_settings,
     printer_settings,
     require_uri,
 )
 from datamax_dpl.adapters.config.sections import (
-    CAMERA_SECTION,
+    PREVIEW_SECTION,
     PRINTER_SECTION,
     ConfigSection,
     SectionPath,
     printer_section,
 )
 from datamax_dpl.composition import build_testing
-from datamax_dpl.domain.camera import CameraKind, CameraSettings
-from datamax_dpl.domain.errors import CameraError, ConfigurationError
+from datamax_dpl.domain.errors import ConfigurationError
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     import rich_click as click
     from click.testing import CliRunner
 
@@ -66,15 +62,15 @@ def test_no_printer_name_renders_the_printer_section() -> None:
 
 
 @pytest.mark.os_agnostic
-def test_the_camera_and_printers_sections_render_as_the_file_spells_them() -> None:
-    assert CAMERA_SECTION.header == "[camera]"
-    assert CAMERA_SECTION.key_path("kind") == "camera.kind"
-    assert CAMERA_SECTION.setting("kind") == "[camera] kind"
+def test_the_preview_and_printers_sections_render_as_the_file_spells_them() -> None:
+    assert PREVIEW_SECTION.header == "[preview]"
+    assert PREVIEW_SECTION.key_path("max_length_mm") == "preview.max_length_mm"
+    assert PREVIEW_SECTION.setting("max_length_mm") == "[preview] max_length_mm"
     assert SectionPath(ConfigSection.PRINTERS).header == "[printers]"
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("section", [ConfigSection.PRINTER, ConfigSection.CAMERA], ids=lambda s: s.value)
+@pytest.mark.parametrize("section", [ConfigSection.PRINTER, ConfigSection.PREVIEW], ids=lambda s: s.value)
 def test_only_the_printers_section_takes_a_name(section: ConfigSection) -> None:
     with pytest.raises(ValueError, match=r"^only \[printers\] holds named tables, not \[" + section.value + r"\]$"):
         SectionPath(section, "lager")
@@ -85,9 +81,9 @@ def test_only_the_printers_section_takes_a_name(section: ConfigSection) -> None:
     ("model", "keys"),
     [
         (PrinterSettings, ("uri", "status_wait", "stored_names_wait", "label_width", "label_height", "firmware")),
-        (CameraSettings, ("kind", "command", "url", "directory")),
+        (PreviewSettings, ("max_length_mm",)),
     ],
-    ids=["printer", "camera"],
+    ids=["printer", "preview"],
 )
 def test_every_key_a_hint_names_is_a_setting_of_its_section(model: type[Any], keys: tuple[str, ...]) -> None:
     assert set(keys) <= set(model.model_fields)
@@ -128,37 +124,11 @@ def test_a_printer_refusal_names_the_section_as_the_file_spells_it(
 
 
 @pytest.mark.os_agnostic
-def test_a_camera_refusal_names_the_camera_key() -> None:
-    refusal = "camera.kind: Input should be 'none', 'command', 'http' or 'file'"
-
-    with pytest.raises(ConfigurationError, match=f"^{re.escape(refusal)}$"):
-        camera_settings(Config({"camera": {"kind": "bogus"}}, {}))
-
-
-@pytest.mark.os_agnostic
 def test_no_uri_names_the_printer_section_uri() -> None:
     with pytest.raises(ConfigurationError) as caught:
         require_uri(PrinterSettings())
 
     assert str(caught.value) == "no printer given: pass --printer NAME or URI, or set [printer] uri"
-
-
-@pytest.mark.os_agnostic
-@pytest.mark.parametrize(
-    ("kind", "refusal"),
-    [
-        (CameraKind.NONE, "no camera configured: set [camera] kind"),
-        (CameraKind.COMMAND, "no camera command configured: set [camera] command"),
-        (CameraKind.HTTP, "no camera URL configured: set [camera] url"),
-        (CameraKind.FILE, "no camera directory configured: set [camera] directory"),
-    ],
-    ids=lambda value: value.value if isinstance(value, CameraKind) else "",
-)
-def test_an_unconfigured_camera_names_the_key_to_set(kind: CameraKind, refusal: str, tmp_path: Path) -> None:
-    with pytest.raises(CameraError) as caught:
-        capture_image(CameraSettings(kind=kind, timeout=0.5), output_dir=tmp_path)
-
-    assert str(caught.value) == refusal
 
 
 @pytest.mark.os_agnostic
@@ -189,13 +159,12 @@ def test_the_help_texts_name_the_sections_as_the_file_spells_them() -> None:
         "Configured printer name ([printers.NAME]) or URI, e.g. tcp://192.0.2.60:9100; default [printer] uri."
     )
     assert _help(status, "--timeout") == (
-        "Seconds to wait for the printer; default [printer] timeout. For status, memory and verify, the"
-        " whole wait for the printer instead of [printer] status_wait."
+        "Seconds to wait for the printer; default [printer] timeout. For status and memory, the whole"
+        " wait for the printer instead of [printer] status_wait."
     )
     assert _help(_command("calibrate", "set"), "--printer") == (
         "Configured printer name ([printers.NAME]); default the [printer] section."
     )
-    assert _command("capture").help == "Take one photo with the configured camera ([camera] section)."
 
 
 @pytest.mark.os_agnostic
@@ -219,34 +188,22 @@ def test_a_named_printer_without_a_uri_is_not_told_that_no_printer_was_given() -
     assert str(caught.value) == wanted
 
 
-TIMEOUT_KEYS = [
-    ("camera.timeout", ["capture"]),
-    ("camera.settle_seconds", ["capture"]),
-    ("printer.timeout", ["status", "--printer", "tcp://192.0.2.60:9100"]),
-]
-
-
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize(("key", "command"), TIMEOUT_KEYS)
 @pytest.mark.parametrize("value", ["1e30", "2147484", "inf"])
-def test_a_configured_timeout_past_the_bound_is_refused_naming_its_key(
-    cli_runner: CliRunner, key: str, command: list[str], value: str
-) -> None:
+def test_a_configured_timeout_past_the_bound_is_refused_naming_its_key(cli_runner: CliRunner, value: str) -> None:
     """1e30 reached the clock as an OverflowError with no envelope."""
     result = cli_runner.invoke(
         cli_mod.cli,
-        ["--json", "--set", f"{key}={value}", "--set", "camera.kind=file", *command],
+        ["--json", "--set", f"printer.timeout={value}", "status", "--printer", "tcp://192.0.2.60:9100"],
         obj=build_testing,
     )
     assert result.exit_code == 2, result.output
     message = json.loads(result.stdout)["message"]
-    assert key in message
+    assert "printer.timeout" in message
     assert "2147483" in message
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("section", ["camera", "printer"])
-def test_a_timeout_at_the_bound_is_accepted(section: str) -> None:
-    config = Config({section: {"timeout": 2147483.0}}, {})
-    settings = camera_settings(config) if section == "camera" else printer_settings(config, PrinterOverrides())
-    assert settings.timeout == 2147483.0
+def test_a_timeout_at_the_bound_is_accepted() -> None:
+    config = Config({"printer": {"timeout": 2147483.0}}, {})
+    assert printer_settings(config, PrinterOverrides()).timeout == 2147483.0

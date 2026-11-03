@@ -65,8 +65,8 @@ _PRINTER_OPTIONS: tuple[_Decorator, ...] = (
         type=float,
         default=None,
         help=(
-            f"Seconds to wait for the printer; default {PRINTER_SECTION.setting('timeout')}. For status, memory"
-            f" and verify, the whole wait for the printer instead of {PRINTER_SECTION.setting('status_wait')}."
+            f"Seconds to wait for the printer; default {PRINTER_SECTION.setting('timeout')}. For status and"
+            f" memory, the whole wait for the printer instead of {PRINTER_SECTION.setting('status_wait')}."
         ),
     ),
 )

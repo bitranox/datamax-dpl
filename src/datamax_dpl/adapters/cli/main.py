@@ -55,7 +55,6 @@ _JOB_MAY_BE_OUT = "; part of a job may already have been sent"
 _SENDING_COMMANDS = frozenset(
     {
         CommandName.PRINT,
-        CommandName.VERIFY,
         CommandName.CALIBRATE_PRINT,
         CommandName.RESET,
         CommandName.CANCEL,

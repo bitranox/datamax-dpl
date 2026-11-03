@@ -337,7 +337,6 @@ _DIRECT_RENDERS = {
     ("labels.py", "check_loaded"): "the one gate for files and stdout: it raises a noted Ctrl-C before it returns",
     ("printer.py", "cli_preview.body"): "preview renders only for how the job sends its fields, and writes a picture",
     ("printer.py", "_print_body"): _SENDS_THROUGH_THE_CHANNEL,
-    ("printer.py", "cli_verify.body"): _SENDS_THROUGH_THE_CHANNEL,
     ("calibrate.py", "cli_calibrate_print.body"): _SENDS_THROUGH_THE_CHANNEL,
 }
 #: The functions through which a CLI module could reach a printer opener that is not interrupt-checked.

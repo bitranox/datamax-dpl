@@ -183,7 +183,7 @@ def test_info_keeps_its_text_without_the_flag(capsys: pytest.CaptureFixture[str]
 @pytest.mark.os_agnostic
 def test_config_answers_with_the_dict_config_format_json_prints(capsys: pytest.CaptureFixture[str]) -> None:
     """data is what --format json shows, redaction included, whichever display port is wired."""
-    data = {"camera": {"password": "secretPW", "url": "http://u:urlPW@192.0.2.9/x", "kind": "http"}, "s": {"k": 1}}
+    data = {"service": {"password": "secretPW", "kind": "http"}, "s": {"k": 1}}
     code = main(["--json-bare", "config"], services_factory=_services(data))
     out = capsys.readouterr().out
     assert code == 0
@@ -191,8 +191,7 @@ def test_config_answers_with_the_dict_config_format_json_prints(capsys: pytest.C
     assert (document["ok"], document["command"]) == (True, "config")
     assert document["data"]["s"] == {"k": 1}
     assert "secretPW" not in out
-    assert "urlPW" not in out
-    assert document["data"]["camera"]["url"] == "http://u:***REDACTED***@192.0.2.9/x"
+    assert document["data"]["service"] == {"password": "***REDACTED***", "kind": "http"}
 
 
 @pytest.mark.os_agnostic
@@ -373,7 +372,6 @@ INTERRUPTED_COMMANDS = [
     (["config"], "config", False),
     (["--set", "printer.model=allegro-2", "status"], "status", False),
     (["print", "x.json"], "print", True),
-    (["verify", "x.json"], "verify", True),
     (["calibrate", "print"], "calibrate print", True),
     (["reset"], "reset", True),
 ]

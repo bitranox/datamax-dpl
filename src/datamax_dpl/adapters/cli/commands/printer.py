@@ -1,9 +1,8 @@
-"""Printer commands: print, status, detect, memory, single commands, preview, capture and verify."""
+"""Printer commands: print, status, detect, memory, single commands and preview."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
@@ -30,28 +29,25 @@ from ....application.use_cases import (
     report_of,
     send_command,
 )
-from ....application.verify import IdleWait, verify_print
 from ....domain.enums import MemoryKind, StatusProblem
-from ....domain.errors import CameraError, PreviewTooLongError
+from ....domain.errors import PreviewTooLongError
 from ....domain.held_images import READ_AT_SEND, HeldImages
 from ....domain.memory import NO_MODULES_MEANING, MemoryDirectory
 from ....domain.placeholders import fill_record
 from ....domain.preview import canvas_for, check_preview_length
 from ....domain.profiles import get_profile
 from ....domain.status import PrinterStatus
-from ...camera import require_camera
-from ...config.sections import CAMERA_SECTION, PREVIEW_SECTION, printer_section
+from ...config.sections import PREVIEW_SECTION, printer_section
 from ...preview import pillow_available, preview_findings, render_preview_png
 from ...transport.uri import is_one_way, unsupported_query
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
 from ..label_io import STDIN, LabelInputError, load_label, load_records
-from ..payloads import FindingOut, SentTo, findings_text, refused_text, render_payload, went_out_text, worth_telling
+from ..payloads import FindingOut, SentTo, findings_text, refused_text, render_payload, went_out_text
 from ..runner import CommandResult, run_command
 from ..settings import (
     PrinterOverrides,
     PrinterSettings,
-    camera_settings,
     preview_settings,
     render_options,
     require_uri,
@@ -73,7 +69,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from ....application.ports import JobSpool
-    from ....domain.camera import CameraSettings
     from ....domain.label import Label
     from ....domain.render import RenderResult
     from ....domain.render_context import RenderOptions
@@ -143,13 +138,13 @@ def _names_at_send(link: _Link) -> HeldImages:
 
 
 def _render_refused(result: RenderResult | BatchReport, *, verdict: str, settings: PrinterSettings) -> CommandResult:
-    """The result of a print or verify whose label has an error finding: nothing went out, and why."""
+    """The result of a print whose label has an error finding: nothing went out, and why."""
     payload = render_payload(result, settings=settings)
     return CommandResult(ok=False, payload=payload, human=f"{verdict}\n{refused_text(payload)}")
 
 
 def _upload_refused(exc: UploadRefusedError, *, uri: str, settings: PrinterSettings) -> CommandResult:
-    """The result of a print or verify whose upload check refused a label: its findings, what was sent."""
+    """The result of a print whose upload check refused a label: its findings, what was sent."""
     # A command sends a report or one label; a held batch is the library's, and reports the same way.
     result = report_of(exc.result) if isinstance(exc.result, BatchResult) else exc.result
     payload = render_payload(result, sent=SentTo(uri, exc.bytes_sent), settings=settings)
@@ -157,22 +152,18 @@ def _upload_refused(exc: UploadRefusedError, *, uri: str, settings: PrinterSetti
 
 
 def _upload_check(settings: PrinterSettings, cli_ctx: CLIContext) -> UploadCheck:
-    """How ``print`` and ``verify`` check each label's image upload: ``stored_names_wait`` per read."""
+    """How ``print`` checks each label's image upload: ``stored_names_wait`` per read."""
     return UploadCheck(wait=_stored_names_wait(settings, cli_ctx), rounds=settings.upload_check_rounds)
 
 
 def _reset_check(settings: PrinterSettings) -> ResetCheck:
-    """How ``print`` and ``verify`` ask for a reset report before a job, and what they do on one."""
+    """How ``print`` asks for a reset report before a job, and what it does on one."""
     return ResetCheck(
         wait=settings.reset_check_wait,
         calibrate=settings.calibrate_after_reset,
         text=settings.calibration_label_text,
         off_because="[printer] calibrate_after_reset is off",
     )
-
-
-def _told_lines(told: list[FindingOut]) -> list[str]:
-    return [findings_text(told)] if told else []
 
 
 class StatusPayload(BaseModel):
@@ -224,7 +215,7 @@ def cli_status(ctx: click.Context, **given: Any) -> None:
 
 @dataclass(frozen=True, slots=True)
 class _Link:
-    """The printer a ``print`` or ``verify`` goes to: its URI, parsed once, and whether it can answer."""
+    """The printer a ``print`` goes to: its URI, parsed once, and whether it can answer."""
 
     uri: str
     one_way: bool
@@ -253,7 +244,7 @@ def _queryable_uri(settings: PrinterSettings) -> str:
 
 
 def _print_options(settings: PrinterSettings, *, link: _Link) -> RenderOptions:
-    """The render options ``print`` and ``verify`` render with for the printer at ``link``.
+    """The render options ``print`` renders with for the printer at ``link``.
 
     A two-way link leaves out the model's own image memory budget: its upload check reads whether
     the printer stored the images, which says more than a count of dot data can (user decision
@@ -306,18 +297,9 @@ def stored_names_wait_longer_hint(settings: PrinterSettings) -> str:
 
 
 def _stored_names_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> AnswerWait:
-    """How long ``print`` and ``verify`` keep trying to read the stored image names: ``stored_names_wait``."""
+    """How long ``print`` keeps trying to read the stored image names: ``stored_names_wait``."""
     return _wait(
         settings, cli_ctx, seconds=settings.stored_names_wait, wait_longer=stored_names_wait_longer_hint(settings)
-    )
-
-
-def _idle_wait(settings: PrinterSettings, cli_ctx: CLIContext) -> IdleWait:
-    """How long ``verify`` waits for the printer to finish: the wait ``status`` uses, polled while busy."""
-    return IdleWait(
-        answer=_answer_wait(settings, cli_ctx),
-        poll_interval=settings.verify_poll_interval,
-        one_way_settle=settings.one_way_settle,
     )
 
 
@@ -549,124 +531,9 @@ def cli_preview(ctx: click.Context, label_source: str, output: str, data: str | 
     run_command(ctx, command=CommandName.PREVIEW, body=body)
 
 
-@click.command(
-    "capture",
-    context_settings=CLICK_CONTEXT_SETTINGS,
-    # help=, not the docstring, so the section is rendered rather than spelled by hand.
-    help=f"Take one photo with the configured camera ({CAMERA_SECTION.header} section).",
-)
-@option("--output-dir", default=".", help="Folder the photo is written to.")
-@click.pass_context
-def cli_capture(ctx: click.Context, output_dir: str) -> None:
-    """Take one photo with the configured camera."""
-
-    def body(cli_ctx: CLIContext) -> CommandResult:
-        camera = camera_settings(loaded_config(cli_ctx))
-        photo = cli_ctx.services.capture_image(camera, output_dir=Path(output_dir))
-        return CommandResult(ok=True, payload=photo, human=f"photo {photo.path}")
-
-    run_command(ctx, command=CommandName.CAPTURE, body=body)
-
-
-class VerifyPayload(BaseModel):
-    """Result of ``verify``: where the photo and the expected picture are."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    printer: str
-    bytes_sent: int
-    status: PrinterStatus | None
-    photo: str
-    expected: str
-    findings: list[FindingOut]
-
-
-def _printable_camera(camera: CameraSettings) -> CameraSettings:
-    """Return settings that name a camera, refusing before any label goes out.
-
-    Raises:
-        CameraError: They name none; no label was printed.
-    """
-    try:
-        require_camera(camera)
-    except CameraError as exc:
-        raise CameraError(f"{exc}; nothing was printed") from exc
-    return camera
-
-
-@click.command("verify", context_settings=CLICK_CONTEXT_SETTINGS)
-@argument("label_source", metavar="LABEL")
-@option("--output-dir", default=".", help="Folder for the photo and the expected preview.")
-@render_options_decorator
-@printer_options_decorator
-@click.pass_context
-def cli_verify(ctx: click.Context, label_source: str, output_dir: str, **given: Any) -> None:
-    """Print a label, wait until the printer is done, photograph it, and write the expected preview beside it."""
-
-    def body(cli_ctx: CLIContext) -> CommandResult:
-        settings = resolve_sending_settings(cli_ctx, command_overrides(given))
-        # Loaded once and rendered from that copy: LABEL '-' is stdin, which cannot be read twice.
-        label = load_label(label_source)
-        link = _link(settings)
-        options = _print_options(settings, link=link)
-        # The expected picture is drawn after the print, so a label too long for it stops here.
-        _refuse_long_preview(label, options, limit=_preview_limit(cli_ctx))
-        result = check_loaded(label, None, options, settings, route=JobRoute(names=_names_at_send(link)))
-        uri = link.uri
-        if not result.ok:
-            return _render_refused(result, verdict="REFUSED", settings=settings)
-        folder = Path(output_dir)
-        services = cli_ctx.services
-        camera = _printable_camera(camera_settings(loaded_config(cli_ctx)))
-        checked = (
-            None
-            if link.one_way
-            else CheckedJob(
-                renders=record_renders(label, None, options),
-                check=_upload_check(settings, cli_ctx),
-                reset=_reset_check(settings),
-            )
-        )
-        try:
-            report = verify_print(
-                result,
-                label,
-                options=options,
-                endpoint=PrinterEndpoint(
-                    uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)
-                ),
-                camera=camera,
-                output_dir=folder,
-                capture=services.capture_image,
-                sleep=services.sleep,
-                wait=_idle_wait(settings, cli_ctx),
-                checked=checked,
-            )
-        except UploadRefusedError as exc:
-            return _upload_refused(exc, uri=uri, settings=settings)
-        expected = folder / f"expected-{datetime.now(tz=timezone.utc):%Y%m%dT%H%M%S%fZ}.png"
-        expected.write_bytes(report.expected_png)
-        payload = VerifyPayload(
-            printer=require_uri(settings),
-            bytes_sent=report.bytes_sent,
-            status=report.status,
-            photo=str(report.photo.path),
-            expected=str(expected),
-            findings=[]
-            if report.result is None
-            else [FindingOut.of(f, settings=settings) for f in report.result.findings],
-        )
-        told = [f for f in payload.findings if worth_telling(f)]
-        human = "\n".join([f"photo:    {payload.photo}", f"expected: {payload.expected}", *_told_lines(told)])
-        return CommandResult(ok=True, payload=payload, human=human)
-
-    run_command(ctx, command=CommandName.VERIFY, body=body)
-
-
 __all__ = [
     "KindChoice",
     "cli_cancel",
-    "cli_capture",
     "cli_cut",
     "cli_detect",
     "cli_feed",
@@ -676,5 +543,4 @@ __all__ = [
     "cli_print",
     "cli_reset",
     "cli_status",
-    "cli_verify",
 ]

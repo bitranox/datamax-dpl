@@ -390,7 +390,7 @@ same for `scale_along`; `render_options()` passes both.
 - `printer_settings(config, overrides)`: `[printer]` merged with `[printers.<name>]` (the named
   section wins key by key), then the command-line flags; a URI given to `--printer` sets `uri`.
 - `--printer` is added to `render` and `validate` (a named printer supplies model and factors);
-  `print`, `verify`, `status`, `detect` and the immediate commands keep theirs.
+  `print`, `status`, `detect` and the immediate commands keep theirs.
 
 **STOP conditions:** a command passes `uri=` to `resolve_settings` by keyword (grep `uri=`).
 
