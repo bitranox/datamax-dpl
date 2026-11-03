@@ -8,6 +8,7 @@ batch whose labels need that is refused.
 
 from __future__ import annotations
 
+import sys
 import tracemalloc
 
 import pytest
@@ -31,6 +32,10 @@ _LARGE = 160
 #: What the peak may grow by between the two sizes: a few small objects, no name per record. The
 #: digest map this replaced grew by about 150 bytes a name, 84 KB over these 560 names.
 _FLAT_BYTES = 16 * 1024
+#: Why the flat check skips 3.10: the interpreter itself holds up to about 100 KB more over the first
+#: ~2000 records of any batch, a text label's as well, then stays flat to 8000 (measured 2026-11-03).
+#: These sizes sit inside that ramp; 3.11 to 3.15 grow by at most 7 KB over it.
+_RAMP_310 = "3.10 holds up to about 100 KB more over the first ~2000 records of any batch, then stays flat"
 
 
 def _peak(records: int) -> int:
@@ -47,6 +52,7 @@ def _peak(records: int) -> int:
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.skipif(sys.version_info < (3, 11), reason=_RAMP_310)
 def test_a_no_clear_batch_s_peak_is_flat_however_many_distinct_images_it_downloads() -> None:
     _peak(_SMALL)  # warms what is imported and cached once, which is no cost of the batch
     small, large = _peak(_SMALL), _peak(_LARGE)
