@@ -39,7 +39,15 @@ from .. import safe_console
 from ..config_load import check_logging, fail_config_load, load_config, require_config
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..context import CLIContext, get_cli_context, output_mode
-from ..envelope import CommandName, Envelope, ErrorEnvelope, OutputMode, write_envelope, write_error_envelope
+from ..envelope import (
+    CommandName,
+    Envelope,
+    ErrorEnvelope,
+    OutputMode,
+    error_text,
+    write_envelope,
+    write_error_envelope,
+)
 from ..exit_codes import ExitCode
 from ..typed_click import get_current_context, option
 
@@ -411,7 +419,7 @@ def _execute_deploy(
         _refuse_permission_settings(exc, mode=cli_ctx.mode)
     except PermissionError as exc:
         logger.error("Permission denied when deploying configuration", extra={"error": str(exc)})
-        safe_console.echo(f"\nError: Permission denied. {exc}", err=True)
+        safe_console.echo(f"\nError: Permission denied. {error_text(exc)}", err=True)
         safe_console.echo("Hint: System-wide deployment (--target app/host) may require sudo.", err=True)
         write_error_envelope(exc, command=CommandName.CONFIG_DEPLOY, mode=cli_ctx.mode)
         get_current_context().exit(ExitCode.PERMISSION_DENIED)
@@ -421,7 +429,7 @@ def _execute_deploy(
         raise
     except Exception as exc:
         logger.error("Failed to deploy configuration", extra={"error": str(exc), "error_type": type(exc).__name__})
-        safe_console.echo(f"\nError: Failed to deploy configuration: {exc}", err=True)
+        safe_console.echo(f"\nError: Failed to deploy configuration: {error_text(exc)}", err=True)
         write_error_envelope(exc, command=CommandName.CONFIG_DEPLOY, mode=cli_ctx.mode)
         get_current_context().exit(ExitCode.GENERAL_ERROR)
 
@@ -590,7 +598,7 @@ def cli_config_generate_examples(ctx: click.Context, destination: str, force: bo
                 safe_console.echo("\nNo files generated (all already exist). Use --force to overwrite.")
         except Exception as exc:
             logger.error("Failed to generate examples", extra={"error": _loggable(str(exc))})
-            safe_console.echo(f"\nError: {exc}", err=True)
+            safe_console.echo(f"\nError: {error_text(exc)}", err=True)
             write_error_envelope(exc, command=CommandName.CONFIG_GENERATE_EXAMPLES, mode=mode)
             ctx.exit(ExitCode.GENERAL_ERROR)
 

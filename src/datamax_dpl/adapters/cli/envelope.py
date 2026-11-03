@@ -11,6 +11,7 @@ keep their own codes (see :mod:`.exit_codes`).
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from enum import Enum, IntEnum
@@ -151,20 +152,41 @@ def write_envelope(document: BaseModel, *, mode: OutputMode) -> None:
     sys.stdout.flush()
 
 
-def _said(exc: BaseException) -> str:
-    """The exception's message, or its class where it has none (a bare ``MemoryError()``)."""
+def _file_name(name: object) -> str:
+    """A file name as the user gave it: one that is not UTF-8 keeps its bytes as surrogates."""
+    return os.fsdecode(name) if isinstance(name, (str, bytes)) else str(name)
+
+
+def error_text(exc: BaseException) -> str:
+    """The exception's message as a user reads it, or its class where it has none (a bare ``MemoryError()``).
+
+    An ``OSError`` naming a file says its reason and the file as given. Its ``str()`` quotes the
+    name with ``repr``, which doubles every backslash: on Windows each path read
+    ``C:\\\\Users\\\\...``, a path nobody typed.
+
+    Example:
+        >>> error_text(OSError(2, "No such file or directory", "C:\\\\temp\\\\job.dpl"))
+        'No such file or directory: C:\\\\temp\\\\job.dpl'
+        >>> error_text(OSError(28, "No space left on device"))
+        '[Errno 28] No space left on device'
+    """
+    if isinstance(exc, OSError) and exc.strerror and exc.filename is not None:
+        names = [_file_name(exc.filename)]
+        if exc.filename2 is not None:
+            names.append(_file_name(exc.filename2))
+        return f"{exc.strerror}: {' -> '.join(names)}"
     return str(exc) or type(exc).__name__
 
 
 def write_error_envelope(exc: BaseException, *, command: CommandName | None, mode: OutputMode) -> None:
     """Write the error envelope of ``exc`` in machine mode; human mode writes nothing."""
     if mode.machine:
-        write_envelope(ErrorEnvelope(command=command, error=type(exc).__name__, message=_said(exc)), mode=mode)
+        write_envelope(ErrorEnvelope(command=command, error=type(exc).__name__, message=error_text(exc)), mode=mode)
 
 
 def report_failure(exc: BaseException, *, command: CommandName, mode: OutputMode) -> None:
     """Report a failure: an error envelope on stdout in machine mode, one line on stderr always."""
-    sys.stderr.write(safe_console.encode_safe(f"Error: {one_line(_said(exc))}\n", sys.stderr.encoding))
+    sys.stderr.write(safe_console.encode_safe(f"Error: {one_line(error_text(exc))}\n", sys.stderr.encoding))
     write_error_envelope(exc, command=command, mode=mode)
 
 
@@ -176,6 +198,7 @@ __all__ = [
     "Outcome",
     "OutputMode",
     "envelope_started",
+    "error_text",
     "forget_started_envelope",
     "report_failure",
     "write_envelope",
