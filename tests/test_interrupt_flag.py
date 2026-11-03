@@ -340,8 +340,28 @@ _DIRECT_RENDERS = {
     ("printer.py", "cli_verify.body"): _SENDS_THROUGH_THE_CHANNEL,
     ("calibrate.py", "cli_calibrate_print.body"): _SENDS_THROUGH_THE_CHANNEL,
 }
-#: The names through which a CLI module could reach a printer opener that is not interrupt-checked.
-_OPENERS = frozenset({"open_printer", "tuned_open_printer", "bind_tuning", "open_recording_printer"})
+#: The functions through which a CLI module could reach a printer opener that is not interrupt-checked.
+_OPENER_FUNCTIONS = frozenset({"open_printer", "tuned_open_printer", "bind_tuning", "open_recording_printer"})
+
+
+def _transport_classes() -> frozenset[str]:
+    """Every transport class the transport package defines: built directly, each opens a printer past the check.
+
+    Read from the package rather than listed, so a transport added later is covered without
+    anyone remembering this test.
+    """
+    return frozenset(
+        node.name
+        for path in sorted((_SRC / "adapters" / "transport").glob("*.py"))
+        for node in ast.parse(path.read_text(encoding="utf-8")).body
+        if isinstance(node, ast.ClassDef) and node.name.endswith("Transport")
+    )
+
+
+#: The transport classes, which a CLI module may not name at all: not to build one, not to import one.
+_TRANSPORTS = _transport_classes()
+#: The names through which a CLI module could reach a printer channel that is not interrupt-checked.
+_OPENERS = _OPENER_FUNCTIONS | _TRANSPORTS
 
 
 def _job_builders(path: Path) -> frozenset[str]:
@@ -403,6 +423,11 @@ class _Sites(ast.NodeVisitor):
             self.openers.add(self._here())
         self.generic_visit(node)
 
+    def visit_Name(self, node: ast.Name) -> None:
+        # Opener functions only by attribute or import: a parameter may carry the name (the wrapper's own).
+        if node.id in _TRANSPORTS:
+            self.openers.add(self._here())
+
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         if any(alias.name in _OPENERS for alias in node.names):
             self.openers.add(self._here())
@@ -429,7 +454,8 @@ def test_every_cli_render_of_a_job_goes_through_a_gate() -> None:
 
 @pytest.mark.os_agnostic
 def test_every_cli_printer_channel_comes_from_the_interrupt_checked_opener() -> None:
-    """A route that opened a printer any other way would send past a Ctrl-C lost in its render."""
+    """A route opening a printer any other way, a transport class built directly too, sends past a lost Ctrl-C."""
+    assert {"TcpTransport", "SerialTransport", "DeviceTransport", "FileTransport", "StdoutTransport"} <= _TRANSPORTS
     found = {site for sites in _cli_sites() for site in sites.openers}
     assert found == {("model_options.py", "printer_opener")}, sorted(found)
     tree = ast.parse((_CLI / "commands" / "model_options.py").read_text(encoding="utf-8"))
