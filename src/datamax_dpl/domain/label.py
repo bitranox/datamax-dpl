@@ -350,8 +350,11 @@ class Barcode(_Placed):
 class Image(_Frozen):
     """A monochrome image, placed by its lower-left corner (DPL images cannot be rotated).
 
-    With ``bitmap`` the image is downloaded to the printer under ``name`` before the label;
-    without it ``name`` must already be stored on the printer. Each bitmap row is a string of
+    With ``bitmap`` the image is downloaded to the printer before the label under its content
+    name, ``D`` and 7 characters of a hash of the bitmap, so the same picture has the same printer
+    name in every job; ``name`` then names the image in findings, and another element of the same
+    ``name`` without a bitmap places that download. Without ``bitmap``, ``name`` must already be
+    stored on the printer. Each bitmap row is a string of
     ``1``/``#`` (black) and ``0``/``.`` (white), top row first. ``magnification`` prints each
     image dot that many printer dots square. A job past its model's image memory budget sends the
     bitmap at half resolution and places it at double magnification.

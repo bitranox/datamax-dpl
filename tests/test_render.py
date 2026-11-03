@@ -1454,3 +1454,11 @@ def test_a_stored_only_image_counts_by_its_reference_row_not_a_guessed_size() ->
 def test_a_stored_only_image_whose_reference_row_passes_the_limit_is_refused() -> None:
     result = build_job(_stored_logo(205), RenderOptions(model="allegro-2"))
     assert [f.element for f in _format_length_findings(result)] == [0]
+
+
+@pytest.mark.os_agnostic
+def test_the_schema_says_an_image_bitmap_goes_under_its_content_name_not_under_name() -> None:
+    """A bitmap is downloaded under ``drawn_image_name`` of its content; ``name`` names the image in findings."""
+    description = " ".join(Label.model_json_schema()["$defs"]["Image"]["description"].split())
+    assert "under ``name``" not in description
+    assert "content name" in description
