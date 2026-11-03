@@ -386,7 +386,9 @@ read its names right before each such label's downloads and leave out the downlo
 one (`image_name_held`), or keep every download of a single label when they cannot be read
 (`image_names_unread`). A `--data` batch of such labels is refused where no printer is read before
 each label: `render`, `validate` with no tcp or serial printer named, and `print` to a file
-(`batch_image_names_unread`, from the second record on; the first is judged as a single label is).
+(`batch_image_names_unread`, from the second record on; the first is judged as a single label is),
+unless the clear after each label reaches the module, which removes every name the earlier label
+downloaded.
 An image with `bitmap` that ends past the model's printable width, its width times its
 magnification counted from the column it starts at, is refused with `image_past_print_width`
 under both policies; so is a raster fallback or a merged transparency image that does. A stored

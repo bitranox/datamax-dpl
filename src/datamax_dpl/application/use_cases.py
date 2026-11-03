@@ -8,8 +8,9 @@ print nothing). Nothing about the printer's images is kept from one label to the
 link the sender reads the printer's graphic directory right before each such label's downloads and
 renders that label again with what it lists (:mod:`~datamax_dpl.application.upload_check`). Where
 no printer can be asked before each label, a batch of such labels is refused from its second
-label on (``batch_image_names_unread``); a single label, and a batch's first, keeps every download
-and says so.
+label on (``batch_image_names_unread``), unless the clear after each label reaches the module and
+so removes every name the label before downloaded; a single label, and a batch's first, keeps
+every download and says so.
 """
 
 from __future__ import annotations
@@ -167,8 +168,9 @@ def render_batch(
         options: The model, fallback policy and job settings.
         read_names_at_send: True when the batch goes to a two-way printer whose stored image names
             are read right before each label's downloads (``print_checked`` does); False refuses
-            each record after the first that downloads an image with no clear before it
-            (``batch_image_names_unread``), since nothing is kept from one label to the next; the
+            each record after the first that downloads an image with no clear before it and no
+            clear after the label before reaching its module (``batch_image_names_unread``),
+            since nothing is kept from one label to the next; the
             first record, which no label of the batch precedes, gets ``image_names_unread`` as a
             single label does.
         max_job_bytes: Most bytes the records' jobs may come to, batch cuts left out. None sets no
@@ -311,9 +313,15 @@ def _refused_unread(result: RenderResult, options: RenderOptions) -> RenderResul
     A label with no clear before its downloads must leave out each name the printer holds, and an
     earlier label of the same batch may have left any of them: only a read of the printer right
     before the label can tell, and nothing is kept from one label to the next to stand in for it.
+    The one exception is a clear after each label that reaches the module: it removes every name
+    the earlier label downloaded, so the record is judged as the first one is. A whole-module clear
+    leaves the module empty, so the record is not warned of unread names either; the plain
+    Prodigy's removes only the label's own names, so the warning about the printer's stays.
     """
     if not result.names_unread or result.image_module is None:
         return result
+    if _cleared_after_each_label(result.image_module, options):
+        return _unwarned_after_an_empty_module(result, options)
     module = result.image_module.value
     refusal = Finding(
         code=FindingCode.BATCH_IMAGE_NAMES_UNREAD,
@@ -326,6 +334,22 @@ def _refused_unread(result: RenderResult, options: RenderOptions) -> RenderResul
         ),
     )
     return result.model_copy(update=_FindingsUpdate(findings=(*result.findings, refusal)))
+
+
+def _cleared_after_each_label(module: ImageModule, options: RenderOptions) -> bool:
+    """True when the clear after each label reaches ``module``, the test the clear itself makes."""
+    if not options.clear_graphics_after_label:
+        return False
+    return clear_may_go(get_profile(options.model), module, firmware=options.firmware, options=options.options)
+
+
+def _unwarned_after_an_empty_module(result: RenderResult, options: RenderOptions) -> RenderResult:
+    """``result`` without ``image_names_unread`` where the clear after the previous label emptied the module."""
+    profile = get_profile(options.model)
+    if not whole_module_clear(profile, result.image_module, firmware=options.firmware, options=options.options):
+        return result
+    kept = tuple(f for f in result.findings if f.code is not FindingCode.IMAGE_NAMES_UNREAD)
+    return result.model_copy(update=_FindingsUpdate(findings=kept))
 
 
 def _way_to_clear(module: ImageModule, options: RenderOptions) -> str:

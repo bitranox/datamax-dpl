@@ -72,7 +72,8 @@ class JobRoute(NamedTuple):
         names: :data:`READ_AT_SEND` when the job goes to a two-way printer whose stored image
             names are read right before each label's downloads. Otherwise why they are not read,
             which a single label's ``image_names_unread`` finding quotes (None: the printer was not
-            asked); a batch whose labels need them is then refused (``batch_image_names_unread``).
+            asked); a batch whose labels need them is then refused (``batch_image_names_unread``)
+            unless the clear after each label reaches the module.
         spool: Where a batch keeps each record as it is checked, for the send to read back
             instead of rendering it again; None for a job that is not sent, or renders again.
         each: Called with each record of a batch as it is checked, for a caller writing or

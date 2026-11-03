@@ -23,6 +23,7 @@ from datamax_dpl.domain.profiles import list_profiles
 from datamax_dpl.domain.render_context import RenderOptions
 
 if TYPE_CHECKING:
+    from collections.abc import Set as AbstractSet
     from pathlib import Path
 
     from click.testing import CliRunner, Result
@@ -87,14 +88,15 @@ def test_a_batch_on_the_built_in_module_is_told_to_turn_the_clear_before_on_and_
 ) -> None:
     label, data = _files(tmp_path, _QR)
     common = ["validate", label, "--data", data, "--model", "allegro-2"]
-    refused = _validate(cli_runner, "--set", "printer.clear_graphics_before=false", *common)
+    no_clear = ["--set", "printer.clear_graphics_before=false", "--set", "printer.clear_graphics_after=false"]
+    refused = _validate(cli_runner, *no_clear, *common)
     assert refused.exit_code == 1, refused.output
     [message, *_] = _findings(refused, "batch_image_names_unread")
     assert (
         "turn on the clear before each label "
         "(RenderOptions.clear_graphics_before_label; [printer] clear_graphics_before)" in message
     )
-    following = _validate(cli_runner, "--set", "printer.clear_graphics_before=true", *common)
+    following = _validate(cli_runner, *no_clear, "--set", "printer.clear_graphics_before=true", *common)
     assert following.exit_code == 0, following.output
 
 
@@ -129,7 +131,14 @@ def _key_to_set(message: str, key: str) -> str:
 def test_a_named_printer_is_told_its_own_key_and_following_it_passes(cli_runner: CliRunner, tmp_path: Path) -> None:
     """``--printer lager`` reads ``[printers.lager]``, where a key it sets wins over ``[printer]``."""
     label, data = _files(tmp_path, _QR)
-    lager = ["--set", "printers.lager.model=allegro-2", "--set", "printers.lager.clear_graphics_before=false"]
+    lager = [
+        "--set",
+        "printers.lager.model=allegro-2",
+        "--set",
+        "printers.lager.clear_graphics_before=false",
+        "--set",
+        "printers.lager.clear_graphics_after=false",
+    ]
     command = ["validate", label, "--data", data, "--printer", "lager"]
     refused = _validate(cli_runner, *lager, *command)
     assert refused.exit_code == 1, refused.output
@@ -157,11 +166,16 @@ def _refused_for_names(options: RenderOptions) -> bool:
 @pytest.mark.parametrize("module", [None, *ImageModule], ids=lambda m: "unset" if m is None else m.value)
 def test_the_way_out_a_refusal_names_works_on_every_model_and_module(model: str, module: ImageModule | None) -> None:
     """The advice and the clear ask one question, so following the advice is never refused again."""
-    advice = _advice(RenderOptions(model=model, image_module=module, clear_graphics_before_label=False))
+    no_clear = RenderOptions(
+        model=model, image_module=module, clear_graphics_before_label=False, clear_graphics_after_label=False
+    )
+    advice = _advice(no_clear)
     if advice is None:
         return
-    turned_on = RenderOptions(model=model, image_module=module, clear_graphics_before_label=True)
-    left_unset = RenderOptions(model=model, clear_graphics_before_label=True)
+    turned_on = RenderOptions(
+        model=model, image_module=module, clear_graphics_before_label=True, clear_graphics_after_label=False
+    )
+    left_unset = RenderOptions(model=model, clear_graphics_before_label=True, clear_graphics_after_label=False)
     if advice.startswith("turn on the clear before each label"):
         assert not _refused_for_names(turned_on)
     elif "unset" in advice:
@@ -253,3 +267,68 @@ def test_a_clear_after_that_leaves_stored_images_lets_the_batch_pass(
     kept = _validate(cli_runner, *settings, "validate", label, "--data", data, "--model", model)
     assert kept.exit_code == 0, kept.output
     assert not _findings(kept, "stored_image_cleared")
+
+
+def _three_records(options: RenderOptions) -> tuple[set[int], set[int]]:
+    """The records of a three-label QR batch refused for unread names, and those warned of them."""
+    report = check_batch(_QR, [{"a": "A"}, {"a": "B"}, {"a": "C"}], options)
+    refused = {k.record for k in report.findings if k.finding.code is FindingCode.BATCH_IMAGE_NAMES_UNREAD}
+    warned = {k.record for k in report.findings if k.finding.code is FindingCode.IMAGE_NAMES_UNREAD}
+    return refused, warned
+
+
+#: No record of the batch.
+_NONE: frozenset[int] = frozenset()
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("model", "module", "refused", "warned"),
+    [
+        # <STX>q to the built-in RAM after each label: every later label starts from an empty module.
+        pytest.param("allegro-2", None, _NONE, {0}, id="whole-module-clear-after"),
+        pytest.param("dmx-600", None, _NONE, {0}, id="whole-module-clear-after-module-e"),
+        # The plain Prodigy removes every name the label sent, but not what another program stored.
+        pytest.param("prodigy", ImageModule.B, _NONE, {0, 1, 2}, id="prodigy-removes-its-own-names"),
+        # No clear reaches these, so an earlier label's name may still be there.
+        pytest.param("allegro-2", ImageModule.B, {1, 2}, {0, 1, 2}, id="plug-in-module-never-cleared"),
+        pytest.param("generic", None, {1, 2}, {0, 1, 2}, id="generic-has-no-clear"),
+        # The Prodigy Plus has no built-in module, so its images need one named.
+        pytest.param("prodigy-plus", ImageModule.B, {1, 2}, {0, 1, 2}, id="prodigy-plus-has-no-clear"),
+    ],
+)
+def test_a_batch_with_only_the_clear_after_is_refused_only_where_that_clear_cannot_go(
+    model: str, module: ImageModule | None, refused: AbstractSet[int], warned: AbstractSet[int]
+) -> None:
+    """The clear after each label removes every name it downloaded, so no earlier label leaves one behind."""
+    options = RenderOptions(model=model, image_module=module, clear_graphics_before_label=False)
+    assert options.clear_graphics_after_label
+    assert _three_records(options) == (refused, warned)
+
+
+@pytest.mark.os_agnostic
+def test_with_neither_clear_a_batch_stays_refused_from_its_second_record() -> None:
+    options = RenderOptions(model="allegro-2", clear_graphics_before_label=False, clear_graphics_after_label=False)
+    assert _three_records(options) == ({1, 2}, {0, 1, 2})
+
+
+@pytest.mark.os_agnostic
+def test_a_file_batch_with_only_the_clear_after_is_written(cli_runner: CliRunner, tmp_path: Path) -> None:
+    label, data = _files(tmp_path, _QR)
+    out = tmp_path / "job.dpl"
+    written = _validate(
+        cli_runner,
+        "--set",
+        "printer.clear_graphics_before=false",
+        "render",
+        label,
+        "--data",
+        data,
+        "--model",
+        "allegro-2",
+        "-o",
+        str(out),
+    )
+    assert written.exit_code == 0, written.output
+    assert out.read_bytes().count(b"\x02qA") == 2
+    assert len(_findings(written, "image_names_unread")) == 1

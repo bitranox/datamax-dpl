@@ -234,7 +234,9 @@ All notable changes to this project are documented here. The format follows
   device file. The finding goes on the second record and each later one; the
   first, which no label of the batch precedes, gets `image_names_unread` as a
   single label does, so a one-record batch is not refused. `validate --data` with a tcp or serial printer named is not
-  refused. Library: `render_batch`, `iter_batch` and `check_batch` take
+  refused. Nor is a batch whose clear after each label (`clear_graphics_after`,
+  on by default) reaches the module: it removes every name the label before
+  downloaded, so each later record is judged as the first is. Library: `render_batch`, `iter_batch` and `check_batch` take
   `read_names_at_send` (True where a two-way sender reads the names before
   each label). Its message names the ways out: a tcp or serial printer, the
   clear before each label, or on a plug-in module, which takes no clear,
@@ -250,7 +252,10 @@ All notable changes to this project are documented here. The format follows
   image (no bitmap) needs both `false`, since the clear after a label removes
   it for the next, and is otherwise refused from its second record on
   (`stored_image_cleared`). `RenderOptions.clear_graphics_before_label` and
-  `clear_graphics_after_label` carry them.
+  `clear_graphics_after_label` carry them. Upgrading from 0.4.0, which never
+  cleared: a label that places an image the printer stores (an `image` with
+  no `bitmap`) is refused on the defaults (`stored_image_cleared`) until the
+  clear before is turned off, and a `--data` batch of them until both are.
 - `[printer] image_module` (`A` to `E`, unset by default): the memory module
   images are downloaded to. Unset takes the model's built-in module
   (`datamax-dpl capabilities MODEL` shows it): A on most models, E on the DMX
