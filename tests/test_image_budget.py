@@ -11,6 +11,8 @@ import re
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from lib_layered_config import Config
 
 from datamax_dpl.adapters import cli as cli_mod
@@ -119,6 +121,51 @@ def test_magnify_prints_each_dot_as_a_square() -> None:
     doubled = magnify(Bitmap.from_rows(["#.", ".#"]), 2)
     assert (doubled.width, doubled.height) == (4, 4)
     assert black_set(doubled) == {(0, 0), (1, 0), (0, 1), (1, 1), (2, 2), (3, 2), (2, 3), (3, 3)}
+
+
+def _magnified_through_text(bitmap: Bitmap, factor: int) -> Bitmap:
+    """The oracle: how magnify drew a bitmap before, through one ``1``/``0`` text row per dot row."""
+    pad = -bitmap.width % 8
+    rows = [format(int.from_bytes(row, "big") >> pad, f"0{bitmap.width}b") for row in bitmap.rows()]
+    widen = {ord("0"): "0" * factor, ord("1"): "1" * factor}
+    return Bitmap.from_rows([row.translate(widen) for row in rows for _ in range(factor)])
+
+
+def _same_bitmap(left: Bitmap, right: Bitmap) -> bool:
+    return (left.width, left.height, left.rows()) == (right.width, right.height, right.rows())
+
+
+@pytest.mark.os_agnostic
+@settings(max_examples=300, deadline=None)
+@given(
+    width=st.integers(min_value=1, max_value=41),
+    height=st.integers(min_value=1, max_value=4),
+    seed=st.integers(min_value=0),
+    factor=st.integers(min_value=1, max_value=20),
+)
+def test_magnify_draws_what_the_text_rows_drew(width: int, height: int, seed: int, factor: int) -> None:
+    """Any width, a whole number of bytes or not, at every factor the package uses and past it."""
+    bitmap = Bitmap(width, height)
+    for index in range(width * height):
+        if seed >> (index % 64) & 1:
+            bitmap.set(index % width, index // width)
+    assert _same_bitmap(magnify(bitmap, factor), _magnified_through_text(bitmap, factor))
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("factor", [1, 2, 3, 7, 9, 18])
+@pytest.mark.parametrize("width", [1, 3, 7, 8, 9, 13, 16, 17, 33])
+def test_magnify_ignores_padding_bits_a_packed_row_carried(width: int, factor: int) -> None:
+    """Rows built with every padding bit set: only the ``width`` dots are drawn wider, as before."""
+    size = (width + 7) // 8
+    bitmap = Bitmap.from_packed_rows([b"\xff" * size, b"\xaa" * size, b"\x55" * size], width=width)
+    assert _same_bitmap(magnify(bitmap, factor), _magnified_through_text(bitmap, factor))
+
+
+@pytest.mark.os_agnostic
+def test_magnify_refuses_a_factor_below_one() -> None:
+    with pytest.raises(ValueError, match=r"^magnification must be at least 1, got 0$"):
+        magnify(Bitmap(1, 1), 0)
 
 
 # ======================== what a download costs ========================

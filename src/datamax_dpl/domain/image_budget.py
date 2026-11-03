@@ -17,6 +17,8 @@ budget is meant to cover it. None of this is verified on paper yet.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
+from itertools import repeat
 
 from .image_records import decode_image
 from .raster import Bitmap
@@ -25,6 +27,13 @@ from .records import MAX_IMAGE_MAGNIFICATION
 _BITS_PER_BYTE = 8
 #: How many times smaller a halved image is on each axis, and how much larger it is printed.
 HALVING_FACTOR = 2
+#: Widening tables :func:`magnify` keeps, one per factor: every factor the package draws at, an
+#: element's magnification or module size (1 to MAX_IMAGE_MAGNIFICATION) and its double for a
+#: halved image. A table is 256 short byte strings, about 13 KB at the largest of those factors; a
+#: caller's larger factor still works and only pushes the least recent table out. An lru_cache
+#: rather than a plain dict, as its maxsize is the bound.
+_WIDENING_TABLES_KEPT = HALVING_FACTOR * MAX_IMAGE_MAGNIFICATION
+_BYTE_VALUES = 256
 
 
 @dataclass(frozen=True)
@@ -133,8 +142,26 @@ def magnify(bitmap: Bitmap, factor: int) -> Bitmap:
     if factor < 1:
         msg = f"magnification must be at least 1, got {factor}"
         raise ValueError(msg)
-    widen = {ord("0"): "0" * factor, ord("1"): "1" * factor}
-    return Bitmap.from_rows([row.translate(widen) for row in _bit_rows(bitmap) for _ in range(factor)])
+    widened = _widened_bytes(factor)
+    size = -(-bitmap.width * factor // _BITS_PER_BYTE)
+    # A row's padding bits are white, so widened they are white too and the tail cut off is padding.
+    rows = [b"".join(map(widened.__getitem__, row))[:size] for row in bitmap.rows()]
+    return Bitmap.from_packed_rows([wide for row in rows for wide in repeat(row, factor)], width=bitmap.width * factor)
+
+
+@lru_cache(maxsize=_WIDENING_TABLES_KEPT)
+def _widened_bytes(factor: int) -> tuple[bytes, ...]:
+    """Each byte value's eight dots, every one drawn ``factor`` dots wide: ``factor`` bytes per value."""
+    return tuple(_widened_byte(value, factor).to_bytes(factor, "big") for value in range(_BYTE_VALUES))
+
+
+def _widened_byte(value: int, factor: int) -> int:
+    """The eight dots of ``value``, first one highest, each as ``factor`` equal bits."""
+    run = (1 << factor) - 1
+    widened = 0
+    for bit in reversed(range(_BITS_PER_BYTE)):
+        widened = widened << factor | (run if value >> bit & 1 else 0)
+    return widened
 
 
 __all__ = ["HALVING_FACTOR", "ImageBudget", "halve", "halved_magnification", "image_data_bytes", "magnify"]
