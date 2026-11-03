@@ -99,3 +99,10 @@ def test_a_string_past_one_match_s_escapes_reads_as_a_whole_parse_reads_it(
     """Terminated, unterminated, ending on a lone backslash, followed by more elements: as orjson says."""
     data = b'[{"a":"' + escape * escapes + tail
     assert _scanned(data) == _whole_parse(data)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("levels", "parses"), [(MAX_DEPTH, True), (MAX_DEPTH + 1, False)])
+def test_orjson_still_refuses_exactly_the_nesting_the_scan_refuses(levels: int, parses: bool) -> None:
+    """MAX_DEPTH mirrors orjson's own limit: an orjson that moves it turns this red, not a user's file."""
+    assert (_whole_parse(b"[" * levels + b"]" * levels) is not None) is parses
