@@ -19,6 +19,7 @@ class TypedDictClass(Protocol):
 
     __name__: str
     __required_keys__: frozenset[str]
+    __optional_keys__: frozenset[str]
 
 
 def require_same_keys(table: Iterable[object], members: Iterable[object], *, what: str) -> None:
@@ -46,10 +47,11 @@ def require_same_keys(table: Iterable[object], members: Iterable[object], *, wha
 
 
 def require_update_fields(update: TypedDictClass, *models: type[BaseModel]) -> None:
-    """Require every key of ``update`` to be a field of each of ``models``.
+    """Require every key of ``update``, required or not, to be a field of each of ``models``.
 
     ``model_copy(update=...)`` takes any key and sets it unchecked, so the ``TypedDict`` that types
-    such an update is checked against the models it is applied to.
+    such an update is checked against the models it is applied to. A ``total=False`` one, or a
+    ``NotRequired`` key, lists its keys as optional, and those are checked too.
 
     Args:
         update: The ``TypedDict`` typing the update.
@@ -66,9 +68,16 @@ def require_update_fields(update: TypedDictClass, *models: type[BaseModel]) -> N
         >>> class Update(TypedDict):
         ...     size: int
         >>> require_update_fields(Update, Model)
+        >>> class Loose(TypedDict, total=False):
+        ...     colour: str
+        >>> require_update_fields(Loose, Model)
+        Traceback (most recent call last):
+        ...
+        RuntimeError: Loose names ['colour'], which Model does not have
     """
+    keys = update.__required_keys__ | update.__optional_keys__
     for model in models:
-        unknown = sorted(update.__required_keys__ - model.model_fields.keys())
+        unknown = sorted(keys - model.model_fields.keys())
         if unknown:
             raise RuntimeError(f"{update.__name__} names {unknown}, which {model.__name__} does not have")
 

@@ -59,3 +59,14 @@ def test_an_update_whose_keys_are_fields_passes() -> None:
 def test_an_update_naming_a_field_of_no_model_is_refused() -> None:
     with pytest.raises(RuntimeError, match=r"_SizeUpdate names \['size'\], which _Other does not have"):
         require_update_fields(_SizeUpdate, _Size, _Other)
+
+
+class _LooseUpdate(TypedDict, total=False):
+    colour: str
+
+
+@pytest.mark.os_agnostic
+def test_an_optional_key_naming_no_field_is_refused_too() -> None:
+    """A total=False TypedDict lists its keys as optional: a check of the required ones alone saw none."""
+    with pytest.raises(RuntimeError, match=r"_LooseUpdate names \['colour'\], which _Size does not have"):
+        require_update_fields(_LooseUpdate, _Size)
