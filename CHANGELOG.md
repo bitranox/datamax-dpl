@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `print --printer NAME` with `calibrate_after_reset` off: `printer_reset_not_calibrated` names
+  `[printers.<name>] calibrate_after_reset`, the key of the section in use, rather than always `[printer]`.
+
 ## [0.6.0] - 2026-11-03
 
 ### Added

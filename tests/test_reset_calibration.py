@@ -529,6 +529,18 @@ def test_the_key_off_reaches_the_job_through_the_command(cli_runner: CliRunner, 
 
 
 @pytest.mark.os_agnostic
+def test_the_key_off_under_a_named_printer_names_that_printers_section(cli_runner: CliRunner, tmp_path: Path) -> None:
+    printer = ModulePrinter(ImageModules(reset=POWER_ON))
+    named = ["--set", f"printers.lager.uri={URI}", "--set", "printers.lager.calibrate_after_reset=false"]
+    args = ["--json", *named, "print", _label_file(tmp_path, TEXT_LABEL), "--model", "allegro-2", "--printer", "lager"]
+    result = _cli(cli_runner, printer, *args)
+    assert result.exit_code == 0, result.output
+    said = {f["code"]: f["message"] for f in _data(result)["findings"]}
+    assert "[printers.lager] calibrate_after_reset is off" in said["printer_reset_not_calibrated"]
+    assert "[printer] calibrate_after_reset" not in said["printer_reset_not_calibrated"]
+
+
+@pytest.mark.os_agnostic
 def test_the_wait_reaches_the_read_through_the_command(cli_runner: CliRunner, tmp_path: Path) -> None:
     class _Waits(ModulePrinter):
         def __init__(self) -> None:
