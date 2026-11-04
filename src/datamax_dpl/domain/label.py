@@ -38,6 +38,7 @@ from .enums import (
     Unit,
     ValidationErrorType,
 )
+from .raster import BITMAP_CHARS
 from .records import MAX_IMAGE_MAGNIFICATION
 from .symbology import Symbology
 
@@ -395,7 +396,7 @@ class Image(_Frozen):
         if len(widths) != 1 or 0 in widths:
             msg = "every bitmap row must have the same, non-zero length"
             raise ValueError(msg)
-        if any(set(row) - set("10#.") for row in self.bitmap):
+        if any(not BITMAP_CHARS.issuperset(row) for row in self.bitmap):
             msg = "bitmap rows may only contain 1, 0, # and ."
             raise ValueError(msg)
         return self

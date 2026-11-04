@@ -41,8 +41,9 @@ _BLACK_CHARS = "1#"
 _WHITE_CHARS = "0."
 _TO_BITS = str.maketrans("#.", "10")
 #: Every character a text row may hold, built once: building it again for each row, with a set of the
-#: row itself, was most of the time an 800 x 1200 image's render spent of its own.
-_BITMAP_CHARS = frozenset(_BLACK_CHARS + _WHITE_CHARS)
+#: row itself, was most of the time an 800 x 1200 image's render spent of its own. The label model's
+#: ``Image`` checks its rows against this same set, so the two refusals cannot drift apart.
+BITMAP_CHARS = frozenset(_BLACK_CHARS + _WHITE_CHARS)
 
 #: The nominal black share of each shade pattern, in percent; the other patterns are drawn.
 _SHADE_PERCENT: Mapping[FillPattern, int] = MappingProxyType(
@@ -495,7 +496,7 @@ class Bitmap:
         if len(widths) != 1 or 0 in widths:
             msg = "bitmap rows must be at least one row of the same, non-zero length"
             raise ValueError(msg)
-        if any(not _BITMAP_CHARS.issuperset(row) for row in rows):
+        if any(not BITMAP_CHARS.issuperset(row) for row in rows):
             msg = "bitmap rows may only contain 1, 0, # and ."
             raise ValueError(msg)
         bitmap = cls(widths.pop(), len(rows))
@@ -602,4 +603,4 @@ class Bitmap:
                 self._paint_span(y, first=left, last=right - 1, pattern=pattern)
 
 
-__all__ = ["TILE_SIZE", "Bitmap"]
+__all__ = ["BITMAP_CHARS", "TILE_SIZE", "Bitmap"]
