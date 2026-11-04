@@ -499,8 +499,9 @@ error level `M`, with the width of the symbol alone, rounded to 0.5 mm:
 - **Prodigy and Prodigy Plus:** these models have no built-in image memory, so a QR Code, like any
   image, is refused with `image_module_unknown` until `image_module` names the module fitted.
 
-Nothing checks that a QR Code fits the label's height: V40 at 4 dots is accepted on a 55 mm label
-with no finding.
+A QR Code taller than the label (V40 at 4 dots on a 55 mm label) still builds: like any field that
+ends past the label's `width` or `height`, it gets `element_past_label_edge`, a warning, an error
+under `strict`.
 
 #### Scanning
 

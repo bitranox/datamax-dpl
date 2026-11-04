@@ -25,7 +25,17 @@ from pydantic import BaseModel, ConfigDict
 from .encode_barcode import encode_barcode
 from .encode_graphics import encode_box, encode_circle, encode_image, encode_line, encode_polygon, encode_qr
 from .encode_text import encode_scalable_text, encode_text
-from .enums import Attribute, FindingCode, ImageModule, PrinterSetting, PrinterStop, Rotation, Severity, Unit
+from .enums import (
+    Attribute,
+    FindingCode,
+    ImageModule,
+    MediaSensor,
+    PrinterSetting,
+    PrinterStop,
+    Rotation,
+    Severity,
+    Unit,
+)
 from .errors import LabelRejectedError
 from .findings import Finding, FindingCollector
 from .held_images import HeldImages
@@ -41,7 +51,7 @@ from .job import (
     system_prefix,
 )
 from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText, Text, long_polygons
-from .overlap import inexact_rectangle, printed_dots
+from .overlap import DotArea, inexact_rectangle, printed_dots
 from .placeholders import label_placeholders
 from .preview import SentAs
 from .profiles import CalibrationDefaults, CalibrationKey, Feature, get_profile
@@ -509,6 +519,72 @@ def _check_format_length(label: Label, ctx: RenderContext, *, max_rows: int | No
     )
 
 
+def _extent(element: Element, ctx: RenderContext) -> DotArea | None:
+    """The dots a field takes for the label-edge check, or None when it prints nothing.
+
+    The same areas the format length check reads (see :func:`_reach`). An image only the printer
+    holds counts by its reference point alone: its size is unknown here.
+    """
+    dots = printed_dots(element, ctx)
+    if dots is not None:
+        return dots.area
+    area = inexact_rectangle(element, ctx)
+    if area is None:
+        return None
+    if isinstance(element, Image) and ctx.image_rows(element) is None:
+        return DotArea(left=area.left, bottom=area.bottom, width=1, height=1)
+    return area
+
+
+def _label_edges(label: Label, ctx: RenderContext) -> tuple[int | None, int | None]:
+    """The first column past the label's width and the first row past its height, as the encoder commands them.
+
+    Shifted by the configured offset like every field, so a field drawn on an edge stays inside it.
+    Continuous media has no fixed height, so only its width counts there.
+    """
+
+    def edge(value: float | None, axis: Axis) -> int | None:
+        return None if value is None else ctx.offset_dots(ctx.shifted(value, axis=axis), axis=axis)
+
+    height = None if label.media is MediaSensor.CONTINUOUS else label.height
+    return edge(label.width, Axis.ACROSS), edge(height, Axis.ALONG)
+
+
+def _check_label_edges(label: Label, ctx: RenderContext) -> None:
+    """Report each field that ends past the label's width or height: a warning, an error under strict.
+
+    A field is placed in the encoder's unit (hundredths of an inch on many models, about two dots)
+    and its size rounds to whole dots, so a frame drawn exactly on the edges can command up to one
+    unit plus one dot past them. Only an overrun beyond that is a field running off the label.
+    """
+    width, height = _label_edges(label, ctx)
+    if width is None and height is None:
+        return
+    tolerance = round(ctx.dots_per_unit) + 1
+    for index, element in enumerate(label.elements):
+        area = _extent(element, ctx)
+        if area is None:
+            continue
+        passes = [
+            (name, over)
+            for name, over in (
+                ("width", area.right + 1 - width if width is not None else 0),
+                ("height", area.top + 1 - height if height is not None else 0),
+            )
+            if over > tolerance
+        ]
+        if passes:
+            past = " and ".join(
+                f"{name} by about {over / ctx.profile.dpi * MM_PER_INCH:.1f} mm" for name, over in passes
+            )
+            ctx.findings.deviate(
+                FindingCode.ELEMENT_PAST_LABEL_EDGE,
+                f"the field ends past the label's {past}",
+                fallback="printed as placed: the part past the edge runs off the label, onto the gap or the next label",
+                element=index,
+            )
+
+
 def _encode_element(element: Element, *, index: int, ctx: RenderContext) -> list[bytes]:
     """Dispatch ``element`` to its encoder.
 
@@ -598,6 +674,7 @@ def _encode(label: Label, options: RenderOptions, *, halve: bool, held: HeldImag
         # Reading every field's reach draws it again (a QR Code from its kept symbol, magnified), and
         # the stop above saved exactly that work for a label already refused for its field count.
         _check_format_length(label, ctx, max_rows=_row_limit(options, ctx.profile))
+        _check_label_edges(label, ctx)
     return _Job(ctx=ctx, prefix=prefix, body=body, record_count=record_count)
 
 

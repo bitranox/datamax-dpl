@@ -319,6 +319,7 @@ class FindingCode(str, Enum):
     DATAMATRIX_OPTION_UNCONFIRMED = "datamatrix_option_unconfirmed"
     DEFAULT_BAR_WIDTHS_UNSUPPORTED = "default_bar_widths_unsupported"
     DISTANCE_TOO_LARGE = "distance_too_large"
+    ELEMENT_PAST_LABEL_EDGE = "element_past_label_edge"
     FEED_RATE_OUT_OF_RANGE = "feed_rate_out_of_range"
     FIELD_TOO_LONG = "field_too_long"
     FONT_SIZE_SUBSTITUTED = "font_size_substituted"

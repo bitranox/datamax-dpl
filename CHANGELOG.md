@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `element_past_label_edge`: a field whose printed area ends past the label's `width` or `height` is reported,
+  naming the edge and about how many mm it passes: a warning, an error under `strict`. Before, a QR Code
+  taller than the label, or a box past its width, built with no finding. Continuous media checks the width
+  only; an overrun of up to one DPL unit and a dot is rounding and is not reported.
+
 ## [0.7.0] - 2026-11-04
 
 ### Added
