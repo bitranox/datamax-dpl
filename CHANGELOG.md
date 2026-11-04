@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-04
+
 ### Added
 
 - `[printer] reset_check` (default `true`, also in `[printers.<name>]`): `false` makes `print` ask no `<SOH>A` reset
