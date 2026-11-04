@@ -11,7 +11,15 @@ check counts (the row the encoder commands, offset included): image rows count o
 each, and the image's bottom row and every number are placed by the encoder, so the rows here
 are read from the encoder, never assumed. A printer that cuts the format off prints the ticks up to its
 limit; the number of the last tick fully printed (the next number down plus 5 per tick above it,
-when its own number was cut) is the value for ``max_format_rows`` (accurate to one tick, 5 rows).
+when its own number was cut) is only a floor: the format ends on that row or up to 4 rows above it.
+
+``--steps ROW`` then reads the exact row. It writes the step label: a reference line on ``ROW``
+(the last whole tick) and, on each of the 5 rows above it, one step one dot row high, 5 mm long and
+2 mm after the one before, rising to the right. A number under each step names it: the step's row
+less ``ROW`` rounded down to ten, so the steps above 1645 read 6 to 10, and ``ROW`` itself stands
+under the reference line. The numbers sit below the image, so they print where the format cuts a
+step off; the row of the last step that printed is the value for ``max_format_rows``. Only those
+rows are an image (about 0.5 KB on an Allegro 2), so the job stays small over a slow serial link.
 
 The label is in dots, and lengths in dots count printed dots, so no ``scale_along`` changes it;
 an ``offset_along`` does (millimetres moved at the model's resolution). The label is built with
@@ -26,6 +34,7 @@ Usage::
 
     .venv/bin/python scripts/length_ladder.py --out length --printer tcp://192.0.2.60:9100
     .venv/bin/python scripts/length_ladder.py --out length --printer tcp://192.0.2.60:9100 --first 1400 --last 1600
+    .venv/bin/python scripts/length_ladder.py --out length --printer tcp://192.0.2.60:9100 --steps 1645
 
 ``--printer`` is required: it only goes into the printed command, so a forgotten one fails at once
 rather than printing a command aimed at the wrong address.
@@ -52,7 +61,7 @@ from pathlib import Path
 from datamax_dpl.domain.enums import FallbackPolicy, Severity
 from datamax_dpl.domain.label import Label
 from datamax_dpl.domain.overlap import inexact_rectangle, printed_dots
-from datamax_dpl.domain.render import build_job, job_context
+from datamax_dpl.domain.render import RenderResult, build_job, job_context
 from datamax_dpl.domain.render_context import RenderContext, RenderOptions
 from datamax_dpl.domain.units import Axis
 
@@ -63,8 +72,11 @@ __all__ = [
     "IMAGE_NAME",
     "LADDER_FORMAT_ROWS",
     "NOT_CLEAN",
+    "STEP_COUNT",
     "Ladder",
+    "Steps",
     "build_ladder",
+    "build_steps",
     "ladder_options",
     "main",
 ]
@@ -80,6 +92,9 @@ IMAGE_NAME = "LENGTH"
 BAD_ARGUMENTS = 2
 #: Exit code when a strict render of the ladder has an error or warning finding.
 NOT_CLEAN = 3
+#: How many single-row steps the step label prints above its reference row: one per row a ladder
+#: tick (every 5 rows) leaves open.
+STEP_COUNT = 5
 
 _IMAGE_X_DOTS = 8
 _IMAGE_WIDTH_DOTS = 24
@@ -96,6 +111,13 @@ _TEXT_FONT = 2
 _TEXT_WIDTH_DOTS = 48
 # The label runs this far past the image, so its length never cuts the ladder before the format does.
 _LABEL_MARGIN_ROWS = 100
+# The step label's geometry in millimetres, the user's design: a reference line at the left, then
+# steps 5 mm long with 2 mm between them, the first one well to the right of the line's end.
+_REFERENCE_MM = 20.0
+_FIRST_STEP_MM = 30.0
+_STEP_MM = 5.0
+_STEP_GAP_MM = 2.0
+_MM_PER_INCH = 25.4
 
 
 @dataclass(frozen=True)
@@ -115,6 +137,26 @@ class Ladder:
     top: int
     ticks: dict[int, int]
     numbers: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class Steps:
+    """One step label and the row each of its steps prints on.
+
+    Attributes:
+        document: The label JSON document.
+        reference: Printed dot row of the reference line.
+        bottom: Printed dot row of the image's bottom row: the reference row, or the nearest row
+            below it the encoder can place an image on (blank rows fill the gap).
+        top: Printed dot row of the last step, the image's top row.
+        steps: The number printed under each step, mapped to the printed dot row of that step.
+    """
+
+    document: dict[str, object]
+    reference: int
+    bottom: int
+    top: int
+    steps: dict[int, int]
 
 
 def ladder_options(model: str) -> RenderOptions:
@@ -152,6 +194,61 @@ def _image_bottom(ctx: RenderContext) -> int:
     if dots is None:
         raise RuntimeError("an image with a bitmap has printed dots")
     return dots.area.bottom
+
+
+def _image_placement(row: int, ctx: RenderContext, *, width: int) -> tuple[int, int]:
+    """``(y, bottom)``: the ``y`` whose image bottom is the highest printed row at or below ``row``.
+
+    The encoder places an image in its own units (hundredths of an inch on most models, about two
+    dots), so not every row can be an image's bottom; the caller pads blank rows up to ``row``.
+    """
+
+    def bottom(y: int) -> int:
+        image = Label.model_validate(
+            {
+                "unit": "dots",
+                "elements": [
+                    {"type": "image", "x": _IMAGE_X_DOTS, "y": y, "name": IMAGE_NAME, "bitmap": ["#" * width]}
+                ],
+            }
+        ).elements[0]
+        dots = printed_dots(image, ctx)
+        if dots is None:
+            raise RuntimeError("an image with a bitmap has printed dots")
+        return dots.area.bottom
+
+    # The bottom grows with y and never by more than y does: bisect for the highest y whose bottom
+    # is still at or below the row.
+    if bottom(0) > row:
+        raise RuntimeError(f"no image bottom lies at or below row {row}")
+    low, high = 0, row
+    while low < high:
+        middle = (low + high + 1) // 2
+        low, high = (middle, high) if bottom(middle) <= row else (low, middle - 1)
+    return low, bottom(low)
+
+
+def _text_below(text: str, x: int, row: int, ctx: RenderContext) -> dict[str, object]:
+    """A text field at ``x`` whose rectangle ends ``_TEXT_GAP_DOTS`` below ``row``, as high as that allows."""
+
+    def element(y: int) -> dict[str, object]:
+        return {"type": "text", "x": x, "y": y, "text": text, "font": _TEXT_FONT}
+
+    def top(y: int) -> int:
+        area = inexact_rectangle(Label.model_validate({"unit": "dots", "elements": [element(y)]}).elements[0], ctx)
+        if area is None:
+            raise RuntimeError("a text field has a rectangle")
+        return area.top
+
+    limit = row - 1 - _TEXT_GAP_DOTS
+    if top(0) > limit:
+        raise RuntimeError(f"row {row} leaves no room for a number below it")
+    # The top grows with y: bisect for the highest y whose rectangle still ends at or below the limit.
+    low, high = 0, row
+    while low < high:
+        middle = (low + high + 1) // 2
+        low, high = (middle, high) if top(middle) <= limit else (low, middle - 1)
+    return element(low)
 
 
 def _number(row: int, ctx: RenderContext) -> dict[str, object]:
@@ -236,6 +333,70 @@ def build_ladder(options: RenderOptions, *, first: int = DEFAULT_FIRST, last: in
     return Ladder(document=document, bottom=bottom, top=top, ticks=ticks, numbers=numbers)
 
 
+@dataclass(frozen=True)
+class _StepShape:
+    """The step label's lengths in dots: the reference line, one step, and the whole image row."""
+
+    line: int
+    step: int
+    width: int
+
+
+def _step_bitmap(reference: int, starts: dict[int, int], *, bottom: int, shape: _StepShape) -> list[str]:
+    """The step image, top row first: a step per row above the reference line, blank rows below it to ``bottom``."""
+    rows: list[str] = []
+    for row in range(reference + len(starts), bottom - 1, -1):
+        if row == reference:
+            left, length = 0, shape.line
+        elif row in starts:
+            left, length = starts[row], shape.step
+        else:
+            left, length = 0, 0
+        rows.append("." * left + "#" * length + "." * (shape.width - left - length))
+    return rows
+
+
+def build_steps(options: RenderOptions, *, reference: int) -> Steps:
+    """Build the step label for ``options``: a reference line on ``reference``, a step on each row above it.
+
+    Each step is one dot row, 5 mm long, 2 mm after the one before, and has a number under it: its
+    row less ``reference`` rounded down to ten, so the steps above 1645 read 6 to 10. The numbers
+    and the reference row's own number stand below the image, so they print even where the format
+    cuts a step off, and the last step that printed names the format's last row.
+
+    Example:
+        >>> steps = build_steps(ladder_options("allegro-2"), reference=1645)
+        >>> steps.reference, steps.top, steps.steps[6], steps.steps[10]
+        (1645, 1650, 1646, 1650)
+    """
+    top = reference + STEP_COUNT
+    height = _label_height(top, options)
+    ctx = _context(options, height=height)
+
+    def dots(mm: float) -> int:
+        return round(mm * ctx.profile.dpi / _MM_PER_INCH)
+
+    step, pitch = dots(_STEP_MM), dots(_STEP_MM + _STEP_GAP_MM)
+    starts = {reference + k: dots(_FIRST_STEP_MM) + (k - 1) * pitch for k in range(1, STEP_COUNT + 1)}
+    width = starts[top] + step
+    base = reference - reference % 10
+    y, bottom = _image_placement(reference, ctx, width=width)
+    shape = _StepShape(line=dots(_REFERENCE_MM), step=step, width=width)
+    bitmap = _step_bitmap(reference, starts, bottom=bottom, shape=shape)
+    image = {"type": "image", "x": _IMAGE_X_DOTS, "y": y, "name": IMAGE_NAME, "bitmap": bitmap}
+    numbers = [_text_below(str(row - base), _IMAGE_X_DOTS + left, bottom, ctx) for row, left in starts.items()]
+    document: dict[str, object] = {
+        "unit": "dots",
+        "width": _IMAGE_X_DOTS + width + _IMAGE_X_DOTS,
+        "height": height,
+        "media": "continuous",
+        "elements": [image, _text_below(str(reference), _IMAGE_X_DOTS, bottom, ctx), *numbers],
+    }
+    return Steps(
+        document=document, reference=reference, bottom=bottom, top=top, steps={row - base: row for row in starts}
+    )
+
+
 def _command(args: argparse.Namespace, path: Path) -> list[str]:
     """The print command that sends the ladder with the settings it was built for."""
     return [
@@ -264,8 +425,14 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Write a label of ticks that shows where a format is cut off.")
     parser.add_argument("--out", type=Path, required=True, help="folder the label JSON is written to")
     parser.add_argument("--model", default="allegro-2", help="model profile (default: allegro-2)")
-    parser.add_argument("--first", type=int, default=DEFAULT_FIRST, help="first fine tick row, a multiple of 20")
-    parser.add_argument("--last", type=int, default=DEFAULT_LAST, help="last fine tick row, a multiple of 5")
+    parser.add_argument("--first", type=int, help=f"first fine tick row, a multiple of 20 (default {DEFAULT_FIRST})")
+    parser.add_argument("--last", type=int, help=f"last fine tick row, a multiple of 5 (default {DEFAULT_LAST})")
+    parser.add_argument(
+        "--steps",
+        type=int,
+        metavar="ROW",
+        help=f"write the step label instead: a reference line on ROW, a step on each of the {STEP_COUNT} rows above",
+    )
     parser.add_argument("--printer", required=True, help="printer URI for the printed command")
     return parser.parse_args(argv)
 
@@ -279,33 +446,37 @@ def _grid_error(first: int, last: int) -> str | None:
     return None
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Write the ladder label, print a JSON line about it and the command that prints it.
+def _steps_error(args: argparse.Namespace) -> str | None:
+    """Why a ``--steps`` request cannot be built, or None when it can."""
+    if args.first is not None or args.last is not None:
+        return "--steps builds the step label, which takes no --first or --last"
+    if args.steps <= 0:
+        return f"--steps must be a positive row, got {args.steps}"
+    return None
 
-    Returns:
-        0 when written, 2 for a tick range off the grid, 3 when a strict render reports an error or
-        a warning (the ladder would not print as numbered).
-    """
-    args = _parse(argv)
-    problem = _grid_error(args.first, args.last)
-    if problem is not None:
-        sys.stderr.write(f"error: {problem}\n")
-        return BAD_ARGUMENTS
-    options = ladder_options(args.model)
-    ladder = build_ladder(options, first=args.first, last=args.last)
-    result = build_job(Label.model_validate(ladder.document), options)
+
+def _clean_job(document: dict[str, object], options: RenderOptions) -> tuple[RenderResult | None, list[str]]:
+    """The strict render of ``document``, or None with the codes that keep it from printing as built."""
+    result = build_job(Label.model_validate(document), options)
     unclean = [f.code.value for f in result.findings if f.severity is not Severity.INFO]
     if unclean or result.halved_elements:
-        sys.stderr.write(f"error: a strict render of the ladder is not clean: {unclean}\n")
+        return None, unclean
+    return result, []
+
+
+def _write(args: argparse.Namespace, name: str, document: dict[str, object], details: dict[str, object]) -> int:
+    """Write ``document`` if its strict render is clean, then print the summary line and the command."""
+    result, unclean = _clean_job(document, ladder_options(args.model))
+    if result is None:
+        sys.stderr.write(f"error: a strict render of the label is not clean: {unclean}\n")
         return NOT_CLEAN
     args.out.mkdir(parents=True, exist_ok=True)
-    path = args.out / "length-ladder.json"
-    path.write_text(json.dumps(ladder.document), encoding="utf-8")
+    path = args.out / name
+    path.write_text(json.dumps(document), encoding="utf-8")
     command = _command(args, path)
     summary = {
         "file": str(path),
-        "image_rows": [ladder.bottom, ladder.top],
-        "ticks": [args.first, args.last],
+        **details,
         "image_bytes": result.image_bytes,
         "findings": [finding.code.value for finding in result.findings],
         "argv": command,
@@ -313,6 +484,38 @@ def main(argv: list[str] | None = None) -> int:
     sys.stdout.write(json.dumps(summary) + "\n")
     sys.stdout.write(_shell_line(command) + "\n")
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Write the ladder (or with ``--steps`` the step label), print a JSON line about it and its print command.
+
+    Returns:
+        0 when written, 2 for a tick range off the grid or a bad ``--steps`` request, 3 when a
+        strict render reports an error or a warning (the label would not print as numbered).
+    """
+    args = _parse(argv)
+    if args.steps is not None:
+        problem = _steps_error(args)
+        if problem is not None:
+            sys.stderr.write(f"error: {problem}\n")
+            return BAD_ARGUMENTS
+        steps = build_steps(ladder_options(args.model), reference=args.steps)
+        details: dict[str, object] = {
+            "image_rows": [steps.bottom, steps.top],
+            "reference": steps.reference,
+            "steps": {str(number): row for number, row in steps.steps.items()},
+        }
+        return _write(args, "length-steps.json", steps.document, details)
+    first = DEFAULT_FIRST if args.first is None else args.first
+    last = DEFAULT_LAST if args.last is None else args.last
+    problem = _grid_error(first, last)
+    if problem is not None:
+        sys.stderr.write(f"error: {problem}\n")
+        return BAD_ARGUMENTS
+    ladder = build_ladder(ladder_options(args.model), first=first, last=last)
+    return _write(
+        args, "length-ladder.json", ladder.document, {"image_rows": [ladder.bottom, ladder.top], "ticks": [first, last]}
+    )
 
 
 if __name__ == "__main__":

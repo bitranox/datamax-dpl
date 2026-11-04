@@ -1,12 +1,14 @@
-"""scripts/length_ladder.py numbers each tick by the printed dot row the format length check counts.
+"""scripts/length_ladder.py numbers each tick and step by the printed dot row the format length check counts.
 
-The number the user reads beside the last tick fully printed becomes ``max_format_rows``, so these
-tests prove the numbering through the encoder itself: an image cut off at a tick reaches exactly the
-row its number names (``max_format_rows`` at that row renders, one row less refuses).
+The last tick fully printed is a floor (the format ends there or up to 4 rows above); the last step
+of the ``--steps`` label that printed is the exact row that becomes ``max_format_rows``. So these
+tests prove both numberings through the encoder itself: an image cut off at a tick or a step reaches
+exactly the row its number names (``max_format_rows`` at that row renders, one row less refuses).
 """
 
 from __future__ import annotations
 
+import itertools
 import json
 import runpy
 import shlex
@@ -46,10 +48,19 @@ class _Ladder(Protocol):
     numbers: tuple[int, ...]
 
 
+class _Steps(Protocol):
+    document: dict[str, Any]
+    reference: int
+    bottom: int
+    top: int
+    steps: dict[int, int]
+
+
 class _Script(Protocol):
     def main(self, argv: list[str]) -> int: ...
     def ladder_options(self, model: str) -> RenderOptions: ...
     def build_ladder(self, options: RenderOptions, *, first: int = ..., last: int = ...) -> _Ladder: ...
+    def build_steps(self, options: RenderOptions, *, reference: int) -> _Steps: ...
 
 
 class _Namespace:
@@ -66,6 +77,9 @@ class _Namespace:
 
     def build_ladder(self, options: RenderOptions, *, first: int = 1600, last: int = 1760) -> _Ladder:
         return cast("_Ladder", self._names["build_ladder"](options, first=first, last=last))
+
+    def build_steps(self, options: RenderOptions, *, reference: int) -> _Steps:
+        return cast("_Steps", self._names["build_steps"](options, reference=reference))
 
 
 def _script() -> _Script:
@@ -255,3 +269,152 @@ def test_a_tick_range_off_the_grid_is_refused(
     main: Callable[[list[str]], int] = _script().main
     assert main(["--out", str(tmp_path), "--printer", _PRINTER, "--first", first, "--last", last]) == 2
     assert "error: --" in capsys.readouterr().err
+
+
+# The step label: the user's on-site design of 2026-10-30, "each step like 5mm long with a 2mm
+# distance between them, and print a small number 1 2 3 4 5 under them", starting further right
+# than a reference line on the last row the coarse ladder showed whole.
+_REFERENCE = 1645
+
+
+def _mm_dots(mm: float, dpi: int) -> int:
+    return round(mm * dpi / 25.4)
+
+
+def _ink(line: str) -> list[int]:
+    return [column for column, char in enumerate(line) if char == "#"]
+
+
+def _steps_context(steps: _Steps, options: RenderOptions) -> tuple[Label, Any]:
+    label = Label.model_validate(steps.document)
+    return label, job_context(label, options)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("step", [1, 2, 3, 4, 5])
+def test_each_step_prints_on_the_row_its_number_names(step: int) -> None:
+    """Cut the image off at a step: the format length check then puts its top on exactly that row."""
+    script = _script()
+    options = script.ladder_options("allegro-2")
+    steps = script.build_steps(options, reference=_REFERENCE)
+    row = _REFERENCE + step
+    number = row - 1640
+    index = steps.top - row
+
+    assert steps.steps[number] == row
+    cut = _only_the_image_up_to(steps.document, index)
+    assert _codes(cut, options.model_copy(update={"max_format_rows": row})) == []
+    assert _codes(cut, options.model_copy(update={"max_format_rows": row - 1})) == [FindingCode.FORMAT_PAST_MAX_LENGTH]
+
+
+@pytest.mark.os_agnostic
+def test_the_steps_are_5_mm_long_2_mm_apart_right_of_a_reference_line() -> None:
+    script = _script()
+    options = script.ladder_options("allegro-2")
+    steps = script.build_steps(options, reference=_REFERENCE)
+    _, ctx = _steps_context(steps, options)
+    dpi = ctx.profile.dpi
+    bitmap: list[str] = steps.document["elements"][0]["bitmap"]
+
+    assert steps.top == _REFERENCE + 5
+    assert steps.bottom <= _REFERENCE
+    assert len(bitmap) == steps.top - steps.bottom + 1
+    assert all(_ink(line) == [] for line in bitmap[steps.top - _REFERENCE + 1 :])
+    reference = _ink(bitmap[steps.top - _REFERENCE])
+    assert reference == list(range(_mm_dots(20, dpi)))
+    cut = _only_the_image_up_to(steps.document, steps.top - _REFERENCE)
+    assert _codes(cut, options.model_copy(update={"max_format_rows": _REFERENCE})) == []
+    assert _codes(cut, options.model_copy(update={"max_format_rows": _REFERENCE - 1})) == [
+        FindingCode.FORMAT_PAST_MAX_LENGTH
+    ]
+    starts: list[int] = []
+    for step in range(1, 6):
+        ink = _ink(bitmap[steps.top - (_REFERENCE + step)])
+        assert ink == list(range(ink[0], ink[0] + _mm_dots(5, dpi)))
+        starts.append(ink[0])
+    assert starts[0] > reference[-1] + _mm_dots(5, dpi)
+    assert [b - a for a, b in itertools.pairwise(starts)] == [_mm_dots(7, dpi)] * 4
+
+
+@pytest.mark.os_agnostic
+def test_each_number_stands_under_its_step_below_the_reference_row() -> None:
+    """A number below the image prints even when its step was cut, so a missing step is named."""
+    script = _script()
+    options = script.ladder_options("allegro-2")
+    steps = script.build_steps(options, reference=_REFERENCE)
+    label, ctx = _steps_context(steps, options)
+    image = printed_dots(label.elements[0], ctx)
+    assert image is not None
+    bitmap: list[str] = steps.document["elements"][0]["bitmap"]
+
+    assert image.area.bottom == steps.bottom <= _REFERENCE
+    texts: dict[str, DotArea] = {}
+    for element in label.elements[1:]:
+        assert isinstance(element, Text)
+        area = inexact_rectangle(element, ctx)
+        assert area is not None
+        texts[element.text] = area
+    assert sorted(texts, key=int) == ["6", "7", "8", "9", "10", str(_REFERENCE)]
+    for area in texts.values():
+        assert area.top < image.area.bottom
+    for number in range(6, 11):
+        ink = _ink(bitmap[steps.top - steps.steps[number]])
+        left = image.area.left + ink[0]
+        assert left <= texts[str(number)].left <= image.area.left + ink[-1]
+    assert texts[str(_REFERENCE)].left <= image.area.left + _ink(bitmap[steps.top - _REFERENCE])[-1]
+
+
+@pytest.mark.os_agnostic
+def test_the_step_label_renders_clean_and_small(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Only the rows near the cut are an image, so the job stays small over a 9600-baud link."""
+    summary, _ = _run(tmp_path, capsys, "--steps", str(_REFERENCE))
+    options = _script().ladder_options("allegro-2")
+
+    result = build_job(_label(summary), options)
+
+    assert Path(summary["file"]).name == "length-steps.json"
+    assert [finding.severity for finding in result.findings] == [Severity.INFO] * len(result.findings)
+    assert result.halved_elements == ()
+    assert result.image_bytes == summary["image_bytes"] < 1024
+    assert summary["reference"] == _REFERENCE
+    assert summary["steps"] == {str(n): 1640 + n for n in range(6, 11)}
+    assert summary["image_rows"][0] <= _REFERENCE
+    assert summary["image_rows"][1] == _REFERENCE + 5
+    assert len(result.data) < 2048
+
+
+@pytest.mark.os_agnostic
+def test_without_the_raised_limit_the_steps_pass_the_allegro_2_format(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    summary, _ = _run(tmp_path, capsys, "--steps", str(_REFERENCE))
+    options = _script().ladder_options("allegro-2").model_copy(update={"max_format_rows": None})
+
+    assert FindingCode.FORMAT_PAST_MAX_LENGTH in _codes(_label(summary), options)
+
+
+@pytest.mark.os_agnostic
+def test_the_printed_steps_command_renders_the_label_as_built(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], cli_runner: CliRunner, user_layer_config_file: Path
+) -> None:
+    user_layer_config_file.write_text(_AMBIENT_CALIBRATION, encoding="utf-8")
+    summary, _ = _run(tmp_path, capsys, "--steps", str(_REFERENCE))
+    expected = build_job(_label(summary), _script().ladder_options("allegro-2")).data
+
+    result = _render_twin(cli_runner, summary["argv"], tmp_path / "steps.prn")
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "steps.prn").read_bytes() == expected
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "extra", [("--steps", "0"), ("--steps", "1645", "--first", "1600"), ("--steps", "1645", "--last", "1760")]
+)
+def test_a_bad_steps_request_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], extra: tuple[str, ...]
+) -> None:
+    main: Callable[[list[str]], int] = _script().main
+    assert main(["--out", str(tmp_path), "--printer", _PRINTER, *extra]) == 2
+    assert "error: --" in capsys.readouterr().err
+    assert not (tmp_path / "length-steps.json").exists()
