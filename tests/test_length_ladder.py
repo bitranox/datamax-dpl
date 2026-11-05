@@ -21,7 +21,7 @@ import pytest
 from datamax_dpl.adapters.cli import root as cli_mod
 from datamax_dpl.composition import build_production
 from datamax_dpl.domain.enums import FindingCode, Severity
-from datamax_dpl.domain.label import Label, Text
+from datamax_dpl.domain.label import Label, Line, Text
 from datamax_dpl.domain.overlap import DotArea, inexact_rectangle, printed_dots
 from datamax_dpl.domain.render import build_job, effective_calibration, job_context
 from datamax_dpl.domain.render_context import RenderOptions
@@ -349,8 +349,7 @@ def test_each_number_stands_under_its_step_below_the_reference_row() -> None:
 
     assert image.area.bottom == steps.bottom <= _REFERENCE
     texts: dict[str, DotArea] = {}
-    for element in label.elements[1:]:
-        assert isinstance(element, Text)
+    for element in (element for element in label.elements if isinstance(element, Text)):
         area = inexact_rectangle(element, ctx)
         assert area is not None
         texts[element.text] = area
@@ -362,6 +361,30 @@ def test_each_number_stands_under_its_step_below_the_reference_row() -> None:
         left = image.area.left + ink[0]
         assert left <= texts[str(number)].left <= image.area.left + ink[-1]
     assert texts[str(_REFERENCE)].left <= image.area.left + _ink(bitmap[steps.top - _REFERENCE])[-1]
+
+
+@pytest.mark.os_agnostic
+def test_a_full_height_line_beside_the_steps_makes_the_format_reach_past_them() -> None:
+    """The Allegro 2 cuts at 1648 only when one element runs the label's whole height (on site
+    2026-11-05: the steps alone all printed, the same label with a line from row 0 stopped at 1648),
+    so the step label carries that line itself, left of the image and clear of it."""
+    script = _script()
+    options = script.ladder_options("allegro-2")
+    steps = script.build_steps(options, reference=_REFERENCE)
+    label, ctx = _steps_context(steps, options)
+    image = printed_dots(label.elements[0], ctx)
+    assert image is not None
+    lines = [element for element in label.elements if isinstance(element, Line)]
+
+    assert len(lines) == 1
+    line = printed_dots(lines[0], ctx)
+    assert line is not None
+    assert line.area.bottom == script.build_ladder(options).bottom
+    assert line.area.top > steps.top
+    assert line.area.right < image.area.left
+    assert line.area.width >= 2
+    texts = [inexact_rectangle(element, ctx) for element in label.elements if isinstance(element, Text)]
+    assert all(area is not None and line.area.right < area.left for area in texts)
 
 
 @pytest.mark.os_agnostic

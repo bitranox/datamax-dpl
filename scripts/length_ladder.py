@@ -20,6 +20,9 @@ less ``ROW`` rounded down to ten, so the steps above 1645 read 6 to 10, and ``RO
 under the reference line. The numbers sit below the image, so they print where the format cuts a
 step off; the row of the last step that printed is the value for ``max_format_rows``. Only those
 rows are an image (about 0.5 KB on an Allegro 2), so the job stays small over a slow serial link.
+A 4-dot line left of the image runs from row 0 to 10 rows past the last step: the Allegro 2 cuts a
+format at its limit only when one element runs that whole height, and a label of the steps alone
+prints past it (on site, all five steps above 1645 printed; with the line, only those to 1648).
 
 The label is in dots, and lengths in dots count printed dots, so no ``scale_along`` changes it;
 an ``offset_along`` does (millimetres moved at the model's resolution). The label is built with
@@ -118,6 +121,12 @@ _FIRST_STEP_MM = 30.0
 _STEP_MM = 5.0
 _STEP_GAP_MM = 2.0
 _MM_PER_INCH = 25.4
+# The step label's full-height line, left of the image: the Allegro 2 cuts a format at its limit only
+# when one element runs from the bottom of the label past the limit (on site 2026-11-05 the steps
+# alone all printed past 1648, the same label with this line stopped at 1648), so without it the
+# label measures the sparse case, not the limit.
+_LINE_X_DOTS = 2
+_LINE_DOTS = 4
 
 
 @dataclass(frozen=True)
@@ -362,7 +371,8 @@ def build_steps(options: RenderOptions, *, reference: int) -> Steps:
     Each step is one dot row, 5 mm long, 2 mm after the one before, and has a number under it: its
     row less ``reference`` rounded down to ten, so the steps above 1645 read 6 to 10. The numbers
     and the reference row's own number stand below the image, so they print even where the format
-    cuts a step off, and the last step that printed names the format's last row.
+    cuts a step off, and the last step that printed names the format's last row. A line from row 0
+    to past the last step, left of the image, makes the format as tall as a full label's.
 
     Example:
         >>> steps = build_steps(ladder_options("allegro-2"), reference=1645)
@@ -385,12 +395,20 @@ def build_steps(options: RenderOptions, *, reference: int) -> Steps:
     bitmap = _step_bitmap(reference, starts, bottom=bottom, shape=shape)
     image = {"type": "image", "x": _IMAGE_X_DOTS, "y": y, "name": IMAGE_NAME, "bitmap": bitmap}
     numbers = [_text_below(str(row - base), _IMAGE_X_DOTS + left, bottom, ctx) for row, left in starts.items()]
+    line = {
+        "type": "line",
+        "x": _LINE_X_DOTS,
+        "y": 0,
+        "x2": _LINE_X_DOTS,
+        "y2": top + _HEADROOM_ROWS,
+        "thickness": _LINE_DOTS,
+    }
     document: dict[str, object] = {
         "unit": "dots",
         "width": _IMAGE_X_DOTS + width + _IMAGE_X_DOTS,
         "height": height,
         "media": "continuous",
-        "elements": [image, _text_below(str(reference), _IMAGE_X_DOTS, bottom, ctx), *numbers],
+        "elements": [image, _text_below(str(reference), _IMAGE_X_DOTS, bottom, ctx), *numbers, line],
     }
     return Steps(
         document=document, reference=reference, bottom=bottom, top=top, steps={row - base: row for row in starts}
