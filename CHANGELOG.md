@@ -28,6 +28,10 @@ All notable changes to this project are documented here. The format follows
   applies offline, on one-way links and to file output; `print` on a two-way link lets the upload
   check decide. The printer stores an image by content: a QR Code took about 0.13 times its dot data,
   a checkerboard of single dots about 8 times, so the budget is a rough guide; CONFIG.md says so.
+- The label spec says what `continuous_length` does on an Allegro 2: measured there, the printer feeds it
+  after the content, so the label pitch is the content plus that length. docs/dpl-reference.md records
+  the measurements, and how a label longer than one format prints as back-to-back segments with about
+  2 mm of blank paper at each seam, then returns to gap mode at the tear-off position.
 
 ## [0.7.0] - 2026-11-04
 

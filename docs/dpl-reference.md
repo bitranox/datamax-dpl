@@ -406,6 +406,43 @@ firmware is closed, so the rule is unknown. Every format printed through row 164
 `allegro-2` limit of 1648 never lets a cut format through; it refuses some sparse formats that
 would print, which `max_format_rows` lets through.
 
+### Continuous media and labels longer than one format
+
+Measured on one Allegro 2 (firmware CA02 03.04) on 2026-11-05, on the 100 x 55 mm gap stock run in
+continuous mode. Each test label was 100 mm of content: a line along its whole length and short
+ticks 1 mm from each end. The reading is the distance from one label's end tick to the next label's
+start tick; 2 mm means the labels touch.
+
+| `<STX>c` sent (label length)         | Other settings                     | Reading   | Label pitch            |
+|--------------------------------------|------------------------------------|-----------|------------------------|
+| 100 mm (`c0411`)                     | stop `f263`                        | 103 mm    | 201 mm                 |
+| 100 mm                               | stop `f197` (below start of print) | 103 mm    | 201 mm                 |
+| 100 mm, one format, quantity 3       | stop `f197`                        | 102 mm    | 200 mm, at both seams  |
+| 97 mm (`c0399`)                      | stop `f197`                        | 96 mm     | 194 mm                 |
+| 100 mm, content ending at 99.8 mm    | stop `f197`                        | 102 mm    | 200 mm                 |
+| 50 mm (`c0206`)                      | stop `f197`                        | 53 mm     | 151 mm                 |
+| 0.25 mm (`c0001`)                    | stop `f197`                        | 4 mm      | 102 mm                 |
+| 0.25 mm                              | start of print `O0212` (2 mm less) | 4 mm      | 102 mm                 |
+| 0.25 mm, then `c0000` `e` `f263` `F` | stop `f263` during the labels      | 4 mm (2x) | 102 mm, tear-off right |
+
+So on continuous media this printer prints a format's content and then feeds the `<STX>c`
+length on top of it: the label pitch is the content plus that length, not that length. Content
+past the `<STX>c` length is printed, not cut off. The stop position, which the manual says
+backfeeds before the next format, took nothing back between formats sent in one job, and the start
+of print (`<STX>O`) did not move the seam. The manual has no command that feeds backwards by a
+given distance.
+
+With `<STX>c0001` (the smallest length that stays in continuous mode; `c0000` leaves it) formats
+follow each other with about 2 mm of blank paper between them, the same in both prints of the
+last row. Where the 2 mm comes from is unknown. A label longer than one format (1648 rows, about
+200 mm) can therefore print as segments of up to 1648 rows each, one format per segment, with
+about 2 mm of blank paper at each seam (the user accepted that gap on 2026-11-05). After the last
+segment, `<STX>c0000`, `<STX>e` (gap sensor), the tear-off stop `<STX>f263` and one `<STX>F` feed
+left the stock at the tear-off position, in both prints.
+
+datamax-dpl does not build such a job yet: a label is one format, and on continuous media it sends
+`continuous_length` (or `height`) as `<STX>c`.
+
 ### Transparent labels on models without `A`
 
 The Allegro, Allegro 2, Prodigy and Prodigy Plus have no `A` command and print every field XOR.
