@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from .encode_common import column_of, image_edge, last_column, row_of
+from .encode_common import check_graphic_edge, column_of, image_edge, last_column, row_of
 from .enums import FillPattern, FindingCode
 from .label import MAX_LENGTH, Box, Circle, Image, Line, Point, Polygon, Qr
 from .profiles import Feature
@@ -54,12 +54,16 @@ def encode_line(element: Line, *, index: int, ctx: RenderContext) -> list[bytes]
         thickness_axis, length_axis = (Axis.ALONG, Axis.ACROSS) if horizontal else (Axis.ACROSS, Axis.ALONG)
         thickness = ctx.distance(element.thickness, axis=thickness_axis, element=index, what="line thickness") or 1
         extent = ctx.distance(length, axis=length_axis, element=index, what="line length") or thickness
+        column = column_of(min(element.x, element.x2), index=index, ctx=ctx)
+        across = extent if horizontal else thickness
         record = line_record(
             row=row_of(min(element.y, element.y2), index=index, ctx=ctx),
-            column=column_of(min(element.x, element.x2), index=index, ctx=ctx),
-            horizontal=extent if horizontal else thickness,
+            column=column,
+            horizontal=across,
             vertical=thickness if horizontal else extent,
         )
+        end = ctx.printed_dots(column) + ctx.printed_dots(across)
+        check_graphic_edge(column, end_dots=end, what="line", index=index, ctx=ctx)
         return [line(record)]
     if _polygons(ctx):
         quad = _thin_quad(element)
@@ -76,9 +80,12 @@ def _box_record(element: Box, *, index: int, ctx: RenderContext, solid: bool = F
     )
     if solid:
         edge, side = math.ceil(height / 2), math.ceil(width / 2)
+    column = column_of(element.x, index=index, ctx=ctx)
+    end = ctx.printed_dots(column) + ctx.printed_dots(width)
+    check_graphic_edge(column, end_dots=end, what="box", index=index, ctx=ctx)
     return BoxRecord(
         row=row_of(element.y, index=index, ctx=ctx),
-        column=column_of(element.x, index=index, ctx=ctx),
+        column=column,
         width=width,
         height=height,
         edge=edge,
@@ -152,12 +159,11 @@ def encode_circle(element: Circle, *, index: int, ctx: RenderContext) -> list[by
     """Return a circle record or its raster fallback."""
     if not _polygons(ctx):
         return rasterize(element, index=index, ctx=ctx, reason=f"circles: {ctx.requirement(Feature.CIRCLE_POLYGON)}")
-    record = circle_record(
-        row=row_of(element.y, index=index, ctx=ctx),
-        column=column_of(element.x, index=index, ctx=ctx),
-        radius=ctx.distance(element.radius, axis=Axis.ACROSS, element=index, what="radius") or 1,
-        fill=element.fill,
-    )
+    column = column_of(element.x, index=index, ctx=ctx)
+    radius = ctx.distance(element.radius, axis=Axis.ACROSS, element=index, what="radius") or 1
+    record = circle_record(row=row_of(element.y, index=index, ctx=ctx), column=column, radius=radius, fill=element.fill)
+    # The record names the centre: its last dot is the radius right of it, one more makes the end.
+    check_graphic_edge(column, end_dots=ctx.printed_dots(column + radius) + 1, what="circle", index=index, ctx=ctx)
     return [line(record)]
 
 

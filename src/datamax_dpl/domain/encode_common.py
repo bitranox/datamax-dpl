@@ -9,7 +9,7 @@ from .label import MAX_FIELD_DATA, Counter
 from .profiles import Feature
 from .records import line
 from .render_context import ImageEdge
-from .units import Axis, DplUnit, to_dpl
+from .units import MM_PER_INCH, Axis, DplUnit, to_dpl
 
 if TYPE_CHECKING:
     from .render_context import RenderContext
@@ -36,6 +36,35 @@ def column_of(x: float, *, index: int, ctx: RenderContext) -> int:
             element=index,
         )
     return column
+
+
+def check_graphic_edge(column: int, *, end_dots: int, what: str, index: int, ctx: RenderContext) -> None:
+    """Report a graphic the printer draws itself whose right edge passes the print width.
+
+    A warning, an error under strict (the user's decision of 2026-11-01): the printer draws the
+    record whatever it reaches, so under the default policy the label still prints, cut off as the
+    printer decides. A graphic the job draws into an image is checked as that image instead
+    (``image_past_print_width``, a refusal). Counted in printhead dots like that check.
+
+    Args:
+        column: The record's column, as :func:`column_of` returned it; one past the last column is
+            already refused (``outside_print_width``) and gets no second finding.
+        end_dots: Dots from the head's first dot to just past the graphic's last dot.
+        what: What the graphic is, ``box``, ``line`` or ``circle``.
+        index: Position of the element in the label.
+        ctx: The render context.
+    """
+    limit = round(ctx.profile.print_width_in * ctx.profile.dpi)
+    if column > last_column(ctx) or end_dots <= limit:
+        return
+    width_mm = ctx.profile.print_width_in * MM_PER_INCH
+    over_mm = (end_dots - limit) / ctx.profile.dpi * MM_PER_INCH
+    ctx.findings.deviate(
+        FindingCode.GRAPHIC_PAST_PRINT_WIDTH,
+        f"the {what} ends past the {width_mm:.1f} mm print width of {ctx.profile.name} by about {over_mm:.1f} mm",
+        fallback="printed as placed: what the printer does with the part past its last dot is unverified",
+        element=index,
+    )
 
 
 def image_edge(column: int, *, what: str, ctx: RenderContext) -> ImageEdge:
@@ -180,6 +209,7 @@ __all__ = [
     "attribute_lines",
     "attribute_reset",
     "check_field_length",
+    "check_graphic_edge",
     "column_of",
     "counter_lines",
     "image_edge",

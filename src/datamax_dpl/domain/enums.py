@@ -324,6 +324,7 @@ class FindingCode(str, Enum):
     FIELD_TOO_LONG = "field_too_long"
     FONT_SIZE_SUBSTITUTED = "font_size_substituted"
     FORMAT_PAST_MAX_LENGTH = "format_past_max_length"
+    GRAPHIC_PAST_PRINT_WIDTH = "graphic_past_print_width"
     GRAPHICS_CLEAR_SKIPPED = "graphics_clear_skipped"
     GRAPHICS_CLEAR_UNSUPPORTED = "graphics_clear_unsupported"
     HEAT_OUT_OF_RANGE = "heat_out_of_range"

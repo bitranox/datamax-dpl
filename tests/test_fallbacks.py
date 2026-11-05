@@ -96,6 +96,7 @@ _NEEDS_ITS_OWN_LABEL: dict[FindingCode, dict[str, object]] = {
 #: Each reached by its own tests, in the module named: they need a setting or a printer state, not a label.
 _REACHED_ELSEWHERE = {
     FindingCode.ELEMENT_PAST_LABEL_EDGE: "test_label_edge",
+    FindingCode.GRAPHIC_PAST_PRINT_WIDTH: "test_graphic_print_width",
     FindingCode.IMAGE_HALVED: "test_upload_check",
     FindingCode.MAX_LABEL_LENGTH_TOO_SHORT: "test_job_preamble",
     FindingCode.MODEL_OFFSET_CLAMPED: "test_render",
