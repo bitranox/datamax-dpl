@@ -395,6 +395,39 @@ for exactly what these models do and reports nothing. A stop past 999/100 inch i
 `model_defaults_applied` only when the job sends it. Keys, bounds and the note for a deployed
 configuration that still sets the calibration keys explicitly are in [CONFIG.md](CONFIG.md).
 
+## Long labels on continuous media
+
+One format reaches only so far along the feed (on the Allegro 2, 1648 dot rows, about 200 mm;
+`format_past_max_length` refuses a label past it). A longer label prints as several labels, each
+one segment of it, back to back on continuous media. Measured on one Allegro 2 (firmware CA02
+03.04): on continuous media the printer prints a label's content and then feeds the `<STX>c`
+length (`continuous_length`, else `height`) on top of it, so that length is the blank paper after
+each label, not the label's length. The measurements are in
+[docs/dpl-reference.md](docs/dpl-reference.md) section 10.
+
+1. Design each segment as its own label, or one label filled from several data records, each no
+   longer than one format.
+2. Give each `"media": "continuous"` and `"continuous_length": 0.25` (in mm; the smallest length
+   that stays in continuous mode, sent as `<STX>c0001`). Labels then follow each other with about
+   2 mm of blank paper between them, so plan for a 2 mm gap where one segment meets the next: put
+   the seams where nothing crosses them.
+3. Print them in one job: `datamax-dpl print segment.json --data segments.json --printer lager`.
+4. Return to the label sensor and the tear-off position:
+
+   ```bash
+   datamax-dpl feed --media gap --printer lager
+   ```
+
+   `feed --media gap` (or `reflective`) sends `<STX>c0000`, the sensor (`<STX>e` or `<STX>r`), the
+   configured stop position (the Allegro 2 default `<STX>f263`) and one feed. On the Allegro 2 this
+   left the stock at the tear-off position in both prints. A model that cannot choose its sensor or
+   has no stop command gets the same findings a label's job gives (the Prodigy: only `<STX>c0000`
+   and the feed). Without that feed the next gap label's job sets the sensor itself, but the stock
+   stays where the last segment ended until then.
+
+Labels sent as separate `print` commands have not been measured; whether they also follow each
+other with 2 mm is unverified.
+
 ## JSON output for scripts and LLMs
 
 Put `--json` (indented) or `--json-bare` (one line) before the command. The answer on stdout is

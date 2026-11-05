@@ -256,6 +256,45 @@ def test_single_commands_send_their_bytes(cli_runner: CliRunner, command: str, e
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize(("media", "sensor"), [("gap", b"\x02e"), ("reflective", b"\x02r")])
+def test_feed_with_media_leaves_continuous_mode_then_feeds_to_the_stop(
+    cli_runner: CliRunner, media: str, sensor: bytes
+) -> None:
+    printer = RecordingPrinter()
+    args = ["--json", "--set", "printer.model=allegro-2", "feed", "--media", media, "--printer", PRINTER]
+
+    result = run(cli_runner, args, factory(printer))
+
+    assert result.exit_code == 0, result.output
+    assert printer.data == b"\x02n\x02c0000" + sensor + b"\x02f263\x02F"
+    data = envelope(result)["data"]
+    assert data["media"] == media
+    assert data["bytes_sent"] == len(printer.data)
+    assert "model_defaults_applied" in [finding["code"] for finding in data["findings"]]
+
+
+@pytest.mark.os_agnostic
+def test_feed_with_media_follows_the_configured_stop_position(cli_runner: CliRunner) -> None:
+    printer = RecordingPrinter()
+    args = ["--set", "printer.model=allegro-2", "--set", "printer.stop_position=50.8"]
+
+    result = run(cli_runner, [*args, "feed", "--media", "gap", "--printer", PRINTER], factory(printer))
+
+    assert result.exit_code == 0, result.output
+    assert printer.data == b"\x02n\x02c0000\x02e\x02f200\x02F"
+
+
+@pytest.mark.os_agnostic
+def test_feed_does_not_take_continuous_media(cli_runner: CliRunner) -> None:
+    printer = RecordingPrinter()
+
+    result = run(cli_runner, ["feed", "--media", "continuous", "--printer", PRINTER], factory(printer))
+
+    assert result.exit_code == 2
+    assert printer.data == b""
+
+
+@pytest.mark.os_agnostic
 @pytest.mark.parametrize("command", ["cut", "feed", "reset", "cancel", "pause"])
 def test_a_single_commands_envelope_names_the_command_as_it_was_typed(cli_runner: CliRunner, command: str) -> None:
     result = run(cli_runner, ["--json-bare", command, "--printer", PRINTER], factory(RecordingPrinter()))

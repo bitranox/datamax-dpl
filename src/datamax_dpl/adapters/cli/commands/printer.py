@@ -33,11 +33,13 @@ from ....application.use_cases import (
     record_renders,
     render_label,
     report_of,
+    send_bytes,
     send_command,
 )
-from ....domain.enums import MemoryKind, StatusProblem
-from ....domain.errors import AnswerNotEndedError, ConfigurationError, PreviewTooLongError
+from ....domain.enums import MediaSensor, MemoryKind, StatusProblem
+from ....domain.errors import AnswerNotEndedError, ConfigurationError, LabelRejectedError, PreviewTooLongError
 from ....domain.held_images import READ_AT_SEND, HeldImages
+from ....domain.media_feed import FEED_MEDIA, media_feed
 from ....domain.memory import NO_MODULES_MEANING, MemoryDirectory
 from ....domain.placeholders import fill_record
 from ....domain.preview import canvas_for, check_preview_length
@@ -49,7 +51,15 @@ from ...transport.uri import is_one_way, unsupported_query
 from ..constants import CLICK_CONTEXT_SETTINGS
 from ..envelope import CommandName
 from ..label_io import STDIN, LabelInputError, load_label, load_records
-from ..payloads import FindingOut, SentTo, findings_text, refused_text, render_payload, went_out_text
+from ..payloads import (
+    FindingOut,
+    SentTo,
+    findings_text,
+    refused_text,
+    render_payload,
+    went_out_text,
+    worth_telling,
+)
 from ..runner import CommandResult, run_command
 from ..settings import (
     PrinterOverrides,
@@ -469,12 +479,12 @@ class SentPayload(BaseModel):
 
 
 #: The envelope's command name for each single printer command; the CLI command takes the same spelling.
+#: ``feed`` has its own command (:func:`cli_feed`), for its ``--media``.
 _SINGLE_COMMAND_NAMES: Mapping[PrinterCommand, CommandName] = MappingProxyType(
     {
         PrinterCommand.RESET: CommandName.RESET,
         PrinterCommand.CANCEL: CommandName.CANCEL,
         PrinterCommand.PAUSE: CommandName.PAUSE,
-        PrinterCommand.FEED: CommandName.FEED,
         PrinterCommand.CUT: CommandName.CUT,
     }
 )
@@ -503,8 +513,63 @@ def _single(command: PrinterCommand, help_text: str) -> click.Command:
     return run
 
 
+class FeedPayload(BaseModel):
+    """Result of ``feed``: what went out, and for ``--media`` the sensor and the findings."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    printer: str
+    command: PrinterCommand
+    bytes_sent: int
+    media: MediaSensor | None
+    findings: list[FindingOut]
+
+
+_FEED_HELP = (
+    "Feed one label (<STX>F). With --media, first leave continuous mode (<STX>c0000), select that "
+    "sensor and send the configured stop position, as a label's job would: after labels printed on "
+    "continuous media this brings the stock back to the tear-off position."
+)
+
+
+@click.command(PrinterCommand.FEED.value, context_settings=CLICK_CONTEXT_SETTINGS, help=_FEED_HELP)
+@option(
+    "--media",
+    type=click.Choice([media.value for media in FEED_MEDIA]),
+    default=None,
+    help="Return to this media sensor before the feed (gap or reflective).",
+)
+@printer_options_decorator
+@click.pass_context
+def cli_feed(ctx: click.Context, media: str | None, **given: Any) -> None:
+    def body(cli_ctx: CLIContext) -> CommandResult:
+        settings = resolve_sending_settings(cli_ctx, command_overrides(given))
+        uri = require_uri(settings)
+        parsed_printer_uri(settings)
+        sensor = None if media is None else MediaSensor(media)
+        feed = None if sensor is None else media_feed(sensor, render_options(settings))
+        if feed is not None and feed.errors:
+            raise LabelRejectedError("the feed cannot be built for this printer", feed.errors)
+        endpoint = PrinterEndpoint(uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings))
+        report = (
+            send_command(PrinterCommand.FEED, endpoint=endpoint)
+            if feed is None
+            else send_bytes(feed.data, endpoint=endpoint)
+        )
+        findings = [] if feed is None else [FindingOut.of(finding, settings=settings) for finding in feed.findings]
+        payload = FeedPayload(
+            printer=uri, command=PrinterCommand.FEED, bytes_sent=report.bytes_sent, media=sensor, findings=findings
+        )
+        human = f"feed sent to {uri}" if sensor is None else f"feed to the {sensor.value} sensor sent to {uri}"
+        told = [finding for finding in findings if worth_telling(finding)]
+        if told:
+            human += "\n" + findings_text(told)
+        return CommandResult(ok=True, payload=payload, human=human)
+
+    run_command(ctx, command=CommandName.FEED, body=body)
+
+
 cli_cut = _single(PrinterCommand.CUT, "Cut now (<STX>o); the printer needs its cutter enabled.")
-cli_feed = _single(PrinterCommand.FEED, "Feed one label (<STX>F).")
 cli_reset = _single(PrinterCommand.RESET, "Reset the printer (<SOH>#); clears its buffers.")
 cli_cancel = _single(PrinterCommand.CANCEL, "Cancel the current job and pause (<SOH>C).")
 cli_pause = _single(PrinterCommand.PAUSE, "Toggle pause (<SOH>B).")

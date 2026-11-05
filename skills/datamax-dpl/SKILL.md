@@ -287,6 +287,15 @@ the model's default from the manual; a library caller sets the same fields in `R
   (drops the current job and pauses) and `reset` (clears the printer's buffers) each take
   `--printer` (default `[printer] uri`) and `--timeout`. To stop a job printing garbage:
   `cancel`, then `pause` to resume.
+- `feed --media gap` (or `reflective`) ends continuous mode (`<STX>c0000`), selects that sensor,
+  sends the configured stop position and feeds once: run it after labels printed on continuous
+  media to bring the stock back to the tear-off position.
+- A label longer than one format (`allegro-2`: 1648 dot rows, about 200 mm) prints as segments:
+  each segment its own label (or one label filled from records), `"media": "continuous"`,
+  `"continuous_length": 0.25`, all in one `print` job, then `feed --media gap`. Measured on one
+  Allegro 2: the printer feeds `continuous_length` AFTER each label's content (it is the blank
+  paper between labels, not the label length), and at 0.25 mm the segments sit about 2 mm apart,
+  so put the seams where no field crosses them. Separate `print` jobs are unverified.
 - `config-deploy --target user` writes the user's config holding every key, each documented;
   `config-generate-examples` only shows where each layer reads from, with a generic sample.
 

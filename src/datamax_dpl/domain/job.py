@@ -504,6 +504,16 @@ def _pause_command(label: Label, ctx: RenderContext) -> list[bytes]:
     return []
 
 
+def media_and_stop(label: Label, ctx: RenderContext) -> list[bytes]:
+    """Return the media and stop commands a job for ``label`` sends, in inch mode.
+
+    The same commands and findings a label's job gives for its media sensor and its stop
+    position, for a command that exists to set them (``feed --media``). The media command goes
+    out only where ``ctx``'s printer state sends it, as in a job.
+    """
+    return [INCH_MODE, *_media_commands(label, ctx), *_present_commands(label, ctx)]
+
+
 def system_prefix(label: Label, ctx: RenderContext) -> list[bytes]:
     """Return the system commands that go before ``<STX>L`` (without the clears and image downloads)."""
     commands = _settings(label, ctx) + _pause_command(label, ctx)
@@ -949,6 +959,7 @@ __all__ = [
     "format_footer",
     "format_header",
     "image_downloads",
+    "media_and_stop",
     "retry_clear",
     "retry_clear_may_go",
     "stops_at_tear_off",

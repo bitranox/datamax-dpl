@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `feed --media gap` (or `reflective`) ends continuous mode, selects that sensor, sends the
+  configured stop position and feeds once, the commands a label's own job sends for them: after a
+  run of labels on continuous media it brings the stock back to the tear-off position (measured
+  twice on one Allegro 2). The library function is `media_feed()` in
+  `datamax_dpl.domain.media_feed`. The README section "Long labels on continuous media" shows how
+  a label longer than one format prints as segments.
 - `element_past_label_edge`: a field whose printed area ends past the label's `width` or `height` is reported,
   naming the edge and about how many mm it passes: a warning, an error under `strict`. Before, a QR Code
   taller than the label, or a box past its width, built with no finding. Continuous media checks the width
