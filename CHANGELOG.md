@@ -16,6 +16,10 @@ All notable changes to this project are documented here. The format follows
   model's printable width is reported, naming it and about how many mm it passes: a warning, an error under
   `strict`. Before, only its start column was checked, so a box starting inside the head and running off it
   built with no finding. A graphic the job draws as an image keeps its refusal (`image_past_print_width`).
+- `along_label()` and `calibration_labels()` take optional `options` (`RenderOptions`): with them, an along
+  bar of no given length is the longest one format holds on that printer (`default_along_length`, 190 mm on
+  the Allegro 2), as `calibrate print` already sized it. Before, the library always built 200 mm, which the
+  Allegro 2 refuses (`format_past_max_length`). A length given still wins; without options it stays 200 mm.
 
 ## [0.7.0] - 2026-11-04
 

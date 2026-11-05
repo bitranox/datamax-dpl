@@ -168,7 +168,10 @@ The rest of the commands have library forms too, imported from `datamax_dpl` as 
 - `calibration_labels(width=100, height=55, title="lager")` builds the two labels `calibrate
   print` sends (`CalibrationLabels` with `across` and `along`); `across_label`, `along_label`,
   `across_frame_width` (the frame length to measure, `ACROSS_INSET_MM` in from each edge) and
-  `ALONG_LENGTH_MM` (200) are the parts it uses.
+  `ALONG_LENGTH_MM` (200) are the parts it uses. Pass `options=RenderOptions(model=...)` and an
+  along bar of no given length is the longest one format holds on that printer
+  (`default_along_length`, 190 mm on the Allegro 2), as `calibrate print` sizes it; without
+  options it is 200 mm.
 
 `send(data)` writes the job as it is: it does not check what the printer stored, so an image
 download a full module lost gives a label with that image missing, and no error. On a channel that

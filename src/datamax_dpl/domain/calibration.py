@@ -150,7 +150,9 @@ def across_label(*, width: float, height: float, title: str) -> Label:
     return Label(width=width, height=height, elements=elements)
 
 
-def along_label(*, width: float, length: float = ALONG_LENGTH_MM, title: str) -> Label:
+def along_label(
+    *, width: float, length: float | None = None, title: str, options: RenderOptions | None = None
+) -> Label:
     """Build the along label: a bar of ``length`` along the feed with a tick every 10 mm.
 
     The label is ``length + 5`` mm long, so on gap media it runs over several labels; measure
@@ -158,8 +160,12 @@ def along_label(*, width: float, length: float = ALONG_LENGTH_MM, title: str) ->
 
     Args:
         width: Label width in mm, at least 20.
-        length: Bar length in mm, at most 200.
+        length: Bar length in mm, at most 200. When None: the longest one format holds for
+            ``options`` (:func:`default_along_length`, as ``calibrate print`` sizes it), or
+            :data:`ALONG_LENGTH_MM` without options.
         title: First text line, typically the printer name and the factors in use.
+        options: Render options of the printer the label is for; they only size a bar whose
+            ``length`` is not given.
 
     Returns:
         The label, in mm.
@@ -171,7 +177,12 @@ def along_label(*, width: float, length: float = ALONG_LENGTH_MM, title: str) ->
     Example:
         >>> along_label(width=100, length=60, title="LAGER").height
         65.0
+        >>> from datamax_dpl.domain.render_context import RenderOptions
+        >>> along_label(width=100, title="LAGER", options=RenderOptions(model="allegro-2")).height
+        195.0
     """
+    if length is None:
+        length = ALONG_LENGTH_MM if options is None else default_along_length(width=width, title=title, options=options)
     _require_min(_Dimension.WIDTH, width)
     _require_min(_Dimension.LENGTH, length)
     if length > ALONG_LENGTH_MM:
@@ -267,7 +278,12 @@ class CalibrationLabels:
 
 
 def calibration_labels(
-    *, width: float, height: float, title: str, along_length: float = ALONG_LENGTH_MM
+    *,
+    width: float,
+    height: float,
+    title: str,
+    along_length: float | None = None,
+    options: RenderOptions | None = None,
 ) -> CalibrationLabels:
     """Build both calibration labels for one printer's media.
 
@@ -275,7 +291,9 @@ def calibration_labels(
         width: Label width in mm, at least 24.
         height: Label height in mm (the across label's height), at least 30.
         title: First text line of both labels.
-        along_length: Length of the along bar in mm.
+        along_length: Length of the along bar in mm; None sizes it as :func:`along_label` does.
+        options: Render options of the printer the labels are for; with them an along bar of no
+            given length is the longest one format holds there, so printing it is not refused.
 
     Returns:
         The across label and the along label.
@@ -290,7 +308,7 @@ def calibration_labels(
     """
     return CalibrationLabels(
         across=across_label(width=width, height=height, title=title),
-        along=along_label(width=width, length=along_length, title=title),
+        along=along_label(width=width, length=along_length, title=title, options=options),
     )
 
 
