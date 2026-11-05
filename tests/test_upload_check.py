@@ -894,11 +894,13 @@ def test_a_refused_record_ends_the_batch_and_the_records_after_it_are_not_sent()
 
 # ======================== the model's image budget on a two-way print ========================
 
-#: 600 x 600 dots: 45000 bytes of dot data, past the Allegro 2's 44535-byte default budget and
-#: within the fake module's 49088 bytes.
-_BIG_PATTERN = ["".join("#" if (row * 3 + col * 11) % 7 == 0 else "." for col in range(600)) for row in range(600)]
+#: 640 x 640 dots: 51200 bytes of dot data, past the Allegro 2's 49088-byte default budget; a fake
+#: module of :data:`_ROOMY` bytes holds it, the default empty one (49088) does not.
+_BIG_PATTERN = ["".join("#" if (row * 3 + col * 11) % 7 == 0 else "." for col in range(640)) for row in range(640)]
 BIG = Image(x=1, y=1, name="BIG", bitmap=_BIG_PATTERN)
 TWO_WAY = RenderOptions(model="allegro-2", model_image_budget=False)
+#: A module with room for :data:`BIG` at full size, as a bigger cartridge than the budget's would have.
+_ROOMY = 65536
 
 
 def _codes(result: RenderResult) -> list[FindingCode]:
@@ -911,17 +913,17 @@ def test_a_two_way_print_sends_images_past_the_model_budget_at_full_size_and_say
     offline = render_label(label, ALLEGRO)
     assert offline.halved_elements == (0,)
 
-    printer, sent = _print(ImageModules(), label, TWO_WAY)
+    printer, sent = _print(ImageModules(capacity=_ROOMY), label, TWO_WAY)
 
     result = _single(sent)
     assert result.halved_elements == ()
-    assert result.image_bytes == 45000
+    assert result.image_bytes == 51200
     assert printer.data.count(FORMAT) == 1
     assert FindingCode.IMAGE_HALVED not in _codes(result)
     [skipped] = [f for f in result.findings if f.code is FindingCode.IMAGE_BUDGET_SKIPPED]
     assert skipped.severity is Severity.INFO
-    assert "45000 bytes" in skipped.message
-    assert "allegro-2 default image memory budget is 44535 bytes" in skipped.message
+    assert "51200 bytes" in skipped.message
+    assert "allegro-2 default image memory budget is 49088 bytes" in skipped.message
     assert "upload check" in skipped.message
 
 
@@ -1117,7 +1119,7 @@ def _big_label_file(tmp_path: Path) -> str:
 def test_print_over_tcp_sends_images_past_the_model_budget_at_full_size_while_validate_halves_them(
     cli_runner: CliRunner, tmp_path: Path, serve: Callable[[Play], PrinterServer]
 ) -> None:
-    modules = ImageModules()
+    modules = ImageModules(capacity=_ROOMY)
     server = serve(module_printer(modules))
     source = _big_label_file(tmp_path)
     [full] = render_label(Label(elements=[BIG]), TWO_WAY).downloads

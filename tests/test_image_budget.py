@@ -36,8 +36,8 @@ if TYPE_CHECKING:
     from click.testing import CliRunner
 
 STX = b"\x02"
-#: The Allegro 2's default budget: 48631 free bytes of module A less a 4096-byte margin.
-ALLEGRO_2_BUDGET = 44535
+#: The Allegro 2's default budget: the 49088 free bytes of one printer's empty module A.
+ALLEGRO_2_BUDGET = 49088
 #: 160 x 64 dots: 20 bytes a row, 1280 bytes; halved 80 x 32, 320 bytes.
 USER_ROWS = ["#" * 160] + ["#" + "." * 158 + "#"] * 62 + ["#" * 160]
 #: Allegro 2 has no circle record, so this circle is drawn as an image (3381 bytes; halved 891).
@@ -349,12 +349,12 @@ def test_the_halved_circle_is_named_by_its_own_content() -> None:
 
 @pytest.mark.os_agnostic
 def test_the_allegro_2_default_budget_halves_a_job_past_it_and_names_where_it_comes_from() -> None:
-    """800 x 450 dots: 100 bytes a row, 45000 bytes, past the 44535-byte default."""
-    big = {"type": "image", "x": 0, "y": 0, "name": "BIG", "bitmap": ["#" * 800] * 450}
+    """800 x 500 dots: 100 bytes a row, 50000 bytes, past the 49088-byte default."""
+    big = {"type": "image", "x": 0, "y": 0, "name": "BIG", "bitmap": ["#" * 800] * 500}
     result = build_job(label(big), RenderOptions(model="allegro-2"))
     finding = only(result, FindingCode.IMAGE_HALVED)
     assert f"budget is {ALLEGRO_2_BUDGET} bytes" in finding.message
-    assert "48631 free bytes" in finding.message
+    assert "49088 free bytes" in finding.message
     assert result.halved_elements == (0,)
     assert result.ok, result.findings
 

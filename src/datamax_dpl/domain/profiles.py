@@ -510,12 +510,13 @@ _ALLEGRO_2_CALIBRATION = CalibrationDefaults(
     offset_along=-0.25,
     stop_position_mm=66.8,
     provenance="measured on one Allegro 2, firmware CA02 03.04, 2026-10-29 and 2026-10-30",
-    # The free bytes <STX>W reported for module A, less a margin for what the printer adds per
-    # stored image and for graphics stored later: the module was not empty when it was read.
-    image_memory_bytes=48631 - 4096,
+    # The whole empty module (the user's choice, 2026-11-05): it leaves no room for other stored
+    # items. The printer stores an image by content, so dot data is only a rough measure of what it
+    # takes: about 0.13x for a QR Code, 0.24x for lettering, 8x for a 1-dot checkerboard.
+    image_memory_bytes=49088,
     image_memory_provenance=(
-        "48631 free bytes of module A read on one Allegro 2 holding 11 stored graphics, "
-        "2026-10-30, less a 4096-byte margin"
+        "49088 free bytes of an empty module A read on one Allegro 2, 2026-10-31 and 2026-11-05; "
+        "an image takes module space by content, not by its dot data"
     ),
 )
 

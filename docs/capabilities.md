@@ -446,8 +446,8 @@ DPL letters, A = 1.0 inch per second up to S = 10.0, in steps of 0.5.
 
 ### Image memory budget
 
-| Model       | Image memory budget (bytes) | Source                                                                                                             |
-|-------------|-----------------------------|--------------------------------------------------------------------------------------------------------------------|
-| `allegro-2` | 44535                       | 48631 free bytes of module A read on one Allegro 2 holding 11 stored graphics, 2026-10-30, less a 4096-byte margin |
+| Model       | Image memory budget (bytes) | Source                                                                                                                                              |
+|-------------|-----------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
+| `allegro-2` | 49088                       | 49088 free bytes of an empty module A read on one Allegro 2, 2026-10-31 and 2026-11-05; an image takes module space by content, not by its dot data |
 
 <!-- END GENERATED: scripts/gen_capabilities.py -->

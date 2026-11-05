@@ -361,7 +361,7 @@ options = []
 #          upload_check_rounds is 0, which reads nothing back; a value set
 #          here applies there too.
 # Type: integer, greater than 0
-# Default: unset (the model's budget: 44535 for the Allegro 2, none elsewhere)
+# Default: unset (the model's budget: 49088 for the Allegro 2, none elsewhere)
 # Environment Variable: DATAMAX_DPL___PRINTER__IMAGE_MEMORY_BYTES=40000
 # image_memory_bytes = 40000
 

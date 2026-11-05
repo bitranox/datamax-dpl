@@ -400,7 +400,7 @@ under both policies; so is a raster fallback or a merged transparency image that
 image's size is unknown, so it is not checked.
 
 A model may carry an image memory budget, the bytes of dot data one job's downloads may hold (the
-Allegro 2 ships 44535; `[printer] image_memory_bytes` sets it, see
+Allegro 2 ships 49088; `[printer] image_memory_bytes` sets it, see
 [capabilities.md](capabilities.md)). An image without `bitmap` costs nothing. Past the budget,
 under `degrade`, every image the job downloads or draws (raster fallbacks) is sent at half
 resolution, each 2x2 block of dots becoming one dot that is black if any of the four was, and

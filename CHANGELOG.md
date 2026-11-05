@@ -21,6 +21,14 @@ All notable changes to this project are documented here. The format follows
   the Allegro 2), as `calibrate print` already sized it. Before, the library always built 200 mm, which the
   Allegro 2 refuses (`format_past_max_length`). A length given still wins; without options it stays 200 mm.
 
+### Changed
+
+- The `allegro-2` default image memory budget is 49088 bytes, the free bytes of an empty module A
+  read on one Allegro 2 (was 44535, read with 11 other graphics stored, less a margin). It only
+  applies offline, on one-way links and to file output; `print` on a two-way link lets the upload
+  check decide. The printer stores an image by content: a QR Code took about 0.13 times its dot data,
+  a checkerboard of single dots about 8 times, so the budget is a rough guide; CONFIG.md says so.
+
 ## [0.7.0] - 2026-11-04
 
 ### Added

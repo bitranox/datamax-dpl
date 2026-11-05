@@ -8,7 +8,7 @@ line survives, and a text line names the step. A halved image prints at double m
 every label prints the same size whether it was halved or not.
 
 The image is ``--width`` dots wide (default 800, about 100 mm at 203 dpi), so its height follows
-from its share: at the Allegro 2's 44535 bytes, the 1.0 step is about 445 rows (56 mm), longer
+from its share: at the Allegro 2's 49088 bytes, the 1.0 step is about 490 rows (61 mm), longer
 than many labels; print the ladder on continuous media or labels long enough.
 
 Usage::

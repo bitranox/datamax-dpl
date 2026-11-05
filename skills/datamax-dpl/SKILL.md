@@ -166,7 +166,7 @@ which may be waiting for the rest.
   (`format_past_max_length`); a label `dot_size` of height 2 doubles it. Unset it is the model's
   limit: 1648 on `allegro-2` (the lowest row one printer was seen to cut off), none elsewhere.
 - Image memory: a job's downloaded images (given bitmaps, raster fallbacks, QR Codes) must fit
-  `[printer] image_memory_bytes` (`allegro-2` default 44535, read from one printer's module A
+  `[printer] image_memory_bytes` (`allegro-2` default 49088, read from one printer's empty module A
   cartridge: on another one, set it from `memory --kind graphic`; other models have no budget). Past
   it, `degrade` sends every image but a QR Code at half resolution and double magnification
   (`image_halved`; `preview` shows it). Refused (`image_memory_exceeded`): still past it after
@@ -201,7 +201,7 @@ which may be waiting for the rest.
   download can be lost silently, which the upload check catches on a two-way link.
 - `datamax-dpl memory --kind all --printer tcp://HOST:9100` lists the names the printer stores
   and the free bytes of each memory module (read-only; tcp or serial). The `allegro-2` budget is
-  the 48631 free bytes one printer reported, less a 4096-byte margin; set yours the same way.
+  the 49088 free bytes one printer reported for an empty module A; set yours the same way.
 
 ## Cutting
 
