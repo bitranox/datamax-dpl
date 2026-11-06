@@ -385,6 +385,19 @@ measured exactly 200 mm.
 | Longest format         | cut off at a row that depends on the format's content, never below commanded row 1648 in the formats tried (below)                                                                                                                                                                    | `max_format_rows` 1648 in the `allegro-2` profile, the lowest cut seen, so conservative; the along calibration bar defaults to the longest whole 10 mm under it, 190 mm at 0.976 (200 mm needs row 1653) |
 | Tear-off stop position | found on the printer by trial in gap mode on 2026-10-30: `<STX>f265` stopped the label 1 mm too far out, `<STX>f261` 0.5 mm short, `<STX>f263` where wanted; stored as 66.8 mm, which converts back to `<STX>f263`                                                                    | `stop_position` (and the `allegro-2` default 66.8 mm) is sent unscaled: a scaled conversion would move the stop that was found                                                                           |
 
+### Cutting on the Allegro 2
+
+Measured 2026-11-06 on the same printer with its cutter fitted, 100 x 55 mm gap labels, one print
+each. DIP switch 8 enables the cutter at power-up; `<STX>V` overrides it until the next power-up
+(manual p.41), and the printer keeps the last `<STX>V` it got, so a job that sends none inherits it.
+
+| Topic                    | Measured                                                                                                              | We use                                                                                               |
+|--------------------------|-----------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|
+| Cutter stop position     | `<STX>f263` (the tear-off stop, 66.8 mm) cut 10 mm short of the gap; `<STX>f302` (76.8 mm) cut in the gap             | the `allegro-2` default `cutter_stop_position` 76.8 mm, sent unscaled for a job that cuts            |
+| Cutter on or off per job | `<STX>V1` cut every label; `<STX>V0` cut none and left the stock at the tear-off position                             | `<STX>V1` only for a label with `cut`, `<STX>V0` for every other job and for `feed --media`          |
+| Cut-by at the quantity   | `:0003` with `Q0003` cut once, after the third copy, although the manual (p.64) asks for an amount below the quantity | `cut.every` at or past the quantity sends `:<quantity>`                                              |
+| Cut-by plus the rest     | `:0003` with `Q0005`, then `<STX>o` after the format: cut after the third copy and again after the fifth              | `cut.every` below a quantity that is not a multiple of it sends `<STX>o` after the format (`at_end`) |
+
 ### Longest format on the Allegro 2
 
 Last commanded dot row printed per test format (one Allegro 2, firmware CA02 03.04, gap labels,
