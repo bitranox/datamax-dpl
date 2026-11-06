@@ -616,11 +616,13 @@ def test_the_labels_own_stop_position_wins_over_the_model_default() -> None:
 
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("tear_off", [{}, {"stop_position_mm": 40}])
-def test_a_job_that_cuts_sends_no_stop_position_without_a_cutter_stop_position(tear_off: dict[str, object]) -> None:
+def test_a_job_that_cuts_stops_at_the_model_s_cutter_stop_whatever_the_tear_off_stop(
+    tear_off: dict[str, object],
+) -> None:
+    """76.8 mm (``<STX>f302``) is where one Allegro 2's cutter cut in the gap, 2026-11-06."""
     result = _stop_job({"cut": {"every": 1}}, cutter_installed=True, **tear_off)
-    assert _stop_commands(result) == []
+    assert _stop_commands(result) == [STX + b"f302"]
     assert result.errors == ()
-    assert not _names_the_model_stop(result)
 
 
 @pytest.mark.os_agnostic

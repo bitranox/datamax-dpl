@@ -14,6 +14,9 @@ All notable changes to this project are documented here. The format follows
   twice on one Allegro 2). The library function is `media_feed()` in
   `datamax_dpl.domain.media_feed`. The README section "Long labels on continuous media" shows how
   a label longer than one format prints as segments.
+- `[printer] cut_every` (1-9999, `RenderOptions.cut_every`): the cut a label without its own `cut`
+  gets, as `"cut": {"every": N}`. The label's own `cut` wins; a `--data` batch cuts across its records
+  the same way. Unset, a label without `cut` is not cut.
 - `element_past_label_edge`: a field whose printed area ends past the label's `width` or `height` is reported,
   naming the edge and about how many mm it passes: a warning, an error under `strict`. Before, a QR Code
   taller than the label, or a box past its width, built with no finding. Continuous media checks the width
@@ -29,6 +32,20 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- With `[printer] cutter = "yes"`, only a label that cuts switches the cutter on: a label without `cut`
+  (and no `cut_every`) now sends `<STX>V0`, so it is not cut, where 0.7.0 sent `<STX>V1` for every job
+  and the printer cut every label. `feed --media` sends `<STX>V0` too. Measured on one Allegro 2,
+  2026-11-06: `<STX>V0` left the label uncut at the tear-off position.
+- The `allegro-2` model default `cutter_stop_position` is 76.8 mm (`<STX>f302`), where one Allegro 2's
+  cutter cut in the gap (2026-11-06; the tear-off stop, 66.8 mm, cut 10 mm short). A job that cuts sends it
+  unless `[printer] cutter_stop_position` or the label's `stop_position` says otherwise, and the
+  `model_defaults_applied` finding names it with where it was measured. Before, an unset
+  `cutter_stop_position` sent no stop for a job that cuts.
+- A `cut.every` at or past the quantity cuts once, after the last copy: the format asks for the whole
+  quantity (`:0003` for three copies) on every model with cut-by. 0.7.0 sent no cut-by command then and
+  reported `cut_by_not_below_quantity`, leaving the printer's own setting to decide; that finding code is
+  gone. The manual (p.64) asks for an amount below the quantity, but one Allegro 2 cut once after the third
+  of three copies (2026-11-06); other models are unverified.
 - The `allegro-2` default image memory budget is 49088 bytes, the free bytes of an empty module A
   read on one Allegro 2 (was 44535, read with 11 other graphics stored, less a margin). It only
   applies offline, on one-way links and to file output; `print` on a two-way link lets the upload

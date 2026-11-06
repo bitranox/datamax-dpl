@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .enums import MediaSensor, Severity
-from .job import media_and_stop
+from .job import feed_settings
 from .label import Label, Text
 from .render import job_context
 from .render_context import RenderOptions
@@ -70,12 +70,14 @@ def media_feed(media: MediaSensor, options: RenderOptions | None = None) -> Medi
     """
     if media not in FEED_MEDIA:
         raise ValueError(f"a feed returns to the gap or reflective sensor, not to {media.value} media")
-    chosen = (options or RenderOptions()).model_copy(update={"media": media, "send_settings": None})
+    # A fed label is never cut, so no default cut applies to it.
+    chosen = (options or RenderOptions()).model_copy(update={"media": media, "send_settings": None, "cut_every": None})
     # A label stands in for the job: the media and the stop come from the options, as for every
-    # job, and the label asks for neither, so a model that cannot set them only reports it.
+    # job, and the label asks for neither, so a model that cannot set them only reports it. It
+    # does not cut either, so an installed cutter is switched off for it.
     label = Label(elements=[Text(x=0, y=0, text="0")])
     ctx = job_context(label, chosen)
-    commands = media_and_stop(label, ctx)
+    commands = feed_settings(label, ctx)
     return MediaFeed(data=b"".join([*commands, FORM_FEED]), findings=ctx.findings.findings())
 
 

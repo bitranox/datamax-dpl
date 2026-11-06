@@ -370,7 +370,9 @@ these that applies:
    `[printer] stop_position` for every other job. Both are sent exactly as configured, without
    scale or offset. An unset `stop_position` takes the model's default, which only `allegro-2`
    has (66.8 mm, sent as `<STX>f263`); `stop_position = "printer"` sends none, the model's default
-   included. An unset `cutter_stop_position` has none, so a cutting job then sends no stop.
+   included. An unset `cutter_stop_position` takes the model's cutter default, which only
+   `allegro-2` has (76.8 mm, sent as `<STX>f302`, where one Allegro 2's cutter cut in the gap,
+   2026-11-06); on other models a cutting job then sends no stop.
 4. Nothing: the printer keeps its own setting.
 
 A `present_distance` can also go out beside that stop:

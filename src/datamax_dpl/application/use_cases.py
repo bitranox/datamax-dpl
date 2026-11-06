@@ -58,7 +58,7 @@ from ..domain.label import Cut, Image, Label
 from ..domain.memory import MemoryDirectory, parse_module_directory
 from ..domain.placeholders import fill_record
 from ..domain.profiles import get_profile
-from ..domain.render import RenderResult, build_job, build_record, iter_jobs
+from ..domain.render import RenderResult, build_job, build_record, iter_jobs, with_default_cut
 from ..domain.render_context import clear_may_go, option_name, whole_module_clear
 from ..domain.reset_label import calibration_job
 from ..domain.status import (
@@ -194,7 +194,7 @@ def render_batch(
         >>> batch.ok, len(batch.results)
         (True, 2)
     """
-    plan = _plan_of(_batch_label(label), options)
+    plan = _plan_of(_batch_label(label, options), options)
     results: list[RenderResult] = []
     cuts: list[bool] = []
     total = 0
@@ -260,7 +260,7 @@ def _entries(
     label: Label, records: Iterable[Mapping[str, str]], options: RenderOptions, *, read_names_at_send: bool
 ) -> Iterator[BatchEntry]:
     """Render one record at a time, carrying the batch's cuts across them and nothing about the printer."""
-    batch_label = _batch_label(label)
+    batch_label = _batch_label(label, options)
     plan = _plan_of(batch_label, options)
     # The current record's values and whether it is the last; iter_jobs takes one label and
     # yields its result before it asks for the next, so this holds one record at a time.
@@ -467,7 +467,7 @@ def iter_batch(
         >>> [b"Ann" in r.data for r in iter_batch(label, iter([{"name": "Ann"}]), Options(model="dmx-600"))]
         [True]
     """
-    extra = _plan_of(_batch_label(label), options).findings
+    extra = _plan_of(_batch_label(label, options), options).findings
     for entry in _entries(label, records, options, read_names_at_send=read_names_at_send):
         findings = (*entry.result.findings, *extra)
         extra = ()
@@ -650,7 +650,7 @@ class BatchReport:
             LabelRejectedError: The batch was refused when it was checked.
         """
         job = self._sendable()
-        per_record = _batch_label(job.label).per_record
+        per_record = _batch_label(job.label, job.options).per_record
         if job.spool is not None:
             return _spooled(per_record, job.options, job.spool.entries())
         return (
@@ -855,7 +855,7 @@ def check_batch(
             "give it a spool, or use iter_batch"
         )
         raise ValueError(msg)
-    tally = BatchTally(limits, plan=_plan_of(_batch_label(label), options))
+    tally = BatchTally(limits, plan=_plan_of(_batch_label(label, options), options))
     keeping = _Keeping(spool)
     for entry in _entries(label, records, options, read_names_at_send=read_names_at_send):
         kept = tally.add(entry.result, cut=entry.cut_after)
@@ -953,12 +953,14 @@ class _BatchLabel:
     cut: Cut | None
 
 
-def _batch_label(label: Label) -> _BatchLabel:
+def _batch_label(label: Label, options: RenderOptions) -> _BatchLabel:
     """Return the label each record fills, and the cut the batch makes across records.
 
     DPL's cut-by counts copies of one format, so a batch that cuts every N records cuts with
     ``<STX>o`` itself (:mod:`~datamax_dpl.domain.batch`), and each record's own label does not cut.
+    A label without a cut of its own takes the one ``cut_every`` gives it, across records too.
     """
+    label = with_default_cut(label, options)
     cut = label.cut
     if cut is None or cut.every == 1 or label.quantity > 1:
         return _BatchLabel(per_record=label, cut=None)
@@ -1014,7 +1016,7 @@ def record_renders(
     """
     if records is None:
         return (_LabelRender(label=label, options=options),)
-    per_record = _batch_label(label).per_record
+    per_record = _batch_label(label, options).per_record
     for number, record in enumerate(records):
         fill_record(per_record, record, number=number)
     return tuple(

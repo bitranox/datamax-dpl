@@ -100,10 +100,18 @@ the cost in image bytes. Without an `attribute` the preview shows XOR, each form
 
 `cut`:
 
-| Key      | Type           | Default | Meaning                                                                                                     |
-|----------|----------------|---------|-------------------------------------------------------------------------------------------------------------|
-| `every`  | integer 1-9999 | 1       | Cut after every N labels. With 1 no cut command goes into the format; the printer's cutter setting applies. |
-| `at_end` | boolean        | true    | Also cut the last group when the quantity is not a multiple of `every` (`<STX>o` after the format).         |
+| Key      | Type           | Default | Meaning                                                                                               |
+|----------|----------------|---------|-------------------------------------------------------------------------------------------------------|
+| `every`  | integer 1-9999 | 1       | Cut after every N labels. With 1 the format carries no cut-by command and the cutter cuts each label. |
+| `at_end` | boolean        | true    | Also cut the last group when the quantity is not a multiple of `every` (`<STX>o` after the format).   |
+
+A label that sets `cut` switches the cutter on for its job and one without it switches the cutter off
+(`<STX>V`, sent where `[printer] cutter` is `yes`), so only a label with `cut` is cut;
+`[printer] cut_every` gives every label without its own `cut` one. An `every` at or past the quantity
+cuts once, after the last copy: the format asks for the whole quantity (`:0003` for three copies).
+The manual (p.64) wants an amount below the quantity, but one Allegro 2 cut once after the third of
+three copies (2026-11-06); other models are unverified. A model without cut-by cuts after every
+label (`cut_by_unsupported`).
 
 A job with settings:
 

@@ -31,7 +31,15 @@ from .geometry import Size
 from .held_images import HeldImages
 from .image_budget import HALVING_FACTOR, halve, halved_magnification, image_data_bytes
 from .image_records import CR, MAX_WIDTH, download_command
-from .label import MAX_HEAT, MAX_POLYGON_POINTS, MAX_POLYGON_POINTS_LIMIT, NonNegative, Positive, StopPosition
+from .label import (
+    MAX_HEAT,
+    MAX_POLYGON_POINTS,
+    MAX_POLYGON_POINTS_LIMIT,
+    MAX_QUANTITY,
+    NonNegative,
+    Positive,
+    StopPosition,
+)
 from .profiles import Feature, ParsedFirmware
 from .qr import element_symbol
 from .raster import Bitmap
@@ -172,7 +180,11 @@ class RenderOptions(BaseModel):
             model's default, which for most models leaves the printer's own setting. A label's own
             ``stop_position`` wins, and a job that cuts never uses it.
         cutter_stop_position_mm: Stop position in mm for a job that cuts, sent as configured;
-            None sends no stop position for such a job and leaves the printer's own setting.
+            None takes the model's default, which for most models sends none and leaves the
+            printer's own setting.
+        cut_every: The cut a label that sets no ``cut`` gets: every this many labels, as a
+            label's ``cut.every``; None leaves such a label uncut (the cutter is switched off
+            for it). A label's own ``cut`` wins; a feed never cuts.
         image_memory_bytes: Bytes of image data one job may download (see
             :mod:`~datamax_dpl.domain.image_budget`); None takes the model's budget, which most
             models do not have. A budget set here applies on every path, ``model_image_budget``
@@ -257,6 +269,7 @@ class RenderOptions(BaseModel):
     )
     stop_position_mm: StopPosition | None = None
     cutter_stop_position_mm: Positive | None = None
+    cut_every: int | None = Field(default=None, ge=1, le=MAX_QUANTITY, strict=True)
     image_memory_bytes: int | None = Field(default=None, gt=0, strict=True)
     model_image_budget: bool = Field(default=True, strict=True)
     image_module: ImageModule | None = None

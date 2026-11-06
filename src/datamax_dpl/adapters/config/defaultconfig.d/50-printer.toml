@@ -342,14 +342,26 @@ options = []
 # stop_position = 66.8
 
 # Purpose: Stop position in mm for a job that cuts, where the cutter needs the
-#          label. A job that cuts never uses stop_position: it sends this one, or no
-#          stop position at all when this is unset. Sent exactly as set; a label's
-#          own stop_position wins. A model without a stop-position command does not
-#          get it and reports configured_stop_position_unsupported.
+#          label. A job that cuts never uses stop_position: it sends this one, or
+#          the model's cutter default when this is unset (allegro-2: 76.8, where one
+#          Allegro 2's cutter cut in the gap, 2026-11-06), or no stop position on a
+#          model without one. Sent exactly as set; a label's own stop_position wins.
+#          A model without a stop-position command does not get it and reports
+#          configured_stop_position_unsupported.
 # Type: float, greater than 0, at most 253.746 (999/100 inch, the DPL limit)
-# Default: unset (no stop position for a job that cuts)
+# Default: unset (the model's cutter default, else no stop position)
 # Environment Variable: DATAMAX_DPL___PRINTER__CUTTER_STOP_POSITION=80
 # cutter_stop_position = 80
+
+# Purpose: The cut a label without its own "cut" gets: after every N labels, as
+#          "cut": {"every": N} in the label. The label's own "cut" wins. An N at or
+#          past the label's quantity cuts once, after the last copy. With cutter
+#          "yes", a label without a cut switches the cutter off (<STX>V), so unset
+#          cuts no such label.
+# Type: integer, 1 to 9999
+# Default: unset (a label without "cut" is not cut)
+# Environment Variable: DATAMAX_DPL___PRINTER__CUT_EVERY=3
+# cut_every = 3
 
 # Purpose: Bytes of image dot data one job may download (rows times bytes per
 #          row of every image it sends; images it only places cost nothing). Past

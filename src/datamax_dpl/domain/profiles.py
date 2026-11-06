@@ -212,6 +212,10 @@ class CalibrationDefaults:
         offset_across: Millimetres every field moves to the right.
         offset_along: Millimetres every field moves toward the label top.
         stop_position_mm: Tear-off stop position in mm, or None to keep the printer's setting.
+        cutter_stop_position_mm: Stop position in mm for a label that cuts, or None to keep the
+            printer's setting.
+        cutter_stop_provenance: Where the cutter stop was measured; it was found on another day
+            than the calibration, with a cutter fitted, so it carries its own.
         provenance: Where the values were measured; empty for the neutral defaults.
         image_memory_bytes: Bytes of image data one job may download, or None for no budget
             (see :mod:`~datamax_dpl.domain.image_budget`).
@@ -230,6 +234,8 @@ class CalibrationDefaults:
     offset_across: float = 0.0
     offset_along: float = 0.0
     stop_position_mm: float | None = None
+    cutter_stop_position_mm: float | None = None
+    cutter_stop_provenance: str = ""
     provenance: str = ""
     image_memory_bytes: int | None = None
     image_memory_provenance: str = ""
@@ -509,6 +515,9 @@ _ALLEGRO_2_CALIBRATION = CalibrationDefaults(
     scale_along=0.976,
     offset_along=-0.25,
     stop_position_mm=66.8,
+    # Found by trial with a cutter fitted: 66.8 mm cut 10 mm short, 76.8 mm (<STX>f302) in the gap.
+    cutter_stop_position_mm=76.8,
+    cutter_stop_provenance="measured with a cutter on one Allegro 2, 2026-11-06",
     provenance="measured on one Allegro 2, firmware CA02 03.04, 2026-10-29 and 2026-10-30",
     # The whole empty module (the user's choice, 2026-11-05): it leaves no room for other stored
     # items. The printer stores an image by content, so dot data is only a rough measure of what it

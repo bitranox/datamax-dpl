@@ -38,7 +38,14 @@ from ...domain.enums import (
 )
 from ...domain.errors import ConfigurationError
 from ...domain.job import MAX_STOP_POSITION_MM
-from ...domain.label import MAX_HEAT, MAX_LENGTH, MAX_POLYGON_POINTS, MAX_POLYGON_POINTS_LIMIT, stop_position_or_printer
+from ...domain.label import (
+    MAX_HEAT,
+    MAX_LENGTH,
+    MAX_POLYGON_POINTS,
+    MAX_POLYGON_POINTS_LIMIT,
+    MAX_QUANTITY,
+    stop_position_or_printer,
+)
 from ...domain.preview import DEFAULT_PREVIEW_MAX_LENGTH_MM
 from ...domain.profiles import Firmware, ParsedFirmware
 from ...domain.render_context import OPTION_NAME, MaxLabelLengthMm, RenderOptions, StartOfPrintMm
@@ -207,10 +214,13 @@ class PrinterSettings(BaseModel):
     offset_along: float | None = Field(default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
     # Bounded here, unlike RenderOptions, so a config typo is refused with its key named before any
     # job is built, rather than as a STOP_POSITION_TOO_LARGE finding on every label. "printer"
-    # sends no stop and keeps the printer's own; the cutter stop has no such value, since unset
-    # already sends none for a job that cuts.
+    # sends no stop and keeps the printer's own. Unset, each takes the model's measured default,
+    # which only the Allegro 2 has; elsewhere a job that cuts then sends no stop.
     stop_position: _ConfiguredStop | None = None
     cutter_stop_position: float | None = Field(default=None, gt=0, le=MAX_STOP_POSITION_MM)
+    # The cut a label without its own "cut" gets: every N labels. Unset cuts no such label. Same
+    # range as a label's cut, so a bad value is refused here naming its key.
+    cut_every: int | None = Field(default=None, ge=1, le=MAX_QUANTITY)
     # None is not "no budget": it takes the model's, which most models do not have.
     image_memory_bytes: int | None = Field(default=None, gt=0)
     # None is not module A: it takes the model's built-in module, E on a DMX 600/800 and none on a
@@ -277,6 +287,7 @@ class PrinterSettings(BaseModel):
         "offset_along",
         "stop_position",
         "cutter_stop_position",
+        "cut_every",
         "image_memory_bytes",
         "max_format_rows",
         "inch_unit_dots",
@@ -584,6 +595,7 @@ def render_options(settings: PrinterSettings, *, model_image_budget: bool = True
         offset_along=settings.offset_along,
         stop_position_mm=settings.stop_position,
         cutter_stop_position_mm=settings.cutter_stop_position,
+        cut_every=settings.cut_every,
         image_memory_bytes=settings.image_memory_bytes,
         image_module=settings.image_module,
         clear_graphics_before_label=settings.clear_graphics_before,
@@ -624,6 +636,7 @@ OPTION_KEYS: Mapping[str, str] = MappingProxyType(
         "offset_along": "offset_along",
         "stop_position_mm": "stop_position",
         "cutter_stop_position_mm": "cutter_stop_position",
+        "cut_every": "cut_every",
         "image_memory_bytes": "image_memory_bytes",
         "image_module": "image_module",
         "clear_graphics_before_label": "clear_graphics_before",

@@ -33,7 +33,7 @@ from datamax_dpl.application.use_cases import render_label
 from datamax_dpl.composition import build_production, build_testing
 from datamax_dpl.domain.enums import FindingCode, MediaSensor, PrinterSetting, SpeedCode
 from datamax_dpl.domain.errors import ConfigurationError
-from datamax_dpl.domain.label import Label, Text
+from datamax_dpl.domain.label import Cut, Label, Text
 from datamax_dpl.domain.render_context import RenderOptions
 
 if TYPE_CHECKING:
@@ -45,6 +45,8 @@ REPO = Path(__file__).resolve().parents[1]
 STX = b"\x02"
 _PRODUCT = Label.model_validate_json((REPO / "examples" / "product-label.json").read_text(encoding="utf-8"))
 _TEXT = Label(elements=[Text(x=5, y=5, text="Hi")])
+#: A label that cuts, so the cutter bit of <STX>V is on where a cutter is installed.
+_CUTTING = Label(elements=[Text(x=5, y=5, text="Hi")], cut=Cut())
 #: Render options that are no printer state: whether the model's image budget applies is decided
 #: by the link a command prints over, never configured.
 _NOT_PRINTER_STATE = frozenset({"model_image_budget"})
@@ -59,10 +61,12 @@ _STATE_KEYS: dict[str, object] = {
 }
 
 #: sha256 of the product label's bytes, rendered through the settings with none of the keys set,
-#: taken before they existed (2026-11-03): unset keys must leave every job as it was.
+#: taken before they existed (2026-11-03): unset keys must leave every job as it was. The Allegro 2
+#: pins were retaken 2026-11-06, when its measured cutter stop became the model default: the label
+#: cuts, so its job gained <STX>f302 and nothing else.
 _BYTES_BEFORE_THE_KEYS = {
-    ("allegro-2", "unknown"): "ff07964ad20dee1d3ea4989027a643acccac9231e29328e2e5a85b435429ca44",
-    ("allegro-2", "yes"): "c1c8845eef23482f43397b23685af82a4b8d99a3f154fa9146c52d828bac0e85",
+    ("allegro-2", "unknown"): "efaa27c31e795982837661f590928d16eee39561dba6037d6e43ec3aa5b044f3",
+    ("allegro-2", "yes"): "eaa3db805cf8cb828f4edf39cb2a688a228bdbd5b6c7830e5e3b60014c2540d9",
     ("dmx-600", "unknown"): "07302d39fbf5d2b8df94604459d31c1a0e0f6f26ccc0eb2335496419efd1d5a4",
     ("dmx-600", "yes"): "07302d39fbf5d2b8df94604459d31c1a0e0f6f26ccc0eb2335496419efd1d5a4",
     ("prodigy", "unknown"): "9d42e3e3f56a16e1868dcbd6a75f8277e514d270de1e946a47b014fc60dd7606",
@@ -219,7 +223,7 @@ def test_send_settings_set_in_the_environment_as_a_list_leaves_out_the_rest(
 @pytest.mark.os_agnostic
 def test_label_present_and_cutter_build_the_software_switches(cli_runner: CliRunner, tmp_path: Path) -> None:
     args = ["--set", "printer.cutter=yes", "--set", "printer.label_present=yes"]
-    data = _rendered(_cli(cli_runner, *args, "render", _label_file(tmp_path), "--model", "dmx-600"))
+    data = _rendered(_cli(cli_runner, *args, "render", _label_file(tmp_path, _CUTTING), "--model", "dmx-600"))
     assert STX + b"V5" in data
 
 
@@ -307,7 +311,8 @@ def test_an_unknown_label_present_names_its_key_and_setting_it_sends_the_switche
     assert "[printer] label_present" in message
     followed = _cli(cli_runner, "--set", "printer.label_present=no", *command)
     assert _messages(followed, FindingCode.SOFTWARE_SWITCHES_NOT_SENT) == []
-    assert STX + b"V1" in _rendered(followed)
+    # The label does not cut, so the cutter bit is off although a cutter is installed.
+    assert STX + b"V0" in _rendered(followed)
 
 
 @pytest.mark.os_agnostic

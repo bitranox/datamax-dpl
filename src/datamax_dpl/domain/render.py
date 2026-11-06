@@ -18,10 +18,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, TypedDict, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
+from ._invariants import require_update_fields
 from .encode_barcode import encode_barcode
 from .encode_graphics import encode_box, encode_circle, encode_image, encode_line, encode_polygon, encode_qr
 from .encode_text import encode_scalable_text, encode_text
@@ -47,10 +48,11 @@ from .job import (
     image_downloads,
     retry_clear,
     retry_clear_may_go,
+    stops_at_cutter,
     stops_at_tear_off,
     system_prefix,
 )
-from .label import Barcode, Box, Circle, Image, Line, Polygon, Qr, ScalableText, Text, long_polygons
+from .label import Barcode, Box, Circle, Cut, Image, Label, Line, Polygon, Qr, ScalableText, Text, long_polygons
 from .overlap import DotArea, inexact_rectangle, printed_dots
 from .placeholders import label_placeholders
 from .preview import SentAs
@@ -69,7 +71,7 @@ from .units import MM_PER_INCH, Axis, Correction, DplUnit, to_inches
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Sequence
 
-    from .label import Element, Label
+    from .label import Element
     from .profiles import PrinterProfile
 
 #: The first character of a record line: its rotation digit.
@@ -206,6 +208,8 @@ def _resolve(options: RenderOptions, model: CalibrationDefaults) -> CalibrationD
         offset_across=_pick(options.offset_across, model.offset_across),
         offset_along=_pick(options.offset_along, model.offset_along),
         stop_position_mm=_tear_off_stop(options.stop_position_mm, model.stop_position_mm),
+        cutter_stop_position_mm=_pick(options.cutter_stop_position_mm, model.cutter_stop_position_mm),
+        cutter_stop_provenance=model.cutter_stop_provenance,
         provenance=model.provenance,
         image_memory_bytes=_pick(options.image_memory_bytes, model.image_memory_bytes),
         image_memory_provenance=model.image_memory_provenance,
@@ -224,21 +228,21 @@ class _ModelDefault:
     """One value of the model's calibration a job uses, as the report names it.
 
     Attributes:
+        option: The option the value is for; a stop position is named only where the job sends it.
         text: The option and its value, e.g. ``offset_along -0.25 mm``.
-        offset_axis: The axis of an offset; None for a scale factor or the stop position.
-        stop_position: True for the stop position, which is named only where the job sends one.
+        offset_axis: The axis of an offset; None for a scale factor or a stop position.
     """
 
+    option: _DefaultOption
     text: str
     offset_axis: Axis | None = None
-    stop_position: bool = False
 
 
 class _DefaultOption(str, Enum):
     """An option the model's calibration may supply, as the model defaults report names it.
 
-    The scale factors and offsets go by their configuration keys; the stop position by the
-    ``[printer]`` key that sets it.
+    The scale factors and offsets go by their configuration keys; the stop positions by the
+    ``[printer]`` keys that set them.
     """
 
     SCALE_ACROSS = CalibrationKey.SCALE_ACROSS.value
@@ -246,6 +250,7 @@ class _DefaultOption(str, Enum):
     OFFSET_ACROSS = CalibrationKey.OFFSET_ACROSS.value
     OFFSET_ALONG = CalibrationKey.OFFSET_ALONG.value
     STOP_POSITION = "stop_position"
+    CUTTER_STOP_POSITION = "cutter_stop_position"
 
     @property
     def unit(self) -> str:
@@ -307,26 +312,56 @@ def _model_defaults_used(options: RenderOptions, calibration: CalibrationDefault
             value=calibration.stop_position_mm,
             nominal=neutral.stop_position_mm,
         ),
+        _Candidate(
+            option=_DefaultOption.CUTTER_STOP_POSITION,
+            given=options.cutter_stop_position_mm,
+            value=calibration.cutter_stop_position_mm,
+            nominal=neutral.cutter_stop_position_mm,
+        ),
     )
     return tuple(
         _ModelDefault(
-            text=f"{c.option.value} {c.value:g}{c.option.unit}",
+            option=c.option,
+            text=_default_text(c, calibration),
             offset_axis=c.offset_axis,
-            stop_position=c.option is _DefaultOption.STOP_POSITION,
         )
         for c in candidates
         if c.value is not None and c.value not in (c.given, c.nominal)
     )
 
 
+def _default_text(candidate: _Candidate, calibration: CalibrationDefaults) -> str:
+    """Return how the report names one model default; the cutter stop with where it was measured.
+
+    The cutter stop was measured on another day than the rest of the model's calibration, so the
+    provenance the report opens with does not describe it.
+    """
+    text = f"{candidate.option.value} {candidate.value:g}{candidate.option.unit}"
+    if candidate.option is _DefaultOption.CUTTER_STOP_POSITION and calibration.cutter_stop_provenance:
+        text += f" ({calibration.cutter_stop_provenance})"
+    return text
+
+
+def _stops_sent(label: Label, ctx: RenderContext) -> frozenset[_DefaultOption]:
+    """Return the configured stop position this job sends, as the option that sets it; empty when none."""
+    if PrinterSetting.STOP not in ctx.printer_state.send:
+        return frozenset()
+    if stops_at_tear_off(label, ctx):
+        return frozenset({_DefaultOption.STOP_POSITION})
+    if stops_at_cutter(label, ctx):
+        return frozenset({_DefaultOption.CUTTER_STOP_POSITION})
+    return frozenset()
+
+
 def _report_model_defaults(
     label: Label, ctx: RenderContext, *, provenance: str, from_model: tuple[_ModelDefault, ...]
 ) -> None:
-    """Record which model defaults this job uses, naming the stop position only where it is sent."""
-    if not stops_at_tear_off(label, ctx) or PrinterSetting.STOP not in ctx.printer_state.send:
-        # The label's own or the cutter's stop position replaces the model's, and a job that sends
-        # no stop position sends none: either way the model's is never sent.
-        from_model = tuple(default for default in from_model if not default.stop_position)
+    """Record which model defaults this job uses, naming a stop position only where it is sent."""
+    # The label's own stop replaces the model's, a job that cuts stops at the cutter and one that
+    # does not at the tear-off position, and a job that sends no stop position sends neither.
+    stops = (_DefaultOption.STOP_POSITION, _DefaultOption.CUTTER_STOP_POSITION)
+    sent = _stops_sent(label, ctx)
+    from_model = tuple(default for default in from_model if default.option not in stops or default.option in sent)
     if from_model:
         named = ", ".join(default.text for default in from_model)
         ctx.findings.info(FindingCode.MODEL_DEFAULTS_APPLIED, f"model defaults ({provenance}): {named}")
@@ -376,7 +411,7 @@ def _context(label: Label, options: RenderOptions, *, halve: bool, held: HeldIma
         offset_along=calibration.offset_along,
         model_offset_axes=frozenset(default.offset_axis for default in from_model if default.offset_axis is not None),
         stop_position_mm=calibration.stop_position_mm,
-        cutter_stop_position_mm=options.cutter_stop_position_mm,
+        cutter_stop_position_mm=calibration.cutter_stop_position_mm,
         reserved_image_names=_stored_names(label, bitmap_rows),
         bitmap_rows=bitmap_rows,
         halve_images=halve,
@@ -393,6 +428,35 @@ def _context(label: Label, options: RenderOptions, *, halve: bool, held: HeldIma
     return probe
 
 
+class _DefaultCut(TypedDict):
+    """The field :func:`with_default_cut` sets on a label that has no cut of its own."""
+
+    cut: Cut
+
+
+require_update_fields(_DefaultCut, Label)
+
+
+def with_default_cut(label: Label, options: RenderOptions) -> Label:
+    """Return ``label`` with the cut ``options.cut_every`` gives a label that sets none.
+
+    The label's own ``cut`` wins; a label without one is not cut unless ``cut_every`` is set
+    (user decision 2026-11-06: the label decides, the key is its default).
+
+    Example:
+        >>> from datamax_dpl.domain.label import Label, Text
+        >>> label = Label(elements=[Text(x=5, y=5, text="Hi")])
+        >>> with_default_cut(label, RenderOptions(cut_every=3)).cut
+        Cut(every=3, at_end=True)
+        >>> with_default_cut(label, RenderOptions()).cut is None
+        True
+    """
+    if label.cut is not None or options.cut_every is None:
+        return label
+    # model_copy, not a new Label: the label is validated already, and only its cut changes.
+    return label.model_copy(update=_DefaultCut(cut=Cut(every=options.cut_every)))
+
+
 def job_context(label: Label, options: RenderOptions | None = None) -> RenderContext:
     """Return the context a job for ``label`` and ``options`` encodes with, before any field is encoded.
 
@@ -406,7 +470,8 @@ def job_context(label: Label, options: RenderOptions | None = None) -> RenderCon
         >>> job_context(Label(elements=[Text(x=5, y=5, text="Hi")]), RenderOptions(model="allegro-2")).dots_per_unit
         2.0
     """
-    return _context(label, options or RenderOptions(), halve=False, held=HeldImages())
+    chosen = options or RenderOptions()
+    return _context(with_default_cut(label, chosen), chosen, halve=False, held=HeldImages())
 
 
 def _check_label_level(label: Label, ctx: RenderContext) -> None:
@@ -857,6 +922,7 @@ def _uses_held_names(ctx: RenderContext) -> bool:
 
 def _encoded_result(label: Label, options: RenderOptions, *, held: HeldImages, halve: bool = False) -> RenderResult:
     """Render ``label``; ``halve`` sends every image that can be halved at half resolution whatever the budget says."""
+    label = with_default_cut(label, options)
     if halve:
         job = _halved(label, options, held=held)
     else:
@@ -970,4 +1036,5 @@ __all__ = [
     "iter_jobs",
     "job_context",
     "render",
+    "with_default_cut",
 ]

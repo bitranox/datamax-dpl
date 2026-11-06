@@ -296,12 +296,17 @@ def test_a_label_that_sets_nothing_left_out_gets_no_such_finding() -> None:
     assert FindingCode.LABEL_SETTING_NOT_SENT not in _codes(result)
 
 
-# ======================== Software switches# ======================== Software switches ========================
+# ======================== Software switches ========================
 
 
-@pytest.mark.parametrize(("cutter", "command"), [(True, b"V1"), (False, b"V0")])
-def test_the_allegro_2_sets_its_cutter_bit_and_internal_batch_off(cutter: bool, command: bytes) -> None:
-    result = _job(_text_label(), model="allegro-2", cutter_installed=cutter)
+@pytest.mark.parametrize(
+    ("cutter", "cut", "command"), [(True, Cut(), b"V1"), (True, None, b"V0"), (False, None, b"V0")]
+)
+def test_the_allegro_2_turns_its_cutter_on_only_for_a_label_that_cuts(
+    cutter: bool, cut: Cut | None, command: bytes
+) -> None:
+    """Measured 2026-11-06 on one Allegro 2: with V1 every label is cut, with V0 none is."""
+    result = _job(_text_label(cut=cut), model="allegro-2", cutter_installed=cutter)
     assert STX + command in result.data
     assert FindingCode.SOFTWARE_SWITCHES_NOT_SENT not in _codes(result)
 
@@ -314,7 +319,7 @@ def test_an_unknown_cutter_sends_no_software_switches() -> None:
 
 @pytest.mark.parametrize(("present", "command"), [(True, b"V5"), (False, b"V1")])
 def test_a_model_with_a_label_present_bit_needs_that_setting_too(present: bool, command: bytes) -> None:
-    data = _job(_text_label(), model="dmx-600", cutter_installed=True, label_present=present).data
+    data = _job(_text_label(cut=Cut()), model="dmx-600", cutter_installed=True, label_present=present).data
     assert STX + command in data
 
 
@@ -325,11 +330,14 @@ def test_an_unknown_label_present_sends_no_software_switches_where_the_model_has
 
 
 @pytest.mark.parametrize(
-    ("cutter", "present", "command"), [(True, True, b"V5"), (True, False, b"V1"), (False, True, b"V4")]
+    ("cutter", "cut", "present", "command"),
+    [(True, Cut(), True, b"V5"), (True, Cut(), False, b"V1"), (True, None, True, b"V4"), (False, None, True, b"V4")],
 )
-def test_the_max_pe_ovation_column_sets_cutter_and_label_present(cutter: bool, present: bool, command: bytes) -> None:
+def test_the_max_pe_ovation_column_sets_cutter_and_label_present(
+    cutter: bool, cut: Cut | None, present: bool, command: bytes
+) -> None:
     """Manual p.42: Prodigy Max, Ovation, Ovation 2, PE42 and PE43 have bit 0 cutter, bit 2 label present."""
-    data = _job(_text_label(), model="pe42", cutter_installed=cutter, label_present=present).data
+    data = _job(_text_label(cut=cut), model="pe42", cutter_installed=cutter, label_present=present).data
     assert STX + command in data
 
 

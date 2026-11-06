@@ -130,6 +130,7 @@ PRINTER_NUMBERS = [
     "offset_along",
     "stop_position",
     "cutter_stop_position",
+    "cut_every",
     "image_memory_bytes",
     "max_format_rows",
     "inch_unit_dots",

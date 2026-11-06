@@ -312,7 +312,6 @@ class FindingCode(str, Enum):
     CONFIGURED_SENSOR_SELECT_UNSUPPORTED = "configured_sensor_select_unsupported"
     CONFIGURED_STOP_POSITION_UNSUPPORTED = "configured_stop_position_unsupported"
     CONTINUOUS_LENGTH_MISSING = "continuous_length_missing"
-    CUT_BY_NOT_BELOW_QUANTITY = "cut_by_not_below_quantity"
     CUT_BY_UNSUPPORTED = "cut_by_unsupported"
     CUT_NOW_UNSUPPORTED = "cut_now_unsupported"
     CUTTER_ASSUMED = "cutter_assumed"

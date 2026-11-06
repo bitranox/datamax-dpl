@@ -129,11 +129,6 @@ def _record_lines(label: Label, model: str = MODEL) -> list[bytes]:
     return result.data.split(b"\r")
 
 
-def _codes(document: dict[str, object], model: str = MODEL) -> set[FindingCode]:
-    label = Label.model_validate({"elements": [{"type": "text", "x": 5, "y": 5, "text": "X"}], **document})
-    return {finding.code for finding in build_job(label, RenderOptions(model=model)).findings}
-
-
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize(
     ("symbology", "pdf417", "datamatrix", "field"),
@@ -202,9 +197,10 @@ def test_a_value_no_record_can_hold_is_refused_by_name(
 
 
 @pytest.mark.os_agnostic
-def test_a_cut_past_the_quantity_is_said_and_sends_no_cut_count() -> None:
-    assert FindingCode.CUT_BY_NOT_BELOW_QUANTITY in _codes({"quantity": 2, "cut": {"every": 5}})
+def test_a_cut_past_the_quantity_cuts_once_after_the_last_copy() -> None:
     label = Label.model_validate(
         {"quantity": 2, "cut": {"every": 5}, "elements": [{"type": "text", "x": 5, "y": 5, "text": "X"}]}
     )
-    assert b":0005" not in _record_lines(label)
+    lines = _record_lines(label)
+    assert b":0002" in lines
+    assert b":0005" not in lines

@@ -61,3 +61,18 @@ def test_continuous_media_is_refused() -> None:
     """Continuous media has no edge to feed to, and its length is what a label sets."""
     with pytest.raises(ValueError, match="continuous"):
         media_feed(MediaSensor.CONTINUOUS, RenderOptions(model="allegro-2"))
+
+
+@pytest.mark.os_agnostic
+def test_with_a_cutter_installed_the_feed_turns_it_off_so_the_fed_label_is_not_cut() -> None:
+    """With the cutter on, an Allegro 2 cut the fed label at the tear-off stop, 10 mm short (2026-11-06)."""
+    feed = media_feed(MediaSensor.GAP, RenderOptions(model="allegro-2", cutter_installed=True))
+
+    assert feed.data == b"\x02n\x02c0000\x02e\x02V0\x02f263\x02F"
+
+
+@pytest.mark.os_agnostic
+def test_a_default_cut_does_not_make_the_feed_cut() -> None:
+    feed = media_feed(MediaSensor.GAP, RenderOptions(model="allegro-2", cutter_installed=True, cut_every=2))
+
+    assert feed.data == b"\x02n\x02c0000\x02e\x02V0\x02f263\x02F"

@@ -209,13 +209,15 @@ class _SwitchValue:
     reason: str = ""
 
 
-def _switch_value(ctx: RenderContext) -> _SwitchValue:
+def _switch_value(label: Label, ctx: RenderContext) -> _SwitchValue:
     """Return the ``<STX>V`` value this job can build, or None and why it cannot.
 
     ``<STX>V`` overrides every bit until the next power-up (manual p.41), so it is built only when
     each bit of the model's layout has a known value: a guessed bit would switch an option off.
-    Internal batch stays 0: datamax-dpl sends its formats over the interface and never uses the
-    printer's internal batch mode.
+    The cutter bit is on only for a label that cuts: an enabled cutter cuts every label, so a
+    label without a cut turns it off (measured 2026-11-06 on one Allegro 2: V1 cut every label at
+    the tear-off stop, V0 none). Internal batch stays 0: datamax-dpl sends its formats over the
+    interface and never uses the printer's internal batch mode.
     """
     bits = ctx.profile.software_switches
     if bits is None:
@@ -225,7 +227,7 @@ def _switch_value(ctx: RenderContext) -> _SwitchValue:
         return _SwitchValue(None, f"{ctx.profile.name} has bits no setting describes ({undescribed})")
     if ctx.cutter_installed is None:
         return _SwitchValue(None, f"whether the cutter is installed is unknown (set {option_name('cutter_installed')})")
-    value = int(ctx.cutter_installed) << bits.cutter
+    value = int(ctx.cutter_installed and label.cut is not None) << bits.cutter
     if bits.label_present is None:
         return _SwitchValue(value)
     present = ctx.printer_state.label_present
@@ -236,10 +238,10 @@ def _switch_value(ctx: RenderContext) -> _SwitchValue:
     return _SwitchValue(value | int(present) << bits.label_present)
 
 
-def _software_switches(ctx: RenderContext) -> list[bytes]:
+def _software_switches(label: Label, ctx: RenderContext) -> list[bytes]:
     if not _sends(PrinterSetting.SOFTWARE_SWITCHES, ctx):
         return []
-    switches = _switch_value(ctx)
+    switches = _switch_value(label, ctx)
     if switches.value is None:
         ctx.findings.info(
             FindingCode.SOFTWARE_SWITCHES_NOT_SENT, f"software switches (<STX>V) not sent: {switches.reason}"
@@ -336,7 +338,7 @@ def _settings(label: Label, ctx: RenderContext) -> list[bytes]:
         + _start_of_print(ctx)
         + _max_label_length(label, ctx)
         + _feed_rate(ctx)
-        + _software_switches(ctx)
+        + _software_switches(label, ctx)
         + stop
     )
 
@@ -363,6 +365,11 @@ def stops_at_tear_off(label: Label, ctx: RenderContext) -> bool:
     where the cutter needs it (``cutter_stop_position_mm``), never at the tear-off position.
     """
     return not _label_sets_stop(label, ctx) and label.cut is None
+
+
+def stops_at_cutter(label: Label, ctx: RenderContext) -> bool:
+    """Return True when the job stops at the configured cutter position: it cuts, and the label sets no stop."""
+    return not _label_sets_stop(label, ctx) and label.cut is not None
 
 
 def _stop_command(hundredths: int, ctx: RenderContext) -> list[bytes]:
@@ -504,14 +511,15 @@ def _pause_command(label: Label, ctx: RenderContext) -> list[bytes]:
     return []
 
 
-def media_and_stop(label: Label, ctx: RenderContext) -> list[bytes]:
-    """Return the media and stop commands a job for ``label`` sends, in inch mode.
+def feed_settings(label: Label, ctx: RenderContext) -> list[bytes]:
+    """Return the media, software switch and stop commands a job for ``label`` sends, in inch mode.
 
-    The same commands and findings a label's job gives for its media sensor and its stop
-    position, for a command that exists to set them (``feed --media``). The media command goes
-    out only where ``ctx``'s printer state sends it, as in a job.
+    The same commands and findings a label's job gives for its media sensor, its cutter and its
+    stop position, for a command that feeds a label of its own (``feed --media``): a label that
+    does not cut turns an installed cutter off, so the fed label is not cut. The media command
+    goes out only where ``ctx``'s printer state sends it, as in a job.
     """
-    return [INCH_MODE, *_media_commands(label, ctx), *_present_commands(label, ctx)]
+    return [INCH_MODE, *_media_commands(label, ctx), *_software_switches(label, ctx), *_present_commands(label, ctx)]
 
 
 def system_prefix(label: Label, ctx: RenderContext) -> list[bytes]:
@@ -660,14 +668,12 @@ def _cut_lines(label: Label, ctx: RenderContext) -> list[bytes]:
     cut = label.cut
     if cut is None or cut.every == 1:
         return []
-    if cut.every >= label.quantity:
-        ctx.findings.info(
-            FindingCode.CUT_BY_NOT_BELOW_QUANTITY,
-            f"cut every {cut.every} needs more than {cut.every} labels; the printer's own cut setting applies",
-        )
-        return []
+    # The manual (p.64) asks for an amount smaller than the quantity, but an Allegro 2 cut once,
+    # after the last copy, for ":0003" with Q0003 (2026-11-06); the user chose to send it on every
+    # model with the command. Past the quantity it is the quantity: one cut after the last copy.
+    amount = min(cut.every, label.quantity)
     if ctx.supports(Feature.CUT_BY):
-        return [line(f":{cut.every:04d}")]
+        return [line(f":{amount:04d}")]
     ctx.findings.deviate(
         FindingCode.CUT_BY_UNSUPPORTED,
         f"cutting every {cut.every} labels: {ctx.requirement(Feature.CUT_BY)}",
@@ -722,7 +728,9 @@ def _check_cutter(label: Label, ctx: RenderContext) -> None:
 
 def _rest_cut(label: Label, ctx: RenderContext) -> list[bytes]:
     cut = label.cut
-    if cut is None or not cut.at_end or cut.every == 1 or label.quantity % cut.every == 0:
+    if cut is None or not cut.at_end or cut.every == 1 or cut.every >= label.quantity:
+        return []
+    if label.quantity % cut.every == 0:
         return []
     if ctx.supports(Feature.CUT_NOW):
         return [CUT_NOW]
@@ -956,12 +964,13 @@ __all__ = [
     "MAX_STOP_POSITION",
     "MAX_STOP_POSITION_MM",
     "closing_clears",
+    "feed_settings",
     "format_footer",
     "format_header",
     "image_downloads",
-    "media_and_stop",
     "retry_clear",
     "retry_clear_may_go",
+    "stops_at_cutter",
     "stops_at_tear_off",
     "system_prefix",
 ]
