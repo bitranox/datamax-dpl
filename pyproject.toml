@@ -13,9 +13,9 @@ dependencies = [
     "lib_log_rich>=8.1.2",
     "python-dotenv>=1.2.4",
     "lib_layered_config>=7.7.0",
-    "pydantic>=2.14.1",
+    "pydantic>=2.14.2",
     # PydanticCustomError: a firmware field refuses a non-text value with pydantic's own string_type error.
-    "pydantic-core>=2.50.1",
+    "pydantic-core>=2.50.2",
     "orjson>=3.13.0",
     "pyserial>=3.5",
     # 'calibrate set' edits the user config.toml and must keep its comments and key order.
@@ -334,4 +334,4 @@ ignores = ["E003"]
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = {lib-cli-exit-tools = false, lib-layered-config = false, lib-log-rich = false, grimp = "2026-09-11T10:36:50Z"}
+exclude-newer-package = {lib-cli-exit-tools = false, lib-layered-config = false, lib-log-rich = false}
