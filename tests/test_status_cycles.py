@@ -11,6 +11,7 @@ import itertools
 import json
 import os
 import runpy
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -34,6 +35,12 @@ _IDLE_STATUS = b"NNNNNNNN\r"
 _FIELDS = ["t", "elapsed", "cycle", "step", "rc", "bytes", "answer", "error"]
 #: Short enough for a test, long enough that a busy runner keeps the order of the connects.
 _INTERVAL = 0.2
+#: How far one reading of the script's clock can trail real time: 15.6 ms on Windows, where a gap
+#: between two scheduled starts was measured 29 ms short of the interval in 2026-11 when the test
+#: rebuilt each start from its end stamp; under a nanosecond on Linux and macOS.
+_CLOCK_STEP = time.get_clock_info("monotonic").resolution
+#: Two times the script rounds to 3 decimals differ by up to this much more than the raw times.
+_ROUNDING = 0.001
 #: Seconds of failing connects the wedged-port test stops at. Below one Windows refusal (about
 #: 2 s, where nothing is bound), so there the first refused connect already ends the run, while a
 #: platform that refuses at once probes several times: the assertions hold for both.
@@ -123,10 +130,12 @@ def test_a_cycle_prints_asks_status_three_times_and_connects_bare(
     assert server.connections == [STATUS_REQUEST + job, STATUS_REQUEST, STATUS_REQUEST, STATUS_REQUEST, b"", b"", b""]
     assert rows[0]["bytes"] == len(job)
     assert all(row["answer"]["idle"] is True for row in rows[1:4])
-    # The interval runs from one connect's START to the next; a row is stamped when its connect
-    # ends, so a slow connect followed by a fast one puts the stamps closer than the interval.
-    starts = [row["elapsed"] - row["answer"]["seconds"] for row in rows[4:]]
-    assert all(later - earlier >= _INTERVAL * 0.9 for earlier, later in itertools.pairwise(starts))
+    # The interval runs from one connect's scheduled START to the next. The script waits until the
+    # next start by its own clock, so a gap falls short only by one reading's clock step and the
+    # rounding; the end stamps would add the connect's length and the logging delay.
+    starts = [row["answer"]["started"] for row in rows[4:]]
+    floor = _INTERVAL - _CLOCK_STEP - _ROUNDING
+    assert all(later - earlier >= floor for earlier, later in itertools.pairwise(starts)), starts
     assert capsys.readouterr().out.splitlines() == (tmp_path / "cycles.jsonl").read_text(encoding="utf-8").splitlines()
 
 
@@ -167,8 +176,8 @@ def test_a_port_that_stops_accepting_ends_the_run_and_says_so(
     assert first_refused >= accepted_connects
     assert all(row["rc"] == 0 for row in connects[:first_refused])
     assert all(row["error"] == "refused" for row in connects[first_refused:])
-    refused_started = connects[first_refused]["elapsed"] - connects[first_refused]["answer"]["seconds"]
-    assert stop["elapsed"] - refused_started >= _GIVE_UP
+    refused_started = connects[first_refused]["answer"]["started"]
+    assert stop["elapsed"] - refused_started >= _GIVE_UP - _ROUNDING
     assert "stopped:" in capsys.readouterr().err
 
 

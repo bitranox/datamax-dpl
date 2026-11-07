@@ -10,7 +10,9 @@ then close, nothing sent) ``--interval`` seconds apart. Every event is one JSON 
 
 ``step`` is ``print``, ``status``, ``connect`` or ``stop``; ``rc`` is the command's exit code (0 or
 1 for a connect); ``bytes`` what a print sent; ``answer`` the command's JSON ``data`` (for a
-connect, the seconds the handshake took); ``error`` what went wrong, for a connect one of
+connect, ``seconds`` the handshake took and ``started``, the ``elapsed`` time its slot began, so
+connects ``--interval`` apart differ by that much in ``started``); ``error`` what went wrong, for a
+connect one of
 ``refused`` (nothing accepts on the port), ``timeout`` (no answer to the handshake within
 ``--timeout``), ``reset``, or the exception's name and errno.
 
@@ -193,7 +195,9 @@ class _Probe:
             cycle=cycle,
             step="connect",
             rc=0 if error is None else 1,
-            answer={"seconds": round(seconds, 3)},
+            # The slot's start, not the row's stamp: the stamp comes after the connect and the
+            # logging, so a gap between two stamps is not the interval.
+            answer={"seconds": round(seconds, 3), "started": round(started - self.log.started, 3)},
             error=error,
         )
         if error is None:
