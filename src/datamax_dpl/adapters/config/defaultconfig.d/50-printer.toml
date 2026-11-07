@@ -357,7 +357,8 @@ options = []
 #          "cut": {"every": N} in the label. The label's own "cut" wins. An N at or
 #          past the label's quantity cuts once, after the last copy. With cutter
 #          "yes", a label without a cut switches the cutter off (<STX>V), so unset
-#          cuts no such label.
+#          cuts no such label. A label cannot opt out of it; to print one job
+#          uncut, run it with --set printer.cut_every=null.
 # Type: integer, 1 to 9999
 # Default: unset (a label without "cut" is not cut)
 # Environment Variable: DATAMAX_DPL___PRINTER__CUT_EVERY=3

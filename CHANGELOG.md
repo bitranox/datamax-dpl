@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-07
+
 ### Added
 
 - `feed --media gap` (or `reflective`) ends continuous mode, selects that sensor, sends the
@@ -16,7 +18,8 @@ All notable changes to this project are documented here. The format follows
   a label longer than one format prints as segments.
 - `[printer] cut_every` (1-9999, `RenderOptions.cut_every`): the cut a label without its own `cut`
   gets, as `"cut": {"every": N}`. The label's own `cut` wins; a `--data` batch cuts across its records
-  the same way. Unset, a label without `cut` is not cut.
+  the same way. Unset, a label without `cut` is not cut. A label cannot opt out of it; one job is
+  printed uncut with `--set printer.cut_every=null`.
 - `element_past_label_edge`: a field whose printed area ends past the label's `width` or `height` is reported,
   naming the edge and about how many mm it passes: a warning, an error under `strict`. Before, a QR Code
   taller than the label, or a box past its width, built with no finding. Continuous media checks the width

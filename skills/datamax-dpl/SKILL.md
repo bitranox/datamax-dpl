@@ -210,7 +210,8 @@ which may be waiting for the rest.
   `--cutter no` refuses any cutting label.
 - Only a label with `cut` is cut: with `--cutter yes` a label without it switches the cutter off for
   its job (`<STX>V0`). `[printer] cut_every = N` gives every label without its own `cut` one; the
-  label's own `cut` wins.
+  label's own `cut` wins. A label cannot opt out of it: print that job with
+  `--set printer.cut_every=null`.
 - With `quantity` > N the printer counts copies itself (`:nnnn`); N at or past the quantity cuts once,
   after the last copy (the format asks for the whole quantity, `:0003` for three copies: the manual
   wants less, one Allegro 2 cut once anyway, other models unverified). With `--data`, each record is

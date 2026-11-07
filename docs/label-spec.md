@@ -107,7 +107,7 @@ the cost in image bytes. Without an `attribute` the preview shows XOR, each form
 
 A label that sets `cut` switches the cutter on for its job and one without it switches the cutter off
 (`<STX>V`, sent where `[printer] cutter` is `yes`), so only a label with `cut` is cut;
-`[printer] cut_every` gives every label without its own `cut` one. An `every` at or past the quantity
+`[printer] cut_every` gives every label without its own `cut` one (to print one job uncut where the config sets it, run it with `--set printer.cut_every=null`). An `every` at or past the quantity
 cuts once, after the last copy: the format asks for the whole quantity (`:0003` for three copies).
 The manual (p.64) wants an amount below the quantity, but one Allegro 2 cut once after the third of
 three copies (2026-11-06); other models are unverified. A model without cut-by cuts after every
