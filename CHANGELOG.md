@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The datamax-dpl skill's `SKILL.md` is a short page again (about 1500 words, was about 5800): it
+  keeps the workflow, the label basics and the models, and a table routes each detailed topic to a
+  page in `skills/datamax-dpl/references/` (exit codes and waits, fonts and QR Codes, images and
+  the printer's memory, cutting and stops, printer controls and calibration, the library). The
+  rules themselves are unchanged. The test that checks the skill against the CLI reads those pages
+  too, and now also checks a command written after a global option such as `--set`.
+
 ## [0.8.0] - 2026-11-07
 
 ### Added
