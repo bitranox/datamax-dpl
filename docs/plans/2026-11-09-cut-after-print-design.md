@@ -45,6 +45,12 @@ records one by one.
 4. Another plain label: its leading `<STX>V0` turns the cutter off with no stray cut and no extra feed (the user's
    open point), then it is cut at its end.
 
+Result, 2026-11-09/10 on one Allegro 2 (CA02 03.04), the user at the printer: 1 cut in the gap; 2 joined with one cut
+after the 3rd, but pulled back between the labels with `<STX>f302` on every record, so the joined stop was added
+(`f100 f100 f302` ran on; a framed A/B lost no space); a 5-record series cut every 2 from the tool's own bytes
+(`V0 f100, V1 f302, V0 f100, V1 f302, V1 f302`) came out 2 + 2 + 1, each cut in the gap, after a job that ended with
+the cutter on (no stray cut from the leading `<STX>V0`); 3 a panel FEED afterwards fed and cut one label.
+
 ## Release
 
 0.9.0 is released without this; it goes into 0.10.0 (it changes what every job on a cutter printer does).
