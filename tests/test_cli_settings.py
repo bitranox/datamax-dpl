@@ -60,6 +60,12 @@ def test_a_configured_stop_position_reaches_the_render_options() -> None:
 
 
 @pytest.mark.os_agnostic
+def test_a_configured_joined_stop_position_reaches_the_render_options() -> None:
+    assert _options({"printer": {"joined_stop_position": 20.0}}).joined_stop_position_mm == 20.0
+    assert _options({}).joined_stop_position_mm is None
+
+
+@pytest.mark.os_agnostic
 def test_a_named_printers_cutter_stop_position_wins_over_the_printer_section() -> None:
     config = {"printer": {"cutter_stop_position": 50}, "printers": {"x": {"cutter_stop_position": 80}}}
 
@@ -290,14 +296,14 @@ def test_a_held_image_severity_that_is_no_severity_is_refused_with_the_key_named
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("key", ["stop_position", "cutter_stop_position"])
+@pytest.mark.parametrize("key", ["stop_position", "cutter_stop_position", "joined_stop_position"])
 def test_a_stop_position_of_zero_is_refused_with_the_key_named(key: str) -> None:
     with pytest.raises(ConfigurationError, match=rf"^printer\.{key}: Input should be greater than 0$"):
         _options({"printer": {key: 0}})
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("key", ["stop_position", "cutter_stop_position"])
+@pytest.mark.parametrize("key", ["stop_position", "cutter_stop_position", "joined_stop_position"])
 def test_a_stop_position_past_999_hundredths_of_an_inch_is_refused_with_the_key_named(key: str) -> None:
     # 999/100 in, the most a three-digit <STX>f takes, is 253.746 mm.
     with pytest.raises(ConfigurationError, match=rf"^printer\.{key}: Input should be less than or equal to 253\.746$"):

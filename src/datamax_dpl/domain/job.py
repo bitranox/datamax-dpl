@@ -393,8 +393,27 @@ def stops_at_tear_off(label: Label, ctx: RenderContext) -> bool:
 
 
 def stops_at_cutter(label: Label, ctx: RenderContext) -> bool:
-    """Return True when the job stops at the configured cutter position: it cuts, and the label sets no stop."""
-    return not _label_sets_stop(label, ctx) and label.cut is not None
+    """Return True when the job stops at the configured cutter position: it cuts, and the label sets no stop.
+
+    A label the next one follows uncut stops at the joined stop instead where one is set (see
+    :func:`stops_joined`).
+    """
+    return not _label_sets_stop(label, ctx) and label.cut is not None and not stops_joined(label, ctx)
+
+
+def stops_joined(label: Label, ctx: RenderContext) -> bool:
+    """Return True when the job stops at the configured joined position.
+
+    That is a label of a series the next label follows uncut (:class:`~.label.JoinedLabel`), on a
+    printer with a joined stop set, and the label sets no stop of its own. The joined stop lies at
+    or below the start of print, so the printer does not pull the stock back before the next label.
+    """
+    return (
+        not _label_sets_stop(label, ctx)
+        and label.cut is not None
+        and label.cut.joins_next
+        and ctx.joined_stop_position_mm is not None
+    )
 
 
 def _stop_command(hundredths: int, ctx: RenderContext) -> list[bytes]:
@@ -435,7 +454,12 @@ def _configured_stop(label: Label, ctx: RenderContext) -> list[bytes]:
         # The present distance goes out as the stop position (_present_distance); a second
         # stop command beside it would only be overwritten by it.
         return []
-    configured = ctx.stop_position_mm if stops_at_tear_off(label, ctx) else ctx.cutter_stop_position_mm
+    if stops_at_tear_off(label, ctx):
+        configured = ctx.stop_position_mm
+    elif stops_joined(label, ctx):
+        configured = ctx.joined_stop_position_mm
+    else:
+        configured = ctx.cutter_stop_position_mm
     if configured is None:
         return []
     if not ctx.supports(Feature.STOP_POSITION):
@@ -1005,5 +1029,6 @@ __all__ = [
     "software_switches",
     "stops_at_cutter",
     "stops_at_tear_off",
+    "stops_joined",
     "system_prefix",
 ]

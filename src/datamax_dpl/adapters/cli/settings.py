@@ -218,6 +218,10 @@ class PrinterSettings(BaseModel):
     # which only the Allegro 2 has; elsewhere a job that cuts then sends no stop.
     stop_position: _ConfiguredStop | None = None
     cutter_stop_position: float | None = Field(default=None, gt=0, le=MAX_STOP_POSITION_MM)
+    # The stop of a --data record the next record follows uncut, at or below the start of print so
+    # the printer does not pull the stock back between them. Unset takes the model's (allegro-2:
+    # 25.4), else such a record stops at the cutter stop.
+    joined_stop_position: float | None = Field(default=None, gt=0, le=MAX_STOP_POSITION_MM)
     # The cut a label without its own "cut" gets: every N labels. Unset cuts no such label. Same
     # range as a label's cut, so a bad value is refused here naming its key.
     cut_every: int | None = Field(default=None, ge=1, le=MAX_QUANTITY)
@@ -290,6 +294,7 @@ class PrinterSettings(BaseModel):
         "offset_along",
         "stop_position",
         "cutter_stop_position",
+        "joined_stop_position",
         "cut_every",
         "image_memory_bytes",
         "max_format_rows",
@@ -600,6 +605,7 @@ def render_options(settings: PrinterSettings) -> RenderOptions:
         offset_along=settings.offset_along,
         stop_position_mm=settings.stop_position,
         cutter_stop_position_mm=settings.cutter_stop_position,
+        joined_stop_position_mm=settings.joined_stop_position,
         cut_every=settings.cut_every,
         cut_after_print=settings.cut_after_print,
         image_memory_bytes=settings.image_memory_bytes,
@@ -641,6 +647,7 @@ OPTION_KEYS: Mapping[str, str] = MappingProxyType(
         "offset_along": "offset_along",
         "stop_position_mm": "stop_position",
         "cutter_stop_position_mm": "cutter_stop_position",
+        "joined_stop_position_mm": "joined_stop_position",
         "cut_every": "cut_every",
         "cut_after_print": "cut_after_print",
         "image_memory_bytes": "image_memory_bytes",

@@ -526,7 +526,7 @@ def test_a_model_without_measured_defaults_reports_none(model: str) -> None:
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("field", ["stop_position_mm", "cutter_stop_position_mm"])
+@pytest.mark.parametrize("field", ["stop_position_mm", "cutter_stop_position_mm", "joined_stop_position_mm"])
 def test_a_stop_position_option_of_zero_or_less_is_refused(field: str) -> None:
     with pytest.raises(ValueError, match=rf"{field}\n\s+Input should be greater than 0"):
         RenderOptions.model_validate({"model": "allegro-2", field: 0})

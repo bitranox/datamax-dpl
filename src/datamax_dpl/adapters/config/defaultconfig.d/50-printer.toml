@@ -353,6 +353,20 @@ options = []
 # Environment Variable: DATAMAX_DPL___PRINTER__CUTTER_STOP_POSITION=80
 # cutter_stop_position = 80
 
+# Purpose: Stop position in mm for a record of a --data series that the next
+#          record follows uncut (the cutter off for it). Set it at or below the
+#          start of print: a stop past it makes the printer pull the stock back
+#          before the next record (manual p.22). Unset, it takes the model's
+#          default (allegro-2: 25.4, <STX>f100, where one Allegro 2 with its
+#          cutter ran a series on without pulling back, 2026-11-09), else such a
+#          record stops at cutter_stop_position. Sent exactly as set; a label's
+#          own stop_position wins. The last record and the calibration label
+#          stop at cutter_stop_position.
+# Type: float, greater than 0, at most 253.746 (999/100 inch, the DPL limit)
+# Default: unset (the model's default, else the cutter stop)
+# Environment Variable: DATAMAX_DPL___PRINTER__JOINED_STOP_POSITION=25.4
+# joined_stop_position = 25.4
+
 # Purpose: The cut a label without its own "cut" gets: after every N labels, as
 #          "cut": {"every": N} in the label. The label's own "cut" wins. An N at or
 #          past the label's quantity cuts once, after the last copy. Unset, a

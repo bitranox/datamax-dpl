@@ -13,14 +13,20 @@ joined; it is cut once after its last label.
 - Scope: only when the cutter is installed (`--cutter yes`, `[printer] cutter = yes`) on a model whose job can set
   the cutter (it sends `<STX>V`). `generic`, and a cutter that is unknown or absent, behave as today.
 - Every job uses the cutter stop position (`cutter_stop_position_mm`, 76.8 mm on the Allegro 2), never the tear-off
-  stop position, whether or not it cuts.
+  stop position, whether or not it cuts; except a `--data` record the next record follows uncut, which uses the joined
+  stop position (below).
 - The end of every print is cut. `cut` and `cut_every` still decide the cuts between labels; a label without `cut`
   is not cut between labels, only at the end. A cut's `"at_end": false` is overridden, with the info finding
   `cut_at_end_kept` (user, 2026-11-09).
   - One label with quantity N and no cut: `<STX>V1` plus cut-by `:N` (measured: `:0003` with `Q0003` cut once,
     after the third copy).
   - A `--data` series: `<STX>V0` on every record no cut follows, `<STX>V1` on the last record (and on those `cut`
-    says), `<STX>f302` on all (measured 2026-11-09: cut once after each such record, no `<STX>o`).
+    says), `<STX>f302` on the records a cut follows (measured 2026-11-09: cut once after each such record, no
+    `<STX>o`). The records no cut follows and another record follows send the joined stop position
+    (`[printer] joined_stop_position`, 25.4 mm = `<STX>f100` on the Allegro 2), below the start of print: with `f302`
+    on every record the printer pulled the stock back between the labels of a series (manual p.22: a stop past the
+    start of print backfeeds before the next format). Paper, 2026-11-09: `f100 f100 f302` ran on, one cut after the
+    3rd; a frame 2 mm in from every edge printed the same as with `f302` on all three.
   - The cutter is then on when the print ends, so a panel FEED cuts too.
 - `feed`, the calibration label and the reset label still turn the cutter off first (`<STX>V0`).
 - Settings key `[printer] cut_after_print`, default on (the user's rule: every behaviour switch gets a key). Turned

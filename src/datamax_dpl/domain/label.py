@@ -455,6 +455,8 @@ class Cut(_Frozen):
 
     #: Whether the cutter cuts this label's copies; False only for :class:`UncutLabel`.
     cuts_this_label: ClassVar[bool] = True
+    #: Whether the next label of the same print follows this one uncut; True only for :class:`JoinedLabel`.
+    joins_next: ClassVar[bool] = False
 
     every: int = Field(default=1, ge=1, le=MAX_QUANTITY, strict=True)
     at_end: bool = Field(default=True, strict=True)
@@ -464,9 +466,10 @@ class UncutLabel(Cut):
     """A label that stops where the cutter cuts, with the cutter off: it is not cut.
 
     An Allegro 2 cuts a format's label whenever the cutter is on (measured 2026-11-09), so a batch
-    cutting every N records turns it on only for the records a cut follows. The others, and the
-    calibration label that may go before a job, keep the stop position of a job that cuts: the label
-    after them is cut at the same place.
+    cutting every N records turns it on only for the records a cut follows. A record the next one
+    follows is a :class:`JoinedLabel`; the last record left uncut, and the calibration label that
+    may go before a job, keep the stop position of a job that cuts: the label after them is cut at
+    the same place.
 
     Only the library makes this, on a label already filled (filling validates the label again, which
     turns a subclass of a field's type back into that type); a label file cannot name it.
@@ -477,6 +480,27 @@ class UncutLabel(Cut):
     """
 
     cuts_this_label: ClassVar[bool] = False
+
+
+class JoinedLabel(UncutLabel):
+    """A label of a series that the next label of the same print follows uncut.
+
+    A stop past the start of print makes the printer pull the stock back before the next format
+    (manual p.22). On one Allegro 2 with its cutter (2026-11-09) a series with the cutter stop on
+    every record pulled back between its labels; with a stop below the start of print on the
+    joined records and the cutter stop only on the last it ran on, was cut once after the last, and
+    lost no printable space. So this label stops at the joined stop position
+    (``joined_stop_position_mm``) where one is set, else at the cutter stop as an
+    :class:`UncutLabel` does.
+
+    Made by the library only, as :class:`UncutLabel` is.
+
+    Example:
+        >>> JoinedLabel().joins_next, JoinedLabel().cuts_this_label, UncutLabel().joins_next
+        (True, False, False)
+    """
+
+    joins_next: ClassVar[bool] = True
 
 
 class DotSize(_Frozen):
@@ -591,6 +615,7 @@ __all__ = [
     "DotSize",
     "Element",
     "Image",
+    "JoinedLabel",
     "Label",
     "Line",
     "LongPolygon",

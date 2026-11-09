@@ -56,7 +56,7 @@ from ..domain.errors import (
 from ..domain.findings import Finding
 from ..domain.frozen_mapping import FrozenMapping
 from ..domain.held_images import READ_AT_SEND, HeldImages, held_images_from
-from ..domain.label import Cut, Image, Label, UncutLabel
+from ..domain.label import Cut, Image, JoinedLabel, Label, UncutLabel
 from ..domain.memory import MemoryDirectory, parse_module_directory
 from ..domain.placeholders import fill_record
 from ..domain.profiles import get_profile
@@ -287,7 +287,7 @@ def _entries(
                 batch_label.per_record,
                 values,
                 number=number,
-                cutter_off=plan.leaves_uncut(number + 1, last=entry.is_last),
+                uncut=_uncut_cut(plan, number, last=entry.is_last),
             )
 
     held = READ_AT_SEND if read_names_at_send else None
@@ -670,10 +670,8 @@ class BatchReport:
         per_record = _batch_label(job.label, job.options).per_record
 
         def fill_of(number: int, record: Mapping[str, str]) -> _RecordFillRender:
-            cutter_off = self.plan.leaves_uncut(number + 1, last=number + 1 == self.records)
-            return _RecordFillRender(
-                label=per_record, record=record, number=number, options=job.options, cutter_off=cutter_off
-            )
+            uncut = _uncut_cut(self.plan, number, last=number + 1 == self.records)
+            return _RecordFillRender(label=per_record, record=record, number=number, options=job.options, uncut=uncut)
 
         if job.spool is not None:
             return _spooled(fill_of, job.spool.entries())
@@ -977,10 +975,23 @@ class _BatchLabel:
     end_cut: bool
 
 
-def _filled_record(label: Label, record: Mapping[str, str], *, number: int, cutter_off: bool) -> Label:
-    """``label`` filled for data record ``number``, printing with the cutter off when ``cutter_off``."""
+def _uncut_cut(plan: CutPlan, number: int, *, last: bool) -> UncutLabel | None:
+    """Return the cut record ``number`` (from 0) takes in place of its own, or None to keep its own.
+
+    A record no cut follows prints with the cutter off: as a :class:`JoinedLabel` where the next
+    record of the print follows it, so it stops where the printer runs on to that record, else as
+    an :class:`UncutLabel` at the cutter stop.
+    """
+    if not plan.leaves_uncut(number + 1, last=last):
+        return None
+    return UncutLabel() if last else JoinedLabel()
+
+
+def _filled_record(label: Label, record: Mapping[str, str], *, number: int, uncut: UncutLabel | None) -> Label:
+    """``label`` filled for data record ``number``, taking the cut ``uncut`` where it is one."""
     filled = fill_record(label, record, number=number)
-    return filled.model_copy(update=_CutUpdate(cut=UncutLabel())) if cutter_off else filled
+    # After the fill, which validates the label again and would turn the subclass back into Cut.
+    return filled if uncut is None else filled.model_copy(update=_CutUpdate(cut=uncut))
 
 
 def _batch_label(label: Label, options: RenderOptions) -> _BatchLabel:
@@ -1062,7 +1073,7 @@ def record_renders(
             record=record,
             number=number,
             options=options,
-            cutter_off=plan.leaves_uncut(number + 1, last=number + 1 == len(records)),
+            uncut=_uncut_cut(plan, number, last=number + 1 == len(records)),
         )
         for number, record in enumerate(records)
     )
@@ -1096,10 +1107,10 @@ class _RecordFillRender:
     record: Mapping[str, str]
     number: int
     options: RenderOptions
-    cutter_off: bool = False
+    uncut: UncutLabel | None = None
 
     def _filled(self) -> Label:
-        return _filled_record(self.label, self.record, number=self.number, cutter_off=self.cutter_off)
+        return _filled_record(self.label, self.record, number=self.number, uncut=self.uncut)
 
     def first(self) -> RenderResult:
         """Fill the label and render it as it is first sent, its stored names to be read before its downloads."""

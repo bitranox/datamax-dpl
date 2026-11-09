@@ -51,6 +51,7 @@ from .job import (
     retry_clear_may_go,
     stops_at_cutter,
     stops_at_tear_off,
+    stops_joined,
     system_prefix,
 )
 from .label import Barcode, Box, Circle, Cut, Image, Label, Line, Polygon, Qr, ScalableText, Text, long_polygons
@@ -211,6 +212,8 @@ def _resolve(options: RenderOptions, model: CalibrationDefaults) -> CalibrationD
         stop_position_mm=_tear_off_stop(options.stop_position_mm, model.stop_position_mm),
         cutter_stop_position_mm=_pick(options.cutter_stop_position_mm, model.cutter_stop_position_mm),
         cutter_stop_provenance=model.cutter_stop_provenance,
+        joined_stop_position_mm=_pick(options.joined_stop_position_mm, model.joined_stop_position_mm),
+        joined_stop_provenance=model.joined_stop_provenance,
         provenance=model.provenance,
         image_memory_bytes=_pick(options.image_memory_bytes, model.image_memory_bytes),
         image_memory_provenance=model.image_memory_provenance,
@@ -252,6 +255,7 @@ class _DefaultOption(str, Enum):
     OFFSET_ALONG = CalibrationKey.OFFSET_ALONG.value
     STOP_POSITION = "stop_position"
     CUTTER_STOP_POSITION = "cutter_stop_position"
+    JOINED_STOP_POSITION = "joined_stop_position"
 
     @property
     def unit(self) -> str:
@@ -319,6 +323,12 @@ def _model_defaults_used(options: RenderOptions, calibration: CalibrationDefault
             value=calibration.cutter_stop_position_mm,
             nominal=neutral.cutter_stop_position_mm,
         ),
+        _Candidate(
+            option=_DefaultOption.JOINED_STOP_POSITION,
+            given=options.joined_stop_position_mm,
+            value=calibration.joined_stop_position_mm,
+            nominal=neutral.joined_stop_position_mm,
+        ),
     )
     return tuple(
         _ModelDefault(
@@ -332,14 +342,18 @@ def _model_defaults_used(options: RenderOptions, calibration: CalibrationDefault
 
 
 def _default_text(candidate: _Candidate, calibration: CalibrationDefaults) -> str:
-    """Return how the report names one model default; the cutter stop with where it was measured.
+    """Return how the report names one model default; a cutter or joined stop with where it was measured.
 
-    The cutter stop was measured on another day than the rest of the model's calibration, so the
-    provenance the report opens with does not describe it.
+    Those stops were measured on other days than the rest of the model's calibration, so the
+    provenance the report opens with does not describe them.
     """
     text = f"{candidate.option.value} {candidate.value:g}{candidate.option.unit}"
-    if candidate.option is _DefaultOption.CUTTER_STOP_POSITION and calibration.cutter_stop_provenance:
-        text += f" ({calibration.cutter_stop_provenance})"
+    own = {
+        _DefaultOption.CUTTER_STOP_POSITION: calibration.cutter_stop_provenance,
+        _DefaultOption.JOINED_STOP_POSITION: calibration.joined_stop_provenance,
+    }.get(candidate.option, "")
+    if own:
+        text += f" ({own})"
     return text
 
 
@@ -349,6 +363,8 @@ def _stops_sent(label: Label, ctx: RenderContext) -> frozenset[_DefaultOption]:
         return frozenset()
     if stops_at_tear_off(label, ctx):
         return frozenset({_DefaultOption.STOP_POSITION})
+    if stops_joined(label, ctx):
+        return frozenset({_DefaultOption.JOINED_STOP_POSITION})
     if stops_at_cutter(label, ctx):
         return frozenset({_DefaultOption.CUTTER_STOP_POSITION})
     return frozenset()
@@ -360,7 +376,7 @@ def _report_model_defaults(
     """Record which model defaults this job uses, naming a stop position only where it is sent."""
     # The label's own stop replaces the model's, a job that cuts stops at the cutter and one that
     # does not at the tear-off position, and a job that sends no stop position sends neither.
-    stops = (_DefaultOption.STOP_POSITION, _DefaultOption.CUTTER_STOP_POSITION)
+    stops = (_DefaultOption.STOP_POSITION, _DefaultOption.CUTTER_STOP_POSITION, _DefaultOption.JOINED_STOP_POSITION)
     sent = _stops_sent(label, ctx)
     from_model = tuple(default for default in from_model if default.option not in stops or default.option in sent)
     if from_model:
@@ -413,6 +429,7 @@ def _context(label: Label, options: RenderOptions, *, halve: bool, held: HeldIma
         model_offset_axes=frozenset(default.offset_axis for default in from_model if default.offset_axis is not None),
         stop_position_mm=calibration.stop_position_mm,
         cutter_stop_position_mm=calibration.cutter_stop_position_mm,
+        joined_stop_position_mm=calibration.joined_stop_position_mm,
         reserved_image_names=_stored_names(label, bitmap_rows),
         bitmap_rows=bitmap_rows,
         halve_images=halve,

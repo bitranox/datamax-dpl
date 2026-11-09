@@ -381,7 +381,11 @@ these that applies:
    has (66.8 mm, sent as `<STX>f263`); `stop_position = "printer"` sends none, the model's default
    included. An unset `cutter_stop_position` takes the model's cutter default, which only
    `allegro-2` has (76.8 mm, sent as `<STX>f302`, where one Allegro 2's cutter cut in the gap,
-   2026-11-06); on other models a cutting job then sends no stop.
+   2026-11-06); on other models a cutting job then sends no stop. A record of a `--data` series
+   that the next record follows uncut sends `[printer] joined_stop_position` instead, at or below
+   the start of print, so the printer does not pull the stock back between the two; unset, it takes
+   the model's default, which only `allegro-2` has (25.4 mm, `<STX>f100`, 2026-11-09), else the
+   cutter stop.
 4. Nothing: the printer keeps its own setting.
 
 A `present_distance` can also go out beside that stop:

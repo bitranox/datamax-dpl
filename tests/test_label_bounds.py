@@ -120,7 +120,7 @@ def test_a_number_past_a_double_is_refused_as_bad_json(cli_runner: CliRunner, tm
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("field", ["stop_position_mm", "cutter_stop_position_mm"])
+@pytest.mark.parametrize("field", ["stop_position_mm", "cutter_stop_position_mm", "joined_stop_position_mm"])
 @pytest.mark.parametrize("number", [1e308, math.inf, math.nan])
 def test_render_options_refuse_a_hostile_length(field: str, number: float) -> None:
     with pytest.raises(ValidationError) as caught:
@@ -286,6 +286,7 @@ def test_the_label_stop_position_keeps_its_number_and_word() -> None:
         "offset_along",
         "stop_position_mm",
         "cutter_stop_position_mm",
+        "joined_stop_position_mm",
         "image_memory_bytes",
         "max_format_rows",
         "start_of_print_mm",

@@ -18,7 +18,7 @@ import pytest
 
 from datamax_dpl.application.use_cases import check_batch, record_renders, render_batch
 from datamax_dpl.domain.enums import FindingCode, PrinterSetting, Severity
-from datamax_dpl.domain.label import Cut, Label, Text
+from datamax_dpl.domain.label import Cut, JoinedLabel, Label, Text
 from datamax_dpl.domain.render import RenderResult, build_job
 from datamax_dpl.domain.render_context import RenderOptions
 
@@ -168,10 +168,14 @@ def test_a_batch_that_switches_the_cutter_sends_no_cut_command() -> None:
     assert CUT_NOW not in batch.data
 
 
-def test_every_record_of_such_a_batch_stops_where_the_cutter_cuts() -> None:
-    # The winning print kept the cutter stop on every record, not only on those a cut follows.
+def _stops(job: bytes) -> list[bytes]:
+    """Each record's ``<STX>f`` command, in record order."""
+    return [record.split(STX + b"f", 1)[1][:3].join((b"f", b"")) for record in job.split(STX + b"n")[1:]]
+
+
+def test_the_records_a_cut_follows_stop_where_the_cutter_cuts_and_the_others_run_on() -> None:
     batch = render_batch(_batch_label(every=2), _records(5), _ALLEGRO_WITH_CUTTER)
-    assert [STX + b"f302" in record for record in batch.data.split(STX + b"n")[1:]] == [True] * 5
+    assert _stops(batch.data) == [b"f100", b"f302", b"f100", b"f302", b"f302"]
 
 
 def test_a_record_with_the_cutter_off_carries_no_cut_by() -> None:
@@ -276,7 +280,7 @@ def test_the_cut_after_the_print_needs_no_fallback_on_a_model_that_sets_its_cutt
 def test_a_series_stays_joined_and_is_cut_after_its_last_record() -> None:
     batch = render_batch(_uncut_label(), _records(3), _ALLEGRO_WITH_CUTTER)
     assert _switches(batch.data) == [b"V0", b"V0", b"V1"]
-    assert [STX + b"f302" in record for record in batch.data.split(STX + b"n")[1:]] == [True] * 3
+    assert _stops(batch.data) == [b"f100", b"f100", b"f302"]
     assert b"\r:0" not in batch.data
     assert CUT_NOW not in batch.data
 
@@ -348,6 +352,65 @@ def test_turned_off_a_batch_cut_without_at_end_leaves_the_end_uncut_as_before() 
     batch = render_batch(_batch_label(every=2, at_end=False), _records(5), options)
     assert _switches(batch.data) == [b"V0", b"V1", b"V0", b"V1", b"V0"]
     assert FindingCode.CUT_AT_END_KEPT not in {finding.code for finding in batch.batch_findings}
+
+
+# ======================== A label the next one follows uncut ========================
+#
+# A stop past the start of print makes the printer pull the stock back before the next format
+# (manual p.22). Measured 2026-11-09 on one Allegro 2 with its cutter: a 3-record series with the
+# cutter stop f302 on every record pulled back between its labels; with f100 on the first two and
+# f302 on the last it ran on, was cut once after the last, and a frame 2 mm in from every edge
+# printed the same in both arms.
+
+
+def _cutter_stop_options(**options: object) -> RenderOptions:
+    return RenderOptions.model_validate(
+        {"model": "dmx-600", "cutter_installed": True, "label_present": False, **options}
+    )
+
+
+def test_a_configured_joined_stop_wins_over_the_model_default() -> None:
+    options = _ALLEGRO_WITH_CUTTER.model_copy(update={"joined_stop_position_mm": 20.0})
+    batch = render_batch(_uncut_label(), _records(3), options)
+    assert _stops(batch.data) == [b"f079", b"f079", b"f302"]
+
+
+def test_without_a_joined_stop_every_record_keeps_the_cutter_stop() -> None:
+    batch = render_batch(_uncut_label(), _records(3), _cutter_stop_options(cutter_stop_position_mm=80.0))
+    assert _stops(batch.data) == [b"f315", b"f315", b"f315"]
+
+
+def test_a_last_record_left_uncut_keeps_the_cutter_stop() -> None:
+    # Nothing follows it in the print, so it runs on into nothing: it stops at the cutter as before.
+    options = _ALLEGRO_WITH_CUTTER.model_copy(update={"cut_after_print": False})
+    batch = render_batch(_batch_label(every=2, at_end=False), _records(5), options)
+    assert _switches(batch.data) == [b"V0", b"V1", b"V0", b"V1", b"V0"]
+    assert _stops(batch.data) == [b"f100", b"f302", b"f100", b"f302", b"f302"]
+
+
+def test_a_joined_label_names_the_joined_stop_default_and_not_the_cutter_stop() -> None:
+    result = _job(_label().model_copy(update={"cut": JoinedLabel()}), model="allegro-2", cutter_installed=True)
+    assert STX + b"f100" in result.data
+    [message] = _messages(result, FindingCode.MODEL_DEFAULTS_APPLIED)
+    assert "joined_stop_position 25.4 mm (measured" in message
+    assert "cutter_stop_position" not in message
+
+
+def test_a_configured_joined_stop_is_not_named_as_a_model_default() -> None:
+    label = _label().model_copy(update={"cut": JoinedLabel()})
+    result = _job(label, model="allegro-2", cutter_installed=True, joined_stop_position_mm=20.0)
+    assert all("joined_stop_position" not in m for m in _messages(result, FindingCode.MODEL_DEFAULTS_APPLIED))
+
+
+def test_a_label_that_cuts_names_no_joined_stop() -> None:
+    result = _job(_label(), model="allegro-2", cutter_installed=True)
+    assert all("joined_stop_position" not in m for m in _messages(result, FindingCode.MODEL_DEFAULTS_APPLIED))
+
+
+def test_the_label_s_own_stop_wins_over_the_joined_stop() -> None:
+    label = _label(stop_position=50).model_copy(update={"cut": JoinedLabel()})
+    result = _job(label, model="allegro-2", cutter_installed=True)
+    assert STX + b"f100" not in result.data
 
 
 def test_cut_after_print_is_a_bool() -> None:

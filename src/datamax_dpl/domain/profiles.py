@@ -217,6 +217,10 @@ class CalibrationDefaults:
             printer's setting.
         cutter_stop_provenance: Where the cutter stop was measured; it was found on another day
             than the calibration, with a cutter fitted, so it carries its own.
+        joined_stop_position_mm: Stop position in mm for a label of a series the next label
+            follows uncut, at or below the start of print so the printer does not pull the stock
+            back between them; None stops such a label at the cutter stop.
+        joined_stop_provenance: Where the joined stop was measured.
         provenance: Where the values were measured; empty for the neutral defaults.
         image_memory_bytes: Bytes of image data one job may download, or None for no budget
             (see :mod:`~datamax_dpl.domain.image_budget`).
@@ -237,6 +241,8 @@ class CalibrationDefaults:
     stop_position_mm: float | None = None
     cutter_stop_position_mm: float | None = None
     cutter_stop_provenance: str = ""
+    joined_stop_position_mm: float | None = None
+    joined_stop_provenance: str = ""
     provenance: str = ""
     image_memory_bytes: int | None = None
     image_memory_provenance: str = ""
@@ -521,6 +527,10 @@ _ALLEGRO_2_CALIBRATION = CalibrationDefaults(
     # Found by trial with a cutter fitted: 66.8 mm cut 10 mm short, 76.8 mm (<STX>f302) in the gap.
     cutter_stop_position_mm=76.8,
     cutter_stop_provenance="measured with a cutter on one Allegro 2, 2026-11-06",
+    # <STX>f100, below the start of print: a series with f302 on every record pulled back between
+    # its labels, with f100 on the joined records it ran on and lost no printable space.
+    joined_stop_position_mm=25.4,
+    joined_stop_provenance="measured with a cutter on one Allegro 2, 2026-11-09",
     provenance="measured on one Allegro 2, firmware CA02 03.04, 2026-10-29 and 2026-10-30",
     # The whole empty module (the user's choice, 2026-11-05): it leaves no room for other stored
     # items. The printer stores an image by content, so dot data is only a rough measure of what it

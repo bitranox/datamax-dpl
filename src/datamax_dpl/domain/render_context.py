@@ -182,6 +182,10 @@ class RenderOptions(BaseModel):
         cutter_stop_position_mm: Stop position in mm for a job that cuts, sent as configured;
             None takes the model's default, which for most models sends none and leaves the
             printer's own setting.
+        joined_stop_position_mm: Stop position in mm for a record of a ``--data`` series that the
+            next record follows uncut, sent as configured; set at or below the start of print, so
+            the printer does not pull the stock back between the two. None takes the model's
+            default; where the model has none, such a record stops at the cutter stop.
         cut_every: The cut a label that sets no ``cut`` gets: every this many labels, as a
             label's ``cut.every``; None leaves such a label uncut (the cutter is switched off
             for it). A label's own ``cut`` wins; a feed never cuts.
@@ -274,6 +278,7 @@ class RenderOptions(BaseModel):
     )
     stop_position_mm: StopPosition | None = None
     cutter_stop_position_mm: Positive | None = None
+    joined_stop_position_mm: Positive | None = None
     cut_every: int | None = Field(default=None, ge=1, le=MAX_QUANTITY, strict=True)
     cut_after_print: bool = Field(default=True, strict=True)
     image_memory_bytes: int | None = Field(default=None, gt=0, strict=True)
@@ -648,6 +653,8 @@ class RenderContext:
             caller set; a field that offset pushes past the label edge is clamped, not refused.
         stop_position_mm: Tear-off stop position in mm on this printer, or None for its own setting.
         cutter_stop_position_mm: Stop position in mm when cutting, or None for its own setting.
+        joined_stop_position_mm: Stop position in mm for a label the next one follows uncut, or
+            None to stop it at the cutter stop.
         reserved_image_names: Names of the label's stored-only ``image`` elements that no
             element of the label downloads: they name images the printer stores, so no download
             of the job takes one, whichever element comes first.
@@ -687,6 +694,7 @@ class RenderContext:
     model_offset_axes: frozenset[Axis] = frozenset[Axis]()
     stop_position_mm: float | None = None
     cutter_stop_position_mm: float | None = None
+    joined_stop_position_mm: float | None = None
     reserved_image_names: frozenset[str] = frozenset[str]()
     bitmap_rows: Mapping[str, tuple[str, ...]] = field(default_factory=dict[str, tuple[str, ...]])
     halve_images: bool = False
