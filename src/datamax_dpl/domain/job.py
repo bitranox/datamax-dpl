@@ -209,7 +209,7 @@ class _SwitchValue:
     reason: str = ""
 
 
-def _switch_value(label: Label, ctx: RenderContext) -> _SwitchValue:
+def _switch_value(ctx: RenderContext, *, cutter_on: bool) -> _SwitchValue:
     """Return the ``<STX>V`` value this job can build, or None and why it cannot.
 
     ``<STX>V`` overrides every bit until the next power-up (manual p.41), so it is built only when
@@ -227,7 +227,7 @@ def _switch_value(label: Label, ctx: RenderContext) -> _SwitchValue:
         return _SwitchValue(None, f"{ctx.profile.name} has bits no setting describes ({undescribed})")
     if ctx.cutter_installed is None:
         return _SwitchValue(None, f"whether the cutter is installed is unknown (set {option_name('cutter_installed')})")
-    value = int(ctx.cutter_installed and label.cut is not None) << bits.cutter
+    value = int(ctx.cutter_installed and cutter_on) << bits.cutter
     if bits.label_present is None:
         return _SwitchValue(value)
     present = ctx.printer_state.label_present
@@ -238,10 +238,15 @@ def _switch_value(label: Label, ctx: RenderContext) -> _SwitchValue:
     return _SwitchValue(value | int(present) << bits.label_present)
 
 
+def sends_cutter_bit(ctx: RenderContext) -> bool:
+    """Return True when a job for ``ctx`` turns the cutter on or off itself with ``<STX>V``."""
+    return _sends(PrinterSetting.SOFTWARE_SWITCHES, ctx) and _switch_value(ctx, cutter_on=False).value is not None
+
+
 def _software_switches(label: Label, ctx: RenderContext) -> list[bytes]:
     if not _sends(PrinterSetting.SOFTWARE_SWITCHES, ctx):
         return []
-    switches = _switch_value(label, ctx)
+    switches = _switch_value(ctx, cutter_on=label.cut is not None and label.cut.cuts_this_label)
     if switches.value is None:
         ctx.findings.info(
             FindingCode.SOFTWARE_SWITCHES_NOT_SENT, f"software switches (<STX>V) not sent: {switches.reason}"
@@ -970,6 +975,7 @@ __all__ = [
     "image_downloads",
     "retry_clear",
     "retry_clear_may_go",
+    "sends_cutter_bit",
     "stops_at_cutter",
     "stops_at_tear_off",
     "system_prefix",

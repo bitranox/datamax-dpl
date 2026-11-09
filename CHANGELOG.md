@@ -15,6 +15,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A `--data` batch with `cut: {every: N}` no longer cuts every label on a printer whose job sets
+  the cutter (`<STX>V`). Each record turns the cutter on only if a cut follows it, and no `<STX>o`
+  goes out for such a batch. Checked on paper on one Allegro 2, `every: 2` with 5 records and
+  `every: 1` with 3; `batch_cut_unverified` now fires only for a job that cannot set the cutter.
 - The `permissive` profile's display name is now "Permissive (no model checks)", so a finding on
   it reads as a sentence: "No model checks has no known value" named nothing that could have one.
 

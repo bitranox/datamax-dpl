@@ -2,12 +2,16 @@
 
 DPL's cut-by commands (``:nnnn``, ``cnn``) count copies of ONE format, and the manual requires N
 to be below the quantity. A data-driven batch renders one format per record with quantity 1, so
-those commands cannot express "cut after every 5 of these 40 different labels". The batch
-therefore sends ``<STX>o`` (cut now) after every N-th record and after the last one.
+those commands cannot express "cut after every 5 of these 40 different labels".
 
-Whether the printer then also cuts each label on its own depends on its cutter settings, which the
-manual does not tie to ``<STX>o``; the finding this module adds says so, until a test print on
-real hardware settles it.
+Where the job sets the cutter itself with ``<STX>V``, the batch turns it on only for every N-th
+record and the last one. Measured 2026-11-09 on one Allegro 2: with the cutter on it cuts every
+format's label by itself, whatever ``<STX>o`` follows, and ``<STX>o`` right after ``<STX>V1`` cuts
+twice, so the cutter bit is the cut and ``<STX>o`` stays out.
+
+Where the job does not set it, the batch sends ``<STX>o`` (cut now) after every N-th record and
+after the last one. Whether the printer then also cuts each label on its own depends on its cutter
+settings, which the job does not control; the finding this module adds says so.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from .enums import Attribute, FindingCode, Unit
 from .findings import Finding, FindingCollector
+from .job import sends_cutter_bit
 from .profiles import Feature, get_profile
 from .render_context import (
     RenderContext,
@@ -52,6 +57,7 @@ def _context(options: RenderOptions, findings: FindingCollector) -> RenderContex
         # A batch has no label of its own, so no label media wins over the options' here.
         printer_state=resolved_printer_state(options, profile, label_media=None),
         configured=resolved_label_state(options),
+        cutter_installed=options.cutter_installed,
         default_attribute=Attribute.XOR,
     )
 
@@ -64,15 +70,25 @@ class CutPlan:
         every: A cut follows every this many records; None when the batch sends no cut.
         at_end: A cut also follows the last record.
         findings: The batch-level findings.
+        by_cutter_bit: Each record turns the cutter on or off itself, so no ``<STX>o`` goes out.
     """
 
     every: int | None
     at_end: bool
     findings: tuple[Finding, ...]
+    by_cutter_bit: bool = False
 
     def follows(self, number: int, *, last: bool) -> bool:
         """Whether a cut follows record ``number``, counted from 1; ``last`` when it is the last one."""
         return self.every is not None and (number % self.every == 0 or (last and self.at_end))
+
+    def cut_now_follows(self, number: int, *, last: bool) -> bool:
+        """Whether ``<STX>o`` follows record ``number``, counted from 1; ``last`` when it is the last one."""
+        return not self.by_cutter_bit and self.follows(number, last=last)
+
+    def leaves_uncut(self, number: int, *, last: bool) -> bool:
+        """Whether record ``number``, counted from 1, must print with the cutter off."""
+        return self.by_cutter_bit and not self.follows(number, last=last)
 
 
 #: The plan of a batch that cuts across no records.
@@ -108,11 +124,14 @@ def batch_cuts(count: int, *, cut: Cut, options: RenderOptions) -> BatchCuts:
 def cut_plan(cut: Cut, *, options: RenderOptions) -> CutPlan:
     """Return where a batch of ``cut`` cuts, whatever its length, and the batch-level findings.
 
-    A cut follows every ``cut.every``-th record, and the last one when ``cut.at_end``; none
-    follows any record on a model without the cut-now command, which the findings then report.
+    A cut follows every ``cut.every``-th record, and the last one when ``cut.at_end``. A job that
+    sets the cutter itself makes each cut with the record's cutter bit; any other job needs the
+    cut-now command, and without one no cut follows any record, which the findings then report.
     """
     findings = FindingCollector(options.policy)
     ctx = _context(options, findings)
+    if sends_cutter_bit(ctx):
+        return CutPlan(every=cut.every, at_end=cut.at_end, findings=(), by_cutter_bit=True)
     if not ctx.supports(Feature.CUT_NOW):
         findings.deviate(
             FindingCode.BATCH_CUT_UNSUPPORTED,
@@ -123,8 +142,8 @@ def cut_plan(cut: Cut, *, options: RenderOptions) -> CutPlan:
         return CutPlan(every=None, at_end=False, findings=findings.findings())
     findings.warn(
         FindingCode.BATCH_CUT_UNVERIFIED,
-        f"a cut command follows every {cut.every}th label; the printer must not also cut each label "
-        "by itself (unverified on hardware)",
+        f"a cut command follows every {cut.every}th label; this job does not set the cutter itself, so the "
+        "printer must not also cut each label by itself (unverified on hardware)",
     )
     return CutPlan(every=cut.every, at_end=cut.at_end, findings=findings.findings())
 

@@ -14,7 +14,7 @@ Text fields may contain ``{name}`` placeholders, filled per record by
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Literal, TypeVar
+from typing import TYPE_CHECKING, Annotated, ClassVar, Literal, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -453,8 +453,29 @@ class Cut(_Frozen):
         True
     """
 
+    #: Whether the cutter cuts this label's copies; False only for :class:`UncutLabel`.
+    cuts_this_label: ClassVar[bool] = True
+
     every: int = Field(default=1, ge=1, le=MAX_QUANTITY, strict=True)
     at_end: bool = Field(default=True, strict=True)
+
+
+class UncutLabel(Cut):
+    """A label that stops where the cutter cuts, with the cutter off: it is not cut.
+
+    An Allegro 2 cuts a format's label whenever the cutter is on (measured 2026-11-09), so a batch
+    cutting every N records turns it on only for the records a cut follows. The others keep the stop
+    position of a job that cuts: the label after them is cut at the same place.
+
+    Only the library makes this, on a label already filled (filling validates the label again, which
+    turns a subclass of a field's type back into that type); a label file cannot name it.
+
+    Example:
+        >>> UncutLabel().cuts_this_label, Cut().cuts_this_label
+        (False, True)
+    """
+
+    cuts_this_label: ClassVar[bool] = False
 
 
 class DotSize(_Frozen):
@@ -564,6 +585,7 @@ __all__ = [
     "ScalableText",
     "StopPosition",
     "Text",
+    "UncutLabel",
     "long_polygons",
     "stop_position_or_printer",
 ]

@@ -54,7 +54,7 @@ from ..domain.errors import (
 from ..domain.findings import Finding
 from ..domain.frozen_mapping import FrozenMapping
 from ..domain.held_images import READ_AT_SEND, HeldImages, held_images_from
-from ..domain.label import Cut, Image, Label
+from ..domain.label import Cut, Image, Label, UncutLabel
 from ..domain.memory import MemoryDirectory, parse_module_directory
 from ..domain.placeholders import fill_record
 from ..domain.profiles import get_profile
@@ -271,7 +271,9 @@ def _entries(
             # Read once, here: the render and what the send fills again both take these values.
             values = dict(record)
             current.append((values, last))
-            yield fill_record(batch_label.per_record, values, number=number)
+            yield _filled_record(
+                batch_label.per_record, values, number=number, cutter_off=plan.leaves_uncut(number + 1, last=last)
+            )
 
     held = READ_AT_SEND if read_names_at_send else None
     for number, result in enumerate(iter_jobs(labels(), options, held=held), start=1):
@@ -283,7 +285,7 @@ def _entries(
             else _judged_after_the_first(result, batch_label.per_record, options, read_names_at_send=read_names_at_send)
         )
         values, last = current.pop()
-        yield BatchEntry(result=checked, cut_after=plan.follows(number, last=last), record=values)
+        yield BatchEntry(result=checked, cut_after=plan.cut_now_follows(number, last=last), record=values)
 
 
 def _judged_after_the_first(
@@ -651,19 +653,25 @@ class BatchReport:
         """
         job = self._sendable()
         per_record = _batch_label(job.label, job.options).per_record
+
+        def fill_of(number: int, record: Mapping[str, str]) -> _RecordFillRender:
+            cutter_off = self.plan.leaves_uncut(number + 1, last=number + 1 == self.records)
+            return _RecordFillRender(
+                label=per_record, record=record, number=number, options=job.options, cutter_off=cutter_off
+            )
+
         if job.spool is not None:
-            return _spooled(per_record, job.options, job.spool.entries())
-        return (
-            _RecordFillRender(label=per_record, record=record, number=number, options=job.options)
-            for number, record in enumerate(job.records)
-        )
+            return _spooled(fill_of, job.spool.entries())
+        return (fill_of(number, record) for number, record in enumerate(job.records))
 
     def cuts(self) -> Iterator[bool]:
-        """For each record in turn, whether a batch cut follows it."""
-        return (self.plan.follows(number, last=number == self.records) for number in range(1, self.records + 1))
+        """For each record in turn, whether a batch cut (``<STX>o``) follows it."""
+        return (self.plan.cut_now_follows(number, last=number == self.records) for number in range(1, self.records + 1))
 
 
-def _spooled(per_record: Label, options: RenderOptions, entries: Iterator[BatchEntry]) -> Iterator[RecordRender]:
+def _spooled(
+    fill_of: Callable[[int, Mapping[str, str]], _RecordFillRender], entries: Iterator[BatchEntry]
+) -> Iterator[RecordRender]:
     """Each record's checked render from the spool, which renders it again from the values kept with it.
 
     Raises:
@@ -673,8 +681,7 @@ def _spooled(per_record: Label, options: RenderOptions, entries: Iterator[BatchE
         if entry.record is None:
             msg = f"the spool gave back data record {number} without its values, which a send renders it again from"
             raise ConfigurationError(msg)
-        fill = _RecordFillRender(label=per_record, record=entry.record, number=number, options=options)
-        yield _SpooledRender(fill=fill, checked=entry.result, unkept_counts=entry.unkept)
+        yield _SpooledRender(fill=fill_of(number, entry.record), checked=entry.result, unkept_counts=entry.unkept)
 
 
 def report_of(result: BatchResult, *, limits: ReportLimits = DEFAULT_REPORT_LIMITS) -> BatchReport:
@@ -946,18 +953,24 @@ class _BatchLabel:
 
     Attributes:
         per_record: The label each record fills.
-        cut: The cut the batch makes across records with ``<STX>o``; None when it makes none.
+        cut: The cut the batch makes across records; None when it makes none.
     """
 
     per_record: Label
     cut: Cut | None
 
 
+def _filled_record(label: Label, record: Mapping[str, str], *, number: int, cutter_off: bool) -> Label:
+    """``label`` filled for data record ``number``, printing with the cutter off when ``cutter_off``."""
+    filled = fill_record(label, record, number=number)
+    return filled.model_copy(update=_CutUpdate(cut=UncutLabel())) if cutter_off else filled
+
+
 def _batch_label(label: Label, options: RenderOptions) -> _BatchLabel:
     """Return the label each record fills, and the cut the batch makes across records.
 
-    DPL's cut-by counts copies of one format, so a batch that cuts every N records cuts with
-    ``<STX>o`` itself (:mod:`~datamax_dpl.domain.batch`), and each record's own label does not cut.
+    DPL's cut-by counts copies of one format, so a batch that cuts every N records makes the cut
+    itself (:mod:`~datamax_dpl.domain.batch`), and each record's own label carries no cut-by.
     A label without a cut of its own takes the one ``cut_every`` gives it, across records too.
     """
     label = with_default_cut(label, options)
@@ -1016,11 +1029,18 @@ def record_renders(
     """
     if records is None:
         return (_LabelRender(label=label, options=options),)
-    per_record = _batch_label(label, options).per_record
+    batch_label = _batch_label(label, options)
     for number, record in enumerate(records):
-        fill_record(per_record, record, number=number)
+        fill_record(batch_label.per_record, record, number=number)
+    plan = _plan_of(batch_label, options)
     return tuple(
-        _RecordFillRender(label=per_record, record=record, number=number, options=options)
+        _RecordFillRender(
+            label=batch_label.per_record,
+            record=record,
+            number=number,
+            options=options,
+            cutter_off=plan.leaves_uncut(number + 1, last=number + 1 == len(records)),
+        )
         for number, record in enumerate(records)
     )
 
@@ -1053,9 +1073,10 @@ class _RecordFillRender:
     record: Mapping[str, str]
     number: int
     options: RenderOptions
+    cutter_off: bool = False
 
     def _filled(self) -> Label:
-        return fill_record(self.label, self.record, number=self.number)
+        return _filled_record(self.label, self.record, number=self.number, cutter_off=self.cutter_off)
 
     def first(self) -> RenderResult:
         """Fill the label and render it as it is first sent, its stored names to be read before its downloads."""
