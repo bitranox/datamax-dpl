@@ -24,8 +24,9 @@ from __future__ import annotations
 from .__init__conf__ import print_info
 from .adapters.logging.setup import InvalidLoggingConfigError
 from .adapters.preview import pillow_available, preview_findings, render_preview_png
-from .adapters.transport import open_printer
+from .adapters.transport import open_printer, printer_uri_is_one_way
 from .application.ports import Clock, JobSpool, OpenPrinter, PrinterEndpoint, PrinterTransport, Sleep
+from .application.print_flow import PrintRefusedError, PrintRequest, print_label
 from .application.upload_check import (
     CheckedJob,
     CheckedPrint,
@@ -188,6 +189,8 @@ __all__ = [
     "Point",
     "Polygon",
     "PreviewTooLongError",
+    "PrintRefusedError",
+    "PrintRequest",
     "PrinterEndpoint",
     "PrinterProfile",
     "PrinterProtocolError",
@@ -242,6 +245,8 @@ __all__ = [
     "preview_findings",
     "print_checked",
     "print_info",
+    "print_label",
+    "printer_uri_is_one_way",
     "record_renders",
     "render",
     "render_batch",

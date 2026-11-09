@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `print_label(label, PrintRequest(...))` prints the way the `print` command does, in one library
+  call: it decides the model's image budget and the printer's image-name reads for the link, then
+  refuses with `PrintRefusedError` (no printer opened) or sends. `one_way` is required, and
+  `printer_uri_is_one_way(uri)` answers it from a URI. The `print` command now calls it.
+
 ### Fixed
 
 - The `permissive` profile's display name is now "Permissive (no model checks)", so a finding on

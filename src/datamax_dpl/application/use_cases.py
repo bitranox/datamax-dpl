@@ -1692,6 +1692,7 @@ def detect_printer(*, endpoint: PrinterEndpoint) -> DetectReport:
 
 __all__ = [
     "BUSY_HINT",
+    "DEFAULT_REPORT_LIMITS",
     "DIRECTORY_IDLE_SECONDS",
     "NO_UNKEPT",
     "ONE_WAY_LINK",

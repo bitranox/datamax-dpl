@@ -119,8 +119,9 @@ def check_loaded(
 
     A command that renders more than once, or needs the label itself as well as its rendering,
     loads LABEL and its data once and calls this: stdin ('-') can be read only once. Every command
-    that writes or sends a job checks it here first, so a Ctrl-C noted while it was checked ends the
-    command before any byte of the job goes out (see :mod:`..interrupt`).
+    that writes a job to a file or stdout checks it here first, so a Ctrl-C noted while it was
+    checked ends the command before any byte of the job goes out (see :mod:`..interrupt`). ``print``
+    has its channels' opener do that instead (``printer_opener``).
 
     Args:
         label: The label to render.

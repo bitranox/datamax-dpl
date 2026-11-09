@@ -43,10 +43,17 @@ before them, and no clear after the label before that reaches the module, gets t
 `batch_image_names_unread`, so the report is not `.ok` and nothing is sent.
 `[printer] max_batch_job_bytes` (64 MiB) applies only to `render --data` with no
 `-o`. `send(data)` writes the job as it is: it does not check what the printer stored, so an image
-download a full module lost gives a label with that image missing, and no error. On a channel that
-can read answers (tcp, serial), `print_checked(job, CheckedJob(renders=record_renders(label, None,
+download a full module lost gives a label with that image missing, and no error. To print the way
+the `print` command does, call `print_label(label, PrintRequest(options=options,
+endpoint=PrinterEndpoint(uri=uri, timeout=10, open_printer=open_printer),
+check=UploadCheck(wait=AnswerWait(seconds=30)), one_way=printer_uri_is_one_way(uri)))`, with
+`records=` for a batch: it decides `options.model_image_budget` and the name reads for the link, and
+a label with an error finding raises `PrintRefusedError` with no printer opened. To send a job you
+rendered yourself over a channel that can read answers (tcp, serial), use the step it ends with
+(render with `model_image_budget=False` for images past the model's budget at full size, as `print`
+does): `print_checked(job, CheckedJob(renders=record_renders(label, None,
 options), check=UploadCheck(wait=AnswerWait(seconds=30))), endpoint=PrinterEndpoint(uri=uri,
-timeout=10, open_printer=open_printer))` is the route `print` takes (`PrinterEndpoint` takes the
+timeout=10, open_printer=open_printer))` (`PrinterEndpoint` takes the
 URI, timeout and opener together): it reads the printer's directory before a label's downloads where
 no clear precedes them and after any downloads it sends, and raises `UploadRefusedError` before a
 format would print without its image. It also reads the status once first: on a reported reset one

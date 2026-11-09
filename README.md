@@ -174,14 +174,23 @@ The rest of the commands have library forms too, imported from `datamax_dpl` as 
   options it is 200 mm.
 
 `send(data)` writes the job as it is: it does not check what the printer stored, so an image
-download a full module lost gives a label with that image missing, and no error. On a channel that
-can read answers (tcp, serial), `print_checked(job, CheckedJob(renders=record_renders(label, None,
+download a full module lost gives a label with that image missing, and no error.
+
+`print_label(label, PrintRequest(options=options, endpoint=PrinterEndpoint(uri=uri, timeout=10,
+open_printer=open_printer), check=UploadCheck(wait=AnswerWait(seconds=30)),
+one_way=printer_uri_is_one_way(uri)))` prints the way the `print` command does. It renders for the
+link: it decides `options.model_image_budget` itself and whether the printer's image names are read
+at send. A label with an error finding raises `PrintRefusedError` and opens no printer; pass
+`records=` for a batch.
+
+To send a job you rendered yourself over a channel that can read answers (tcp, serial), use the
+step `print_label` ends with: `print_checked(job, CheckedJob(renders=record_renders(label, None,
 options), check=UploadCheck(wait=AnswerWait(seconds=30))),
-endpoint=PrinterEndpoint(uri=uri, timeout=10, open_printer=open_printer))` is the route `print`
-takes: it reads the printer's directory after each label's downloads and raises
-`UploadRefusedError` before a format would print
+endpoint=PrinterEndpoint(uri=uri, timeout=10, open_printer=open_printer))`. It reads the printer's
+directory after each label's downloads and raises `UploadRefusedError` before a format would print
 without its image. It also reads the status once first: on a reported reset one calibration label
-goes out before the job, and `CheckedJob(reset=None)` asks nothing.
+goes out before the job, and `CheckedJob(reset=None)` asks nothing. Render with
+`model_image_budget=False` to send images past the model's budget at full size, as `print` does.
 
 Everything the package raises on purpose derives from `DatamaxDplError`, also imported from
 `datamax_dpl`, so `except DatamaxDplError` catches it all. Below it, `TransportError` covers what a

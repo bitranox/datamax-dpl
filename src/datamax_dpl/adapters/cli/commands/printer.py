@@ -12,25 +12,16 @@ import rich_click as click
 from pydantic import BaseModel, ConfigDict
 
 from ....application.ports import PrinterEndpoint
-from ....application.upload_check import (
-    MIN_UPLOAD_CHECK_ROUNDS,
-    CheckedJob,
-    ResetCheck,
-    UploadCheck,
-    UploadRefusedError,
-    print_checked,
-)
+from ....application.print_flow import PrintRefusedError, PrintRequest, print_label
+from ....application.upload_check import ResetCheck, UploadCheck, UploadRefusedError
 from ....application.use_cases import (
-    ONE_WAY_LINK,
     AnswerWait,
     BatchReport,
     BatchResult,
     PrinterCommand,
     detect_printer,
-    print_result,
     query_status,
     read_memory_directory,
-    record_renders,
     render_label,
     report_of,
     send_bytes,
@@ -38,7 +29,6 @@ from ....application.use_cases import (
 )
 from ....domain.enums import MediaSensor, MemoryKind, StatusProblem
 from ....domain.errors import AnswerNotEndedError, ConfigurationError, LabelRejectedError, PreviewTooLongError
-from ....domain.held_images import READ_AT_SEND, HeldImages
 from ....domain.media_feed import FEED_MEDIA, media_feed
 from ....domain.memory import NO_MODULES_MEANING, MemoryDirectory
 from ....domain.placeholders import fill_record
@@ -67,10 +57,11 @@ from ..settings import (
     input_bounds,
     preview_settings,
     render_options,
+    report_limits,
     require_uri,
 )
 from ..typed_click import argument, option
-from .labels import JobRoute, check_loaded, load_batch
+from .labels import load_batch
 from .model_options import (
     command_overrides,
     loaded_config,
@@ -119,39 +110,26 @@ def _print_body(
     label = load_label(label_source, bounds=input_bounds(settings))
     records = None if data is None else load_batch(data, settings)
     link = _link(settings)
-    options = _print_options(settings, link=link)
-    result = check_loaded(label, records, options, settings, route=JobRoute(names=_names_at_send(link), spool=spool))
     uri = link.uri
-    if not result.ok:
-        return _render_refused(result, verdict="REFUSED: nothing sent", settings=settings)
-    endpoint = PrinterEndpoint(uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings))
-    if link.one_way:
-        # A one-way link cannot read the directory: the job goes out at once, as it always did.
-        report = print_result(result, endpoint=endpoint)
-        sent, bytes_sent = result, report.bytes_sent
-    else:
-        job = CheckedJob(
-            renders=result.renders() if isinstance(result, BatchReport) else record_renders(label, None, options),
-            check=_upload_check(settings, cli_ctx),
-            reset=_reset_check(settings),
-        )
-        try:
-            checked = print_checked(result, job, endpoint=endpoint)
-        except UploadRefusedError as exc:
-            return _upload_refused(exc, uri=uri, settings=settings)
-        sent, bytes_sent = checked.result, checked.bytes_sent
-    payload = render_payload(sent, sent=SentTo(uri, bytes_sent), settings=settings)
-    human = "\n".join(part for part in (f"sent {bytes_sent} bytes to {uri}", went_out_text(payload)) if part)
+    request = PrintRequest(
+        options=render_options(settings),
+        endpoint=PrinterEndpoint(uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings)),
+        check=_upload_check(settings, cli_ctx),
+        one_way=link.one_way,
+        records=records,
+        reset=_reset_check(settings),
+        limits=report_limits(settings),
+        spool=spool,
+    )
+    try:
+        printed = print_label(label, request)
+    except PrintRefusedError as exc:
+        return _render_refused(exc.result, verdict="REFUSED: nothing sent", settings=settings)
+    except UploadRefusedError as exc:
+        return _upload_refused(exc, uri=uri, settings=settings)
+    payload = render_payload(printed.result, sent=SentTo(uri, printed.bytes_sent), settings=settings)
+    human = "\n".join(part for part in (f"sent {printed.bytes_sent} bytes to {uri}", went_out_text(payload)) if part)
     return CommandResult(ok=True, payload=payload, human=human)
-
-
-def _names_at_send(link: _Link) -> HeldImages:
-    """What a job sent over ``link`` knows of the printer's stored image names before it goes.
-
-    A two-way link reads them right before each label's downloads; a one-way link cannot, and a
-    single label says why in its ``image_names_unread`` finding.
-    """
-    return HeldImages(unread_because=ONE_WAY_LINK) if link.one_way else READ_AT_SEND
 
 
 def _render_refused(result: RenderResult | BatchReport, *, verdict: str, settings: PrinterSettings) -> CommandResult:
@@ -262,28 +240,6 @@ def _queryable_uri(settings: PrinterSettings) -> str:
     if is_one_way(parsed):
         raise unsupported_query(parsed)
     return require_uri(settings)
-
-
-def _print_options(settings: PrinterSettings, *, link: _Link) -> RenderOptions:
-    """The render options ``print`` renders with for the printer at ``link``.
-
-    A two-way link leaves out the model's own image memory budget: its upload check reads whether
-    the printer stored the images, which says more than a count of dot data can (user decision
-    D63). With ``upload_check_rounds`` 0 no round reads them back, so the budget applies as on a
-    one-way link. An ``image_memory_bytes`` configured applies on every link.
-
-    Example:
-        >>> settings = PrinterSettings(model="allegro-2")
-        >>> _print_options(settings, link=_Link(uri="tcp://192.0.2.60:9100", one_way=False)).model_image_budget
-        False
-        >>> _print_options(settings, link=_Link(uri="file:job.dpl", one_way=True)).model_image_budget
-        True
-        >>> unchecked = PrinterSettings(model="allegro-2", upload_check_rounds=0)
-        >>> _print_options(unchecked, link=_Link(uri="tcp://192.0.2.60:9100", one_way=False)).model_image_budget
-        True
-    """
-    unchecked = settings.upload_check_rounds == MIN_UPLOAD_CHECK_ROUNDS
-    return render_options(settings, model_image_budget=link.one_way or unchecked)
 
 
 def wait_longer_hint(settings: PrinterSettings) -> str:

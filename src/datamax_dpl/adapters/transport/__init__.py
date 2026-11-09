@@ -34,11 +34,37 @@ from .uri import (
     StdoutUri,
     TcpUri,
     check_timeout,
+    is_one_way,
     parse_printer_uri,
 )
 
 if TYPE_CHECKING:
     from datamax_dpl.application.ports import OpenTunablePrinter, PrinterTransport
+
+
+def printer_uri_is_one_way(uri: str) -> bool:
+    """Return True when ``uri`` names a channel that cannot read the printer's answer.
+
+    Decided from the URI alone, without opening it: opening a file just to learn that would
+    create it. :class:`~datamax_dpl.application.print_flow.PrintRequest` needs this answer.
+
+    Args:
+        uri: A printer URI, see :data:`~.uri.ACCEPTED_FORMS`.
+
+    Returns:
+        True for a file, stdout or a device file; False for tcp and serial.
+
+    Raises:
+        ConfigurationError: ``uri`` is not a printer URI.
+
+    Example:
+        >>> [printer_uri_is_one_way(text) for text in ("file:job.dpl", "tcp://192.0.2.60:9100")]
+        [True, False]
+    """
+    try:
+        return is_one_way(parse_printer_uri(uri))
+    except ValueError as exc:
+        raise ConfigurationError(str(exc)) from exc
 
 
 def open_printer(uri: str, *, timeout: float, tuning: TransportTuning = DEFAULT_TRANSPORT_TUNING) -> PrinterTransport:
@@ -115,4 +141,5 @@ __all__ = [
     "TransportError",
     "open_printer",
     "parse_printer_uri",
+    "printer_uri_is_one_way",
 ]

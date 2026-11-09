@@ -48,11 +48,13 @@ import-linter enforces the direction: domain imports nothing above it; applicati
 domain; adapters import application and domain; composition imports everything.
 
 Data flow of `datamax-dpl print`: `adapters/cli/label_io.py` reads the label and records ->
-`application/use_cases.py` fills placeholders and calls `domain/render.py` -> the encoders in
-`domain/encode_*.py` and `domain/job.py` write records and findings -> `print_result` in
-`application/use_cases.py` refuses a job with an error finding or sends the bytes through a
-transport from `adapters/transport/` -> `adapters/cli/runner.py` and `adapters/cli/envelope.py`
-turn the outcome into output and an exit code.
+`print_label` in `application/print_flow.py` decides what the link allows and has
+`application/use_cases.py` fill placeholders and call `domain/render.py` -> the encoders in
+`domain/encode_*.py` and `domain/job.py` write records and findings -> `print_label` refuses a job
+with an error finding or sends it through a transport from `adapters/transport/`, with
+`application/upload_check.py` checking each label's images on a two-way link ->
+`adapters/cli/runner.py` and `adapters/cli/envelope.py` turn the outcome into output and an exit
+code.
 
 ---
 
@@ -113,6 +115,7 @@ turn the outcome into output and an exit code.
   `DeployPermissionRequest` (the permission values a config deploy hands to lib_layered_config).
 - `use_cases.py` - render one label or a batch, print, send commands, query status, detect, read the memory directory.
 - `upload_check.py` - check a job's images reached the printer before the format that places them.
+- `print_flow.py` - print a label in one call, deciding what the link allows; the `print` command and library callers take it.
 
 ### Adapters (`src/datamax_dpl/adapters/`)
 
