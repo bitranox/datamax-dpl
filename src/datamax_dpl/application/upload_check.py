@@ -674,7 +674,7 @@ class _Record:
             later = rounds.skipped_after_the_last
             reason += f"; no further round: {'; '.join(later)}" if later else ""
         else:
-            outcome, reason = "not sent", f": no round ran: {'; '.join(why for _, why in rounds.skipped)}"
+            outcome, reason = "not sent", f": no round ran: {'; '.join(left.reason for left in rounds.skipped)}"
         self.findings.append(
             Finding(
                 code=FindingCode.IMAGE_UPLOAD_REFUSED,
@@ -736,12 +736,19 @@ class _Refused:
         return cls(f"the label, rendered again {when}, has errors ({errors})")
 
 
+class _SkippedRound(NamedTuple):
+    """One round of a label's check that did not run, and why."""
+
+    number: int
+    reason: str
+
+
 @dataclass(frozen=True)
 class _Rounds:
     """The rounds of one label's check so far: the numbers of those that ran, and each one skipped with why.
 
     Example:
-        >>> rounds = _Rounds(ran=(1, 3), skipped=((2, "round 2 skipped"),))
+        >>> rounds = _Rounds(ran=(1, 3), skipped=(_SkippedRound(2, "round 2 skipped"),))
         >>> rounds.tried, rounds.skipped_before_the_last, rounds.skipped_after_the_last
         ('2 rounds, 1 and 3', ('round 2 skipped',), ())
         >>> _Rounds(ran=(1, 2, 3)).tried, _Rounds(ran=(2,)).tried
@@ -749,7 +756,7 @@ class _Rounds:
     """
 
     ran: tuple[int, ...] = ()
-    skipped: tuple[tuple[int, str], ...] = ()
+    skipped: tuple[_SkippedRound, ...] = ()
 
     def run(self, number: int) -> _Rounds:
         """These rounds and round ``number``, which ran."""
@@ -757,7 +764,7 @@ class _Rounds:
 
     def skip(self, number: int, reason: str) -> _Rounds:
         """These rounds and round ``number``, skipped for ``reason``."""
-        return _Rounds(ran=self.ran, skipped=(*self.skipped, (number, reason)))
+        return _Rounds(ran=self.ran, skipped=(*self.skipped, _SkippedRound(number=number, reason=reason)))
 
     @property
     def tried(self) -> str:
@@ -773,13 +780,13 @@ class _Rounds:
     def skipped_before_the_last(self) -> tuple[str, ...]:
         """Why each round skipped before the last one that ran did not run; a later round still did."""
         last = max(self.ran, default=0)
-        return tuple(why for number, why in self.skipped if number < last)
+        return tuple(left.reason for left in self.skipped if left.number < last)
 
     @property
     def skipped_after_the_last(self) -> tuple[str, ...]:
         """Why each round after the last one that ran did not run: why no further round came."""
         last = max(self.ran, default=0)
-        return tuple(why for number, why in self.skipped if number > last)
+        return tuple(left.reason for left in self.skipped if left.number > last)
 
 
 def _check_label(record: _Record, before: _Skipped | _Refused | None) -> bool:

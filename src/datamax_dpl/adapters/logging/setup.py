@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, cast
 
 import lib_log_rich.runtime
 from dotenv import dotenv_values
-from lib_layered_config import Config
+from lib_layered_config import Config, Layer
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from datamax_dpl import __init__conf__
@@ -131,8 +131,6 @@ class InvalidLoggingConfigError(ConfigurationError):
 
 #: The variables lib_log_rich reads itself; the only lines of a ``.env`` logging takes.
 _LOG_VARIABLE_PREFIX = "LOG_"
-#: The provenance layer name lib_layered_config gives the values it read from a ``.env``.
-_DOTENV_LAYER = "dotenv"
 
 
 def _problems(error: BaseException, section: object) -> list[str]:
@@ -238,7 +236,7 @@ def _configured_dotenv(config: Config) -> Path | None:
     """
     for key in config:
         source = config.origin(key)
-        if source is not None and source["layer"] == _DOTENV_LAYER and source["path"] is not None:
+        if source is not None and source["layer"] == Layer.DOTENV and source["path"] is not None:
             return Path(source["path"])
     return None
 

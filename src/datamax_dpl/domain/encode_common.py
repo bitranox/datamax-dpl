@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from .enums import Attribute, CounterSign, FindingCode, Unit
 from .label import MAX_FIELD_DATA, Counter
@@ -38,7 +38,9 @@ def column_of(x: float, *, index: int, ctx: RenderContext) -> int:
     return column
 
 
-def check_graphic_edge(column: int, *, end_dots: int, what: str, index: int, ctx: RenderContext) -> None:
+def check_graphic_edge(
+    column: int, *, end_dots: int, what: Literal["box", "line", "circle"], index: int, ctx: RenderContext
+) -> None:
     """Report a graphic the printer draws itself whose right edge passes the print width.
 
     A warning, an error under strict (the user's decision of 2026-11-01): the printer draws the
@@ -50,7 +52,7 @@ def check_graphic_edge(column: int, *, end_dots: int, what: str, index: int, ctx
         column: The record's column, as :func:`column_of` returned it; one past the last column is
             already refused (``outside_print_width``) and gets no second finding.
         end_dots: Dots from the head's first dot to just past the graphic's last dot.
-        what: What the graphic is, ``box``, ``line`` or ``circle``.
+        what: What the graphic is, the element's own ``type``.
         index: Position of the element in the label.
         ctx: The render context.
     """
@@ -152,7 +154,7 @@ def _readable(distance: float, unit: Unit) -> str:
         >>> _readable(1.99803, Unit.DOTS), _readable(0.00984252, Unit.INCH), _readable(0.5, Unit.MM)
         ('2', '0.01', '0.5')
     """
-    return str(round(distance)) if unit is Unit.DOTS else f"{round(distance, 2):g}"
+    return str(round(distance)) if unit == Unit.DOTS else f"{round(distance, 2):g}"
 
 
 def check_field_length(length: int, *, limit: int = MAX_FIELD_DATA, index: int, ctx: RenderContext) -> None:
@@ -169,12 +171,12 @@ def attribute_lines(attribute: Attribute | None, *, index: int, ctx: RenderConte
 
     Inverse text has no fallback on a model without attributes; other attributes are dropped there.
     """
-    if attribute is None or attribute is ctx.default_attribute:
+    if attribute is None or attribute == ctx.default_attribute:
         return []
     if ctx.supports(Feature.ATTRIBUTE):
         return [line(f"A{attribute.value}")]
     message = f"attribute {attribute.name.lower()}: {ctx.requirement(Feature.ATTRIBUTE)}"
-    if text and attribute is Attribute.INVERSE:
+    if text and attribute == Attribute.INVERSE:
         ctx.findings.refuse(FindingCode.ATTRIBUTE_UNSUPPORTED, message, element=index)
     else:
         ctx.findings.deviate(
@@ -185,7 +187,7 @@ def attribute_lines(attribute: Attribute | None, *, index: int, ctx: RenderConte
 
 def attribute_reset(attribute: Attribute | None, *, ctx: RenderContext) -> list[bytes]:
     """Return the line that restores the format's default attribute after a field that changed it."""
-    if attribute is None or attribute is ctx.default_attribute or not ctx.supports(Feature.ATTRIBUTE):
+    if attribute is None or attribute == ctx.default_attribute or not ctx.supports(Feature.ATTRIBUTE):
         return []
     return [line(f"A{ctx.default_attribute.value}")]
 

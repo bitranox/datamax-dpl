@@ -63,7 +63,7 @@ def encode_line(element: Line, *, index: int, ctx: RenderContext) -> list[bytes]
             vertical=thickness if horizontal else extent,
         )
         end = ctx.printed_dots(column) + ctx.printed_dots(across)
-        check_graphic_edge(column, end_dots=end, what="line", index=index, ctx=ctx)
+        check_graphic_edge(column, end_dots=end, what=element.type, index=index, ctx=ctx)
         return [line(record)]
     if _polygons(ctx):
         quad = _thin_quad(element)
@@ -82,7 +82,7 @@ def _box_record(element: Box, *, index: int, ctx: RenderContext, solid: bool = F
         edge, side = math.ceil(height / 2), math.ceil(width / 2)
     column = column_of(element.x, index=index, ctx=ctx)
     end = ctx.printed_dots(column) + ctx.printed_dots(width)
-    check_graphic_edge(column, end_dots=end, what="box", index=index, ctx=ctx)
+    check_graphic_edge(column, end_dots=end, what=element.type, index=index, ctx=ctx)
     return BoxRecord(
         row=row_of(element.y, index=index, ctx=ctx),
         column=column,
@@ -163,7 +163,7 @@ def encode_circle(element: Circle, *, index: int, ctx: RenderContext) -> list[by
     radius = ctx.distance(element.radius, axis=Axis.ACROSS, element=index, what="radius") or 1
     record = circle_record(row=row_of(element.y, index=index, ctx=ctx), column=column, radius=radius, fill=element.fill)
     # The record names the centre: its last dot is the radius right of it, one more makes the end.
-    check_graphic_edge(column, end_dots=ctx.printed_dots(column + radius) + 1, what="circle", index=index, ctx=ctx)
+    check_graphic_edge(column, end_dots=ctx.printed_dots(column + radius) + 1, what=element.type, index=index, ctx=ctx)
     return [line(record)]
 
 

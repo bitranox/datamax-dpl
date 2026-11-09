@@ -14,7 +14,7 @@ Text fields may contain ``{name}`` placeholders, filled per record by
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, ClassVar, Literal, TypeVar
+from typing import TYPE_CHECKING, Annotated, ClassVar, Literal, NamedTuple, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -538,17 +538,33 @@ class Label(_Frozen):
         return copied
 
 
-def long_polygons(elements: Sequence[Element], *, limit: int) -> Iterator[tuple[int, int]]:
-    """Yield ``(index, points)`` of each polygon in ``elements`` with more than ``limit`` points.
+class LongPolygon(NamedTuple):
+    """A polygon with more points than allowed, as the check that refuses it names it.
+
+    Attributes:
+        element: Its position in the label's elements.
+        points: How many points it has.
+
+    Example:
+        >>> LongPolygon(element=1, points=3).points
+        3
+    """
+
+    element: int
+    points: int
+
+
+def long_polygons(elements: Sequence[Element], *, limit: int) -> Iterator[LongPolygon]:
+    """Yield each polygon in ``elements`` with more than ``limit`` points, by position and point count.
 
     Example:
         >>> triangle = Polygon(points=[Point(x=0, y=0), Point(x=10, y=0), Point(x=5, y=8)])
         >>> list(long_polygons([Circle(x=5, y=5, radius=3), triangle], limit=2))
-        [(1, 3)]
+        [LongPolygon(element=1, points=3)]
     """
     for index, element in enumerate(elements):
         if isinstance(element, Polygon) and len(element.points) > limit:
-            yield index, len(element.points)
+            yield LongPolygon(element=index, points=len(element.points))
 
 
 __all__ = [
@@ -577,6 +593,7 @@ __all__ = [
     "Image",
     "Label",
     "Line",
+    "LongPolygon",
     "NonNegative",
     "Pdf417Options",
     "Point",

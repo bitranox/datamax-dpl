@@ -65,6 +65,18 @@ class _Beside(NamedTuple):
     mode: int | None
 
 
+class _NewFile(NamedTuple):
+    """A file just made beside the target, not yet wrapped in a stream.
+
+    Attributes:
+        path: Where it is.
+        descriptor: The descriptor that made it.
+    """
+
+    path: Path
+    descriptor: int
+
+
 def _named_for(exc: OSError, target: str) -> OSError:
     """The same error naming ``target``: a reader never asked for the file beside it."""
     return OSError(exc.errno, exc.strerror, target)
@@ -122,13 +134,13 @@ def _replaceable(path: Path, found: os.stat_result) -> bool:
     return found.st_uid == os.geteuid()
 
 
-def _create_temp(target: Path, mode: int) -> tuple[Path, int] | None:
+def _create_temp(target: Path, mode: int) -> _NewFile | None:
     """Create a file of our own beside ``target`` with ``mode``, as the umask allows; None when none can be."""
     for attempt in itertools.count():
         temp = target.with_name(f".{target.name}.{os.getpid()}.{attempt}.tmp")
         try:
             # With the mode from the start: a target its owner made private stays so for the whole run.
-            return temp, os.open(temp, _TEMP_FLAGS, mode)
+            return _NewFile(temp, os.open(temp, _TEMP_FLAGS, mode))
         except FileExistsError:
             if attempt >= _TEMP_NAME_TRIES:
                 return None

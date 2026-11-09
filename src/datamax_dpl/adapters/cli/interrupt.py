@@ -18,7 +18,7 @@ import signal
 import sys
 import threading
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from ...domain.timing import MAX_ANSWER_SECONDS
 
@@ -31,6 +31,18 @@ if TYPE_CHECKING:
 
     #: What ``signal.signal`` takes and ``signal.getsignal`` gives.
     _Handler: TypeAlias = Callable[[int, FrameType | None], object] | int | signal.Handlers | None
+
+
+class ConsoleInterrupt(NamedTuple):
+    """A signal a console key sends.
+
+    Attributes:
+        signum: The signal.
+        default: The handler it has when nothing set one.
+    """
+
+    signum: signal.Signals
+    default: _Handler
 
 
 class _Note:
@@ -55,7 +67,7 @@ def raise_if_interrupted() -> None:
         raise KeyboardInterrupt
 
 
-def console_interrupts() -> tuple[tuple[signal.Signals, _Handler], ...]:
+def console_interrupts() -> tuple[ConsoleInterrupt, ...]:
     """Each signal a console key sends, with the handler it has when nothing set one.
 
     Windows sends SIGBREAK for Ctrl-Break, and Python leaves it to the system's default, which
@@ -66,9 +78,10 @@ def console_interrupts() -> tuple[tuple[signal.Signals, _Handler], ...]:
         >>> console_interrupts()[0] == (signal.SIGINT, signal.default_int_handler)
         True
     """
+    interrupt = ConsoleInterrupt(signal.SIGINT, signal.default_int_handler)
     if sys.platform == "win32":
-        return ((signal.SIGINT, signal.default_int_handler), (signal.SIGBREAK, signal.SIG_DFL))
-    return ((signal.SIGINT, signal.default_int_handler),)
+        return (interrupt, ConsoleInterrupt(signal.SIGBREAK, signal.SIG_DFL))
+    return (interrupt,)
 
 
 @contextmanager
@@ -81,7 +94,7 @@ def noting_interrupts() -> Generator[None, None, None]:
     """
     _Note.interrupted = False
     owned = threading.current_thread() is threading.main_thread()
-    taken = [(signum, default) for signum, default in console_interrupts() if signal.getsignal(signum) is default]
+    taken = [entry for entry in console_interrupts() if signal.getsignal(entry.signum) is entry.default]
     if not owned or not taken:
         yield
         return
@@ -164,4 +177,4 @@ def interrupt_checked(open_printer: OpenPrinter) -> OpenPrinter:
     return _open
 
 
-__all__ = ["console_interrupts", "interrupt_checked", "noting_interrupts", "raise_if_interrupted"]
+__all__ = ["ConsoleInterrupt", "console_interrupts", "interrupt_checked", "noting_interrupts", "raise_if_interrupted"]

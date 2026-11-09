@@ -93,9 +93,9 @@ def to_inches(value: float, unit: Unit, *, dpi: float) -> float:
         >>> to_inches(203, Unit.DOTS, dpi=203)
         1.0
     """
-    if unit is Unit.MM:
+    if unit == Unit.MM:
         return value / MM_PER_INCH
-    if unit is Unit.DOTS:
+    if unit == Unit.DOTS:
         return value / dpi
     return value
 
@@ -142,7 +142,7 @@ def _printed_inches(value: float, unit: Unit, *, dpi: float, scale: float) -> fl
     A length in dots already counts printed dots, so no scale applies to it.
     """
     inches = to_inches(value, unit, dpi=dpi)
-    return inches if unit is Unit.DOTS else inches / scale
+    return inches if unit == Unit.DOTS else inches / scale
 
 
 def to_dpl(value: float, unit: Unit, *, target: DplUnit, dpi: float, correction: Correction = NOMINAL) -> Converted:
@@ -167,7 +167,7 @@ def to_dpl(value: float, unit: Unit, *, target: DplUnit, dpi: float, correction:
         400
     """
     per_inch = target.per_inch
-    if correction.unit_dots is not None and target is DplUnit.INCH_HUNDREDTHS:
+    if correction.unit_dots is not None and target == DplUnit.INCH_HUNDREDTHS:
         per_inch = dpi / correction.unit_dots
     exact = _printed_inches(value, unit, dpi=dpi, scale=correction.scale) * per_inch
     rounded = round(exact)

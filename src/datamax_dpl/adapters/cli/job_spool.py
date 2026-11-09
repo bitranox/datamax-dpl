@@ -25,6 +25,7 @@ import errno
 import os
 import struct
 import tempfile
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, TypedDict
 
@@ -83,10 +84,18 @@ class SpoolWriteError(DatamaxDplError, OSError):
     """
 
 
-def _named(exc: OSError, path: Path, doing: str) -> SpoolWriteError:
+class _SpoolStep(str, Enum):
+    """What was being done to the spool when it failed, as the refusal words it."""
+
+    WRITING = "writing"
+    CLOSING = "closing"
+    REMOVING = "removing"
+
+
+def _named(exc: OSError, path: Path, doing: _SpoolStep) -> SpoolWriteError:
     """``exc`` as a :class:`SpoolWriteError` naming the spool's ``path`` and what failed there."""
     reason = exc.strerror or type(exc).__name__
-    return SpoolWriteError(exc.errno, f"{reason}, {doing} the batch's spool", str(path))
+    return SpoolWriteError(exc.errno, f"{reason}, {doing.value} the batch's spool", str(path))
 
 
 def _buffered(descriptor: int) -> BinaryIO:
@@ -156,7 +165,7 @@ class FileJobSpool:
             # left open would raise it once more when the spool closes, over a refusal that the
             # check pass still owes its caller.
             self._drop_writer()
-            raise _named(exc, self._where(), "writing") from exc
+            raise _named(exc, self._where(), _SpoolStep.WRITING) from exc
 
     def _refuse_closed(self) -> None:
         if self._closed:
@@ -187,7 +196,7 @@ class FileJobSpool:
             try:
                 writer.close()
             except OSError as exc:
-                raise _named(exc, self._where(), "writing") from exc
+                raise _named(exc, self._where(), _SpoolStep.WRITING) from exc
 
     def entries(self) -> Iterator[BatchEntry]:
         """Read the records back from the first, each call on a handle of its own.
@@ -235,14 +244,16 @@ class FileJobSpool:
         writer, self._writer = self._writer, None
         handles = ([writer] if writer is not None else []) + list(self._readers)
         self._readers.clear()
-        failed.extend(_named(exc, where, "closing") for handle in handles if (exc := _close_error(handle)) is not None)
+        failed.extend(
+            _named(exc, where, _SpoolStep.CLOSING) for handle in handles if (exc := _close_error(handle)) is not None
+        )
         directory, self._directory = self._directory, None
         if directory is not None:
             try:
                 (directory / _FILE_NAME).unlink(missing_ok=True)
                 directory.rmdir()
             except OSError as exc:
-                failed.append(_named(exc, directory, "removing"))
+                failed.append(_named(exc, directory, _SpoolStep.REMOVING))
         if failed:
             raise failed[0]
 

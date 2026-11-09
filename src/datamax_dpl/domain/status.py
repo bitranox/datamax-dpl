@@ -31,7 +31,7 @@ from .enums import MemoryKind, StatusFlag, StatusProblem, Unit
 from .errors import PrinterProtocolError
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Mapping
 
 #: ``<SOH>A``: status as eight ``Y``/``N`` characters.
 STATUS_REQUEST = b"\x01A"
@@ -205,12 +205,15 @@ def parse_ascii_status(answer: bytes) -> PrinterStatus:
         True
     """
     what = "<SOH>A status"
-    body, reset = _status_body(_drop_flow_control(answer), width=STATUS_FLAG_COUNT, what=what, answer=answer)
-    if any(char not in (_YES, _NO) for char in body):
+    framed = _status_body(_drop_flow_control(answer), width=STATUS_FLAG_COUNT, what=what, answer=answer)
+    if any(char not in (_YES, _NO) for char in framed.body):
         raise PrinterProtocolError(f"{what}: expected Y/N characters, got {show_answer(answer)}")
-    if body[-1] != _NO:
+    if framed.body[-1] != _NO:
         raise PrinterProtocolError(f"{what}: reserved eighth flag is not N in {show_answer(answer)}")
-    return _status_from_flags([char == _YES for char in body[: len(StatusFlag)]], reset_reported=reset)
+    # The reserved eighth character names no flag, so only the members' own positions are read.
+    named = zip(StatusFlag, framed.body[: len(StatusFlag)], strict=True)
+    reported = frozenset(flag for flag, char in named if char == _YES)
+    return _status_from_flags(reported, reset_reported=framed.reset_reported)
 
 
 def is_status_line(line: bytes) -> bool:
@@ -241,17 +244,16 @@ def is_status_line(line: bytes) -> bool:
     return len(flags) == STATUS_FLAG_COUNT and all(char in (_YES, _NO) for char in flags)
 
 
-def _status_from_flags(flags: Sequence[bool], *, reset_reported: bool) -> PrinterStatus:
-    """Build the status from one bool per :class:`StatusFlag`, in that order."""
-    interpreter_busy, paper_out, ribbon_out, printing_batch, busy_printing, paused, label_presented = flags
+def _status_from_flags(reported: frozenset[StatusFlag], *, reset_reported: bool) -> PrinterStatus:
+    """Build the status from the :class:`StatusFlag` members the printer reported set."""
     return PrinterStatus(
-        interpreter_busy=interpreter_busy,
-        paper_out=paper_out,
-        ribbon_out=ribbon_out,
-        printing_batch=printing_batch,
-        busy_printing=busy_printing,
-        paused=paused,
-        label_presented=label_presented,
+        interpreter_busy=StatusFlag.INTERPRETER_BUSY in reported,
+        paper_out=StatusFlag.PAPER_OUT in reported,
+        ribbon_out=StatusFlag.RIBBON_OUT in reported,
+        printing_batch=StatusFlag.PRINTING_BATCH in reported,
+        busy_printing=StatusFlag.BUSY_PRINTING in reported,
+        paused=StatusFlag.PAUSED in reported,
+        label_presented=StatusFlag.LABEL_PRESENTED in reported,
         reset_reported=reset_reported,
     )
 
@@ -361,7 +363,14 @@ def _fixed_body(cleaned: bytes, *, width: int, what: str, answer: bytes) -> byte
     return framed[len(framed) - width :]
 
 
-def _status_body(cleaned: bytes, *, width: int, what: str, answer: bytes) -> tuple[bytes, bool]:
+class _StatusBody(NamedTuple):
+    """The flag characters of a status answer and whether a reset report stood in front of them."""
+
+    body: bytes
+    reset_reported: bool
+
+
+def _status_body(cleaned: bytes, *, width: int, what: str, answer: bytes) -> _StatusBody:
     """Return a status answer's body as :func:`_fixed_body` does, and whether a reset report stood in front.
 
     Only a prefix of nothing but reset characters and flow control counts: with any other byte
@@ -371,7 +380,7 @@ def _status_body(cleaned: bytes, *, width: int, what: str, answer: bytes) -> tup
     meaningful = [char for char in prefix if char not in _FLOW_CONTROL]
     reset = bool(meaningful) and all(char in RESET_CHARACTERS for char in meaningful)
     rest = cleaned[len(prefix) :] if reset else cleaned
-    return _fixed_body(rest, width=width, what=what, answer=answer), reset
+    return _StatusBody(body=_fixed_body(rest, width=width, what=what, answer=answer), reset_reported=reset)
 
 
 def _refuse_prefix(prefix: bytes, *, what: str, answer: bytes) -> None:

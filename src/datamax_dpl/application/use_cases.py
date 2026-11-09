@@ -243,7 +243,15 @@ def _plan_of(batch_label: _BatchLabel, options: RenderOptions) -> CutPlan:
     return NO_CUTS if batch_label.cut is None else cut_plan(batch_label.cut, options=options)
 
 
-def _with_last(items: Iterable[_T]) -> Iterator[tuple[_T, bool]]:
+@dataclass(frozen=True)
+class _SequenceItem(Generic[_T]):
+    """One item of a sequence read in order, and whether it is the last."""
+
+    item: _T
+    is_last: bool
+
+
+def _with_last(items: Iterable[_T]) -> Iterator[_SequenceItem[_T]]:
     """Yield each of ``items`` and whether it is the last, reading one item ahead and no further."""
     source = iter(items)
     try:
@@ -251,9 +259,9 @@ def _with_last(items: Iterable[_T]) -> Iterator[tuple[_T, bool]]:
     except StopIteration:
         return
     for following in source:
-        yield current, False
+        yield _SequenceItem(item=current, is_last=False)
         current = following
-    yield current, True
+    yield _SequenceItem(item=current, is_last=True)
 
 
 def _entries(
@@ -267,12 +275,15 @@ def _entries(
     current: list[tuple[dict[str, str], bool]] = []
 
     def labels() -> Iterator[Label]:
-        for number, (record, last) in enumerate(_with_last(records)):
+        for number, record in enumerate(_with_last(records)):
             # Read once, here: the render and what the send fills again both take these values.
-            values = dict(record)
-            current.append((values, last))
+            values = dict(record.item)
+            current.append((values, record.is_last))
             yield _filled_record(
-                batch_label.per_record, values, number=number, cutter_off=plan.leaves_uncut(number + 1, last=last)
+                batch_label.per_record,
+                values,
+                number=number,
+                cutter_off=plan.leaves_uncut(number + 1, last=record.is_last),
             )
 
     held = READ_AT_SEND if read_names_at_send else None

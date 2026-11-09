@@ -341,11 +341,11 @@ class FieldArea:
         start, length = along if along is not None else Span(0, self.length)
         lift, height = up if up is not None else Span(0, self.height)
         x, y = self.x, self.y
-        if self.rotation is Rotation.DEG_90:
+        if self.rotation == Rotation.DEG_90:
             return Rect(left=x + lift, top=y + start, width=height, height=length)
-        if self.rotation is Rotation.DEG_180:
+        if self.rotation == Rotation.DEG_180:
             return Rect(left=x - start - length + 1, top=y + lift, width=length, height=height)
-        if self.rotation is Rotation.DEG_270:
+        if self.rotation == Rotation.DEG_270:
             return Rect(left=x - lift - height + 1, top=y - start - length + 1, width=height, height=length)
         return Rect(left=x + start, top=y - lift - height + 1, width=length, height=height)
 
@@ -365,11 +365,11 @@ class FieldArea:
         height = min(box.top + box.height, height) - top
         if width <= 0 or height <= 0:
             return None
-        if self.rotation is Rotation.DEG_90:
+        if self.rotation == Rotation.DEG_90:
             return UprightPart(along=Span(top - self.y, height), up=Span(left - self.x, width))
-        if self.rotation is Rotation.DEG_180:
+        if self.rotation == Rotation.DEG_180:
             return UprightPart(along=Span(self.x - left - width + 1, width), up=Span(top - self.y, height))
-        if self.rotation is Rotation.DEG_270:
+        if self.rotation == Rotation.DEG_270:
             return UprightPart(along=Span(self.y - top - height + 1, height), up=Span(self.x - left - width + 1, width))
         return UprightPart(along=Span(left - self.x, width), up=Span(self.y - top - height + 1, height))
 
@@ -393,9 +393,9 @@ class FieldArea:
 
     def rise(self) -> int:
         """Return how many rows the turned field reaches up from its reference row, that row included."""
-        if self.rotation is Rotation.DEG_0:
+        if self.rotation == Rotation.DEG_0:
             return self.height
-        if self.rotation is Rotation.DEG_270:
+        if self.rotation == Rotation.DEG_270:
             return self.length
         return 1
 

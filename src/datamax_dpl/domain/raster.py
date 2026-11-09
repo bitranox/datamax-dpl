@@ -23,7 +23,7 @@ import itertools
 import math
 from enum import Enum
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, NamedTuple
 
 from ._invariants import require_same_keys
 from .enums import CombineMode, FillPattern
@@ -160,7 +160,19 @@ def _ceil_div(numerator: int, denominator: int) -> int:
     return -(-numerator // denominator)
 
 
-def _walk(start: tuple[int, int], end: tuple[int, int], *, low: int, high: int) -> Iterator[tuple[int, int]]:
+class _AxisPoint(NamedTuple):
+    """A point of a line, its major axis first; a steep line's major axis is the row, so no :class:`DotPoint`.
+
+    Example:
+        >>> sorted((_AxisPoint(major=5, minor=0), _AxisPoint(major=1, minor=9)))[0].minor
+        9
+    """
+
+    major: int
+    minor: int
+
+
+def _walk(start: _AxisPoint, end: _AxisPoint, *, low: int, high: int) -> Iterator[_AxisPoint]:
     """Yield the Bresenham points of a line whose first axis is its major axis.
 
     Only points whose major coordinate lies in ``[low, high]`` are produced, so a line with huge
@@ -169,7 +181,7 @@ def _walk(start: tuple[int, int], end: tuple[int, int], *, low: int, high: int) 
     (a0, b0), (a1, b1) = sorted((start, end))
     span = a1 - a0
     for a in range(max(a0, low), min(a1, high) + 1):
-        yield a, (b0 + _round_div((a - a0) * (b1 - b0), span) if span else b0)
+        yield _AxisPoint(a, b0 + _round_div((a - a0) * (b1 - b0), span) if span else b0)
 
 
 def _crossings(points: Sequence[DotPoint], y: int) -> list[int]:
@@ -188,9 +200,9 @@ def _crossings(points: Sequence[DotPoint], y: int) -> list[int]:
 
 def _merged(base: int, moved: int, *, under: int, mode: CombineMode) -> int:
     """Return one row of ``base`` with a layer's row ``moved`` put on it; ``under`` is the layer's span."""
-    if mode is CombineMode.XOR:
+    if mode == CombineMode.XOR:
         return base ^ moved
-    if mode is CombineMode.OPAQUE:
+    if mode == CombineMode.OPAQUE:
         return (base & ~under) | moved
     return base | moved
 
@@ -338,7 +350,7 @@ class Bitmap:
             msg = "a polygon needs at least one point"
             raise ValueError(msg)
         _check_non_negative(_Size.OUTLINE, outline)
-        if fill is not FillPattern.NONE:
+        if fill != FillPattern.NONE:
             self._fill_polygon(points, fill)
         if outline == 0:
             return
@@ -383,7 +395,7 @@ class Bitmap:
         inner = hole_radius * hole_radius + hole_radius if hole_radius >= 0 else -1
         for y in range(max(cy - radius, 0), min(cy + radius, self.height - 1) + 1):
             dy2 = (y - cy) * (y - cy)
-            if fill is not FillPattern.NONE:
+            if fill != FillPattern.NONE:
                 half = math.isqrt(outer - dy2)
                 self._paint_span(y, first=cx - half, last=cx + half, pattern=fill)
             if outline:
@@ -413,12 +425,17 @@ class Bitmap:
             mode: OR keeps every black dot of both; XOR whitens dots black in both; OPAQUE
                 whitens this bitmap under the layer's whole rectangle, then ORs the layer.
 
+        Raises:
+            ValueError: When ``mode`` is no :class:`CombineMode` and no member's value.
+
         Example:
             >>> canvas = Bitmap.from_rows(["###"])
             >>> canvas.combine(Bitmap.from_rows(["#."]), 1, 0, mode=CombineMode.OPAQUE)
             >>> canvas.rows()
             [b'\\xc0']
         """
+        # CombineMode has no value mixin, so a raw "xor" equals no member and == alone would draw it as OR.
+        mode = CombineMode(mode)
         # Without this early exit a far-away x would shift a row by billions of bits.
         if x >= self.width or x + other.width <= 0:
             return
@@ -580,14 +597,15 @@ class Bitmap:
         end: DotPoint,
         *,
         margin: int,
-    ) -> Iterator[tuple[int, int]]:
+    ) -> Iterator[DotPoint]:
         """Yield the line's points whose stamps can reach the image, walking its major axis."""
         (x0, y0), (x1, y1) = start, end
         if abs(x1 - x0) >= abs(y1 - y0):
-            yield from _walk(start, end, low=-margin, high=self.width - 1 + margin)
+            for x, y in _walk(_AxisPoint(x0, y0), _AxisPoint(x1, y1), low=-margin, high=self.width - 1 + margin):
+                yield DotPoint(x, y)
             return
-        for y, x in _walk((y0, x0), (y1, x1), low=-margin, high=self.height - 1 + margin):
-            yield x, y
+        for y, x in _walk(_AxisPoint(y0, x0), _AxisPoint(y1, x1), low=-margin, high=self.height - 1 + margin):
+            yield DotPoint(x, y)
 
     def _stamp(self, x: int, y: int, size: int) -> None:
         """Blacken a ``size`` x ``size`` square centred on (x, y)."""

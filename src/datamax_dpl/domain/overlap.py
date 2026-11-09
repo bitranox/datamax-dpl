@@ -45,7 +45,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from .encode_common import position_units
 from .encode_graphics import qr_symbol_position
@@ -354,7 +354,14 @@ class _Groups:
         return tuple(sorted(tuple(sorted(group)) for group in members.values() if len(group) > 1))
 
 
-def _candidates(areas: dict[int, DotArea]) -> Iterator[tuple[int, int]]:
+class _Candidate(NamedTuple):
+    """Two fields whose rectangles share a dot, by their indices in the label."""
+
+    lower: int
+    higher: int
+
+
+def _candidates(areas: dict[int, DotArea]) -> Iterator[_Candidate]:
     """Yield every pair of indices whose rectangles share a dot, by a sweep over their left edges.
 
     Yielded, not collected: fields at one spot make a pair of every two, and those pairs are only
@@ -367,7 +374,7 @@ def _candidates(areas: dict[int, DotArea]) -> Iterator[tuple[int, int]]:
         active = [other for other in active if areas[other].right >= area.left]
         for other in active:
             if areas[other].meets(area):
-                yield min(other, index), max(other, index)
+                yield _Candidate(lower=min(other, index), higher=max(other, index))
         active.append(index)
 
 

@@ -692,11 +692,11 @@ class RenderContext:
 
     def correction(self, axis: Axis) -> Correction:
         """Return how this printer prints lengths on ``axis``."""
-        return self.across if axis is Axis.ACROSS else self.along
+        return self.across if axis == Axis.ACROSS else self.along
 
     def offset_mm(self, axis: Axis) -> float:
         """Return how far this printer's fields move on ``axis``, in mm."""
-        return self.offset_across if axis is Axis.ACROSS else self.offset_along
+        return self.offset_across if axis == Axis.ACROSS else self.offset_along
 
     def shifted(self, value: float, *, axis: Axis) -> float:
         """Return the label position ``value`` moved by this printer's offset, in the label's unit.

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, TypedDict, TypeVar
+from typing import TYPE_CHECKING, NamedTuple, TypedDict, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -601,7 +601,19 @@ def _extent(element: Element, ctx: RenderContext) -> DotArea | None:
     return area
 
 
-def _label_edges(label: Label, ctx: RenderContext) -> tuple[int | None, int | None]:
+class _LabelEdges(NamedTuple):
+    """Where a field leaves the label, in dots as the encoder commands them; None where nothing limits it.
+
+    Attributes:
+        past_width: The first column past the label's width.
+        past_height: The first row past the label's height.
+    """
+
+    past_width: int | None
+    past_height: int | None
+
+
+def _label_edges(label: Label, ctx: RenderContext) -> _LabelEdges:
     """The first column past the label's width and the first row past its height, as the encoder commands them.
 
     Shifted by the configured offset like every field, so a field drawn on an edge stays inside it.
@@ -612,7 +624,7 @@ def _label_edges(label: Label, ctx: RenderContext) -> tuple[int | None, int | No
         return None if value is None else ctx.offset_dots(ctx.shifted(value, axis=axis), axis=axis)
 
     height = None if label.media is MediaSensor.CONTINUOUS else label.height
-    return edge(label.width, Axis.ACROSS), edge(height, Axis.ALONG)
+    return _LabelEdges(past_width=edge(label.width, Axis.ACROSS), past_height=edge(height, Axis.ALONG))
 
 
 def _check_label_edges(label: Label, ctx: RenderContext) -> None:
@@ -622,7 +634,8 @@ def _check_label_edges(label: Label, ctx: RenderContext) -> None:
     and its size rounds to whole dots, so a frame drawn exactly on the edges can command up to one
     unit plus one dot past them. Only an overrun beyond that is a field running off the label.
     """
-    width, height = _label_edges(label, ctx)
+    edges = _label_edges(label, ctx)
+    width, height = edges.past_width, edges.past_height
     if width is None and height is None:
         return
     tolerance = round(ctx.dots_per_unit) + 1

@@ -15,13 +15,13 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, BinaryIO, cast
+from typing import TYPE_CHECKING, BinaryIO, NamedTuple, cast
 
 import orjson
 from pydantic import ValidationError
 
 from ...domain.errors import DatamaxDplError
-from ...domain.label import MAX_POLYGON_POINTS, MAX_POLYGON_POINTS_LIMIT, Label
+from ...domain.label import MAX_POLYGON_POINTS, MAX_POLYGON_POINTS_LIMIT, Label, LongPolygon
 from ...domain.printable import printable
 from .interrupt import raise_if_interrupted
 from .json_array import ElementTooDeepError, MalformedArrayError, array_elements, starts_an_array
@@ -137,15 +137,15 @@ def parse_label(data: bytes, *, source: str = "label", bounds: InputBounds = DEF
         raise LabelInputError(f"{source} is not a valid label: {validation_lines(exc)}") from None
 
 
-def _raw_long_polygons(document: object, *, limit: int) -> Iterator[tuple[int, int]]:
-    """Yield ``(index, points)`` of each polygon of a parsed, unvalidated label with more than ``limit`` points.
+def _raw_long_polygons(document: object, *, limit: int) -> Iterator[LongPolygon]:
+    """Yield each polygon of a parsed, unvalidated label with more than ``limit`` points.
 
     Anything that is not shaped as a label is skipped: the schema refuses it next.
 
     Example:
         >>> polygon = {"type": "polygon", "points": [{"x": 0, "y": 0}] * 3}
         >>> list(_raw_long_polygons({"elements": [{"type": "circle"}, polygon]}, limit=2))
-        [(1, 3)]
+        [LongPolygon(element=1, points=3)]
     """
     if not isinstance(document, dict):
         return
@@ -160,7 +160,7 @@ def _raw_long_polygons(document: object, *, limit: int) -> Iterator[tuple[int, i
         if fields.get("type") == "polygon" and isinstance(points, list):
             count = len(cast("list[object]", points))
             if count > limit:
-                yield index, count
+                yield LongPolygon(element=index, points=count)
 
 
 def _refuse_long_polygons(document: object, *, source: str, bounds: InputBounds) -> None:
@@ -198,15 +198,22 @@ def _as_record(row: object, *, where: str) -> dict[str, str]:
     return {str(key): "" if value is None else str(value) for key, value in mapping.items()}
 
 
-def _json_lines(data: bytes) -> Iterator[tuple[int, bytes]]:
+class _JsonLine(NamedTuple):
+    """One line of a JSON-lines file: its number, counted from 1, and its bytes."""
+
+    number: int
+    raw: bytes
+
+
+def _json_lines(data: bytes) -> Iterator[_JsonLine]:
     """Yield each line of ``data`` with its number, as ``data.splitlines()`` would list them."""
     start = 0
     number = 0
     for number, ending in enumerate(_LINE_END.finditer(data), start=1):
-        yield number, data[start : ending.start()]
+        yield _JsonLine(number, data[start : ending.start()])
         start = ending.end()
     if start < len(data):
-        yield number + 1, data[start:]
+        yield _JsonLine(number + 1, data[start:])
 
 
 def _records_from_json_lines(data: bytes, source: str) -> Iterator[dict[str, str]]:

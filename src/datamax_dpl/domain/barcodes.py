@@ -328,10 +328,10 @@ def _field_budget(
     datamatrix: DataMatrixOptions | None,
 ) -> _FieldBudget:
     """Return the limit and length of the whole record data field, parameter header included."""
-    if symbology is Symbology.PDF417:
+    if symbology == Symbology.PDF417:
         header = pdf417_data_field("", pdf417 or Pdf417Options())
         return _FieldBudget(limit=MAX_PDF417_DATA, length=len(header) + len(data))
-    if symbology is Symbology.DATAMATRIX:
+    if symbology == Symbology.DATAMATRIX:
         header = datamatrix_data_field("", datamatrix or DataMatrixOptions())
         return _FieldBudget(limit=MAX_FIELD_DATA, length=len(header) + len(data))
     return _FieldBudget(limit=MAX_FIELD_DATA, length=len(data))
