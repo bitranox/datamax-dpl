@@ -87,7 +87,7 @@ dev = [
   "click>=8.5.0",                # CVE-2026-7246
   "jaraco-context>=6.1.2",       # CVE-2025-23949
   "python-multipart>=0.0.32",    # CVE-2025-24486
-  "filelock>=4.2.6; python_version >= '3.11'",
+  "filelock>=4.2.7; python_version >= '3.11'",
   "wheel>=0.48.0",               # CVE-2025-24049
   "pynacl>=1.6.2",               # CVE-2025-69277
   "urllib3>=2.8.0",              # CVE-2025-66471, CVE-2025-66418
