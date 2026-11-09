@@ -262,28 +262,28 @@ DPL letters, A = 1.0 inch per second up to S = 10.0, in steps of 0.5.
 
 ### Limits
 
-| Model              | Name                      | dpi    | Print width (in) | Max column (in/100) | Max fields | Chars/field | Heat | Image module | Max format rows |
-|--------------------|---------------------------|--------|------------------|---------------------|------------|-------------|------|--------------|-----------------|
-| `generic`          | Any model (common subset) | 203    | 3.98             | 398                 | 100        | 3000        | 0-20 | A            | none            |
-| `permissive`       | No model checks           | 203    | 99.99            | 9999                | 9999       | 10000       | 0-30 | A            | none            |
-| `allegro`          | Allegro                   | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | A            | none            |
-| `allegro-2`        | Allegro 2                 | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | A            | 1648            |
-| `prodigy`          | Prodigy                   | 203    | 4.1              | 410                 | 100        | 3000        | 0-20 | none         | none            |
-| `prodigy-152`      | Prodigy 152               | 152    | 4.15             | 410                 | 100        | 3000        | 0-20 | none         | none            |
-| `prodigy-plus`     | Prodigy Plus              | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | none         | none            |
-| `prodigy-plus-152` | Prodigy Plus 152          | 152    | 4.21             | 410                 | 200        | 5000        | 0-20 | none         | none            |
-| `dmx-400`          | DMX 400                   | 203    | 4.1              | 410                 | 199        | 5000        | 0-20 | A            | none            |
-| `dmx-430`          | DMX 430                   | 289.56 | 3.98             | 398                 | 399        | 10000       | 0-20 | A            | none            |
-| `dmx-600`          | DMX 600                   | 300    | 6.4              | 640                 | 399        | 10000       | 0-20 | E            | none            |
-| `dmx-800`          | DMX 800                   | 300    | 8.53             | 860                 | 399        | 10000       | 0-20 | E            | none            |
-| `prodigy-max-203`  | Prodigy Max 203           | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 | A            | none            |
-| `prodigy-max-300`  | Prodigy Max 300           | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 | A            | none            |
-| `pe42`             | PE42                      | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 | A            | none            |
-| `pe43`             | PE43                      | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 | A            | none            |
-| `ovation`          | Ovation!                  | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 | A            | none            |
-| `ovation-300`      | Ovation! 300              | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 | A            | none            |
-| `ovation-2`        | Ovation 2                 | 203    | 4.256            | 425                 | 319        | 7000        | 0-30 | A            | none            |
-| `titan-6200`       | Titan 6200                | 203    | 6.62             | 661                 | 399        | 10000       | 0-30 | A            | none            |
+| Model              | Name                         | dpi    | Print width (in) | Max column (in/100) | Max fields | Chars/field | Heat | Image module | Max format rows |
+|--------------------|------------------------------|--------|------------------|---------------------|------------|-------------|------|--------------|-----------------|
+| `generic`          | Any model (common subset)    | 203    | 3.98             | 398                 | 100        | 3000        | 0-20 | A            | none            |
+| `permissive`       | Permissive (no model checks) | 203    | 99.99            | 9999                | 9999       | 10000       | 0-30 | A            | none            |
+| `allegro`          | Allegro                      | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | A            | none            |
+| `allegro-2`        | Allegro 2                    | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | A            | 1648            |
+| `prodigy`          | Prodigy                      | 203    | 4.1              | 410                 | 100        | 3000        | 0-20 | none         | none            |
+| `prodigy-152`      | Prodigy 152                  | 152    | 4.15             | 410                 | 100        | 3000        | 0-20 | none         | none            |
+| `prodigy-plus`     | Prodigy Plus                 | 203    | 4.1              | 410                 | 200        | 5000        | 0-20 | none         | none            |
+| `prodigy-plus-152` | Prodigy Plus 152             | 152    | 4.21             | 410                 | 200        | 5000        | 0-20 | none         | none            |
+| `dmx-400`          | DMX 400                      | 203    | 4.1              | 410                 | 199        | 5000        | 0-20 | A            | none            |
+| `dmx-430`          | DMX 430                      | 289.56 | 3.98             | 398                 | 399        | 10000       | 0-20 | A            | none            |
+| `dmx-600`          | DMX 600                      | 300    | 6.4              | 640                 | 399        | 10000       | 0-20 | E            | none            |
+| `dmx-800`          | DMX 800                      | 300    | 8.53             | 860                 | 399        | 10000       | 0-20 | E            | none            |
+| `prodigy-max-203`  | Prodigy Max 203              | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 | A            | none            |
+| `prodigy-max-300`  | Prodigy Max 300              | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 | A            | none            |
+| `pe42`             | PE42                         | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 | A            | none            |
+| `pe43`             | PE43                         | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 | A            | none            |
+| `ovation`          | Ovation!                     | 203    | 4.1              | 410                 | 319        | 7000        | 0-30 | A            | none            |
+| `ovation-300`      | Ovation! 300                 | 300    | 4.16             | 410                 | 319        | 7000        | 0-30 | A            | none            |
+| `ovation-2`        | Ovation 2                    | 203    | 4.256            | 425                 | 319        | 7000        | 0-30 | A            | none            |
+| `titan-6200`       | Titan 6200                   | 203    | 6.62             | 661                 | 399        | 10000       | 0-30 | A            | none            |
 
 ### Speeds
 

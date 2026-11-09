@@ -90,6 +90,15 @@ def test_each_setting_without_a_known_value_is_named_with_the_key_that_sets_it()
 
 
 @pytest.mark.os_agnostic
+def test_a_finding_on_the_permissive_profile_names_the_profile_as_the_subject_of_its_sentence() -> None:
+    findings = build_job(_HI, RenderOptions(model="permissive")).findings
+
+    messages = [f.message for f in findings if f.code is FindingCode.PRINTER_SETTINGS_UNKNOWN]
+    assert len(messages) == 1
+    assert messages[0].startswith("not sent, Permissive (no model checks) has no known value: ")
+
+
+@pytest.mark.os_agnostic
 @pytest.mark.parametrize(
     ("model", "default"), [("dmx-600", DotSize(width=1, height=1)), ("allegro-2", DotSize(width=2, height=2))]
 )

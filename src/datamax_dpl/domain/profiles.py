@@ -1102,7 +1102,7 @@ def _permissive() -> PrinterProfile:
     full = SpeedRange(SpeedCode.IPS_1_0, SpeedCode.IPS_10_0, SpeedCode.IPS_2_0)
     return PrinterProfile(
         id="permissive",
-        name="No model checks",
+        name="Permissive (no model checks)",
         dpi=203,
         max_column=9999,
         print_width_in=99.99,

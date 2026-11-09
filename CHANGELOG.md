@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The `permissive` profile's display name is now "Permissive (no model checks)", so a finding on
+  it reads as a sentence: "No model checks has no known value" named nothing that could have one.
+
 ## [0.8.1] - 2026-11-09
 
 ### Changed
