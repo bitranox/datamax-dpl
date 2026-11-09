@@ -422,7 +422,8 @@ each label, not the label's length. The measurements are in
    that stays in continuous mode, sent as `<STX>c0001`). Labels then follow each other with about
    2 mm of blank paper between them, so plan for a 2 mm gap where one segment meets the next: put
    the seams where nothing crosses them.
-3. Print them in one job: `datamax-dpl print segment.json --data segments.json --printer lager`.
+3. Print them in one job (`datamax-dpl print segment.json --data segments.json --printer lager`) or as
+   separate `print` commands: on one Allegro 2 both left the same 2 mm.
 4. Return to the label sensor and the tear-off position:
 
    ```bash
@@ -435,9 +436,6 @@ each label, not the label's length. The measurements are in
    has no stop command gets the same findings a label's job gives (the Prodigy: only `<STX>c0000`
    and the feed). Without that feed the next gap label's job sets the sensor itself, but the stock
    stays where the last segment ended until then.
-
-Labels sent as separate `print` commands have not been measured; whether they also follow each
-other with 2 mm is unverified.
 
 ## JSON output for scripts and LLMs
 

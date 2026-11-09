@@ -14,8 +14,13 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
 - With `quantity` > N the printer counts copies itself (`:nnnn`); N at or past the quantity cuts once,
   after the last copy (the format asks for the whole quantity, `:0003` for three copies: the manual
   wants less, one Allegro 2 cut once anyway, other models unverified). With `--data`, each record is
-  its own format, so the job sends a cut command after every N-th record instead
-  (`batch_cut_unverified`: the printer must not also cut each label by itself).
+  its own format: where the job sets the cutter (`--cutter yes` on a model with a known `<STX>V`
+  layout) only every N-th record and the last turn it on, which one Allegro 2 cut right on paper.
+  Otherwise the job sends a cut command after every N-th record (`batch_cut_unverified`: the
+  printer must not also cut each label by itself).
+- `feed`, and the calibration label after a reset, turn an installed cutter off, so they are not
+  cut through a label's adhesive. Where no `<STX>V` can be built (`generic`, cutter not configured)
+  the printer keeps its last cutter state: give `feed` the model with `--set printer.model=ID`.
 - The Prodigy has neither command. The labels still print, with the warning `cut_by_unsupported`
   (copies of one label) or `batch_cut_unsupported` (a `--data` batch); under `--policy strict`
   that warning is an error and nothing prints. The printer then cuts as its own

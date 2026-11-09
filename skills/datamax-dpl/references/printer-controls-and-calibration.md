@@ -21,7 +21,7 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
   `"continuous_length": 0.25`, all in one `print` job, then `feed --media gap`. Measured on one
   Allegro 2: the printer feeds `continuous_length` AFTER each label's content (it is the blank
   paper between labels, not the label length), and at 0.25 mm the segments sit about 2 mm apart,
-  so put the seams where no field crosses them. Separate `print` jobs are unverified.
+  so put the seams where no field crosses them. Separate `print` commands left the same gap.
 - `config-deploy --target user` writes the user's config holding every key, each documented;
   `config-generate-examples` only shows where each layer reads from, with a generic sample.
 
