@@ -13,6 +13,11 @@ All notable changes to this project are documented here. The format follows
   refuses with `PrintRefusedError` (no printer opened) or sends. `one_way` is required, and
   `printer_uri_is_one_way(uri)` answers it from a URI. The `print` command now calls it.
 
+### Changed
+
+- `[printer] status_retry_interval` is now `answer_retry_interval`, since it also paces `print`'s
+  stored-name reads. The old key is refused, naming it.
+
 ### Fixed
 
 - The calibration label after a printer reset and a plain `feed` now turn an installed cutter off

@@ -256,7 +256,7 @@ def _wait(settings: PrinterSettings, cli_ctx: CLIContext, *, seconds: float, wai
     """A wait of ``seconds`` on the printer's retry interval and the services' clock and sleep."""
     return AnswerWait(
         seconds=seconds,
-        retry_interval=settings.status_retry_interval,
+        retry_interval=settings.answer_retry_interval,
         wait_longer=wait_longer,
         clock=cli_ctx.services.clock,
         sleep=cli_ctx.services.sleep,

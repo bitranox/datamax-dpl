@@ -159,7 +159,7 @@ class PrinterSettings(BaseModel):
     # Bounded above too, so an infinite or oversized value is refused naming its key here rather
     # than as a nameless "wait" when status runs.
     status_wait: float = Field(default=STATUS_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
-    status_retry_interval: float = Field(default=RETRY_INTERVAL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
+    answer_retry_interval: float = Field(default=RETRY_INTERVAL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
     # How long print keeps trying to read the stored image names before a job no clear
     # precedes; its own key, so a link that never answers can wait less without shortening status.
     stored_names_wait: float = Field(default=STORED_NAMES_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
@@ -199,7 +199,7 @@ class PrinterSettings(BaseModel):
     # Bounded above as there, so a larger value is refused naming its key here.
     send_chunk_bytes: int = Field(default=SEND_CHUNK_BYTES, gt=0, le=MAX_SEND_CHUNK_BYTES)
     # How long one TCP opening retries a refused connect, and the pause between two tries; status,
-    # memory and the name reads add their own retries across openings (status_retry_interval).
+    # memory and the name reads add their own retries across openings (answer_retry_interval).
     refused_connect_wait: float = Field(default=REFUSED_CONNECT_WAIT_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS)
     refused_connect_retry_interval: float = Field(
         default=REFUSED_CONNECT_RETRY_INTERVAL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS
@@ -267,7 +267,7 @@ class PrinterSettings(BaseModel):
     _numbers_are_no_booleans = field_validator(
         "timeout",
         "status_wait",
-        "status_retry_interval",
+        "answer_retry_interval",
         "stored_names_wait",
         "directory_idle",
         "directory_read_limit",

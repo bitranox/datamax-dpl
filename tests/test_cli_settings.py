@@ -130,26 +130,26 @@ def _settings(config: dict[str, Any], printer: str | None = None, timeout: float
 def test_status_waits_thirty_seconds_and_retries_every_quarter_second_by_default() -> None:
     settings = _settings({})
 
-    assert (settings.status_wait, settings.status_retry_interval) == (30.0, 0.25)
+    assert (settings.status_wait, settings.answer_retry_interval) == (30.0, 0.25)
 
 
 @pytest.mark.os_agnostic
 def test_a_configured_status_wait_and_retry_interval_reach_the_settings() -> None:
-    settings = _settings({"printer": {"status_wait": 5, "status_retry_interval": 0.5}})
+    settings = _settings({"printer": {"status_wait": 5, "answer_retry_interval": 0.5}})
 
-    assert (settings.status_wait, settings.status_retry_interval) == (5.0, 0.5)
+    assert (settings.status_wait, settings.answer_retry_interval) == (5.0, 0.5)
 
 
 @pytest.mark.os_agnostic
 def test_a_named_printers_status_wait_and_retry_interval_win_over_the_printer_section() -> None:
     config = {
-        "printer": {"status_wait": 5, "status_retry_interval": 0.5},
-        "printers": {"x": {"status_wait": 45, "status_retry_interval": 1.0}},
+        "printer": {"status_wait": 5, "answer_retry_interval": 0.5},
+        "printers": {"x": {"status_wait": 45, "answer_retry_interval": 1.0}},
     }
 
     named = _settings(config, printer="x")
 
-    assert (named.status_wait, named.status_retry_interval) == (45.0, 1.0)
+    assert (named.status_wait, named.answer_retry_interval) == (45.0, 1.0)
 
 
 @pytest.mark.os_agnostic
@@ -203,7 +203,7 @@ def test_a_timeout_given_on_the_command_line_leaves_the_stored_names_wait_alone(
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("key", ["status_wait", "status_retry_interval", "stored_names_wait"])
+@pytest.mark.parametrize("key", ["status_wait", "answer_retry_interval", "stored_names_wait"])
 @pytest.mark.parametrize("value", [0, -1.0])
 @pytest.mark.parametrize(("section", "printer"), [("printer", None), ("printers.x", "x")])
 def test_a_status_wait_or_retry_interval_not_above_zero_is_refused_with_the_key_named(
@@ -216,7 +216,7 @@ def test_a_status_wait_or_retry_interval_not_above_zero_is_refused_with_the_key_
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize("key", ["status_wait", "status_retry_interval", "stored_names_wait"])
+@pytest.mark.parametrize("key", ["status_wait", "answer_retry_interval", "stored_names_wait"])
 @pytest.mark.parametrize("value", [float("inf"), MAX_TIMEOUT_SECONDS + 1])
 def test_a_status_wait_or_retry_interval_past_the_socket_limit_is_refused_with_the_key_named(
     key: str, value: float
@@ -644,7 +644,7 @@ def test_a_named_printers_refused_connect_keys_reach_the_printer_opener(cli_runn
 #: change of the default reaches every installation that never set them.
 _COMMENTED_OUT_DEFAULTS = (
     "status_wait",
-    "status_retry_interval",
+    "answer_retry_interval",
     "stored_names_wait",
     "upload_check_rounds",
     "max_batch_records",
@@ -730,3 +730,15 @@ def test_a_named_printers_send_chunk_bytes_reaches_the_printer_opener(cli_runner
 
     assert result.exit_code == 0, result.output
     assert [tuning.send_chunk_bytes for tuning in printer.tunings] == [2048]
+
+
+@pytest.mark.os_agnostic
+def test_the_answer_retry_interval_paces_status_memory_and_name_reads() -> None:
+    assert _settings({"printer": {"answer_retry_interval": 0.5}}).answer_retry_interval == 0.5
+
+
+@pytest.mark.os_agnostic
+def test_the_old_name_of_the_answer_retry_interval_is_refused_naming_it() -> None:
+    with pytest.raises(ConfigurationError) as caught:
+        _settings({"printer": {"status_retry_interval": 0.5}})
+    assert str(caught.value) == "printer.status_retry_interval: Extra inputs are not permitted"

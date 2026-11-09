@@ -90,8 +90,8 @@ timeout = 10.0
 #          refused_connect_wait and refused_connect_retry_interval instead.
 # Type: float, greater than 0, at most 2147483
 # Default: 0.25
-# Environment Variable: DATAMAX_DPL___PRINTER__STATUS_RETRY_INTERVAL=0.5
-# status_retry_interval = 0.25
+# Environment Variable: DATAMAX_DPL___PRINTER__ANSWER_RETRY_INTERVAL=0.5
+# answer_retry_interval = 0.25
 
 # Purpose: Seconds 'print' keeps trying for each read of the
 #          printer's stored image names (<STX>W): right before each label's

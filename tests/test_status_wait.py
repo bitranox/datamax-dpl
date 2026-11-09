@@ -246,7 +246,7 @@ def test_a_give_up_reports_the_seconds_waited_not_the_wait_asked_for(cli_runner:
             "--set",
             f"printer.status_wait={wait:g}",
             "--set",
-            f"printer.status_retry_interval={interval:g}",
+            f"printer.answer_retry_interval={interval:g}",
             "status",
             "--printer",
             server.address,
@@ -276,7 +276,7 @@ def test_status_waits_the_retry_interval_between_two_connections(cli_runner: Cli
     started = time.monotonic()
     result = run(
         cli_runner,
-        ["--json", "--set", f"printer.status_retry_interval={interval}", "status", "--printer", server.address],
+        ["--json", "--set", f"printer.answer_retry_interval={interval}", "status", "--printer", server.address],
     )
     elapsed = time.monotonic() - started
     server.join()

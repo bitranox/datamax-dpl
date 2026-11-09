@@ -110,7 +110,7 @@ def test_every_key_env_example_names_is_declared() -> None:
 PRINTER_NUMBERS = [
     "timeout",
     "status_wait",
-    "status_retry_interval",
+    "answer_retry_interval",
     "stored_names_wait",
     "directory_idle",
     "directory_read_limit",

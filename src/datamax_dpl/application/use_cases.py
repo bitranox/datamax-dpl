@@ -1285,7 +1285,7 @@ STATUS_WAIT_SECONDS = 30.0
 #: key of its own (user decision): one Allegro 2 stayed silent 10-20 s after an image job, so a
 #: repeat print right after one still reads the names instead of downloading a held one again.
 STORED_NAMES_WAIT_SECONDS = 30.0
-#: Default of ``[printer] status_retry_interval``: seconds between two connections after one took
+#: Default of ``[printer] answer_retry_interval``: seconds between two connections after one took
 #: no request, so a print server that takes and drops connections at once is
 #: not dialled in a tight loop.
 RETRY_INTERVAL_SECONDS = 0.25
