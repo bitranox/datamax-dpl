@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-10
+
 ### Changed
 
 - With the cutter installed (`--cutter yes`) on a model whose job sets it (`<STX>V`), the end of every
