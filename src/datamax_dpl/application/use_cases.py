@@ -32,11 +32,13 @@ from ..domain.batch import (
     CUT_NOW as BATCH_CUT_BYTES,
 )
 from ..domain.batch import (
+    END_CUT,
     MAX_REPORTED_DOWNLOADS,
     MAX_REPORTED_FINDINGS,
     NO_CUTS,
     CutPlan,
     cut_plan,
+    cuts_after_print_for,
     with_cut,
 )
 from ..domain.detect import Detection, Evidence, suggest_profiles
@@ -240,6 +242,8 @@ class BatchEntry(NamedTuple):
 
 
 def _plan_of(batch_label: _BatchLabel, options: RenderOptions) -> CutPlan:
+    if batch_label.end_cut:
+        return END_CUT
     return NO_CUTS if batch_label.cut is None else cut_plan(batch_label.cut, options=options)
 
 
@@ -964,11 +968,13 @@ class _BatchLabel:
 
     Attributes:
         per_record: The label each record fills.
-        cut: The cut the batch makes across records; None when it makes none.
+        cut: The cut the batch makes across records; None when it makes none by count.
+        end_cut: The batch is cut only after its last record (``cut_after_print``).
     """
 
     per_record: Label
     cut: Cut | None
+    end_cut: bool
 
 
 def _filled_record(label: Label, record: Mapping[str, str], *, number: int, cutter_off: bool) -> Label:
@@ -983,13 +989,19 @@ def _batch_label(label: Label, options: RenderOptions) -> _BatchLabel:
     DPL's cut-by counts copies of one format, so a batch that cuts every N records makes the cut
     itself (:mod:`~datamax_dpl.domain.batch`), and each record's own label carries no cut-by.
     A label without a cut of its own takes the one ``cut_every`` gives it, across records too.
+    Without that, a print cut after its last label (``cut_after_print``) cuts only its last record:
+    the records before it print with the cutter off, and the last keeps the cut of its copies.
     """
+    if label.cut is None and options.cut_every is None and cuts_after_print_for(options):
+        return _BatchLabel(per_record=with_default_cut(label, options), cut=None, end_cut=True)
     label = with_default_cut(label, options)
     cut = label.cut
     if cut is None or cut.every == 1 or label.quantity > 1:
-        return _BatchLabel(per_record=label, cut=None)
+        return _BatchLabel(per_record=label, cut=None, end_cut=False)
     # model_copy, not a new Label: the label is validated already, and only its cut changes.
-    return _BatchLabel(per_record=label.model_copy(update=_CutUpdate(cut=Cut(every=1, at_end=False))), cut=cut)
+    return _BatchLabel(
+        per_record=label.model_copy(update=_CutUpdate(cut=Cut(every=1, at_end=False))), cut=cut, end_cut=False
+    )
 
 
 class RecordRender(Protocol):

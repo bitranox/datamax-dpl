@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 
 from datamax_dpl.application.use_cases import check_batch, record_renders, render_batch
-from datamax_dpl.domain.enums import FindingCode, Severity
+from datamax_dpl.domain.enums import FindingCode, PrinterSetting, Severity
 from datamax_dpl.domain.label import Cut, Label, Text
 from datamax_dpl.domain.render import RenderResult, build_job
 from datamax_dpl.domain.render_context import RenderOptions
@@ -77,7 +77,7 @@ def test_an_allegro_2_label_that_cuts_stops_at_the_measured_cutter_position() ->
 
 
 def test_an_allegro_2_label_that_does_not_cut_stops_at_tear_off_and_names_no_cutter_stop() -> None:
-    result = _job(_label(), model="allegro-2", cutter_installed=True)
+    result = _job(_label(), model="allegro-2", cutter_installed=True, cut_after_print=False)
     assert STX + b"f263" in result.data
     assert STX + b"f302" not in result.data
     assert all("cutter_stop_position" not in m for m in _messages(result, FindingCode.MODEL_DEFAULTS_APPLIED))
@@ -116,8 +116,8 @@ def test_the_label_s_own_cut_wins_over_cut_every() -> None:
     assert b":0003" not in _lines(result)
 
 
-def test_without_cut_every_a_label_without_a_cut_is_not_cut() -> None:
-    result = _job(_label(quantity=3), model="allegro-2", cutter_installed=True)
+def test_without_cut_every_or_cut_after_print_a_label_without_a_cut_is_not_cut() -> None:
+    result = _job(_label(quantity=3), model="allegro-2", cutter_installed=True, cut_after_print=False)
     assert STX + b"V0" in result.data
     assert not any(line.startswith(b":") for line in _lines(result))
 
@@ -150,7 +150,6 @@ def _switches(job: bytes) -> list[bytes]:
     ("cut", "records", "expected"),
     [
         ({"every": 2}, 5, [b"V0", b"V1", b"V0", b"V1", b"V1"]),
-        ({"every": 2, "at_end": False}, 5, [b"V0", b"V1", b"V0", b"V1", b"V0"]),
         ({"every": 2}, 4, [b"V0", b"V1", b"V0", b"V1"]),
         ({"every": 3}, 2, [b"V0", b"V1"]),
         ({"every": 1}, 3, [b"V1", b"V1", b"V1"]),
@@ -236,3 +235,121 @@ def test_copies_of_one_label_in_a_batch_keep_their_cut_by() -> None:
 def test_cut_every_takes_what_a_label_s_cut_takes(value: int) -> None:
     with pytest.raises(ValueError, match="cut_every"):
         RenderOptions(cut_every=value)
+
+
+# ======================== The end of every print is cut ========================
+#
+# With a cutter installed the stock stops at the cutter and cannot be torn off, so the last label
+# of a print (one label, or a whole --data series) is cut (user, 2026-11-09). The labels before
+# it stay joined unless a cut says otherwise.
+
+
+def _uncut_label(**fields: object) -> Label:
+    return Label.model_validate({"elements": [{"type": "text", "x": 5, "y": 5, "text": "{n}"}], **fields})
+
+
+def test_a_plain_label_is_cut_at_the_cutter_stop() -> None:
+    result = _job(_label(), model="allegro-2", cutter_installed=True)
+    assert STX + b"V1" in result.data
+    assert STX + b"f302" in result.data
+    assert not any(line.startswith(b":") for line in _lines(result))
+    assert CUT_NOW not in result.data
+    assert result.ok
+
+
+def test_copies_of_a_plain_label_are_cut_once_after_the_last() -> None:
+    # Measured 2026-11-06: ":0003" with Q0003 cut once, after the third copy.
+    result = _job(_label(quantity=3), model="allegro-2", cutter_installed=True)
+    assert STX + b"V1" in result.data
+    assert b":0003" in _lines(result)
+    assert CUT_NOW not in result.data
+
+
+@pytest.mark.parametrize("model", ["allegro", "allegro-2", "dmx-400", "dmx-600", "dmx-800", "ovation", "titan-6200"])
+def test_the_cut_after_the_print_needs_no_fallback_on_a_model_that_sets_its_cutter(model: str) -> None:
+    result = _job(_label(quantity=3), model=model, cutter_installed=True, label_present=False)
+    assert STX + b"V" in result.data
+    assert b":0003" in _lines(result)
+    assert all(finding.severity is Severity.INFO for finding in result.findings)
+
+
+def test_a_series_stays_joined_and_is_cut_after_its_last_record() -> None:
+    batch = render_batch(_uncut_label(), _records(3), _ALLEGRO_WITH_CUTTER)
+    assert _switches(batch.data) == [b"V0", b"V0", b"V1"]
+    assert [STX + b"f302" in record for record in batch.data.split(STX + b"n")[1:]] == [True] * 3
+    assert b"\r:0" not in batch.data
+    assert CUT_NOW not in batch.data
+
+
+def test_a_series_of_copies_is_cut_once_after_the_last_copy_of_its_last_record() -> None:
+    batch = render_batch(_uncut_label(quantity=2), _records(3), _ALLEGRO_WITH_CUTTER)
+    records = batch.data.split(STX + b"n")[1:]
+    assert _switches(batch.data) == [b"V0", b"V0", b"V1"]
+    assert [b"\r:0002\r" in record for record in records] == [False, False, True]
+
+
+def test_checking_and_rendering_a_series_agree_on_its_end_cut() -> None:
+    label = _uncut_label()
+    checked = check_batch(label, _records(3), _ALLEGRO_WITH_CUTTER)
+    assert b"".join(checked.record_jobs()) == render_batch(label, _records(3), _ALLEGRO_WITH_CUTTER).data
+    renders = record_renders(label, _records(3), _ALLEGRO_WITH_CUTTER)
+    assert _switches(b"".join(render.first().data for render in renders)) == [b"V0", b"V0", b"V1"]
+
+
+def test_a_series_of_one_record_is_cut() -> None:
+    batch = render_batch(_uncut_label(), _records(1), _ALLEGRO_WITH_CUTTER)
+    assert _switches(batch.data) == [b"V1"]
+
+
+def test_a_batch_cut_without_at_end_still_cuts_the_end_and_says_so() -> None:
+    batch = render_batch(_batch_label(every=2, at_end=False), _records(5), _ALLEGRO_WITH_CUTTER)
+    assert _switches(batch.data) == [b"V0", b"V1", b"V0", b"V1", b"V1"]
+    [message] = [f.message for f in batch.batch_findings if f.code is FindingCode.CUT_AT_END_KEPT]
+    assert "at_end" in message
+    assert "cut_after_print" in message
+
+
+def test_copies_cut_without_at_end_still_cut_the_rest_and_say_so() -> None:
+    result = _job(_label(quantity=5, cut=Cut(every=2, at_end=False)), model="allegro-2", cutter_installed=True)
+    assert b":0002" in _lines(result)
+    assert result.data.count(CUT_NOW) == 1
+    assert [f.severity for f in result.findings if f.code is FindingCode.CUT_AT_END_KEPT] == [Severity.INFO]
+
+
+def test_cut_every_still_decides_the_cuts_between_labels() -> None:
+    batch = render_batch(_uncut_label(), _records(5), _ALLEGRO_WITH_CUTTER.model_copy(update={"cut_every": 2}))
+    assert _switches(batch.data) == [b"V0", b"V1", b"V0", b"V1", b"V1"]
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"model": "allegro-2", "cutter_installed": True, "cut_after_print": False},
+        {"model": "allegro-2", "cutter_installed": False},
+        {"model": "allegro-2"},
+        {"model": "generic", "cutter_installed": True},
+        {"model": "allegro-2", "cutter_installed": True, "send_settings": frozenset[PrinterSetting]()},
+    ],
+    ids=["turned-off", "no-cutter", "cutter-unknown", "generic", "no-software-switches"],
+)
+def test_a_print_is_not_cut_where_its_job_does_not_set_an_installed_cutter(options: dict[str, object]) -> None:
+    result = _job(_label(quantity=3), **options)
+    assert STX + b"V1" not in result.data
+    assert not any(line.startswith(b":") for line in _lines(result))
+    assert CUT_NOW not in result.data
+    assert FindingCode.NO_CUTTER not in {finding.code for finding in result.findings}
+    batch = render_batch(_uncut_label(), _records(3), RenderOptions.model_validate(options))
+    assert STX + b"V1" not in batch.data
+    assert CUT_NOW not in batch.data
+
+
+def test_turned_off_a_batch_cut_without_at_end_leaves_the_end_uncut_as_before() -> None:
+    options = _ALLEGRO_WITH_CUTTER.model_copy(update={"cut_after_print": False})
+    batch = render_batch(_batch_label(every=2, at_end=False), _records(5), options)
+    assert _switches(batch.data) == [b"V0", b"V1", b"V0", b"V1", b"V0"]
+    assert FindingCode.CUT_AT_END_KEPT not in {finding.code for finding in batch.batch_findings}
+
+
+def test_cut_after_print_is_a_bool() -> None:
+    with pytest.raises(ValueError, match="cut_after_print"):
+        RenderOptions.model_validate({"cut_after_print": "yes"})

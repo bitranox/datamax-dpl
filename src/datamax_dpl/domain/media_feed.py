@@ -70,8 +70,10 @@ def media_feed(media: MediaSensor, options: RenderOptions | None = None) -> Medi
     """
     if media not in FEED_MEDIA:
         raise ValueError(f"a feed returns to the gap or reflective sensor, not to {media.value} media")
-    # A fed label is never cut, so no default cut applies to it.
-    chosen = (options or RenderOptions()).model_copy(update={"media": media, "send_settings": None, "cut_every": None})
+    # A fed label is never cut, so no default cut applies to it, and no cut after the print either.
+    chosen = (options or RenderOptions()).model_copy(
+        update={"media": media, "send_settings": None, "cut_every": None, "cut_after_print": False}
+    )
     # A label stands in for the job: the media and the stop come from the options, as for every
     # job, and the label asks for neither, so a model that cannot set them only reports it. It
     # does not cut either, so an installed cutter is switched off for it.
@@ -102,7 +104,9 @@ def plain_feed(options: RenderOptions | None = None) -> MediaFeed:
         b'\\x02V0\\x02F'
     """
     # As in media_feed: a fed label is never cut, whatever a default cut or send_settings say.
-    chosen = (options or RenderOptions()).model_copy(update={"send_settings": None, "cut_every": None})
+    chosen = (options or RenderOptions()).model_copy(
+        update={"send_settings": None, "cut_every": None, "cut_after_print": False}
+    )
     label = Label(elements=[Text(x=0, y=0, text="0")])
     ctx = job_context(label, chosen)
     return MediaFeed(data=b"".join([*software_switches(label, ctx), FORM_FEED]), findings=ctx.findings.findings())

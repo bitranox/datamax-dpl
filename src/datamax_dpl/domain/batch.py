@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from .enums import Attribute, FindingCode, Unit
 from .findings import Finding, FindingCollector
-from .job import sends_cutter_bit
+from .job import cuts_after_print, report_end_cut_kept, sends_cutter_bit
 from .profiles import Feature, get_profile
 from .render_context import (
     RenderContext,
@@ -67,7 +67,7 @@ class CutPlan:
     """Where a batch cuts across its records, decided record by record, so nothing grows with their number.
 
     Attributes:
-        every: A cut follows every this many records; None when the batch sends no cut.
+        every: A cut follows every this many records; None when no cut follows a record by count.
         at_end: A cut also follows the last record.
         findings: The batch-level findings.
         by_cutter_bit: Each record turns the cutter on or off itself, so no ``<STX>o`` goes out.
@@ -80,7 +80,7 @@ class CutPlan:
 
     def follows(self, number: int, *, last: bool) -> bool:
         """Whether a cut follows record ``number``, counted from 1; ``last`` when it is the last one."""
-        return self.every is not None and (number % self.every == 0 or (last and self.at_end))
+        return (self.every is not None and number % self.every == 0) or (last and self.at_end)
 
     def cut_now_follows(self, number: int, *, last: bool) -> bool:
         """Whether ``<STX>o`` follows record ``number``, counted from 1; ``last`` when it is the last one."""
@@ -93,6 +93,24 @@ class CutPlan:
 
 #: The plan of a batch that cuts across no records.
 NO_CUTS = CutPlan(every=None, at_end=False, findings=())
+#: The plan of a batch cut only after its last record (``cut_after_print``): the records before it
+#: print with the cutter off and stay joined.
+END_CUT = CutPlan(every=None, at_end=True, findings=(), by_cutter_bit=True)
+
+
+def cuts_after_print_for(options: RenderOptions) -> bool:
+    """Return True when a print with ``options`` is cut after its last label (see :func:`~.job.cuts_after_print`).
+
+    Example:
+        >>> cuts_after_print_for(RenderOptions(model="allegro-2", cutter_installed=True))
+        True
+        >>> cuts_after_print_for(RenderOptions(model="allegro-2", cutter_installed=True, cut_after_print=False))
+        False
+    """
+    # The two option checks first: a label without a cut asks this once per record of a batch.
+    if not options.cut_after_print or options.cutter_installed is not True:
+        return False
+    return cuts_after_print(_context(options, FindingCollector(options.policy)))
 
 
 @dataclass(frozen=True)
@@ -131,7 +149,11 @@ def cut_plan(cut: Cut, *, options: RenderOptions) -> CutPlan:
     findings = FindingCollector(options.policy)
     ctx = _context(options, findings)
     if sends_cutter_bit(ctx):
-        return CutPlan(every=cut.every, at_end=cut.at_end, findings=(), by_cutter_bit=True)
+        # A printer with its cutter installed cannot have its last label torn off (cut_after_print).
+        kept = not cut.at_end and cuts_after_print(ctx)
+        if kept:
+            report_end_cut_kept(ctx, what="the batch")
+        return CutPlan(every=cut.every, at_end=cut.at_end or kept, findings=findings.findings(), by_cutter_bit=True)
     if not ctx.supports(Feature.CUT_NOW):
         findings.deviate(
             FindingCode.BATCH_CUT_UNSUPPORTED,
@@ -165,6 +187,7 @@ def with_cut(job: bytes, closing: bytes, *, cut: bool) -> bytes:
 
 __all__ = [
     "CUT_NOW",
+    "END_CUT",
     "MAX_REPORTED_DOWNLOADS",
     "MAX_REPORTED_FINDINGS",
     "NO_CUTS",
@@ -172,5 +195,6 @@ __all__ = [
     "CutPlan",
     "batch_cuts",
     "cut_plan",
+    "cuts_after_print_for",
     "with_cut",
 ]

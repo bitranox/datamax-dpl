@@ -7,10 +7,15 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
 - `"cut": {"every": N, "at_end": true}` (`at_end` defaults to true: the last short group is cut
   too). Tell the tool the cutter exists with `--cutter yes` (or `[printer] cutter = "yes"`);
   `--cutter no` refuses any cutting label.
-- Only a label with `cut` is cut: with `--cutter yes` a label without it switches the cutter off for
-  its job (`<STX>V0`). `[printer] cut_every = N` gives every label without its own `cut` one; the
-  label's own `cut` wins. A label cannot opt out of it: print that job with
-  `--set printer.cut_every=null`.
+- With `--cutter yes` on a model whose job sets the cutter (`<STX>V`), the end of every print is cut
+  (`[printer] cut_after_print`, on by default): such a printer stops the stock at the cutter, where
+  it cannot be torn off. A label without `cut` is cut once, after its last copy (`<STX>V1` plus
+  `:nnnn`); a `--data` series without `cut` stays joined and is cut after its last record (the
+  records before it go out with `<STX>V0`). A cut's `"at_end": false` is overridden there
+  (`cut_at_end_kept`). The cutter is then on when the print ends, so the printer's FEED key cuts.
+  With `cut_after_print = false`, only a label with `cut` is cut.
+- `[printer] cut_every = N` gives every label without its own `cut` one; the label's own `cut` wins.
+  A label cannot opt out of it: print that job with `--set printer.cut_every=null`.
 - With `quantity` > N the printer counts copies itself (`:nnnn`); N at or past the quantity cuts once,
   after the last copy (the format asks for the whole quantity, `:0003` for three copies: the manual
   wants less, one Allegro 2 cut once anyway, other models unverified). With `--data`, each record is

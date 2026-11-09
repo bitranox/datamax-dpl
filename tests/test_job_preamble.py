@@ -305,8 +305,11 @@ def test_a_label_that_sets_nothing_left_out_gets_no_such_finding() -> None:
 def test_the_allegro_2_turns_its_cutter_on_only_for_a_label_that_cuts(
     cutter: bool, cut: Cut | None, command: bytes
 ) -> None:
-    """Measured 2026-11-06 on one Allegro 2: with V1 every label is cut, with V0 none is."""
-    result = _job(_text_label(cut=cut), model="allegro-2", cutter_installed=cutter)
+    """Measured 2026-11-06 on one Allegro 2: with V1 every label is cut, with V0 none is.
+
+    cut_after_print is off here: it would cut the label without a cut (see test_cutting.py).
+    """
+    result = _job(_text_label(cut=cut), model="allegro-2", cutter_installed=cutter, cut_after_print=False)
     assert STX + command in result.data
     assert FindingCode.SOFTWARE_SWITCHES_NOT_SENT not in _codes(result)
 
@@ -337,7 +340,9 @@ def test_the_max_pe_ovation_column_sets_cutter_and_label_present(
     cutter: bool, cut: Cut | None, present: bool, command: bytes
 ) -> None:
     """Manual p.42: Prodigy Max, Ovation, Ovation 2, PE42 and PE43 have bit 0 cutter, bit 2 label present."""
-    data = _job(_text_label(cut=cut), model="pe42", cutter_installed=cutter, label_present=present).data
+    data = _job(
+        _text_label(cut=cut), model="pe42", cutter_installed=cutter, label_present=present, cut_after_print=False
+    ).data
     assert STX + command in data
 
 

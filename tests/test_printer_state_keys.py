@@ -311,8 +311,9 @@ def test_an_unknown_label_present_names_its_key_and_setting_it_sends_the_switche
     assert "[printer] label_present" in message
     followed = _cli(cli_runner, "--set", "printer.label_present=no", *command)
     assert _messages(followed, FindingCode.SOFTWARE_SWITCHES_NOT_SENT) == []
-    # The label does not cut, so the cutter bit is off although a cutter is installed.
-    assert STX + b"V0" in _rendered(followed)
+    # The label sets no cut, but with a cutter installed the print is cut after its label
+    # (cut_after_print), so the cutter bit is on.
+    assert STX + b"V1" in _rendered(followed)
 
 
 @pytest.mark.os_agnostic

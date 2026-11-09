@@ -221,6 +221,9 @@ class PrinterSettings(BaseModel):
     # The cut a label without its own "cut" gets: every N labels. Unset cuts no such label. Same
     # range as a label's cut, so a bad value is refused here naming its key.
     cut_every: int | None = Field(default=None, ge=1, le=MAX_QUANTITY)
+    # With the cutter installed (cutter = yes) on a model whose job sets it, cut after the last label
+    # of every print: such a printer stops the stock at the cutter, where it cannot be torn off.
+    cut_after_print: bool = True
     # None is not "no budget": it takes the model's, which most models do not have.
     image_memory_bytes: int | None = Field(default=None, gt=0)
     # None is not module A: it takes the model's built-in module, E on a DMX 600/800 and none on a
@@ -598,6 +601,7 @@ def render_options(settings: PrinterSettings) -> RenderOptions:
         stop_position_mm=settings.stop_position,
         cutter_stop_position_mm=settings.cutter_stop_position,
         cut_every=settings.cut_every,
+        cut_after_print=settings.cut_after_print,
         image_memory_bytes=settings.image_memory_bytes,
         image_module=settings.image_module,
         clear_graphics_before_label=settings.clear_graphics_before,
@@ -638,6 +642,7 @@ OPTION_KEYS: Mapping[str, str] = MappingProxyType(
         "stop_position_mm": "stop_position",
         "cutter_stop_position_mm": "cutter_stop_position",
         "cut_every": "cut_every",
+        "cut_after_print": "cut_after_print",
         "image_memory_bytes": "image_memory_bytes",
         "image_module": "image_module",
         "clear_graphics_before_label": "clear_graphics_before",

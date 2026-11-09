@@ -243,6 +243,25 @@ def sends_cutter_bit(ctx: RenderContext) -> bool:
     return _sends(PrinterSetting.SOFTWARE_SWITCHES, ctx) and _switch_value(ctx, cutter_on=False).value is not None
 
 
+def cuts_after_print(ctx: RenderContext) -> bool:
+    """Return True when a print for ``ctx`` is cut after its last label (``cut_after_print``).
+
+    Only where the cutter is known to be installed and the job sets it itself: such a printer stops
+    the stock at the cutter, where it cannot be torn off (user, 2026-11-09), and the job can turn
+    the cutter on for the last label alone. Elsewhere the printer's own cutter setting stands.
+    """
+    return ctx.configured.cut_after_print and ctx.cutter_installed is True and sends_cutter_bit(ctx)
+
+
+def report_end_cut_kept(ctx: RenderContext, *, what: str) -> None:
+    """Report that a cut's ``at_end`` false is overridden: the end of the print ``what`` names is cut anyway."""
+    ctx.findings.info(
+        FindingCode.CUT_AT_END_KEPT,
+        f"{what} is cut after its last label although its cut sets at_end false: "
+        f"{option_name('cut_after_print')} cuts the end of every print on a printer with a cutter",
+    )
+
+
 def software_switches(label: Label, ctx: RenderContext) -> list[bytes]:
     """Return the ``<STX>V`` a job for ``label`` sends; none, and a finding saying why, where it cannot be built."""
     if not _sends(PrinterSetting.SOFTWARE_SWITCHES, ctx):
@@ -734,10 +753,14 @@ def _check_cutter(label: Label, ctx: RenderContext) -> None:
 
 def _rest_cut(label: Label, ctx: RenderContext) -> list[bytes]:
     cut = label.cut
-    if cut is None or not cut.at_end or cut.every == 1 or cut.every >= label.quantity:
+    if cut is None or cut.every == 1 or cut.every >= label.quantity:
         return []
     if label.quantity % cut.every == 0:
         return []
+    if not cut.at_end:
+        if not cuts_after_print(ctx):
+            return []
+        report_end_cut_kept(ctx, what="the label")
     if ctx.supports(Feature.CUT_NOW):
         return [CUT_NOW]
     ctx.findings.deviate(
@@ -970,10 +993,12 @@ __all__ = [
     "MAX_STOP_POSITION",
     "MAX_STOP_POSITION_MM",
     "closing_clears",
+    "cuts_after_print",
     "feed_settings",
     "format_footer",
     "format_header",
     "image_downloads",
+    "report_end_cut_kept",
     "retry_clear",
     "retry_clear_may_go",
     "sends_cutter_bit",

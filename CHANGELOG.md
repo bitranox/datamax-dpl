@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- With the cutter installed (`--cutter yes`) on a model whose job sets it (`<STX>V`), the end of every
+  print is now cut: such a printer stops the stock at the cutter, where it cannot be torn off. A
+  label without `cut` is cut once, after its last copy (`<STX>V1`, plus `:nnnn` for copies); a
+  `--data` series without `cut` stays joined and is cut after its last record, the records before it
+  going out with `<STX>V0`. Every such job stops at the cutter stop (`<STX>f302` on the Allegro 2).
+  The cutter is on when the print ends, so the printer's FEED key cuts too; `feed` and the
+  calibration label still turn it off first. A cut's `"at_end": false` is overridden there, with the
+  new info finding `cut_at_end_kept`. The new settings key `[printer] cut_after_print` (default
+  `true`) turns it off; off, a print without a cut is not cut, as in 0.9.0.
+
 ### Fixed
 
 - The calibration label that goes before a job after a printer reset is no longer cut when the job

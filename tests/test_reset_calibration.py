@@ -1138,6 +1138,19 @@ def test_the_calibration_label_is_not_cut_though_a_default_cut_cuts_the_job() ->
 
 
 @pytest.mark.os_agnostic
+def test_the_calibration_label_is_not_cut_though_its_job_is_cut_after_the_print() -> None:
+    """With a cutter installed every job is cut at its end; the calibration label before it is not."""
+    options = RenderOptions(model="allegro-2", cutter_installed=True)
+
+    job = calibration_job(Label(**_PLAIN_FIELDS), options, text="Feed")
+
+    assert b"\x02V0" in job.data
+    assert b"\x02V1" not in job.data
+    assert b"\r:0" not in job.data
+    assert b"\x02f302" in job.data
+
+
+@pytest.mark.os_agnostic
 def test_the_calibration_label_stops_where_the_job_it_prepares_stops() -> None:
     options = RenderOptions(model="allegro-2", cutter_installed=True)
 

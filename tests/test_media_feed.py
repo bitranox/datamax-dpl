@@ -94,6 +94,18 @@ def test_a_default_cut_does_not_make_a_plain_feed_cut() -> None:
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize("cut_every", [None, 2], ids=["cut after print", "cut every"])
+@pytest.mark.parametrize("feed", ["media", "plain"])
+def test_a_feed_reports_no_cutter_stop_since_it_is_never_cut(feed: str, cut_every: int | None) -> None:
+    """A feed's label is never cut, so its findings name no cutter stop, whatever cut the options give a job."""
+    options = RenderOptions(model="allegro-2", cutter_installed=True, cut_every=cut_every)
+
+    result = media_feed(MediaSensor.GAP, options) if feed == "media" else plain_feed(options)
+
+    assert [f.message for f in result.findings if "cutter_stop_position" in f.message] == []
+
+
+@pytest.mark.os_agnostic
 @pytest.mark.parametrize(
     "options",
     [RenderOptions(model="allegro-2"), RenderOptions(model="generic", cutter_installed=True)],

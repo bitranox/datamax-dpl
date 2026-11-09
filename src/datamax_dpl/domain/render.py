@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, NamedTuple, TypedDict, TypeVar
 from pydantic import BaseModel, ConfigDict
 
 from ._invariants import require_update_fields
+from .batch import cuts_after_print_for
 from .encode_barcode import encode_barcode
 from .encode_graphics import encode_box, encode_circle, encode_image, encode_line, encode_polygon, encode_qr
 from .encode_text import encode_scalable_text, encode_text
@@ -438,23 +439,34 @@ require_update_fields(_DefaultCut, Label)
 
 
 def with_default_cut(label: Label, options: RenderOptions) -> Label:
-    """Return ``label`` with the cut ``options.cut_every`` gives a label that sets none.
+    """Return ``label`` with the cut the options give a label that sets none.
 
-    The label's own ``cut`` wins; a label without one is not cut unless ``cut_every`` is set
-    (user decision 2026-11-06: the label decides, the key is its default).
+    The label's own ``cut`` wins (user decision 2026-11-06: the label decides, the key is its
+    default). A label without one takes ``cut_every``; without that, where the print is cut after
+    its last label (``cut_after_print``), its copies are cut once, after the last of them.
 
     Example:
         >>> from datamax_dpl.domain.label import Label, Text
-        >>> label = Label(elements=[Text(x=5, y=5, text="Hi")])
-        >>> with_default_cut(label, RenderOptions(cut_every=3)).cut
+        >>> label = Label(quantity=3, elements=[Text(x=5, y=5, text="Hi")])
+        >>> with_default_cut(label, RenderOptions(cut_every=2)).cut
+        Cut(every=2, at_end=True)
+        >>> with_default_cut(label, RenderOptions(model="allegro-2", cutter_installed=True)).cut
         Cut(every=3, at_end=True)
         >>> with_default_cut(label, RenderOptions()).cut is None
         True
     """
-    if label.cut is not None or options.cut_every is None:
+    if label.cut is not None:
+        return label
+    if options.cut_every is not None:
+        cut = Cut(every=options.cut_every)
+    elif cuts_after_print_for(options):
+        # Cut-by at the quantity with the cutter on: ":0003" with Q0003 cut once, after the third
+        # copy, on one Allegro 2 (2026-11-06).
+        cut = Cut(every=label.quantity)
+    else:
         return label
     # model_copy, not a new Label: the label is validated already, and only its cut changes.
-    return label.model_copy(update=_DefaultCut(cut=Cut(every=options.cut_every)))
+    return label.model_copy(update=_DefaultCut(cut=cut))
 
 
 def job_context(label: Label, options: RenderOptions | None = None) -> RenderContext:

@@ -185,6 +185,11 @@ class RenderOptions(BaseModel):
         cut_every: The cut a label that sets no ``cut`` gets: every this many labels, as a
             label's ``cut.every``; None leaves such a label uncut (the cutter is switched off
             for it). A label's own ``cut`` wins; a feed never cuts.
+        cut_after_print: Cut after the last label of every print where the printer has its cutter
+            installed and the job sets it (``<STX>V``): such a printer stops the stock at the
+            cutter, where it cannot be torn off. The labels before the last stay joined unless a
+            cut says otherwise, and a cut's ``at_end: false`` is overridden. False leaves a print
+            without a cut uncut, as before. A feed and the calibration label are never cut.
         image_memory_bytes: Bytes of image data one job may download (see
             :mod:`~datamax_dpl.domain.image_budget`); None takes the model's budget, which most
             models do not have. A budget set here applies on every path, ``model_image_budget``
@@ -270,6 +275,7 @@ class RenderOptions(BaseModel):
     stop_position_mm: StopPosition | None = None
     cutter_stop_position_mm: Positive | None = None
     cut_every: int | None = Field(default=None, ge=1, le=MAX_QUANTITY, strict=True)
+    cut_after_print: bool = Field(default=True, strict=True)
     image_memory_bytes: int | None = Field(default=None, gt=0, strict=True)
     model_image_budget: bool = Field(default=True, strict=True)
     image_module: ImageModule | None = None
@@ -347,6 +353,7 @@ class ConfiguredLabelState:
         column_offset_mm: Column offset in mm, or None.
         row_offset_mm: Row offset in mm, or None.
         present_distance_mm: Present distance in mm, or None.
+        cut_after_print: Whether a job that sets an installed cutter cuts after its last label.
     """
 
     heat: int | None
@@ -356,6 +363,7 @@ class ConfiguredLabelState:
     column_offset_mm: float | None
     row_offset_mm: float | None
     present_distance_mm: float | None
+    cut_after_print: bool
 
 
 def resolved_label_state(options: RenderOptions) -> ConfiguredLabelState:
@@ -373,6 +381,7 @@ def resolved_label_state(options: RenderOptions) -> ConfiguredLabelState:
         column_offset_mm=options.column_offset_mm,
         row_offset_mm=options.row_offset_mm,
         present_distance_mm=options.present_distance_mm,
+        cut_after_print=options.cut_after_print,
     )
 
 

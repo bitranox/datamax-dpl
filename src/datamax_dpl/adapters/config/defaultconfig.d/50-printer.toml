@@ -355,14 +355,29 @@ options = []
 
 # Purpose: The cut a label without its own "cut" gets: after every N labels, as
 #          "cut": {"every": N} in the label. The label's own "cut" wins. An N at or
-#          past the label's quantity cuts once, after the last copy. With cutter
-#          "yes", a label without a cut switches the cutter off (<STX>V), so unset
-#          cuts no such label. A label cannot opt out of it; to print one job
-#          uncut, run it with --set printer.cut_every=null.
+#          past the label's quantity cuts once, after the last copy. Unset, a
+#          label without a cut is cut only after the last label of the print
+#          (cut_after_print below), or not at all where that is off. A label
+#          cannot opt out of it; to print one job without it, run it with
+#          --set printer.cut_every=null.
 # Type: integer, 1 to 9999
-# Default: unset (a label without "cut" is not cut)
+# Default: unset (a label without "cut" is cut only at the end of the print)
 # Environment Variable: DATAMAX_DPL___PRINTER__CUT_EVERY=3
 # cut_every = 3
+
+# Purpose: With cutter "yes" on a model whose job sets the cutter (<STX>V), cut
+#          after the last label of every print, one label or a whole --data
+#          series: such a printer stops the stock at the cutter, where it cannot
+#          be torn off. The labels before the last stay joined unless "cut" or
+#          cut_every says otherwise, and a cut's "at_end": false is overridden
+#          (finding cut_at_end_kept). The cutter is then on when the print ends,
+#          so the printer's FEED key cuts too. feed and the calibration label
+#          are never cut. false leaves a print without a cut uncut, the cutter
+#          switched off for it.
+# Type: boolean
+# Default: true
+# Environment Variable: DATAMAX_DPL___PRINTER__CUT_AFTER_PRINT=false
+# cut_after_print = true
 
 # Purpose: Bytes of image dot data one job may download (rows times bytes per
 #          row of every image it sends; images it only places cost nothing). Past
