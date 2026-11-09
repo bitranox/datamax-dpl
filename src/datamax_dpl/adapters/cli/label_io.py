@@ -145,7 +145,7 @@ def _raw_long_polygons(document: object, *, limit: int) -> Iterator[LongPolygon]
     Example:
         >>> polygon = {"type": "polygon", "points": [{"x": 0, "y": 0}] * 3}
         >>> list(_raw_long_polygons({"elements": [{"type": "circle"}, polygon]}, limit=2))
-        [LongPolygon(element=1, points=3)]
+        [LongPolygon(element=1, point_count=3)]
     """
     if not isinstance(document, dict):
         return
@@ -160,7 +160,7 @@ def _raw_long_polygons(document: object, *, limit: int) -> Iterator[LongPolygon]
         if fields.get("type") == "polygon" and isinstance(points, list):
             count = len(cast("list[object]", points))
             if count > limit:
-                yield LongPolygon(element=index, points=count)
+                yield LongPolygon(element=index, point_count=count)
 
 
 def _refuse_long_polygons(document: object, *, source: str, bounds: InputBounds) -> None:
@@ -171,8 +171,11 @@ def _refuse_long_polygons(document: object, *, source: str, bounds: InputBounds)
     """
     limit = bounds.max_polygon_points
     lines = [
-        f"elements.{index}.polygon.points: List should have at most {limit} items after validation, not {points}"
-        for index, points in _raw_long_polygons(document, limit=limit)
+        (
+            f"elements.{polygon.element}.polygon.points: List should have at most {limit} items "
+            f"after validation, not {polygon.point_count}"
+        )
+        for polygon in _raw_long_polygons(document, limit=limit)
     ]
     if not lines:
         return

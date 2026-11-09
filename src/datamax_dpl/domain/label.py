@@ -543,15 +543,15 @@ class LongPolygon(NamedTuple):
 
     Attributes:
         element: Its position in the label's elements.
-        points: How many points it has.
+        point_count: How many points it has.
 
     Example:
-        >>> LongPolygon(element=1, points=3).points
+        >>> LongPolygon(element=1, point_count=3).point_count
         3
     """
 
     element: int
-    points: int
+    point_count: int
 
 
 def long_polygons(elements: Sequence[Element], *, limit: int) -> Iterator[LongPolygon]:
@@ -560,11 +560,11 @@ def long_polygons(elements: Sequence[Element], *, limit: int) -> Iterator[LongPo
     Example:
         >>> triangle = Polygon(points=[Point(x=0, y=0), Point(x=10, y=0), Point(x=5, y=8)])
         >>> list(long_polygons([Circle(x=5, y=5, radius=3), triangle], limit=2))
-        [LongPolygon(element=1, points=3)]
+        [LongPolygon(element=1, point_count=3)]
     """
     for index, element in enumerate(elements):
         if isinstance(element, Polygon) and len(element.points) > limit:
-            yield LongPolygon(element=index, points=len(element.points))
+            yield LongPolygon(element=index, point_count=len(element.points))
 
 
 __all__ = [

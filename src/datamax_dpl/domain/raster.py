@@ -181,7 +181,7 @@ def _walk(start: _AxisPoint, end: _AxisPoint, *, low: int, high: int) -> Iterato
     (a0, b0), (a1, b1) = sorted((start, end))
     span = a1 - a0
     for a in range(max(a0, low), min(a1, high) + 1):
-        yield _AxisPoint(a, b0 + _round_div((a - a0) * (b1 - b0), span) if span else b0)
+        yield _AxisPoint(major=a, minor=b0 + _round_div((a - a0) * (b1 - b0), span) if span else b0)
 
 
 def _crossings(points: Sequence[DotPoint], y: int) -> list[int]:
@@ -601,11 +601,13 @@ class Bitmap:
         """Yield the line's points whose stamps can reach the image, walking its major axis."""
         (x0, y0), (x1, y1) = start, end
         if abs(x1 - x0) >= abs(y1 - y0):
-            for x, y in _walk(_AxisPoint(x0, y0), _AxisPoint(x1, y1), low=-margin, high=self.width - 1 + margin):
-                yield DotPoint(x, y)
+            first, last = _AxisPoint(major=x0, minor=y0), _AxisPoint(major=x1, minor=y1)
+            for point in _walk(first, last, low=-margin, high=self.width - 1 + margin):
+                yield DotPoint(point.major, point.minor)
             return
-        for y, x in _walk(_AxisPoint(y0, x0), _AxisPoint(y1, x1), low=-margin, high=self.height - 1 + margin):
-            yield DotPoint(x, y)
+        first, last = _AxisPoint(major=y0, minor=x0), _AxisPoint(major=y1, minor=x1)
+        for point in _walk(first, last, low=-margin, high=self.height - 1 + margin):
+            yield DotPoint(point.minor, point.major)
 
     def _stamp(self, x: int, y: int, size: int) -> None:
         """Blacken a ``size`` x ``size`` square centred on (x, y)."""

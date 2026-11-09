@@ -98,13 +98,13 @@ def noting_interrupts() -> Generator[None, None, None]:
     if not owned or not taken:
         yield
         return
-    for signum, _default in taken:
-        signal.signal(signum, _note_and_raise)
+    for entry in taken:
+        signal.signal(entry.signum, _note_and_raise)
     try:
         yield
     finally:
-        for signum, default in taken:
-            signal.signal(signum, default)
+        for entry in taken:
+            signal.signal(entry.signum, entry.default)
         _Note.interrupted = False
 
 

@@ -166,14 +166,13 @@ def _open_beside(target: Path, found: os.stat_result | None, read_attributes: Re
     created = _create_temp(target, _NEW_FILE_MODE if mode is None else mode)
     if created is None:
         return None
-    temp, descriptor = created
     # A directory can give a new file another group than the target's, whose members would lose it.
-    other_group = found is not None and os.fstat(descriptor).st_gid != found.st_gid
-    if other_group or (found is not None and _loses_attributes(target, temp, read_attributes)):
-        os.close(descriptor)
-        _remove(temp)
+    other_group = found is not None and os.fstat(created.descriptor).st_gid != found.st_gid
+    if other_group or (found is not None and _loses_attributes(target, created.path, read_attributes)):
+        os.close(created.descriptor)
+        _remove(created.path)
         return None
-    return _Beside(temp, os.fdopen(descriptor, "wb"), mode)
+    return _Beside(created.path, os.fdopen(created.descriptor, "wb"), mode)
 
 
 def _closed(stream: BinaryIO) -> OSError | None:

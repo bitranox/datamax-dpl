@@ -17,6 +17,13 @@ All notable changes to this project are documented here. The format follows
 
 - `[printer] status_retry_interval` is now `answer_retry_interval`, since it also paces `print`'s
   stored-name reads. The old key is refused, naming it.
+- Library: `Bitmap.combine` refuses a mode that names no `CombineMode` with `ValueError`. It used to
+  draw such a mode as OR, including the raw strings `"xor"` and `"opaque"`, which now take effect.
+- Library: a function that takes an enum now treats the enum's plain string value as the member. For
+  example, `check_barcode("pdf417", data)` used to report a false `too_long`. Label files and the
+  CLI were not affected, since they always pass enum members.
+- Library: `long_polygons` yields `LongPolygon(element, point_count)` records; they still unpack as
+  the two-item tuples it yielded before.
 
 ### Fixed
 

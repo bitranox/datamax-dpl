@@ -428,12 +428,12 @@ def find_overlaps(elements: Sequence[Element], ctx: RenderContext) -> OverlapRep
         return OverlapReport(past_field_limit=True)
     groups = _Groups()
     inexact: set[int] = set()
-    for first, second in _candidates({index: fields.area(index) for index in (*fields.exact, *fields.inexact)}):
-        if first in fields.exact and second in fields.exact:
-            if fields.exact[first].shares_dots(fields.exact[second]):
-                groups.join(first, second)
-        elif fields.meet(first, second):
-            inexact.update(index for index in (first, second) if index in fields.inexact)
+    for lower, higher in _candidates({index: fields.area(index) for index in (*fields.exact, *fields.inexact)}):
+        if lower in fields.exact and higher in fields.exact:
+            if fields.exact[lower].shares_dots(fields.exact[higher]):
+                groups.join(lower, higher)
+        elif fields.meet(lower, higher):
+            inexact.update(index for index in (lower, higher) if index in fields.inexact)
     return OverlapReport(groups=groups.groups(), inexact=tuple(sorted(inexact)))
 
 

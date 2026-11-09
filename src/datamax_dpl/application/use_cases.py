@@ -275,15 +275,15 @@ def _entries(
     current: list[tuple[dict[str, str], bool]] = []
 
     def labels() -> Iterator[Label]:
-        for number, record in enumerate(_with_last(records)):
+        for number, entry in enumerate(_with_last(records)):
             # Read once, here: the render and what the send fills again both take these values.
-            values = dict(record.item)
-            current.append((values, record.is_last))
+            values = dict(entry.item)
+            current.append((values, entry.is_last))
             yield _filled_record(
                 batch_label.per_record,
                 values,
                 number=number,
-                cutter_off=plan.leaves_uncut(number + 1, last=record.is_last),
+                cutter_off=plan.leaves_uncut(number + 1, last=entry.is_last),
             )
 
     held = READ_AT_SEND if read_names_at_send else None

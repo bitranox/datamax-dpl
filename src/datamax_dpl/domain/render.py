@@ -505,11 +505,11 @@ def _check_qr_dot_size(label: Label, ctx: RenderContext) -> None:
 
 def _check_polygon_points(label: Label, ctx: RenderContext, *, limit: int) -> None:
     """Refuse each polygon with more than ``limit`` points, under either policy."""
-    for index, points in long_polygons(label.elements, limit=limit):
+    for polygon in long_polygons(label.elements, limit=limit):
         ctx.findings.refuse(
             FindingCode.POLYGON_TOO_MANY_POINTS,
-            f"the polygon has {points} points, more than {limit} ({option_name('max_polygon_points')})",
-            element=index,
+            f"the polygon has {polygon.point_count} points, more than {limit} ({option_name('max_polygon_points')})",
+            element=polygon.element,
         )
 
 
