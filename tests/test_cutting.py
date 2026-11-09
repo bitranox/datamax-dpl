@@ -219,7 +219,7 @@ def test_a_batch_whose_job_sends_no_cutter_bit_still_cuts_with_the_cut_command()
 
 
 def test_a_batch_left_without_software_switches_still_cuts_with_the_cut_command() -> None:
-    options = RenderOptions(model="allegro-2", cutter_installed=True, send_settings=())
+    options = RenderOptions(model="allegro-2", cutter_installed=True, send_settings=frozenset())
     batch = render_batch(_batch_label(every=2), _records(3), options)
     assert [job.count(CUT_NOW) for job in batch.record_jobs()] == [0, 1, 1]
 

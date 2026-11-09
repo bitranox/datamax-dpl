@@ -495,7 +495,8 @@ def test_every_record_of_a_batch_clears_before_downloading_its_qr_again() -> Non
 def test_a_batch_cut_goes_before_the_record_s_closing_clear() -> None:
     label = _qr_label(cut=Cut(every=2))
     records = [{"code": "A1"}, {"code": "B2"}, {"code": "C3"}]
-    batch = render_batch(label, records, RenderOptions(model="allegro-2", cutter_installed=True))
+    # The cutter left unknown: no <STX>V can be built, so this batch is the one that sends <STX>o.
+    batch = render_batch(label, records, RenderOptions(model="allegro-2"))
     jobs = batch.data.split(STX + b"o")
     assert len(jobs) == 3
     assert jobs[1].startswith(STX + b"qA")
