@@ -182,6 +182,6 @@ Tests drive public functions and the CLI. Collaborators are injected: the CLI te
   sent as images.
 - Only an Allegro 2 has been checked on a real printer.
 - The package root exports the label model and its enums, `render`, `build_job`, `render_batch`,
-  `iter_batch`, `check_batch`, `record_renders`, `fill_label`, `open_printer`, `print_checked`,
-  `explain`, the profiles, the calibration labels, the preview and the errors (`datamax_dpl.__all__`);
+  `iter_batch`, `check_batch`, `record_renders`, `fill_label`, `open_printer`,
+  `printer_uri_is_one_way`, `print_label`, `PrintRequest`, `print_checked`, `explain`, the profiles, the calibration labels, the preview and the errors (`datamax_dpl.__all__`);
   anything else is reached through module paths (`datamax_dpl.domain.render` and so on).
