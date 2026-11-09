@@ -665,3 +665,23 @@ def test_the_label_checks_read_each_fields_rectangle_without_painting_it() -> No
         sys.setprofile(previous)
     assert result.ok
     assert painted == []
+
+
+@pytest.mark.os_agnostic
+def test_a_records_field_rectangles_are_worked_out_once_for_both_label_checks() -> None:
+    """Both checks run on the Allegro 2 for a sized label; two would mean each works them out again."""
+    worked_out: list[str] = []
+
+    def count(frame: FrameType, event: str, _arg: object) -> None:
+        if event == "call" and frame.f_code.co_name == "_field_rectangle":
+            worked_out.append(frame.f_code.co_filename)
+
+    label = Label(unit=Unit.DOTS, width=400, height=400, elements=[Text(x=10, y=10, text="A", font=2)])
+    previous = sys.getprofile()
+    sys.setprofile(count)
+    try:
+        result = build_job(label, ALLEGRO_2)
+    finally:
+        sys.setprofile(previous)
+    assert result.ok
+    assert len(worked_out) == 1

@@ -92,3 +92,10 @@ def test_one_field_past_both_edges_is_one_finding_naming_both() -> None:
 
     assert "width" in finding.message
     assert "height" in finding.message
+
+
+def test_an_image_only_the_printer_holds_counts_by_its_reference_point() -> None:
+    """Its size is unknown here, and the preview's 40-dot stand-in would report a field that may fit."""
+    near_the_right_edge = {"type": "image", "x": 76, "y": 5, "name": "STORED"}
+
+    assert _edge(_label(near_the_right_edge)) == []

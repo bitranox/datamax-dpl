@@ -26,7 +26,8 @@ All notable changes to this project are documented here. The format follows
   the two-item tuples it yielded before.
 - Rendering and validating a batch no longer draw each field just to read its rectangle: about half
   the CPU time for 20000 labels with a box frame (17.2 s to 8.4 s), and 2.5 s to 1.5 s for 2000
-  labels with an image. The generated DPL is unchanged.
+  labels with an image. The two label checks also share each field's rectangle, about 10 percent
+  less on that batch. The generated DPL is unchanged.
 
 ### Fixed
 

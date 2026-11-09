@@ -513,7 +513,13 @@ def _check_polygon_points(label: Label, ctx: RenderContext, *, limit: int) -> No
         )
 
 
-def _reach(element: Element, ctx: RenderContext) -> int | None:
+def _field_area(element: Element, ctx: RenderContext) -> DotArea | None:
+    """The rectangle a field takes part by in the label checks, or None when it prints nothing."""
+    dots = printed_dots(element, ctx)
+    return dots.area if dots is not None else inexact_rectangle(element, ctx)
+
+
+def _reach(element: Element, area: DotArea | None, ctx: RenderContext) -> int | None:
     """Return the highest dot row a field reaches along the feed, or None when it prints nothing.
 
     The row is the one the encoder commands (``overlap`` places every field at its record's
@@ -521,10 +527,6 @@ def _reach(element: Element, ctx: RenderContext) -> int | None:
     draws for them. An image only the printer holds counts by its reference row alone: its size
     is unknown here, and the preview's stand-in size would refuse labels that print.
     """
-    dots = printed_dots(element, ctx)
-    if dots is not None:
-        return dots.area.top
-    area = inexact_rectangle(element, ctx)
     if area is None:
         return None
     return area.bottom if isinstance(element, Image) and ctx.image_rows(element) is None else area.top
@@ -557,7 +559,9 @@ def _row_limit(options: RenderOptions, profile: PrinterProfile) -> int | None:
     return profile.max_format_rows if options.max_format_rows is None else options.max_format_rows
 
 
-def _check_format_length(label: Label, ctx: RenderContext, *, max_rows: int | None) -> None:
+def _check_format_length(
+    label: Label, areas: Sequence[DotArea | None], ctx: RenderContext, *, max_rows: int | None
+) -> None:
     """Refuse a label whose highest field passes the rows one format reaches, under either policy.
 
     ``max_rows`` counts commanded rows at dot height 1, so a label dot_size of height h allows h
@@ -568,7 +572,9 @@ def _check_format_length(label: Label, ctx: RenderContext, *, max_rows: int | No
     height = label.dot_size.height if label.dot_size else 1
     limit = max_rows * height
     reaches = [
-        (row, index) for index, element in enumerate(label.elements) if (row := _reach(element, ctx)) is not None
+        (row, index)
+        for index, (element, area) in enumerate(zip(label.elements, areas, strict=True))
+        if (row := _reach(element, area, ctx)) is not None
     ]
     row, index = max(reaches, key=lambda reach: (reach[0], -reach[1]), default=(0, 0))
     if row <= limit:
@@ -584,16 +590,12 @@ def _check_format_length(label: Label, ctx: RenderContext, *, max_rows: int | No
     )
 
 
-def _extent(element: Element, ctx: RenderContext) -> DotArea | None:
+def _extent(element: Element, area: DotArea | None, ctx: RenderContext) -> DotArea | None:
     """The dots a field takes for the label-edge check, or None when it prints nothing.
 
     The same areas the format length check reads (see :func:`_reach`). An image only the printer
     holds counts by its reference point alone: its size is unknown here.
     """
-    dots = printed_dots(element, ctx)
-    if dots is not None:
-        return dots.area
-    area = inexact_rectangle(element, ctx)
     if area is None:
         return None
     if isinstance(element, Image) and ctx.image_rows(element) is None:
@@ -627,7 +629,7 @@ def _label_edges(label: Label, ctx: RenderContext) -> _LabelEdges:
     return _LabelEdges(past_width=edge(label.width, Axis.ACROSS), past_height=edge(height, Axis.ALONG))
 
 
-def _check_label_edges(label: Label, ctx: RenderContext) -> None:
+def _check_label_edges(label: Label, areas: Sequence[DotArea | None], ctx: RenderContext) -> None:
     """Report each field that ends past the label's width or height: a warning, an error under strict.
 
     A field is placed in the encoder's unit (hundredths of an inch on many models, about two dots)
@@ -639,8 +641,8 @@ def _check_label_edges(label: Label, ctx: RenderContext) -> None:
     if width is None and height is None:
         return
     tolerance = round(ctx.dots_per_unit) + 1
-    for index, element in enumerate(label.elements):
-        area = _extent(element, ctx)
+    for index, (element, field_area) in enumerate(zip(label.elements, areas, strict=True)):
+        area = _extent(element, field_area, ctx)
         if area is None:
             continue
         passes = [
@@ -749,10 +751,11 @@ def _encode(label: Label, options: RenderOptions, *, halve: bool, held: HeldImag
             f"at least {record_count} fields; {ctx.profile.name} takes at most {ctx.profile.max_fields}",
         )
     else:
-        # Reading every field's reach works out its rectangle, and encodes a QR Code that has no kept
-        # symbol yet; the stop above saves that work for a label already refused for its field count.
-        _check_format_length(label, ctx, max_rows=_row_limit(options, ctx.profile))
-        _check_label_edges(label, ctx)
+        # Working out every field's rectangle encodes a QR Code that has no kept symbol yet; the stop
+        # above saves that work for a label already refused for its field count.
+        areas = [_field_area(element, ctx) for element in label.elements]
+        _check_format_length(label, areas, ctx, max_rows=_row_limit(options, ctx.profile))
+        _check_label_edges(label, areas, ctx)
     return _Job(ctx=ctx, prefix=prefix, body=body, record_count=record_count)
 
 
