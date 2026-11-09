@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -14,7 +15,7 @@ from datamax_dpl.domain.enums import CombineMode, FallbackPolicy, FillPattern, F
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.image_budget import halve, magnify
 from datamax_dpl.domain.image_records import decode_image
-from datamax_dpl.domain.label import Box, Element, Image, Label, Line, Text
+from datamax_dpl.domain.label import Box, Circle, Element, Image, Label, Line, Point, Polygon, Qr, Text
 from datamax_dpl.domain.overlap import DotArea, OverlapReport, find_overlaps, printed_dots
 from datamax_dpl.domain.preview import canvas_for, preview_bitmap
 from datamax_dpl.domain.profiles import get_profile
@@ -23,6 +24,8 @@ from datamax_dpl.domain.render import RenderResult, build_job, job_context, rend
 from datamax_dpl.domain.render_context import RenderOptions, drawn_image_name
 
 if TYPE_CHECKING:
+    from types import FrameType
+
     from datamax_dpl.domain.findings import Finding
 
 #: The Allegro 2 prints 1/100 in as two whole dots; without its default along offset every field
@@ -608,3 +611,57 @@ def test_merged_boxes_and_lines_print_where_they_print_alone(
     assume(merged.ok and merged.emulated_groups == ((0, 1),))
     apart = build_job(mm_label(box, crossing, attribute=None), ALLEGRO_2_DEFAULTS)
     assert printed_by(merged) == printed_by(apart)
+
+
+DRAWN_FIELDS: tuple[Element, ...] = (
+    Line(x=10, y=20, x2=110, y2=20, thickness=4),
+    hollow_box(),
+    Box(x=20, y=20, width=100, height=60, thickness=4, fill=FillPattern.SOLID),
+    Box(x=20, y=20, width=100, height=60, thickness=4, fill=FillPattern.SHADE_50),
+    Line(x=10, y=20, x2=110, y2=70, thickness=4),
+    Circle(x=80, y=80, radius=40),
+    Polygon(points=[Point(x=10, y=10), Point(x=90, y=10), Point(x=50, y=70)]),
+    Qr(x=10, y=10, data="HELLO", module_dots=3),
+    Image(x=10, y=10, name="LOGO", bitmap=["#.#", ".#.", "#.#", "..#"], magnification=2),
+)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("element", DRAWN_FIELDS, ids=lambda element: f"{element.type}")
+def test_a_field_is_drawn_when_its_dots_are_read_and_only_once(element: Element) -> None:
+    label = Label(unit=Unit.DOTS, width=400, height=400, elements=[element])
+    dots = printed_dots(label.elements[0], job_context(label, ALLEGRO_2))
+    assert dots is not None
+    assert "bitmap" not in vars(dots)
+    assert dots.bitmap is dots.bitmap
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("element", DRAWN_FIELDS, ids=lambda element: f"{element.type}")
+def test_the_rectangle_known_before_drawing_is_the_one_drawn(element: Element) -> None:
+    """The size is worked out without the bitmap; a size that drifted from the drawing shows here."""
+    label = Label(unit=Unit.DOTS, width=400, height=400, elements=[element])
+    dots = printed_dots(label.elements[0], job_context(label, ALLEGRO_2))
+    assert dots is not None
+    assert (dots.area.width, dots.area.height) == (dots.bitmap.width, dots.bitmap.height)
+
+
+@pytest.mark.os_agnostic
+def test_the_label_checks_read_each_fields_rectangle_without_painting_it() -> None:
+    """Both the format-length and the label-edge check run on the Allegro 2 and need rectangles only."""
+    painted: list[int] = []
+    paint = Bitmap.fill_rect.__code__
+
+    def count(frame: FrameType, event: str, _arg: object) -> None:
+        if event == "call" and frame.f_code is paint:
+            painted.append(frame.f_lineno)
+
+    label = Label(unit=Unit.DOTS, width=400, height=400, elements=[hollow_box()])
+    previous = sys.getprofile()
+    sys.setprofile(count)
+    try:
+        result = build_job(label, ALLEGRO_2)
+    finally:
+        sys.setprofile(previous)
+    assert result.ok
+    assert painted == []

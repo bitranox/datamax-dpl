@@ -44,7 +44,8 @@ Allegro 2 past its budget, an image 3 dots wide whose last column is black and a
 from __future__ import annotations
 
 import dataclasses
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from functools import cached_property, partial
 from typing import TYPE_CHECKING, NamedTuple
 
 from .encode_common import position_units
@@ -61,9 +62,10 @@ from .render_context import MAX_FIELD_VALUE
 from .units import Axis
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Callable, Iterator, Sequence
 
     from .label import Element
+    from .raster_fallback import Frame
     from .render_context import RenderContext
 
 
@@ -109,19 +111,27 @@ class DotArea:
 
 @dataclass(frozen=True)
 class PrintedDots:
-    """The dots one exact field prints.
+    """The dots one exact field prints, drawn only when something reads them.
+
+    The label checks run per field per record and need the rectangle alone, which the field's size
+    gives; drawing a frame row by row for them took about half of a batch's CPU.
 
     Attributes:
         area: The rectangle ``bitmap`` covers.
-        bitmap: The dots, row 0 being the area's top row.
+        draw: Draws the dots; called at most once, by :attr:`bitmap`.
         column: DPL column the field's record is written at; ``area.left`` is its dot.
         row: DPL row the field's record is written at; ``area.bottom`` is its dot.
     """
 
     area: DotArea
-    bitmap: Bitmap
+    draw: Callable[[], Bitmap] = field(repr=False, compare=False)
     column: int
     row: int
+
+    @cached_property
+    def bitmap(self) -> Bitmap:
+        """The dots, row 0 being the area's top row."""
+        return self.draw()
 
     def shares_dots(self, other: PrintedDots) -> bool:
         """Return whether both fields print at least one dot on the same spot."""
@@ -160,15 +170,15 @@ def _length_dots(units: int, ctx: RenderContext) -> int:
     return max(1, ctx.printed_dots(units))
 
 
-def _at_units(bitmap: Bitmap, *, column: int, row: int, ctx: RenderContext) -> PrintedDots:
+def _at_units(size: Size, draw: Callable[[], Bitmap], *, column: int, row: int, ctx: RenderContext) -> PrintedDots:
     left, bottom = ctx.printed_dots(column), ctx.printed_dots(row)
-    return PrintedDots(DotArea(left, bottom, bitmap.width, bitmap.height), bitmap, column, row)
+    return PrintedDots(DotArea(left, bottom, size.width, size.height), draw, column, row)
 
 
-def _placed(bitmap: Bitmap, *, x: float, y: float, ctx: RenderContext) -> PrintedDots:
-    """Place ``bitmap`` where a record for the label position ``(x, y)`` is written."""
+def _placed(size: Size, draw: Callable[[], Bitmap], *, x: float, y: float, ctx: RenderContext) -> PrintedDots:
+    """Place a field of ``size`` dots where a record for the label position ``(x, y)`` is written."""
     column = position_units(x, axis=Axis.ACROSS, ctx=ctx)
-    return _at_units(bitmap, column=column, row=position_units(y, axis=Axis.ALONG, ctx=ctx), ctx=ctx)
+    return _at_units(size, draw, column=column, row=position_units(y, axis=Axis.ALONG, ctx=ctx), ctx=ctx)
 
 
 def _line_size(element: Line, ctx: RenderContext) -> Size:
@@ -224,34 +234,51 @@ def _oversized_area(element: Element, ctx: RenderContext) -> DotArea | None:
     return DotArea(left=left, bottom=bottom, width=size.width, height=size.height)
 
 
+def _solid_bitmap(size: Size) -> Bitmap:
+    bitmap = Bitmap(size.width, size.height)
+    bitmap.fill_rect(0, 0, bitmap.width, bitmap.height)
+    return bitmap
+
+
 def _line_dots(element: Line, ctx: RenderContext) -> PrintedDots:
     """The rectangle a line record prints."""
-    width, height = _line_size(element, ctx)
+    size = _line_size(element, ctx)
+    return _placed(
+        size, partial(_solid_bitmap, size), x=min(element.x, element.x2), y=min(element.y, element.y2), ctx=ctx
+    )
+
+
+def _frame_bitmap(size: Size, *, edge: int, side: int) -> Bitmap:
+    """A ``size`` outline, ``edge`` dots thick along the feed and ``side`` dots across it."""
+    width, height = size
     bitmap = Bitmap(width, height)
-    bitmap.fill_rect(0, 0, bitmap.width, bitmap.height)
-    return _placed(bitmap, x=min(element.x, element.x2), y=min(element.y, element.y2), ctx=ctx)
+    for x, y, w, h in ((0, 0, width, edge), (0, height - edge, width, edge), (0, 0, side, height)):
+        bitmap.fill_rect(x, y, w, h)
+    bitmap.fill_rect(width - side, 0, side, height)
+    return bitmap
 
 
 def _box_dots(element: Box, ctx: RenderContext) -> PrintedDots:
     """The outline a box record prints; solid when the fill is."""
-    width, height = _box_size(element, ctx)
+    size = _box_size(element, ctx)
     edge = ctx.printed_dots(ctx.dpl_units(element.thickness, axis=Axis.ALONG) or 1)
     side = ctx.printed_dots(ctx.dpl_units(element.side_thickness or element.thickness, axis=Axis.ACROSS) or 1)
-    bitmap = Bitmap(width, height)
     if element.fill is FillPattern.SOLID:
-        edge, side = height, width
-    for x, y, w, h in ((0, 0, width, edge), (0, height - edge, width, edge), (0, 0, side, height)):
-        bitmap.fill_rect(x, y, w, h)
-    bitmap.fill_rect(width - side, 0, side, height)
-    return _placed(bitmap, x=element.x, y=element.y, ctx=ctx)
+        edge, side = size.height, size.width
+    return _placed(size, partial(_frame_bitmap, size, edge=edge, side=side), x=element.x, y=element.y, ctx=ctx)
+
+
+def _graphic_bitmap(element: Line | Box | Circle | Polygon, frame: Frame, ctx: RenderContext) -> Bitmap:
+    bitmap = Bitmap(frame.width_dots, frame.height_dots)
+    draw_graphic(element, bitmap, frame, ctx)
+    return bitmap
 
 
 def _fallback_dots(element: Line | Box | Circle | Polygon, ctx: RenderContext) -> PrintedDots:
     """The image the raster fallback draws for a graphic, placed where it places it."""
     frame = frame_of(element, ctx)
-    bitmap = Bitmap(frame.width_dots, frame.height_dots)
-    draw_graphic(element, bitmap, frame, ctx)
-    return _placed(bitmap, x=frame.left, y=frame.bottom, ctx=ctx)
+    size = Size(frame.width_dots, frame.height_dots)
+    return _placed(size, partial(_graphic_bitmap, element, frame, ctx), x=frame.left, y=frame.bottom, ctx=ctx)
 
 
 def _qr_dots(element: Qr, ctx: RenderContext) -> PrintedDots | None:
@@ -269,7 +296,13 @@ def _qr_dots(element: Qr, ctx: RenderContext) -> PrintedDots | None:
         row=position_units(element.y, axis=Axis.ALONG, ctx=ctx),
         ctx=ctx,
     )
-    return _at_units(magnify(symbol, element.module_dots), column=symbol_at.column, row=symbol_at.row, ctx=ctx)
+    module = element.module_dots
+    size = Size(symbol.width * module, symbol.height * module)
+    return _at_units(size, partial(magnify, symbol, module), column=symbol_at.column, row=symbol_at.row, ctx=ctx)
+
+
+def _magnified_rows(rows: Sequence[str], factor: int) -> Bitmap:
+    return magnify(Bitmap.from_rows(rows), factor)
 
 
 def _image_dots(element: Image, ctx: RenderContext) -> PrintedDots | None:
@@ -277,7 +310,9 @@ def _image_dots(element: Image, ctx: RenderContext) -> PrintedDots | None:
     rows = ctx.image_rows(element)
     if rows is None:
         return None
-    return _placed(magnify(Bitmap.from_rows(rows), element.magnification), x=element.x, y=element.y, ctx=ctx)
+    factor = element.magnification
+    size = Size(len(rows[0]) * factor, len(rows) * factor)
+    return _placed(size, partial(_magnified_rows, rows, factor), x=element.x, y=element.y, ctx=ctx)
 
 
 def printed_dots(element: Element, ctx: RenderContext) -> PrintedDots | None:
