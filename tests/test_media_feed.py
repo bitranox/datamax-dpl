@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from datamax_dpl.domain.enums import FindingCode, MediaSensor, PrinterStop
-from datamax_dpl.domain.media_feed import media_feed
+from datamax_dpl.domain.media_feed import media_feed, plain_feed
 from datamax_dpl.domain.render_context import RenderOptions
 
 
@@ -76,3 +76,31 @@ def test_a_default_cut_does_not_make_the_feed_cut() -> None:
     feed = media_feed(MediaSensor.GAP, RenderOptions(model="allegro-2", cutter_installed=True, cut_every=2))
 
     assert feed.data == b"\x02n\x02c0000\x02e\x02V0\x02f263\x02F"
+
+
+@pytest.mark.os_agnostic
+def test_a_plain_feed_turns_an_installed_cutter_off_first() -> None:
+    """The user's rule on site: a fed label is not cut, the knife stays free of the labels' adhesive."""
+    feed = plain_feed(RenderOptions(model="allegro-2", cutter_installed=True))
+
+    assert feed.data == b"\x02V0\x02F"
+
+
+@pytest.mark.os_agnostic
+def test_a_default_cut_does_not_make_a_plain_feed_cut() -> None:
+    feed = plain_feed(RenderOptions(model="allegro-2", cutter_installed=True, cut_every=2))
+
+    assert feed.data == b"\x02V0\x02F"
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "options",
+    [RenderOptions(model="allegro-2"), RenderOptions(model="generic", cutter_installed=True)],
+    ids=["cutter unknown", "no bit layout"],
+)
+def test_a_plain_feed_that_cannot_set_the_cutter_says_so_and_still_feeds(options: RenderOptions) -> None:
+    feed = plain_feed(options)
+
+    assert feed.data == b"\x02F"
+    assert FindingCode.SOFTWARE_SWITCHES_NOT_SENT in {finding.code for finding in feed.findings}

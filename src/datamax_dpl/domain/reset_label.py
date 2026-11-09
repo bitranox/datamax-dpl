@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, TypedDict
 from ._invariants import require_update_fields
 from .charset import encode_for_bitmapped_font
 from .enums import Unit
-from .label import MAX_FIELD_DATA, Cut, DotSize, Label, Text
+from .label import MAX_FIELD_DATA, Cut, DotSize, Label, Text, UncutLabel
 from .preview import canvas_for, field_area
 from .profiles import get_profile
 from .render import RenderResult, build_job
@@ -133,8 +133,9 @@ def calibration_job(label: Label, options: RenderOptions, *, text: str) -> Rende
         update=_CalibrationFields(
             elements=[placed],
             quantity=1,
-            # Cut at this label's own end where the job cuts at all, so its stop position stays the job's.
-            cut=None if label.cut is None else Cut(every=1, at_end=False),
+            # Not cut, since it may print shifted and a cut would go through a label (the user's rule:
+            # no adhesive on the knife); where the job cuts, its stop position stays the job's.
+            cut=None if label.cut is None else UncutLabel(),
             dot_size=None,
             column_offset=None,
             row_offset=None,

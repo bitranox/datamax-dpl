@@ -1103,8 +1103,31 @@ def test_a_calibration_label_leaves_out_the_format_settings_of_the_job(field: st
 
 
 @pytest.mark.os_agnostic
-def test_a_calibration_label_of_a_job_cutting_every_third_label_cuts_itself_once() -> None:
+def test_a_calibration_label_does_not_depend_on_how_often_its_job_cuts() -> None:
     options = RenderOptions(model="dmx-800")
     own = calibration_job(Label(**_PLAIN_FIELDS, cut=Cut(every=1, at_end=False)), options, text="Feed")
     job = calibration_job(Label(**_PLAIN_FIELDS, cut=Cut(every=3, at_end=True)), options, text="Feed")
     assert job.data == own.data
+
+
+@pytest.mark.os_agnostic
+def test_the_calibration_label_is_not_cut_though_the_job_cuts() -> None:
+    """It can print shifted, so a cut would land in a label: the knife stays free of its adhesive (user, on site)."""
+    options = RenderOptions(model="allegro-2", cutter_installed=True)
+    label = Label(**_PLAIN_FIELDS, cut=Cut(every=3))
+
+    job = calibration_job(label, options, text="Feed")
+
+    assert b"\x02V0" in job.data
+    assert b"\x02V1" not in job.data
+    assert b"\x02o" not in job.data
+    assert b"\r:0" not in job.data
+
+
+@pytest.mark.os_agnostic
+def test_the_calibration_label_stops_where_the_job_it_prepares_stops() -> None:
+    options = RenderOptions(model="allegro-2", cutter_installed=True)
+
+    job = calibration_job(Label(**_PLAIN_FIELDS, cut=Cut(every=3)), options, text="Feed")
+
+    assert b"\x02f302" in job.data

@@ -713,3 +713,15 @@ def test_explain_exits_1_for_a_format_line_it_cannot_read(cli_runner: CliRunner,
     document = envelope(result)
     assert (result.exit_code, document["ok"]) == (1, False), result.output
     assert len(document["data"]["problems"]) == 1
+
+
+@pytest.mark.os_agnostic
+def test_a_plain_feed_on_a_known_printer_with_a_cutter_turns_it_off_first(cli_runner: CliRunner) -> None:
+    printer = RecordingPrinter()
+    args = ["--json", "--set", "printer.model=allegro-2", "--set", "printer.cutter=yes", "feed", "--printer", PRINTER]
+
+    result = run(cli_runner, args, factory(printer))
+
+    assert result.exit_code == 0, result.output
+    assert printer.data == b"\x02V0\x02F"
+    assert envelope(result)["data"]["bytes_sent"] == len(printer.data)

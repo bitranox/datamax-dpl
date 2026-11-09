@@ -243,7 +243,8 @@ def sends_cutter_bit(ctx: RenderContext) -> bool:
     return _sends(PrinterSetting.SOFTWARE_SWITCHES, ctx) and _switch_value(ctx, cutter_on=False).value is not None
 
 
-def _software_switches(label: Label, ctx: RenderContext) -> list[bytes]:
+def software_switches(label: Label, ctx: RenderContext) -> list[bytes]:
+    """Return the ``<STX>V`` a job for ``label`` sends; none, and a finding saying why, where it cannot be built."""
     if not _sends(PrinterSetting.SOFTWARE_SWITCHES, ctx):
         return []
     switches = _switch_value(ctx, cutter_on=label.cut is not None and label.cut.cuts_this_label)
@@ -343,7 +344,7 @@ def _settings(label: Label, ctx: RenderContext) -> list[bytes]:
         + _start_of_print(ctx)
         + _max_label_length(label, ctx)
         + _feed_rate(ctx)
-        + _software_switches(label, ctx)
+        + software_switches(label, ctx)
         + stop
     )
 
@@ -524,7 +525,7 @@ def feed_settings(label: Label, ctx: RenderContext) -> list[bytes]:
     does not cut turns an installed cutter off, so the fed label is not cut. The media command
     goes out only where ``ctx``'s printer state sends it, as in a job.
     """
-    return [INCH_MODE, *_media_commands(label, ctx), *_software_switches(label, ctx), *_present_commands(label, ctx)]
+    return [INCH_MODE, *_media_commands(label, ctx), *software_switches(label, ctx), *_present_commands(label, ctx)]
 
 
 def system_prefix(label: Label, ctx: RenderContext) -> list[bytes]:
@@ -976,6 +977,7 @@ __all__ = [
     "retry_clear",
     "retry_clear_may_go",
     "sends_cutter_bit",
+    "software_switches",
     "stops_at_cutter",
     "stops_at_tear_off",
     "system_prefix",

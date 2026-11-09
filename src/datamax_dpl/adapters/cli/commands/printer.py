@@ -29,7 +29,7 @@ from ....application.use_cases import (
 )
 from ....domain.enums import MediaSensor, MemoryKind, StatusProblem
 from ....domain.errors import AnswerNotEndedError, ConfigurationError, LabelRejectedError, PreviewTooLongError
-from ....domain.media_feed import FEED_MEDIA, media_feed
+from ....domain.media_feed import FEED_MEDIA, media_feed, plain_feed
 from ....domain.memory import NO_MODULES_MEANING, MemoryDirectory
 from ....domain.placeholders import fill_record
 from ....domain.preview import canvas_for, check_preview_length
@@ -482,7 +482,8 @@ class FeedPayload(BaseModel):
 
 
 _FEED_HELP = (
-    "Feed one label (<STX>F). With --media, first leave continuous mode (<STX>c0000), select that "
+    "Feed one label (<STX>F), an installed cutter turned off first so the label is not cut. "
+    "With --media, first leave continuous mode (<STX>c0000), select that "
     "sensor and send the configured stop position, as a label's job would: after labels printed on "
     "continuous media this brings the stock back to the tear-off position."
 )
@@ -503,16 +504,13 @@ def cli_feed(ctx: click.Context, media: str | None, **given: Any) -> None:
         uri = require_uri(settings)
         parsed_printer_uri(settings)
         sensor = None if media is None else MediaSensor(media)
-        feed = None if sensor is None else media_feed(sensor, render_options(settings))
-        if feed is not None and feed.errors:
+        options = render_options(settings)
+        feed = plain_feed(options) if sensor is None else media_feed(sensor, options)
+        if feed.errors:
             raise LabelRejectedError("the feed cannot be built for this printer", feed.errors)
         endpoint = PrinterEndpoint(uri=uri, timeout=settings.timeout, open_printer=printer_opener(cli_ctx, settings))
-        report = (
-            send_command(PrinterCommand.FEED, endpoint=endpoint)
-            if feed is None
-            else send_bytes(feed.data, endpoint=endpoint)
-        )
-        findings = [] if feed is None else [FindingOut.of(finding, settings=settings) for finding in feed.findings]
+        report = send_bytes(feed.data, endpoint=endpoint)
+        findings = [FindingOut.of(finding, settings=settings) for finding in feed.findings]
         payload = FeedPayload(
             printer=uri, command=PrinterCommand.FEED, bytes_sent=report.bytes_sent, media=sensor, findings=findings
         )

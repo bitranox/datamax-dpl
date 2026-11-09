@@ -15,6 +15,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The calibration label after a printer reset and a plain `feed` now turn an installed cutter off
+  (`<STX>V0`), so a fed or possibly shifted label is not cut through its adhesive. Where the job
+  cannot set the cutter (`generic`, or the cutter not configured), a finding says so.
 - A `--data` batch with `cut: {every: N}` no longer cuts every label on a printer whose job sets
   the cutter (`<STX>V`). Each record turns the cutter on only if a cut follows it, and no `<STX>o`
   goes out for such a batch. Checked on paper on one Allegro 2, `every: 2` with 5 records and

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .enums import MediaSensor, Severity
-from .job import feed_settings
+from .job import feed_settings, software_switches
 from .label import Label, Text
 from .render import job_context
 from .render_context import RenderOptions
@@ -81,4 +81,31 @@ def media_feed(media: MediaSensor, options: RenderOptions | None = None) -> Medi
     return MediaFeed(data=b"".join([*commands, FORM_FEED]), findings=ctx.findings.findings())
 
 
-__all__ = ["FEED_MEDIA", "MediaFeed", "media_feed"]
+def plain_feed(options: RenderOptions | None = None) -> MediaFeed:
+    """Return one form feed, an installed cutter turned off first: a fed label is never cut.
+
+    The printer keeps the last ``<STX>V`` it got, so a feed that sends none cuts when an earlier job
+    left the cutter on, through the label's adhesive (one Allegro 2, 2026-11-09). Where no
+    ``<STX>V`` can be built the feed goes out alone, and a finding says why.
+
+    Args:
+        options: Render options: the model and whether its cutter is installed.
+
+    Returns:
+        The commands and the findings.
+
+    Raises:
+        UnknownModelError: ``options.model`` names no profile.
+
+    Example:
+        >>> plain_feed(RenderOptions(model="allegro-2", cutter_installed=True)).data
+        b'\\x02V0\\x02F'
+    """
+    # As in media_feed: a fed label is never cut, whatever a default cut or send_settings say.
+    chosen = (options or RenderOptions()).model_copy(update={"send_settings": None, "cut_every": None})
+    label = Label(elements=[Text(x=0, y=0, text="0")])
+    ctx = job_context(label, chosen)
+    return MediaFeed(data=b"".join([*software_switches(label, ctx), FORM_FEED]), findings=ctx.findings.findings())
+
+
+__all__ = ["FEED_MEDIA", "MediaFeed", "media_feed", "plain_feed"]

@@ -464,8 +464,9 @@ class UncutLabel(Cut):
     """A label that stops where the cutter cuts, with the cutter off: it is not cut.
 
     An Allegro 2 cuts a format's label whenever the cutter is on (measured 2026-11-09), so a batch
-    cutting every N records turns it on only for the records a cut follows. The others keep the stop
-    position of a job that cuts: the label after them is cut at the same place.
+    cutting every N records turns it on only for the records a cut follows. The others, and the
+    calibration label that may go before a job, keep the stop position of a job that cuts: the label
+    after them is cut at the same place.
 
     Only the library makes this, on a label already filled (filling validates the label again, which
     turns a subclass of a field's type back into that type); a label file cannot name it.
