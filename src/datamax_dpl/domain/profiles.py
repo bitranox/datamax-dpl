@@ -16,11 +16,12 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Annotated, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Annotated, Final, NamedTuple, TypeVar
 
 from pydantic import BeforeValidator
 from pydantic_core import PydanticCustomError
 
+from ._invariants import require_same_keys
 from .enums import HardwareOption, ImageModule, ModelFamily, SpeedCode
 from .errors import DatamaxDplError
 from .frozen_mapping import FrozenMapping
@@ -409,7 +410,7 @@ class PrinterProfile:
 # instead has no clear module (<STX>q, p.35); the Prodigy 152 is its 152 dpi variant (Appendix K),
 # not a Prodigy Plus, so it shares both. <STX>O, M, S and V carry no "not available" note, so every
 # model is sent them and no Feature stands for them.
-_ALL_FEATURES_YES: Mapping[Feature, Support] = MappingProxyType(
+_ALL_FEATURES_YES: Final[Mapping[Feature, Support]] = MappingProxyType(
     dict.fromkeys(Feature, YES)
     | {
         Feature.CUTTER_PULSE: NO,
@@ -425,7 +426,7 @@ def _changed(base: Mapping[Feature, Support], changes: Mapping[Feature, Support]
     return MappingProxyType({**base, **changes})
 
 
-_FAMILY_FEATURES: Mapping[ModelFamily, Mapping[Feature, Support]] = MappingProxyType(
+_FAMILY_FEATURES: Final[Mapping[ModelFamily, Mapping[Feature, Support]]] = MappingProxyType(
     {
         ModelFamily.ALLEGRO: _changed(
             _ALL_FEATURES_YES,
@@ -482,6 +483,8 @@ _FAMILY_FEATURES: Mapping[ModelFamily, Mapping[Feature, Support]] = MappingProxy
         ModelFamily.TITAN: _ALL_FEATURES_YES,
     }
 )
+
+require_same_keys(_FAMILY_FEATURES, ModelFamily, what="the features of a model family")
 
 # A72 exists on the DMX 600/800 only; PE42/PE43 and the Prodigy Max lack A04 and A05.
 _A72 = 72

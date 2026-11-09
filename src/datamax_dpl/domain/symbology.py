@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -86,7 +86,7 @@ def _pair(letter: str) -> SymbologyCode:
     return SymbologyCode(with_text=letter.upper(), bars_only=letter.lower())
 
 
-SYMBOLOGY_CODES: Mapping[Symbology, SymbologyCode] = MappingProxyType(
+SYMBOLOGY_CODES: Final[Mapping[Symbology, SymbologyCode]] = MappingProxyType(
     {
         Symbology.CODE39: _pair("a"),
         Symbology.UPC_A: _pair("b"),

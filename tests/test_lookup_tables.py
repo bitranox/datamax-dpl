@@ -2,7 +2,8 @@
 
 Each table is private to its module, so it is checked through what reads it: a member the table
 lacks shows up as a KeyError, a wrong value or a fallback where the public function is asked about
-that member.
+that member. A table without such a reader here has its key set checked when its module is
+imported (``require_same_keys``).
 """
 
 from __future__ import annotations
@@ -20,7 +21,6 @@ from datamax_dpl.domain.enums import (
     SPEED_IPS,
     Attribute,
     BarcodeProblemCode,
-    CutterPresence,
     FillPattern,
     FindingCode,
     Severity,
@@ -43,11 +43,6 @@ _COMMAND_BYTES = {
     PrinterCommand.FEED: FORM_FEED,
     PrinterCommand.CUT: CUT_NOW,
 }
-
-
-@pytest.mark.os_agnostic
-def test_the_command_table_covers_every_printer_command() -> None:
-    assert set(_COMMAND_BYTES) == set(PrinterCommand)
 
 
 @pytest.mark.os_agnostic
@@ -164,11 +159,6 @@ def test_findings_text_ranks_every_severity_most_severe_first() -> None:
     text = findings_text([finding(Severity.INFO), finding(Severity.WARNING), finding(Severity.ERROR)])
     assert [line.split()[0] for line in text.splitlines()] == ["ERROR", "WARNING", "INFO"]
     assert {Severity.INFO, Severity.WARNING, Severity.ERROR} == set(Severity)
-
-
-@pytest.mark.os_agnostic
-def test_the_cutter_cases_are_every_cutter_presence() -> None:
-    assert {CutterPresence.YES, CutterPresence.NO, CutterPresence.UNKNOWN} == set(CutterPresence)
 
 
 @pytest.mark.os_agnostic

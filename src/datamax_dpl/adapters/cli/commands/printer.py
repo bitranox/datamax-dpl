@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 import rich_click as click
 from pydantic import BaseModel, ConfigDict
@@ -27,6 +27,7 @@ from ....application.use_cases import (
     send_bytes,
     send_command,
 )
+from ....domain._invariants import require_same_keys
 from ....domain.enums import MediaSensor, MemoryKind, StatusProblem
 from ....domain.errors import AnswerNotEndedError, ConfigurationError, LabelRejectedError, PreviewTooLongError
 from ....domain.media_feed import FEED_MEDIA, media_feed, plain_feed
@@ -327,7 +328,7 @@ class KindChoice(str, Enum):
         return _KINDS[self]
 
 
-_KINDS: Mapping[KindChoice, tuple[MemoryKind, ...]] = MappingProxyType(
+_KINDS: Final[Mapping[KindChoice, tuple[MemoryKind, ...]]] = MappingProxyType(
     {
         KindChoice.ALL: (MemoryKind.FONT, MemoryKind.GRAPHIC, MemoryKind.FORMAT),
         KindChoice.FONT: (MemoryKind.FONT,),
@@ -335,6 +336,8 @@ _KINDS: Mapping[KindChoice, tuple[MemoryKind, ...]] = MappingProxyType(
         KindChoice.FORMAT: (MemoryKind.FORMAT,),
     }
 )
+
+require_same_keys(_KINDS, KindChoice, what="the memory kinds of a --kind choice")
 
 
 @click.command("memory", context_settings=CLICK_CONTEXT_SETTINGS)
@@ -434,16 +437,18 @@ class SentPayload(BaseModel):
     bytes_sent: int
 
 
-#: The envelope's command name for each single printer command; the CLI command takes the same spelling.
-#: ``feed`` has its own command (:func:`cli_feed`), for its ``--media``.
-_SINGLE_COMMAND_NAMES: Mapping[PrinterCommand, CommandName] = MappingProxyType(
+#: The envelope's command name for each printer command; the CLI command takes the same spelling.
+_COMMAND_NAMES: Final[Mapping[PrinterCommand, CommandName]] = MappingProxyType(
     {
         PrinterCommand.RESET: CommandName.RESET,
         PrinterCommand.CANCEL: CommandName.CANCEL,
         PrinterCommand.PAUSE: CommandName.PAUSE,
+        PrinterCommand.FEED: CommandName.FEED,
         PrinterCommand.CUT: CommandName.CUT,
     }
 )
+
+require_same_keys(_COMMAND_NAMES, PrinterCommand, what="the envelope name of a printer command")
 
 
 def _single(command: PrinterCommand, help_text: str) -> click.Command:
@@ -464,7 +469,7 @@ def _single(command: PrinterCommand, help_text: str) -> click.Command:
             payload = SentPayload(printer=uri, command=command, bytes_sent=report.bytes_sent)
             return CommandResult(ok=True, payload=payload, human=f"{command.value} sent to {uri}")
 
-        run_command(ctx, command=_SINGLE_COMMAND_NAMES[command], body=body)
+        run_command(ctx, command=_COMMAND_NAMES[command], body=body)
 
     return run
 
@@ -520,7 +525,7 @@ def cli_feed(ctx: click.Context, media: str | None, **given: Any) -> None:
             human += "\n" + findings_text(told)
         return CommandResult(ok=True, payload=payload, human=human)
 
-    run_command(ctx, command=CommandName.FEED, body=body)
+    run_command(ctx, command=_COMMAND_NAMES[PrinterCommand.FEED], body=body)
 
 
 cli_cut = _single(PrinterCommand.CUT, "Cut now (<STX>o); the printer needs its cutter enabled.")

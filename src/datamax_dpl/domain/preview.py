@@ -51,8 +51,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Final, NamedTuple
 
+from ._invariants import require_same_keys
 from .encode_common import position_units
 from .encode_graphics import qr_symbol_position
 from .enums import Attribute, CombineMode, FillPattern, Rotation, Unit
@@ -756,7 +757,7 @@ def _top_dots(element: Element, geometry: PreviewGeometry) -> int:
 
 #: The combine mode of each attribute. Inverse (5) prints a field white on black, which the
 #: preview does not draw, so it shows as XOR.
-_ATTRIBUTE_MODES: Mapping[Attribute, CombineMode] = MappingProxyType(
+_ATTRIBUTE_MODES: Final[Mapping[Attribute, CombineMode]] = MappingProxyType(
     {
         Attribute.XOR: CombineMode.XOR,
         Attribute.TRANSPARENT: CombineMode.OR,
@@ -764,6 +765,8 @@ _ATTRIBUTE_MODES: Mapping[Attribute, CombineMode] = MappingProxyType(
         Attribute.INVERSE: CombineMode.XOR,
     }
 )
+
+require_same_keys(_ATTRIBUTE_MODES, Attribute, what="the preview mode of an attribute")
 
 
 def _has_attributes(profile: PrinterProfile) -> bool:

@@ -23,11 +23,11 @@ from enum import Enum
 from functools import cached_property
 from itertools import chain
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Generic, NamedTuple, Protocol, TypedDict, TypeVar
+from typing import TYPE_CHECKING, Final, Generic, NamedTuple, Protocol, TypedDict, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
-from ..domain._invariants import require_update_fields
+from ..domain._invariants import require_same_keys, require_update_fields
 from ..domain.batch import (
     CUT_NOW as BATCH_CUT_BYTES,
 )
@@ -1260,7 +1260,7 @@ class PrinterCommand(str, Enum):
     CUT = "cut"
 
 
-_COMMAND_BYTES: Mapping[PrinterCommand, bytes] = MappingProxyType(
+_COMMAND_BYTES: Final[Mapping[PrinterCommand, bytes]] = MappingProxyType(
     {
         PrinterCommand.RESET: RESET,
         PrinterCommand.CANCEL: CANCEL,
@@ -1269,6 +1269,8 @@ _COMMAND_BYTES: Mapping[PrinterCommand, bytes] = MappingProxyType(
         PrinterCommand.CUT: CUT_NOW,
     }
 )
+
+require_same_keys(_COMMAND_BYTES, PrinterCommand, what="the bytes of a printer command")
 
 
 def send_command(command: PrinterCommand, *, endpoint: PrinterEndpoint) -> PrintReport:

@@ -16,10 +16,11 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import partial
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from pydantic import BaseModel
 
+from ._invariants import require_same_keys
 from .enums import BarcodeProblemCode
 from .label import MAX_FIELD_DATA, MAX_PDF417_DATA, DataMatrixOptions, Pdf417Options
 from .symbology import Symbology
@@ -481,7 +482,7 @@ def _check_hibc(data: str) -> _Outcome:
     return _Outcome(problems=problems)
 
 
-_CHECKERS: Mapping[Symbology, Callable[[str], _Outcome]] = MappingProxyType(
+_CHECKERS: Final[Mapping[Symbology, Callable[[str], _Outcome]]] = MappingProxyType(
     {
         Symbology.CODE39: partial(
             _check_charset, allowed=CODE39_CHARACTERS.__contains__, description="Code 39: 0-9 A-Z space - . $ / + % *"
@@ -525,6 +526,8 @@ _CHECKERS: Mapping[Symbology, Callable[[str], _Outcome]] = MappingProxyType(
         ),
     }
 )
+
+require_same_keys(_CHECKERS, Symbology, what="the data check of a symbology")
 
 __all__ = [
     "BarcodeCheck",

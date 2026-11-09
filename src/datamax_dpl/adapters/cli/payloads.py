@@ -9,7 +9,7 @@ from __future__ import annotations
 import base64
 from collections import Counter
 from types import MappingProxyType
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Final, NamedTuple
 
 from pydantic import BaseModel, ConfigDict
 
@@ -207,7 +207,9 @@ class _Figures(NamedTuple):
 
 
 #: Sort rank of each severity in human output: the most severe first.
-_SEVERITY_ORDER: Mapping[Severity, int] = MappingProxyType({Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2})
+_SEVERITY_ORDER: Final[Mapping[Severity, int]] = MappingProxyType(
+    {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
+)
 # A new Severity without a rank fails here at import, not as a KeyError in human output only.
 require_same_keys(_SEVERITY_ORDER, Severity, what="a rank in _SEVERITY_ORDER")
 

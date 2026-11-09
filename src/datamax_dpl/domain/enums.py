@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from enum import Enum, IntEnum
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from ._invariants import require_same_keys
 
@@ -221,7 +221,7 @@ class SpeedCode(str, Enum):
 
 
 #: Inches per second for each speed letter (A = 1.0, then 0.5 per letter).
-SPEED_IPS: Mapping[SpeedCode, float] = MappingProxyType(
+SPEED_IPS: Final[Mapping[SpeedCode, float]] = MappingProxyType(
     {code: 1.0 + 0.5 * index for index, code in enumerate(SpeedCode)}
 )
 
@@ -429,7 +429,7 @@ class BarcodeProblemCode(str, Enum):
 
 # A table rather than FindingCode(f"barcode_{...}"), so a member added to one enum and not the
 # other fails at import instead of at the first render that meets it.
-_BARCODE_FINDING_CODES: Mapping[BarcodeProblemCode, FindingCode] = MappingProxyType(
+_BARCODE_FINDING_CODES: Final[Mapping[BarcodeProblemCode, FindingCode]] = MappingProxyType(
     {
         BarcodeProblemCode.EMPTY: FindingCode.BARCODE_EMPTY,
         BarcodeProblemCode.BAD_CHARACTER: FindingCode.BARCODE_BAD_CHARACTER,

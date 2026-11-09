@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Annotated, Any, TypedDict, TypeVar, cast
+from typing import TYPE_CHECKING, Annotated, Any, Final, TypedDict, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
@@ -21,7 +21,7 @@ from ...application.use_cases import (
     STORED_NAMES_WAIT_SECONDS,
     ReportLimits,
 )
-from ...domain._invariants import require_update_fields
+from ...domain._invariants import require_same_keys, require_update_fields
 from ...domain.batch import MAX_REPORTED_DOWNLOADS, MAX_REPORTED_FINDINGS
 from ...domain.enums import (
     CutterPresence,
@@ -555,20 +555,24 @@ def preview_settings(config: Config) -> PreviewSettings:
         raise ConfigurationError(_describe(exc, section=PREVIEW_SECTION)) from None
 
 
-_CUTTER: Mapping[CutterPresence, bool | None] = MappingProxyType(
+_CUTTER: Final[Mapping[CutterPresence, bool | None]] = MappingProxyType(
     {
         CutterPresence.YES: True,
         CutterPresence.NO: False,
         CutterPresence.UNKNOWN: None,
     }
 )
-_LABEL_PRESENT: Mapping[LabelPresence, bool | None] = MappingProxyType(
+
+require_same_keys(_CUTTER, CutterPresence, what="the cutter state of a setting")
+_LABEL_PRESENT: Final[Mapping[LabelPresence, bool | None]] = MappingProxyType(
     {
         LabelPresence.YES: True,
         LabelPresence.NO: False,
         LabelPresence.UNKNOWN: None,
     }
 )
+
+require_same_keys(_LABEL_PRESENT, LabelPresence, what="the label sensor state of a setting")
 
 
 def render_options(settings: PrinterSettings) -> RenderOptions:

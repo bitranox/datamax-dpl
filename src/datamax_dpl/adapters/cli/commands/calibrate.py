@@ -5,14 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, Final, TypedDict
 
 import rich_click as click
 from pydantic import BaseModel, ConfigDict
 
 from ....application.ports import PrinterEndpoint
 from ....application.use_cases import send_bytes
-from ....domain._invariants import require_update_fields
+from ....domain._invariants import require_same_keys, require_update_fields
 from ....domain.calibration import (
     ALONG_LENGTH_MM,
     across_frame_width,
@@ -74,13 +74,15 @@ class AxisChoice(str, Enum):
         return _AXES[self]
 
 
-_AXES: Mapping[AxisChoice, tuple[Axis, ...]] = MappingProxyType(
+_AXES: Final[Mapping[AxisChoice, tuple[Axis, ...]]] = MappingProxyType(
     {
         AxisChoice.ACROSS: (Axis.ACROSS,),
         AxisChoice.ALONG: (Axis.ALONG,),
         AxisChoice.BOTH: (Axis.ACROSS, Axis.ALONG),
     }
 )
+
+require_same_keys(_AXES, AxisChoice, what="the axes of an --axis choice")
 
 
 class _LabelSide(str, Enum):

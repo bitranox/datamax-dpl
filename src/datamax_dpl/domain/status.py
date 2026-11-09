@@ -23,7 +23,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Final, NamedTuple
 
 from pydantic import BaseModel
 
@@ -43,7 +43,7 @@ MEMORY_REQUEST = b"\x02KQ"
 SERIAL_TEST_REQUEST = b"\x02k"
 #: ``<STX>Wa``: the memory module directory for one kind of data, ``a`` = ``F`` fonts, ``G``
 #: graphics, ``L`` label formats. The answer has no terminator; see :mod:`.memory`.
-MEMORY_DIRECTORY_REQUESTS: Mapping[MemoryKind, bytes] = MappingProxyType(
+MEMORY_DIRECTORY_REQUESTS: Final[Mapping[MemoryKind, bytes]] = MappingProxyType(
     {MemoryKind.FONT: b"\x02WF", MemoryKind.GRAPHIC: b"\x02WG", MemoryKind.FORMAT: b"\x02WL"}
 )
 

@@ -23,8 +23,9 @@ import itertools
 import math
 from enum import Enum
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
+from ._invariants import require_same_keys
 from .enums import CombineMode, FillPattern
 from .geometry import DotPoint, Rect
 
@@ -46,7 +47,7 @@ _TO_BITS = str.maketrans("#.", "10")
 BITMAP_CHARS = frozenset(_BLACK_CHARS + _WHITE_CHARS)
 
 #: The nominal black share of each shade pattern, in percent; the other patterns are drawn.
-_SHADE_PERCENT: Mapping[FillPattern, int] = MappingProxyType(
+_SHADE_PERCENT: Final[Mapping[FillPattern, int]] = MappingProxyType(
     {
         FillPattern.SHADE_6: 6,
         FillPattern.SHADE_12: 12,
@@ -54,6 +55,12 @@ _SHADE_PERCENT: Mapping[FillPattern, int] = MappingProxyType(
         FillPattern.SHADE_38: 38,
         FillPattern.SHADE_50: 50,
     }
+)
+
+require_same_keys(
+    _SHADE_PERCENT,
+    (pattern for pattern in FillPattern if pattern.name.startswith("SHADE_")),
+    what="the nominal percent of a shade pattern",
 )
 
 _DIAMOND_TILE = (
@@ -138,7 +145,9 @@ def _build_tiles() -> Mapping[FillPattern, tuple[str, ...]]:
     return MappingProxyType(tiles)
 
 
-_TILES = _build_tiles()
+_TILES: Final[Mapping[FillPattern, tuple[str, ...]]] = _build_tiles()
+
+require_same_keys(_TILES, FillPattern, what="the tile of a fill pattern")
 
 
 def _round_div(numerator: int, denominator: int) -> int:
