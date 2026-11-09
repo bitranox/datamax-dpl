@@ -86,7 +86,9 @@ prints only the dots an odd number of fields share, 2 transparent prints both, 3
 later field whiten the rectangle it covers. Inverse (5) prints white on black, which the preview
 does not draw; it shows as XOR there. With Pillow (the `preview` extra) text combines by its
 letters' dots, as an Allegro 2 printed a line through text with gaps only under the strokes;
-without it by its whole character cells (`preview_text_approximated`). A text or scalable text
+without it by its whole character cells (`preview_text_approximated`). A barcode is drawn as a
+hatched area of its estimated size, not as its bars, so a field crossing a barcode combines with
+the hatching's dots and previews only approximately. A text or scalable text
 field's own `attribute` overrides the label's. Models without the `An` command (see
 [capabilities.md](capabilities.md)) always XOR: an Allegro 2 printed a box over an image of the
 same size as only their difference. There a label's `attribute` 2 is emulated: lines, boxes,
