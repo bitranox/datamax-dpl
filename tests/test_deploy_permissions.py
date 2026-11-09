@@ -8,13 +8,12 @@ from __future__ import annotations
 
 import os
 import stat
-import sys
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from layer_roots import user_layer_dir, user_layer_env
 
-from datamax_dpl import __init__conf__
 from datamax_dpl.adapters import cli as cli_mod
 from datamax_dpl.adapters.config.deploy import deploy_configuration
 from datamax_dpl.application.ports import CONFIGURED_PERMISSIONS, DeployPermissionRequest
@@ -27,16 +26,17 @@ if TYPE_CHECKING:
 
     from click.testing import CliRunner, Result
 
-_LINUX_ONLY = pytest.mark.skipif(
-    not sys.platform.startswith("linux"), reason="XDG_CONFIG_HOME locates the user layer on Linux"
-)
+
+def _place_user_layer(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
+    for name, value in user_layer_env(root).items():
+        monkeypatch.setenv(name, value)
 
 
 @pytest.fixture
 def user_layer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point the user layer at ``tmp_path`` for a real deploy; return the directory it deploys to."""
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    return tmp_path / __init__conf__.LAYEREDCONF_SLUG
+    _place_user_layer(monkeypatch, tmp_path)
+    return user_layer_dir(tmp_path)
 
 
 def _modes(deployed: Path) -> tuple[int, int]:
@@ -315,7 +315,7 @@ def test_cli_deploy_help_shows_permission_options(
 # ======================== deploy.py Integration Tests ========================
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_deploy_without_permissions_leaves_the_modes_to_the_umask(
     user_layer: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -324,14 +324,14 @@ def test_a_deploy_without_permissions_leaves_the_modes_to_the_umask(
     try:
         deploy_configuration(targets=[DeployTarget.USER], permissions=DeployPermissionRequest(set_permissions=False))
         assert _modes(user_layer) == (0o755, 0o644)
-        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "default"))
+        _place_user_layer(monkeypatch, tmp_path / "default")
         deploy_configuration(targets=[DeployTarget.USER])
     finally:
         os.umask(previous)
-    assert _modes(tmp_path / "default" / user_layer.name) == (0o700, 0o600)
+    assert _modes(user_layer_dir(tmp_path / "default")) == (0o700, 0o600)
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_deploy_applies_its_permission_overrides(user_layer: Path) -> None:
     previous = os.umask(0o022)
     try:
@@ -344,7 +344,7 @@ def test_a_deploy_applies_its_permission_overrides(user_layer: Path) -> None:
     assert _modes(user_layer)[1] == 0o640
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_deploy_applies_its_directory_and_file_modes(user_layer: Path) -> None:
     deploy_configuration(
         targets=[DeployTarget.USER], permissions=DeployPermissionRequest(dir_mode=0o750, file_mode=0o640)

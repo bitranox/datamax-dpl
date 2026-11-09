@@ -8,7 +8,15 @@ before any conftest loads, so the rootdir conftest and the tests share this one 
 
 from __future__ import annotations
 
-__all__ = ["SYSTEM_LAYER_ROOT_VARIABLES", "USER_LAYER_ROOT_VARIABLES"]
+import sys
+from typing import TYPE_CHECKING
+
+from datamax_dpl import __init__conf__
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+__all__ = ["SYSTEM_LAYER_ROOT_VARIABLES", "USER_LAYER_ROOT_VARIABLES", "user_layer_dir", "user_layer_env"]
 
 #: The variables lib_layered_config reads the app and host layers' root from, one per platform.
 #: All three are set on every OS: Windows looks up ``ProgramData`` in mixed case after
@@ -30,3 +38,19 @@ USER_LAYER_ROOT_VARIABLES: tuple[str, ...] = (
     "LIB_LAYERED_CONFIG_APPDATA",
     "LIB_LAYERED_CONFIG_LOCALAPPDATA",
 )
+
+
+def user_layer_env(root: Path) -> dict[str, str]:
+    """The variables that put the user layer under ``root`` on Linux and on macOS."""
+    return {"XDG_CONFIG_HOME": str(root), "LIB_LAYERED_CONFIG_MAC_HOME_ROOT": str(root)}
+
+
+def user_layer_dir(root: Path) -> Path:
+    """The directory the user layer is read from and deployed to, on this platform.
+
+    ``root`` is what :func:`user_layer_env` was given. macOS nests vendor and application where
+    Linux has the one slug, so a test that builds the path itself holds on one platform only.
+    """
+    if sys.platform == "darwin":
+        return root / __init__conf__.LAYEREDCONF_VENDOR / __init__conf__.LAYEREDCONF_APP
+    return root / __init__conf__.LAYEREDCONF_SLUG

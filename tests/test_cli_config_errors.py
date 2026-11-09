@@ -31,9 +31,9 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from layer_roots import user_layer_dir, user_layer_env
 from lib_layered_config import Config, ConfigError, DeployPermissionsError, PermissionProblem
 
-from datamax_dpl import __init__conf__
 from datamax_dpl.adapters import cli as cli_mod
 from datamax_dpl.composition import AppServices, build_production, build_testing
 
@@ -443,15 +443,10 @@ def test_a_profile_given_to_config_itself_keeps_the_root_env_file(cli_runner: Cl
 @pytest.fixture
 def broken_user_config_env(tmp_path: Path) -> dict[str, str]:
     """An environment whose user layer holds a config.toml that does not parse."""
-    config_dir = tmp_path / __init__conf__.LAYEREDCONF_SLUG
-    config_dir.mkdir()
+    config_dir = user_layer_dir(tmp_path)
+    config_dir.mkdir(parents=True)
     (config_dir / "config.toml").write_text("broken = [\n", encoding="utf-8")
-    return {**os.environ, "XDG_CONFIG_HOME": str(tmp_path)}
-
-
-_LINUX_ONLY = pytest.mark.skipif(
-    not sys.platform.startswith("linux"), reason="XDG_CONFIG_HOME locates the user layer on Linux"
-)
+    return {**os.environ, **user_layer_env(tmp_path)}
 
 
 def _stderr_of(completed: subprocess.CompletedProcess[bytes]) -> str:
@@ -460,7 +455,7 @@ def _stderr_of(completed: subprocess.CompletedProcess[bytes]) -> str:
     return stderr
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_real_non_utf8_env_file_does_not_stop_info(tmp_path: Path, non_utf8_env_file: Path) -> None:
     """End to end, in a process of its own, through the real loader."""
     completed = subprocess.run(
@@ -468,20 +463,20 @@ def test_a_real_non_utf8_env_file_does_not_stop_info(tmp_path: Path, non_utf8_en
         capture_output=True,
         check=False,
         cwd=non_utf8_env_file.parent,
-        env={**os.environ, "XDG_CONFIG_HOME": str(tmp_path / "xdg")},
+        env={**os.environ, **user_layer_env(tmp_path / "xdg")},
     )
 
     assert completed.returncode == 0, _stderr_of(completed)
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_real_non_utf8_env_file_refuses_config_with_78(tmp_path: Path, non_utf8_env_file: Path) -> None:
     completed = subprocess.run(
         [sys.executable, "-m", "datamax_dpl", "--env-file", "latin1.env", "config"],
         capture_output=True,
         check=False,
         cwd=non_utf8_env_file.parent,
-        env={**os.environ, "XDG_CONFIG_HOME": str(tmp_path / "xdg")},
+        env={**os.environ, **user_layer_env(tmp_path / "xdg")},
     )
 
     stderr = _stderr_of(completed)
@@ -489,7 +484,7 @@ def test_a_real_non_utf8_env_file_refuses_config_with_78(tmp_path: Path, non_utf
     assert "latin1.env is not valid UTF-8" in stderr
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_real_non_utf8_env_file_does_not_stop_config_deploy(tmp_path: Path, non_utf8_env_file: Path) -> None:
     """The command that replaces a broken configuration must not be blocked by it."""
     completed = subprocess.run(
@@ -506,14 +501,14 @@ def test_a_real_non_utf8_env_file_does_not_stop_config_deploy(tmp_path: Path, no
         capture_output=True,
         check=False,
         cwd=non_utf8_env_file.parent,
-        env={**os.environ, "XDG_CONFIG_HOME": str(tmp_path / "xdg")},
+        env={**os.environ, **user_layer_env(tmp_path / "xdg")},
     )
 
     assert completed.returncode == 0, _stderr_of(completed)
-    assert (tmp_path / "xdg" / __init__conf__.LAYEREDCONF_SLUG / "config.toml").is_file()
+    assert (user_layer_dir(tmp_path / "xdg") / "config.toml").is_file()
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_real_broken_user_config_does_not_stop_info(broken_user_config_env: dict[str, str]) -> None:
     """End to end through the real loader: info does not read the configuration."""
     completed = subprocess.run(
@@ -527,7 +522,7 @@ def test_a_real_broken_user_config_does_not_stop_info(broken_user_config_env: di
     assert completed.stdout
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_real_broken_user_config_refuses_config_with_78(broken_user_config_env: dict[str, str]) -> None:
     """End to end through the real loader: config reads it, so it refuses and names the file."""
     completed = subprocess.run(
@@ -543,14 +538,14 @@ def test_a_real_broken_user_config_refuses_config_with_78(broken_user_config_env
     assert "Traceback" not in stderr
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_real_invalid_permission_section_is_replaced_by_a_forced_deploy(tmp_path: Path) -> None:
     """End to end: the command that replaces a bad file is not blocked by the value it replaces.
 
     The library never reads the files a deploy writes, so ``--force`` alone gets past the value.
     """
-    config_dir = tmp_path / __init__conf__.LAYEREDCONF_SLUG
-    config_dir.mkdir()
+    config_dir = user_layer_dir(tmp_path)
+    config_dir.mkdir(parents=True)
     bad = '[lib_layered_config.default_permissions]\nuser_directory = "0o777"\n'
     (config_dir / "config.toml").write_text(bad, encoding="utf-8")
     completed = subprocess.run(
@@ -565,7 +560,7 @@ def test_a_real_invalid_permission_section_is_replaced_by_a_forced_deploy(tmp_pa
         ],
         capture_output=True,
         check=False,
-        env={**os.environ, "XDG_CONFIG_HOME": str(tmp_path)},
+        env={**os.environ, **user_layer_env(tmp_path)},
     )
 
     assert completed.returncode == 0, completed.stderr.decode("utf-8", "replace")
@@ -573,14 +568,14 @@ def test_a_real_invalid_permission_section_is_replaced_by_a_forced_deploy(tmp_pa
     assert stat.S_IMODE(config_dir.stat().st_mode) == 0o700
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_real_invalid_profile_name_stops_info_with_a_usage_error(tmp_path: Path) -> None:
     """End to end through the real loader: an invalid --profile is not silently ignored."""
     completed = subprocess.run(
         [sys.executable, "-m", "datamax_dpl", "--profile", "../x", "info"],
         capture_output=True,
         check=False,
-        env={**os.environ, "XDG_CONFIG_HOME": str(tmp_path)},
+        env={**os.environ, **user_layer_env(tmp_path)},
     )
 
     assert completed.returncode == 2, completed.stderr.decode("utf-8", "replace")

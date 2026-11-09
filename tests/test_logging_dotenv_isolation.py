@@ -17,14 +17,13 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import lib_log_rich.runtime
 import pytest
 from cli_process import run_cli_text
-from layer_roots import SYSTEM_LAYER_ROOT_VARIABLES
+from layer_roots import SYSTEM_LAYER_ROOT_VARIABLES, user_layer_dir, user_layer_env
 from lib_layered_config import Config
 
 from datamax_dpl import __init__conf__
@@ -480,10 +479,6 @@ def test_a_refused_log_variable_is_hidden_and_the_fallback_still_logs(tmp_path: 
 
 # ------------------------------------------------------------------ logging reads the .env the configuration read
 
-_LINUX_ONLY = pytest.mark.skipif(
-    not sys.platform.startswith("linux"), reason="XDG_CONFIG_HOME locates the user .env on Linux"
-)
-
 
 @pytest.mark.os_agnostic
 def test_logging_reads_the_dotenv_above_a_nested_project_root(tmp_path: Path) -> None:
@@ -506,36 +501,34 @@ def test_logging_reads_the_dotenv_above_a_nested_project_root(tmp_path: Path) ->
     assert _INFO_LINE not in quieted.stderr, quieted.stderr
 
 
-@pytest.mark.os_linux
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_logging_reads_the_user_dotenv_the_configuration_read(tmp_path: Path) -> None:
     """With no project ``.env``, lib_layered_config reads the one in the user configuration directory."""
-    user_dir = tmp_path / __init__conf__.LAYEREDCONF_SLUG
-    user_dir.mkdir()
+    user_dir = user_layer_dir(tmp_path)
+    user_dir.mkdir(parents=True)
     (user_dir / ".env").write_text("LOG_CONSOLE_LEVEL=error\n", encoding="utf-8")
     work = tmp_path / "work"
     work.mkdir()
 
-    result = _run(work, "info", env={"XDG_CONFIG_HOME": str(tmp_path)})
+    result = _run(work, "info", env=user_layer_env(tmp_path))
 
     assert result.returncode == 0, result.stderr
     assert _INFO_LINE not in result.stderr, result.stderr
 
 
-@pytest.mark.os_linux
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_without_a_loaded_configuration_logging_walks_past_a_nested_project_root(tmp_path: Path) -> None:
     """A broken configuration file leaves no provenance; the fallback makes the loader's own walk."""
-    user_dir = tmp_path / __init__conf__.LAYEREDCONF_SLUG
-    user_dir.mkdir()
+    user_dir = user_layer_dir(tmp_path)
+    user_dir.mkdir(parents=True)
     (user_dir / "config.toml").write_text("[broken\n", encoding="utf-8")
     nested = tmp_path / "nested"
     nested.mkdir()
     (nested / "pyproject.toml").write_text("", encoding="utf-8")
     (tmp_path / ".env").write_text("LOG_CONSOLE_LEVEL=error\n", encoding="utf-8")
 
-    refused = _run(nested, "config", env={"XDG_CONFIG_HOME": str(tmp_path)})
-    result = _run(nested, "info", env={"XDG_CONFIG_HOME": str(tmp_path)})
+    refused = _run(nested, "config", env=user_layer_env(tmp_path))
+    result = _run(nested, "info", env=user_layer_env(tmp_path))
 
     # Premise: the configuration really did not load.
     assert refused.returncode == 78, refused.stderr

@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 import rtoml
+from layer_roots import user_layer_dir, user_layer_env
 from lib_layered_config import Config, Layer, deploy_permissions_from_config
 
 from datamax_dpl import __init__conf__
@@ -318,16 +319,13 @@ def test_the_layer_modes_are_755_644_for_app_and_host_and_700_600_for_user(sourc
     assert settings.enabled is True
 
 
-_LINUX_ONLY = pytest.mark.skipif(
-    not sys.platform.startswith("linux"), reason="XDG_CONFIG_HOME locates the user layer on Linux"
-)
 _DOTENV_PREFIX = "LIB_LAYERED_CONFIG__DEFAULT_PERMISSIONS__"
 _ENV_PREFIX = f"{__init__conf__.LAYEREDCONF_SLUG.upper().replace('-', '_')}___{_DOTENV_PREFIX}"
 
 
 def _env(tmp_path: Path, extra: dict[str, str] | None = None) -> dict[str, str]:
     """The current environment with the user layer under ``tmp_path``."""
-    return {**os.environ, "XDG_CONFIG_HOME": str(tmp_path), **(extra or {})}
+    return {**os.environ, **user_layer_env(tmp_path), **(extra or {})}
 
 
 def _stderr(completed: subprocess.CompletedProcess[bytes]) -> str:
@@ -335,7 +333,7 @@ def _stderr(completed: subprocess.CompletedProcess[bytes]) -> str:
 
 
 def _user_dir(tmp_path: Path) -> Path:
-    return tmp_path / __init__conf__.LAYEREDCONF_SLUG
+    return user_layer_dir(tmp_path)
 
 
 def _user_modes(tmp_path: Path) -> tuple[int, int]:
@@ -374,7 +372,7 @@ def _deploy_user(tmp_path: Path, extra_env: dict[str, str] | None = None) -> sub
     )
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_quoted_set_mode_is_applied_on_disk(tmp_path: Path) -> None:
     """``'"0o640"'`` is the JSON string ``"0o640"``."""
     completed = subprocess.run(
@@ -399,7 +397,7 @@ def test_a_quoted_set_mode_is_applied_on_disk(tmp_path: Path) -> None:
     assert _user_modes(tmp_path) == (0o750, 0o640)
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_an_unquoted_set_mode_is_applied_on_disk(tmp_path: Path) -> None:
     """Unquoted ``0o640`` is no JSON, so it arrives as the same string."""
     completed = subprocess.run(
@@ -424,7 +422,7 @@ def test_an_unquoted_set_mode_is_applied_on_disk(tmp_path: Path) -> None:
     assert _user_modes(tmp_path) == (0o750, 0o640)
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_explicit_modes_take_precedence_over_configured_ones(tmp_path: Path) -> None:
     completed = subprocess.run(
         [
@@ -452,7 +450,7 @@ def test_explicit_modes_take_precedence_over_configured_ones(tmp_path: Path) -> 
     assert _user_modes(tmp_path) == (0o700, 0o600)
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_quoted_unprefixed_set_mode_is_read_as_octal(tmp_path: Path) -> None:
     """``'"640"'`` is the JSON string "640", read as octal 0o640, unlike the bare integer 640."""
     completed = subprocess.run(
@@ -477,7 +475,7 @@ def test_a_quoted_unprefixed_set_mode_is_read_as_octal(tmp_path: Path) -> None:
     assert _user_modes(tmp_path) == (0o750, 0o640)
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_configured_mode_from_the_environment_is_applied_on_disk(tmp_path: Path) -> None:
     """The library's own read of the section (not --set overrides) decides the deployed modes."""
     completed = _deploy_user(tmp_path, {f"{_ENV_PREFIX}USER_DIRECTORY": "0o750", f"{_ENV_PREFIX}USER_FILE": "0o640"})
@@ -486,7 +484,7 @@ def test_a_configured_mode_from_the_environment_is_applied_on_disk(tmp_path: Pat
     assert _user_modes(tmp_path) == (0o750, 0o640)
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_decimal_set_mode_is_refused_and_nothing_is_written(tmp_path: Path) -> None:
     """``640`` is valid JSON, so it arrives as the integer 640, which is 0o1200."""
     completed = subprocess.run(
@@ -514,12 +512,12 @@ def test_a_decimal_set_mode_is_refused_and_nothing_is_written(tmp_path: Path) ->
 
 def _existing_user_dir(tmp_path: Path) -> Path:
     """A user configuration directory that exists already, at 0o755."""
-    _user_dir(tmp_path).mkdir()
+    _user_dir(tmp_path).mkdir(parents=True)
     _user_dir(tmp_path).chmod(0o755)
     return _user_dir(tmp_path)
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_deploy_sets_the_mode_of_an_existing_user_directory(tmp_path: Path) -> None:
     """The control for the next test: without the override, the directory does change."""
     directory = _existing_user_dir(tmp_path)
@@ -530,7 +528,7 @@ def test_a_deploy_sets_the_mode_of_an_existing_user_directory(tmp_path: Path) ->
     assert stat.S_IMODE(directory.stat().st_mode) == 0o700
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_set_enabled_false_turns_permission_setting_off(tmp_path: Path) -> None:
     """The library takes ``enabled`` from the override only because the command passes no bool."""
     directory = _existing_user_dir(tmp_path)
@@ -555,7 +553,7 @@ def test_a_set_enabled_false_turns_permission_setting_off(tmp_path: Path) -> Non
     assert stat.S_IMODE(directory.stat().st_mode) == 0o755
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_decimal_mode_from_the_environment_is_refused_and_nothing_is_written(tmp_path: Path) -> None:
     """End to end: the environment turns ``444`` into an integer, which would deploy 0o674."""
     completed = _deploy_user(tmp_path, {f"{_ENV_PREFIX}USER_FILE": "444"})
@@ -569,7 +567,7 @@ def test_a_decimal_mode_from_the_environment_is_refused_and_nothing_is_written(t
     assert not (_user_dir(tmp_path) / "config.toml").exists()
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 @pytest.mark.parametrize(("value", "expected_rc"), [("no", 78), ("false", 0)])
 def test_enabled_from_the_environment_must_be_a_boolean_literal(tmp_path: Path, value: str, expected_rc: int) -> None:
     """End to end: ``false`` arrives as a boolean; ``no`` stays a string and is refused, not read as off."""
@@ -578,7 +576,7 @@ def test_enabled_from_the_environment_must_be_a_boolean_literal(tmp_path: Path, 
     assert completed.returncode == expected_rc, _stderr(completed)
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_dotenv_mode_does_not_decide_the_deployed_mode(tmp_path: Path) -> None:
     """Deploy never reads ``.env``: a mode in the working directory's ``.env`` changes nothing."""
     (tmp_path / ".env").write_text(f"{_DOTENV_PREFIX}USER_FILE=0o644\n", encoding="utf-8")
@@ -590,7 +588,7 @@ def test_a_dotenv_mode_does_not_decide_the_deployed_mode(tmp_path: Path) -> None
     assert _user_modes(tmp_path) == (0o700, 0o600)
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_dotenv_mode_does_not_decide_the_deployed_mode_beside_a_set(tmp_path: Path) -> None:
     """With a ``--set`` of the section the library reads it, still without ``.env``."""
     (tmp_path / ".env").write_text(f"{_DOTENV_PREFIX}USER_FILE=0o644\n", encoding="utf-8")
@@ -616,7 +614,7 @@ def test_a_dotenv_mode_does_not_decide_the_deployed_mode_beside_a_set(tmp_path: 
     assert _user_modes(tmp_path) == (0o750, 0o600)
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_dotenv_enabled_false_does_not_turn_permission_setting_off(tmp_path: Path) -> None:
     (tmp_path / ".env").write_text(f"{_DOTENV_PREFIX}ENABLED=false\n", encoding="utf-8")
     assert '"enabled": false' in _show_layered_config(tmp_path).stdout.decode("utf-8", "replace")  # liveness
@@ -627,7 +625,7 @@ def test_a_dotenv_enabled_false_does_not_turn_permission_setting_off(tmp_path: P
     assert _user_modes(tmp_path) == (0o700, 0o600)
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_malformed_dotenv_does_not_block_the_deploy(tmp_path: Path) -> None:
     (tmp_path / ".env").write_text("NOT A KEY VALUE LINE\n", encoding="utf-8")
     assert _show_layered_config(tmp_path).returncode == 78  # liveness: the command's own read fails on it
@@ -648,10 +646,10 @@ def _force_deploy_user(tmp_path: Path) -> subprocess.CompletedProcess[bytes]:
     )
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_broken_deployed_user_file_is_replaced_by_a_forced_deploy(tmp_path: Path) -> None:
     """The destination a deploy overwrites is outside its read, so its breakage cannot block it."""
-    _user_dir(tmp_path).mkdir()
+    _user_dir(tmp_path).mkdir(parents=True)
     (_user_dir(tmp_path) / "config.toml").write_text("[broken\n", encoding="utf-8")
     assert _show_layered_config(tmp_path).returncode == 78  # liveness: the file is broken
 
@@ -661,10 +659,10 @@ def test_a_broken_deployed_user_file_is_replaced_by_a_forced_deploy(tmp_path: Pa
     assert (_user_dir(tmp_path) / "config.toml").read_bytes() == get_default_config_path().read_bytes()
 
 
-@_LINUX_ONLY
+@pytest.mark.os_posix
 def test_a_decimal_mode_in_the_deployed_user_file_does_not_block_its_replacement(tmp_path: Path) -> None:
     """``user_file = 400`` sits in the very file ``--force`` overwrites, so the library never reads it."""
-    _user_dir(tmp_path).mkdir()
+    _user_dir(tmp_path).mkdir(parents=True)
     (_user_dir(tmp_path) / "config.toml").write_text(
         "[lib_layered_config.default_permissions]\nuser_file = 400\n", encoding="utf-8"
     )
