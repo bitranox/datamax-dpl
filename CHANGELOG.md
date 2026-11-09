@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The calibration label that goes before a job after a printer reset is no longer cut when the job
+  takes its cut from `[printer] cut_every`: it turned the cutter on (`<STX>V1`) and cut through the
+  label. It now prints with the cutter off at the job's cutter stop, as it already did for a label's
+  own `cut`.
+
 ## [0.9.0] - 2026-11-09
 
 ### Added

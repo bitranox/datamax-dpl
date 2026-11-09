@@ -18,7 +18,7 @@ from .enums import Unit
 from .label import MAX_FIELD_DATA, Cut, DotSize, Label, Text, UncutLabel
 from .preview import canvas_for, field_area
 from .profiles import get_profile
-from .render import RenderResult, build_job
+from .render import RenderResult, build_job, with_default_cut
 from .render_context import RenderOptions
 from .units import MM_PER_INCH
 
@@ -134,8 +134,10 @@ def calibration_job(label: Label, options: RenderOptions, *, text: str) -> Rende
             elements=[placed],
             quantity=1,
             # Not cut, since it may print shifted and a cut would go through a label (the user's rule:
-            # no adhesive on the knife); where the job cuts, its stop position stays the job's.
-            cut=None if label.cut is None else UncutLabel(),
+            # no adhesive on the knife); where the job cuts, its stop position stays the job's. The
+            # job's cut is the one it prints with, a default from the options included: a None here
+            # would take that default again in build_job and cut the calibration label.
+            cut=None if with_default_cut(label, options).cut is None else UncutLabel(),
             dot_size=None,
             column_offset=None,
             row_offset=None,

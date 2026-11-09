@@ -1125,6 +1125,19 @@ def test_the_calibration_label_is_not_cut_though_the_job_cuts() -> None:
 
 
 @pytest.mark.os_agnostic
+def test_the_calibration_label_is_not_cut_though_a_default_cut_cuts_the_job() -> None:
+    """A cut the job takes from ``cut_every`` leaves the calibration label uncut too, at the job's cutter stop."""
+    options = RenderOptions(model="allegro-2", cutter_installed=True, cut_every=3)
+
+    job = calibration_job(Label(**_PLAIN_FIELDS), options, text="Feed")
+
+    assert b"\x02V0" in job.data
+    assert b"\x02V1" not in job.data
+    assert b"\r:0" not in job.data
+    assert b"\x02f302" in job.data
+
+
+@pytest.mark.os_agnostic
 def test_the_calibration_label_stops_where_the_job_it_prepares_stops() -> None:
     options = RenderOptions(model="allegro-2", cutter_installed=True)
 
