@@ -9,11 +9,17 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
   `--cutter no` refuses any cutting label.
 - With `--cutter yes` on a model whose job sets the cutter (`<STX>V`), the end of every print is cut
   (`[printer] cut_after_print`, on by default): such a printer stops the stock at the cutter, where
-  it cannot be torn off. A label without `cut` is cut once, after its last copy (`<STX>V1` plus
-  `:nnnn`); a `--data` series without `cut` stays joined and is cut after its last record (the
-  records before it go out with `<STX>V0`). A cut's `"at_end": false` is overridden there
-  (`cut_at_end_kept`). The cutter is then on when the print ends, so the printer's FEED key cuts.
-  With `cut_after_print = false`, only a label with `cut` is cut.
+  it cannot be torn off. A label without `cut` is cut once, after its last copy (`<STX>V1`, plus
+  `:nnnn` when it has more than one copy); a `--data` series without `cut` stays joined and is cut
+  after its last record (the records before it go out with `<STX>V0`). A cut's `"at_end": false`
+  is overridden there (`cut_at_end_kept`). The cutter is then on when the print ends, so the
+  printer's FEED key cuts. With `cut_after_print = false`, only a label with `cut` is cut.
+- Which jobs send `<STX>V`: on the Allegro and Allegro 2 `--cutter yes` is enough; on the DMX
+  400/600/800, Prodigy Max, PE42/PE43, Ovations and Titan 6200 also set `[printer] label_present`
+  (`yes` or `no`), else no `<STX>V` goes, nothing is cut at the end of the print, and only the info
+  `software_switches_not_sent` says so; the Prodigy family, DMX 430, `generic` and `permissive`
+  never send it. `"cut": {"every": 1}` sends no cut command of its own either: without `<STX>V` the
+  printer cuts as its own cutter switch is set.
 - `[printer] cut_every = N` gives every label without its own `cut` one; the label's own `cut` wins.
   A label cannot opt out of it: print that job with `--set printer.cut_every=null`.
 - With `quantity` > N the printer counts copies itself (`:nnnn`); N at or past the quantity cuts once,
@@ -40,12 +46,14 @@ The stop position (`<STX>f`) comes from the first of these that applies:
    (`present_distance_unsupported`); with `stop_position` also set, both go out as `<STX>f`,
    present distance second (which one the printer keeps is unverified). A configured
    `present_distance` is never a stop: it is not sent there at all (below);
-3. `[printer] cutter_stop_position` for a label with `cut`, else `[printer] stop_position` (mm, at
-   most 253.746), both sent unscaled; unset, each takes the model default, which only allegro-2
+3. `[printer] cutter_stop_position` for a job that is cut (a label with `cut`, or any label
+   under `cut_after_print` whose job sends `<STX>V`, above), else `[printer] stop_position` (mm,
+   at most 253.746), both sent unscaled; unset, each takes the model default, which only allegro-2
    has (tear-off 66.8 mm, `<STX>f263`; cutter 76.8 mm, `<STX>f302`, measured with a cutter); a
    `--data` record the next record follows uncut sends `[printer] joined_stop_position` instead
    (allegro-2: 25.4 mm, `<STX>f100`), below the start of print, since a stop past it makes the
-   printer pull the stock back before the next record;
+   printer pull the stock back before the next record; unset on a model with no default, such a
+   record keeps the cutter stop. The last record and the calibration label take the cutter stop;
 4. otherwise the printer's own setting.
 
 A model with `<STX>Kf` (PE42, PE43, the Ovations, `permissive`) also sends `present_distance` as
@@ -60,7 +68,9 @@ configured stop only the info `configured_stop_position_unsupported` (prints und
 Another program or the front panel may have changed the printer since the last job, so each label's
 job sets the persistent settings the label relies on before its format, besides the image module
 clear before and after it (Image module, in `images-and-memory.md`). A 50 x 30 mm `allegro-2`
-label without `cut`, with `--cutter yes` and no config, sends `<STX>n<STX>c0000<STX>O0220<STX>M1200<STX>SC<STX>V0<STX>f263<STX>qA`, its
+label without `cut`, with `--cutter yes` and no config, sends
+`<STX>n<STX>c0000<STX>O0220<STX>M1200<STX>SC<STX>V1<STX>f302<STX>qA` (cut after its last copy, at
+the cutter stop; with `--cutter no` or `cut_after_print = false` it is `...<STX>V0<STX>f263<STX>qA`), its
 format, then `<STX>qA` (the clear of module A): media sensor (`<STX>c`; `<STX>e`/`<STX>r` where the
 model picks its sensor), start of print (`<STX>O`), maximum label length (`<STX>M`), feed rate
 (`<STX>S`), software switches (`<STX>V`) and stop position (`<STX>f`, above). Each value comes from
@@ -84,8 +94,9 @@ the model's default from the manual; a library caller sets the same fields in `R
   a model with a label-present bit, `[printer] label_present` (default `unknown`) are both `yes` or
   `no`; else `software_switches_not_sent` (info), whose message names the one missing. The Allegro
   and Allegro 2 have no such bit, so `--cutter` (or `[printer] cutter`) alone decides there. The
-  cutter bit is on only for a label that cuts (a label with `cut` sends `<STX>V1<STX>f302` on the
-  Allegro 2); `feed --media` sends it off.
+  cutter bit is on only for a label that is cut (a label with `cut`, or the last label of a print
+  under `cut_after_print`: both send `<STX>V1<STX>f302` on the Allegro 2); `feed --media` sends
+  it off.
 - `heat` (0-30; above the model's maximum it is clamped, `heat_out_of_range`), `print_speed`,
   `slew_speed`, `backup_speed`, `column_offset`, `row_offset` and `present_distance` go out only
   when the label sets them (at the top level of its JSON, beside `quantity`) or the same-named key

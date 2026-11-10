@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from datamax_dpl.adapters import cli as cli_mod
+from datamax_dpl.adapters.cli.exit_codes import ExitCode
 from datamax_dpl.application.ports import CONFIGURED_PERMISSIONS, DeployPermissionRequest
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
     from click.testing import CliRunner, Result
 
@@ -76,3 +78,24 @@ def test_when_config_deploy_has_generic_error_it_exits_with_code_1(
 
     assert result.exit_code == 1
     assert "Disk full" in result.stderr
+
+
+def _exit_codes_named_in_src() -> set[str]:
+    """Every ``ExitCode.<NAME>`` the package's source names outside the enum's own module."""
+    src = Path(__file__).resolve().parents[1] / "src" / "datamax_dpl"
+    named: set[str] = set()
+    for module in src.rglob("*.py"):
+        if module.name == "exit_codes.py":
+            continue
+        for node in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "ExitCode":
+                named.add(node.attr)
+    return named
+
+
+@pytest.mark.os_agnostic
+def test_every_exit_code_is_one_a_command_exits_with() -> None:
+    """A member nothing exits with reads, in the enum and its docstring, as a code a script can get."""
+    named = _exit_codes_named_in_src()
+    assert len(named) >= 5, f"the scan found only {sorted(named)}, too few to mean anything"
+    assert sorted(member.name for member in ExitCode if member.name not in named) == []

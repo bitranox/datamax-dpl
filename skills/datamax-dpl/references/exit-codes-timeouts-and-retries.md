@@ -15,8 +15,9 @@ connection) is tried again, each time a connection is opened, every
 `[printer] refused_connect_retry_interval` (0.25 s) for up to `refused_connect_wait` (3 s), never
 past `timeout`. `status` and
 `memory` instead keep trying for `[printer] status_wait` (30 s) while a print server is busy with an
-earlier job and then say how long they waited (`no answer in 30.0 s (4 attempts)`): raise
-`status_wait`, or pass `--timeout`, which replaces it. Before each label whose downloads no
+earlier job and then say how long they waited (`no answer in 30.0 s (4 attempts)`; the attempts
+are `[printer] answer_retry_interval`, 0.25 s, apart, as are those of the stored-name reads below):
+raise `status_wait`, or pass `--timeout`, which replaces it. Before each label whose downloads no
 clear precedes, and (unless `upload_check_rounds` is 0) after any downloads a label sends, `print`
 may spend up to
 `[printer] stored_names_wait` (30 s), plus `[printer] directory_idle` (1 s), the silence that ends
@@ -44,3 +45,6 @@ also sets `image_name_held`, a download left out because the printer holds its n
 refuses either whatever `--policy` says). A job is sent in `[printer] send_chunk_bytes` pieces
 (1024) and the timeout bounds each one; a job cut off part way says to power-cycle the printer,
 which may be waiting for the rest.
+
+Every key with its range, default and environment variable is in
+<https://github.com/bitranox/datamax-dpl/blob/HEAD/CONFIG.md>.

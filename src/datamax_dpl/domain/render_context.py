@@ -359,6 +359,7 @@ class ConfiguredLabelState:
         row_offset_mm: Row offset in mm, or None.
         present_distance_mm: Present distance in mm, or None.
         cut_after_print: Whether a job that sets an installed cutter cuts after its last label.
+        cut_every: The cut a label without its own gets, every this many labels; None for none.
     """
 
     heat: int | None
@@ -369,6 +370,7 @@ class ConfiguredLabelState:
     row_offset_mm: float | None
     present_distance_mm: float | None
     cut_after_print: bool
+    cut_every: int | None
 
 
 def resolved_label_state(options: RenderOptions) -> ConfiguredLabelState:
@@ -387,6 +389,7 @@ def resolved_label_state(options: RenderOptions) -> ConfiguredLabelState:
         row_offset_mm=options.row_offset_mm,
         present_distance_mm=options.present_distance_mm,
         cut_after_print=options.cut_after_print,
+        cut_every=options.cut_every,
     )
 
 

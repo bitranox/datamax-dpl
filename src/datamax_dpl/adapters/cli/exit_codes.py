@@ -9,8 +9,11 @@ Commands exit through click's ``Exit`` (what ``ctx.exit()`` raises), never a bar
 the output went away. No other signal has a handler: SIGTERM and SIGHUP end the process by that
 signal, with no envelope, as closing the console window ends it on Windows.
 
+The label and printer commands exit through ``envelope.Outcome`` instead: 0 done, 1 refused,
+2 an error, a printer that cannot be reached included.
+
 Contents:
-    * :class:`ExitCode` - IntEnum of all exit codes used by this application.
+    * :class:`ExitCode` - IntEnum of the exit codes the config commands and ``main.py`` use.
 """
 
 from __future__ import annotations
@@ -24,33 +27,23 @@ class ExitCode(IntEnum):
     Values follow sysexits.h and errno conventions where applicable:
 
     * 0-1: generic success / failure
-    * 2-13: errno-derived codes (ENOENT, EACCES)
+    * 13: EACCES
     * 22: EINVAL
-    * 69: EX_UNAVAILABLE (sysexits.h): the printer did not answer
-    * 76: EX_PROTOCOL (sysexits.h): the printer answered something unexpected
-    * 77: EX_NOPERM (sysexits.h): refused by policy, such as a destructive action
-      without its confirmation flags
     * 78: EX_CONFIG (sysexits.h)
-    * 110: ETIMEDOUT
     * 128+N: signal N
 
     Example:
         >>> ExitCode.SUCCESS
         <ExitCode.SUCCESS: 0>
-        >>> int(ExitCode.DEVICE_UNAVAILABLE)
-        69
+        >>> int(ExitCode.CONFIG_ERROR)
+        78
     """
 
     SUCCESS = 0
     GENERAL_ERROR = 1
-    FILE_NOT_FOUND = 2
     PERMISSION_DENIED = 13
     INVALID_ARGUMENT = 22
-    DEVICE_UNAVAILABLE = 69
-    PROTOCOL_ERROR = 76
-    REFUSED = 77
     CONFIG_ERROR = 78
-    TIMEOUT = 110
     SIGNAL_INT = 130
     BROKEN_PIPE = 141
 

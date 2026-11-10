@@ -352,8 +352,47 @@ def test_schema_describes_the_label_document(cli_runner: CliRunner) -> None:
 @pytest.mark.os_agnostic
 def test_capabilities_name_firmware_gates(cli_runner: CliRunner) -> None:
     features = envelope(run(cli_runner, ["--json", "capabilities", "dmx-400"]))["data"]["features"]
-    assert features["circle_polygon"] == "fw 2.01"
-    assert features["mirror"] == "no"
+    assert features["circle_polygon"] == {
+        "available": True,
+        "min_firmware": {"major": 2, "minor": 1},
+        "option": None,
+        "source": "manual",
+    }
+    assert features["datamatrix"] == {
+        "available": True,
+        "min_firmware": None,
+        "option": "datamatrix",
+        "source": "manual",
+    }
+    assert features["mirror"] == {"available": False, "min_firmware": None, "option": None, "source": "manual"}
+
+
+@pytest.mark.os_agnostic
+def test_capabilities_give_each_speed_range_as_its_letters(cli_runner: CliRunner) -> None:
+    # A script reads the range and the default as fields, not by parsing "C-G (default G)".
+    data = envelope(run(cli_runner, ["--json", "capabilities", "dmx-400"]))["data"]
+    speeds = {key: data[key] for key in ("print_speed", "slew_speed", "backup_speed")}
+    assert speeds == {
+        "print_speed": {"low": "C", "high": "G", "default": "G"},
+        # The manual's range for the DMX 400 slew speed leaves out its own default.
+        "slew_speed": {"low": "C", "high": "I", "default": "K"},
+        "backup_speed": {"low": "C", "high": "I", "default": "E"},
+    }
+    assert envelope(run(cli_runner, ["--json", "capabilities", "prodigy"]))["data"]["backup_speed"] is None
+
+
+@pytest.mark.os_agnostic
+def test_capabilities_human_output_keeps_the_short_forms(cli_runner: CliRunner) -> None:
+    lines = run(cli_runner, ["capabilities", "dmx-400"]).output.splitlines()
+    # Feature rows are indented; a field and a feature can share a name (backup_speed).
+    fields = {line.split()[0]: line.split(maxsplit=1)[1] for line in lines if not line.startswith(" ")}
+    features = {line.split()[0]: line.split(maxsplit=1)[1] for line in lines if line.startswith(" ")}
+    assert (fields["print_speed"], fields["backup_speed"]) == ("C-G (default G)", "C-I (default E)")
+    assert (features["circle_polygon"], features["datamatrix"], features["mirror"]) == (
+        "fw 2.01",
+        "option datamatrix",
+        "no",
+    )
 
 
 @pytest.mark.os_agnostic

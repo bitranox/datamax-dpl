@@ -37,9 +37,11 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
   firmware (`--set printer.inch_unit_dots=N` or the config), and let the scales
   absorb what remains. The `allegro-2` model ships values
   calibrated on one Allegro 2 (`scale_along` 0.976, `offset_along` -0.25 mm, tear-off
-  `stop_position` 66.8 mm), named in the info finding `model_defaults_applied`; every other model
-  starts neutral. A value set in the config or with `--set printer.KEY=VALUE` (`scale_across`,
-  `scale_along`, `offset_across`, `offset_along`, `stop_position`) wins, even scale 1.0 or offset
+  `stop_position` 66.8 mm, `cutter_stop_position` 76.8 mm, `joined_stop_position` 25.4 mm), the
+  ones a job uses named in the info finding `model_defaults_applied`; every other model starts
+  neutral. A value set in the config or with `--set printer.KEY=VALUE` (`scale_across`,
+  `scale_along`, `offset_across`, `offset_along`, `stop_position`, `cutter_stop_position`,
+  `joined_stop_position`) wins, even scale 1.0 or offset
   0.0; `stop_position = "printer"` (in the label too) sends no `<STX>f`: the printer's own stop
   (a label `present_distance` without `<STX>Kf` still goes out as `<STX>f`).
   Calibrate once per printer:

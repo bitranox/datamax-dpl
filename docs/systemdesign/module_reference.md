@@ -33,7 +33,7 @@ another. Scripts and LLM agents need a format they can write safely and an answe
 4. Transports (tcp, serial, device file, file, stdout), status and model detection, and a preview
    PNG.
 5. A CLI whose label and printer commands answer with a JSON envelope `{ok, command, data,
-   skipped}` and exit 0 / 1 / 2.
+   skipped}` and exit 0 / 1 / 2 (130 on Ctrl-C, 141 when the reader of the output went away).
 
 ## Architecture Integration
 
@@ -82,6 +82,7 @@ code.
 - `render.py` - `build_job` and `render`: label to DPL bytes plus findings.
 - `job.py` - system commands, format settings, quantity and cutting.
 - `batch.py` - cutting every N labels when each label of a batch is its own format.
+- `media_feed.py` - the feed that returns the printer from continuous media to a label sensor (`feed --media`).
 - `calibration.py` - the two calibration labels, across the web and along the feed.
 - `transparency.py` - emulating a transparent label on a model without the `A` command.
 - `encode_common.py` - positions, field length, attributes and counters shared by encoders.
@@ -128,6 +129,7 @@ code.
 - `cli/commands/config.py` - config, config-deploy, config-generate-examples.
 - `cli/commands/info.py` - info.
 - `cli/label_io.py` - reading labels and data records from files or stdin.
+- `cli/json_array.py` - walks a JSON array `--data` file one element at a time.
 - `cli/job_file.py` - writing a batch's job to a file as it is rendered, replacing the target only when every record passed.
 - `cli/job_spool.py` - keeping a batch's records on disk as the check pass rendered them, so the send reads them back instead of rendering again (`FileJobSpool`, a `JobSpool`).
 - `cli/interrupt.py` - noting a Ctrl-C before it is raised, so a pass over the records finds one a C extension swallowed.

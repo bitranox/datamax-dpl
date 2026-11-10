@@ -436,6 +436,11 @@ would pass 9. Unverified on paper: halved images have not been printed yet.
 }
 ```
 
+`LOGO` has no `bitmap`, so it must already be on the printer. Where the clear before each label
+reaches the image module (`[printer] clear_graphics_before`, on by default; the Allegro 2's module A,
+for one) the clear would remove it, so this label is refused there with `stored_image_cleared`. It
+prints with `clear_graphics_before = false` on a printer that holds `LOGO`.
+
 ### `qr`
 
 | Key           | Type                 | Default | Meaning                                                                                                                                     |

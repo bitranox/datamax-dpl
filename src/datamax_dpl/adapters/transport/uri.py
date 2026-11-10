@@ -3,8 +3,9 @@
 Accepted forms (see :data:`ACCEPTED_FORMS`):
 
 * ``tcp://HOST:PORT`` - raw socket, port 9100 when left out; an IPv6 host goes in brackets.
-* ``serial:///dev/ttyS0?baud=9600&parity=N&bytesize=8&stopbits=1&rtscts=0&xonxoff=1`` (POSIX) or
-  ``serial://COM3?baud=...`` (Windows) - every query parameter is optional.
+* ``serial:///dev/ttyS0?baud=9600&parity=N&bytesize=8&stopbits=1&rtscts=0&xonxoff=0`` (POSIX) or
+  ``serial://COM3?baud=...`` (Windows) - every query parameter is optional; these values are
+  the defaults.
 * ``device:///dev/usb/lp0`` - a write-only device file.
 * ``file:PATH`` or ``file:///abs/path`` - append the job to a file.
 * ``-`` - write the job to standard output.
@@ -288,7 +289,8 @@ def transport_error(
         True
     """
     reason = error.strerror or str(error) or type(error).__name__
-    message = f"cannot {action.value} {channel_name(uri)}: {reason}"
+    # Coerced first: an untyped caller passing the plain value "write to" gets the same message.
+    message = f"cannot {ChannelAction(action).value} {channel_name(uri)}: {reason}"
     if isinstance(error, TimeoutError):
         return PrinterTimeoutError(message, unanswered=unanswered, advice=advice)
     return TransportError(message, unanswered=unanswered or isinstance(error, ConnectionRefusedError), advice=advice)

@@ -24,9 +24,30 @@ All notable changes to this project are documented here. The format follows
   print, instead of at the cutter stop: a stop past the start of print made one Allegro 2 pull the
   stock back between the labels of a series. Unset on a model without a default, such a record
   keeps the cutter stop. The last record and the calibration label keep the cutter stop.
+- Library: `RenderOptions` gains `cut_after_print` (default `True`) and `joined_stop_position_mm`,
+  and `CalibrationDefaults` gains `joined_stop_position_mm` (25.4 on the `allegro-2` profile) and
+  `joined_stop_provenance`. With the default, `render()` and `build_job()` with
+  `RenderOptions(cutter_installed=True)` on a model whose job sets `<STX>V` now cut the end of the
+  print (`<STX>V1` and the cutter stop); `cut_after_print=False` leaves a print without a cut uncut.
+- `capabilities --json`: `print_speed`, `slew_speed` and `backup_speed` are objects
+  `{low, high, default}` holding speed letters, instead of text such as `"C-E (default C)"`
+  (`backup_speed` stays `null` on a model without one), and each `features` value is an object
+  `{available, min_firmware, option, source}` (`min_firmware` is `{major, minor}` or `null`)
+  instead of text such as `"yes"`, `"fw 2.01"` or `"option datamatrix"`. The human output keeps the
+  short texts.
+- The `no_cutter` refusal names `[printer] cut_every` (`RenderOptions.cut_every`) as a source of the
+  cut when that key is set, so a label without its own `cut` is not told it asks for cutting.
+
+### Removed
+
+- `ExitCode.DEVICE_UNAVAILABLE` (69), `PROTOCOL_ERROR` (76), `REFUSED` (77), `TIMEOUT` (110) and
+  `FILE_NOT_FOUND` (2) from `datamax_dpl.adapters.cli.exit_codes`: no command exits with them; the
+  label and printer commands exit 0, 1 or 2.
 
 ### Fixed
 
+- `display_config` and `transport_error` take their enum argument as its plain value too (`"json"`,
+  `"write to"`) instead of failing with `AttributeError`.
 - The calibration label that goes before a job after a printer reset is no longer cut when the job
   takes its cut from `[printer] cut_every`: it turned the cutter on (`<STX>V1`) and cut through the
   label. It now prints with the cutter off at the job's cutter stop, as it already did for a label's

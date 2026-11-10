@@ -6,7 +6,9 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
 
 `render` raises `LabelRejectedError` on an error finding; `build_job` returns the result with
 `.findings` instead. `render_batch(label, records, options)` does the `--data` case and never raises
-on an error finding: it returns a `BatchResult`, so check `.ok`. It holds every label: pass
+on an error finding: it returns a `BatchResult`, so check `.ok`. A record lacking a field a
+placeholder names is no finding: `render_batch`, `iter_batch` and `check_batch` raise
+`MissingFieldError` for it. `render_batch` holds every label: pass
 `max_job_bytes=` to bound its job (past it, `BatchTooLargeError`). For a large batch use
 `iter_batch(label, records, options)`, which takes a generator and yields one `RenderResult` at a
 time (the job's bytes in `.data`, the verdict in `.ok`: a record in error is yielded too, so check
@@ -47,7 +49,8 @@ download a full module lost gives a label with that image missing, and no error.
 the `print` command does, call `print_label(label, PrintRequest(options=options,
 endpoint=PrinterEndpoint(uri=uri, timeout=10, open_printer=open_printer),
 check=UploadCheck(wait=AnswerWait(seconds=30)), one_way=printer_uri_is_one_way(uri)))`, with
-`records=` for a batch: it decides `options.model_image_budget` and the name reads for the link, and
+`records=rows` inside the `PrintRequest` for a batch (it also takes `reset=`, `limits=` and
+`spool=`; `print_label` itself takes only the label and the request): it decides `options.model_image_budget` and the name reads for the link, and
 a label with an error finding raises `PrintRefusedError` with no printer opened. To send a job you
 rendered yourself over a channel that can read answers (tcp, serial), use the step it ends with
 (render with `model_image_budget=False` for images past the model's budget at full size, as `print`

@@ -15,11 +15,20 @@ from pydantic import BaseModel, ConfigDict
 
 from ....application.use_cases import BatchReport, check_batch, render_label
 from ....domain.decoder import DecodedCommand, explain
-from ....domain.enums import ImageModule
+from ....domain.enums import HardwareOption, ImageModule, SpeedCode
 from ....domain.errors import BatchTooLargeError, ConfigurationError
 from ....domain.held_images import READ_AT_SEND, HeldImages
 from ....domain.label import Label
-from ....domain.profiles import Feature, PrinterProfile, SpeedRange, get_profile, list_profiles
+from ....domain.profiles import (
+    Feature,
+    Firmware,
+    PrinterProfile,
+    Source,
+    SpeedRange,
+    Support,
+    get_profile,
+    list_profiles,
+)
 from ...config.sections import printer_section
 from ...transport.uri import is_one_way, parse_printer_uri
 from ..constants import CLICK_CONTEXT_SETTINGS
@@ -428,6 +437,81 @@ def cli_models(ctx: click.Context) -> None:
     run_command(ctx, command=CommandName.MODELS, body=body)
 
 
+class SpeedRangePayload(BaseModel):
+    """The speed letters a model accepts for one speed setting, and its default.
+
+    The manual's default can lie outside its own range (the DMX 400 slew speed); it is given as
+    the profile holds it.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    low: SpeedCode
+    high: SpeedCode
+    default: SpeedCode
+
+    @classmethod
+    def of(cls, speeds: SpeedRange) -> SpeedRangePayload:
+        """Return the payload form of ``speeds``."""
+        return cls(low=speeds.low, high=speeds.high, default=speeds.default)
+
+    def describe(self) -> str:
+        """Short text for the human form: ``C-G (default G)``.
+
+        Example:
+            >>> SpeedRangePayload(low=SpeedCode("C"), high=SpeedCode("G"), default=SpeedCode("G")).describe()
+            'C-G (default G)'
+        """
+        return f"{self.low.value}-{self.high.value} (default {self.default.value})"
+
+
+class FirmwarePayload(BaseModel):
+    """A firmware version: ``major`` 2, ``minor`` 1 is firmware 2.01."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    major: int
+    minor: int
+
+
+class SupportPayload(BaseModel):
+    """Whether a model has a feature, and under which condition (see :class:`~datamax_dpl.domain.profiles.Support`)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    available: bool
+    min_firmware: FirmwarePayload | None
+    option: HardwareOption | None
+    source: Source
+
+    @classmethod
+    def of(cls, support: Support) -> SupportPayload:
+        """Return the payload form of ``support``."""
+        firmware = support.min_firmware
+        return cls(
+            available=support.available,
+            min_firmware=None if firmware is None else FirmwarePayload(major=firmware.major, minor=firmware.minor),
+            option=support.option,
+            source=support.source,
+        )
+
+    def describe(self) -> str:
+        """Short text for the human form, as :meth:`Support.describe` writes it: ``yes``, ``fw 2.01``.
+
+        Example:
+            >>> SupportPayload(available=True, min_firmware=FirmwarePayload(major=2, minor=1), option=None,
+            ...                source=Source.MANUAL).describe()
+            'fw 2.01'
+        """
+        firmware = self.min_firmware
+        return Support(
+            available=self.available,
+            min_firmware=None if firmware is None else Firmware(major=firmware.major, minor=firmware.minor),
+            option=self.option,
+            source=self.source,
+        ).describe()
+
+
 class CapabilitiesPayload(BaseModel):
     """Result of ``capabilities``: one profile in full."""
 
@@ -441,9 +525,9 @@ class CapabilitiesPayload(BaseModel):
     max_fields: int
     max_field_chars: int
     heat_max: int
-    print_speed: str
-    slew_speed: str
-    backup_speed: str | None
+    print_speed: SpeedRangePayload
+    slew_speed: SpeedRangePayload
+    backup_speed: SpeedRangePayload | None
     font9_points: list[int]
     # The built-in module image downloads go to unless [printer] image_module names another;
     # None on a model with no built-in module, which refuses downloads until one is configured.
@@ -451,11 +535,7 @@ class CapabilitiesPayload(BaseModel):
     # Dot rows one format reaches at dot height 1 unless [printer] max_format_rows sets another;
     # None where the model has no known limit.
     max_format_rows: int | None
-    features: dict[Feature, str]
-
-
-def _speed(speeds: SpeedRange) -> str:
-    return f"{speeds.low.value}-{speeds.high.value} (default {speeds.default.value})"
+    features: dict[Feature, SupportPayload]
 
 
 def capabilities_payload(profile: PrinterProfile) -> CapabilitiesPayload:
@@ -469,13 +549,13 @@ def capabilities_payload(profile: PrinterProfile) -> CapabilitiesPayload:
         max_fields=profile.max_fields,
         max_field_chars=profile.max_field_chars,
         heat_max=profile.heat_max,
-        print_speed=_speed(profile.print_speed),
-        slew_speed=_speed(profile.slew_speed),
-        backup_speed=_speed(profile.backup_speed) if profile.backup_speed else None,
+        print_speed=SpeedRangePayload.of(profile.print_speed),
+        slew_speed=SpeedRangePayload.of(profile.slew_speed),
+        backup_speed=SpeedRangePayload.of(profile.backup_speed) if profile.backup_speed else None,
         font9_points=sorted(set(profile.a_series_points) | set(profile.old_series_points)),
         image_module=profile.image_module,
         max_format_rows=profile.max_format_rows,
-        features={feature: profile.support(feature).describe() for feature in Feature},
+        features={feature: SupportPayload.of(profile.support(feature)) for feature in Feature},
     )
 
 
@@ -490,15 +570,15 @@ def _capabilities_text(payload: CapabilitiesPayload) -> str:
         ("max_fields", payload.max_fields),
         ("max_field_chars", payload.max_field_chars),
         ("heat_max", payload.heat_max),
-        ("print_speed", payload.print_speed),
-        ("slew_speed", payload.slew_speed),
-        ("backup_speed", payload.backup_speed),
+        ("print_speed", payload.print_speed.describe()),
+        ("slew_speed", payload.slew_speed.describe()),
+        ("backup_speed", None if payload.backup_speed is None else payload.backup_speed.describe()),
         ("font9_points", payload.font9_points),
         ("image_module", None if payload.image_module is None else payload.image_module.value),
         ("max_format_rows", payload.max_format_rows),
     ]
     lines = [f"{key:18} {value}" for key, value in rows]
-    lines += [f"  {feature.value:20} {state}" for feature, state in payload.features.items()]
+    lines += [f"  {feature.value:20} {support.describe()}" for feature, support in payload.features.items()]
     return "\n".join(lines)
 
 
@@ -517,7 +597,11 @@ def cli_capabilities(ctx: click.Context, model: str) -> None:
 
 __all__ = [
     "NOT_SENT",
+    "CapabilitiesPayload",
+    "FirmwarePayload",
     "JobRoute",
+    "SpeedRangePayload",
+    "SupportPayload",
     "capabilities_payload",
     "check_loaded",
     "cli_capabilities",

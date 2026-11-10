@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
+from datamax_dpl.application.use_cases import iter_batch
 from datamax_dpl.domain.calibration import along_label, default_along_length
 from datamax_dpl.domain.enums import (
     FillPattern,
@@ -192,6 +193,38 @@ def test_a_label_that_cuts_is_refused_when_the_printer_has_no_cutter() -> None:
     label = Label.model_validate({"cut": {"every": 1}, "elements": [{"type": "text", "x": 1, "y": 1, "text": "X"}]})
     with pytest.raises(LabelRejectedError, match="without a cutter"):
         render(label, RenderOptions(model="dmx-600", cutter_installed=False))
+
+
+_NO_CUTTER_FROM_CUT_EVERY = (
+    "the label asks for cutting (its own cut, or for a label without one RenderOptions.cut_every) but"
+)
+
+
+@pytest.mark.os_agnostic
+def test_a_cut_from_cut_every_on_a_printer_without_a_cutter_names_cut_every() -> None:
+    """The label sets no cut: the refusal names the option the cut can come from, not the label alone."""
+    label = Label(elements=[Text(x=1, y=1, text="X")])
+    with pytest.raises(LabelRejectedError, match=re.escape(_NO_CUTTER_FROM_CUT_EVERY)):
+        render(label, RenderOptions(model="dmx-600", cutter_installed=False, cut_every=2))
+
+
+@pytest.mark.os_agnostic
+def test_a_batch_cut_from_cut_every_without_a_cutter_names_cut_every() -> None:
+    """A batch cutting every 2 records gives each record a cut of 1: the refusal still names cut_every."""
+    label = Label(elements=[Text(x=1, y=1, text="X")])
+    options = RenderOptions(model="dmx-600", cutter_installed=False, cut_every=2)
+    entries = list(iter_batch(label, [{"a": "1"}, {"a": "2"}, {"a": "3"}], options))
+    messages = [f.message for entry in entries for f in entry.findings if f.code is FindingCode.NO_CUTTER]
+    assert len(messages) == 3
+    assert all(message.startswith(_NO_CUTTER_FROM_CUT_EVERY) for message in messages)
+
+
+@pytest.mark.os_agnostic
+def test_a_label_s_own_cut_without_cut_every_is_refused_without_naming_cut_every() -> None:
+    label = Label.model_validate({"cut": {"every": 3}, "elements": [{"type": "text", "x": 1, "y": 1, "text": "X"}]})
+    with pytest.raises(LabelRejectedError, match="the label asks for cutting but") as refused:
+        render(label, RenderOptions(model="dmx-600", cutter_installed=False))
+    assert "cut_every" not in str(refused.value)
 
 
 @pytest.mark.os_agnostic

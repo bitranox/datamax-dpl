@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import cast
 
 import pytest
 from hypothesis import given
@@ -256,6 +257,15 @@ def test_a_refused_timeout_is_named_as_the_seconds_it_is(name: TimeoutName, spel
 def test_a_wrapped_os_error_names_the_action_as_the_message_spells_it(action: ChannelAction, spelled: str) -> None:
     error = transport_error(StdoutUri(), action=action, error=BrokenPipeError(32, "Broken pipe"))
     assert str(error) == f"cannot {spelled} stdout: Broken pipe"
+
+
+@pytest.mark.os_agnostic
+def test_a_wrapped_os_error_takes_the_action_as_its_plain_value() -> None:
+    """An untyped caller passing "write to" gets the same error as with ChannelAction.WRITE."""
+    error = transport_error(
+        StdoutUri(), action=cast("ChannelAction", "write to"), error=BrokenPipeError(32, "Broken pipe")
+    )
+    assert str(error) == "cannot write to stdout: Broken pipe"
 
 
 @pytest.mark.os_agnostic

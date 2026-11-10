@@ -72,10 +72,16 @@ After changing a profile, regenerate them:
 
 ## Examples and notebook
 
-`examples/` holds the labels and data records the README uses; keep them valid
-(`datamax-dpl validate examples/<file>.json`). CI executes `notebooks/Quickstart.ipynb` in a fresh
-kernel with errors not allowed, so every `!` shell line there is followed by
-`assert _exit_code == N`: 0 where the command must succeed, 1 where the notebook shows a refusal
+`examples/` holds the labels and data records the README uses; keep them valid:
+
+```bash
+datamax-dpl validate examples/product-label.json
+datamax-dpl validate examples/shipping-label.json --data examples/shipping-records.json
+```
+
+`shipping-records.json` is data, not a label: validate it through the label that reads it. CI
+executes `notebooks/Quickstart.ipynb` in a fresh kernel with errors not allowed, so every `!` shell
+line there is followed by `assert _exit_code == N`: 0 where the command must succeed, 1 where the notebook shows a refusal
 (`validate --policy strict` of a label the model cannot print).
 
 ## Versioning & Metadata

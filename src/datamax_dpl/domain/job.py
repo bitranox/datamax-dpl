@@ -766,8 +766,16 @@ def _check_cutter(label: Label, ctx: RenderContext) -> None:
     if label.cut is None:
         return
     if ctx.cutter_installed is False:
+        # By the time the job is built a cut_every default sits in label.cut like the label's own
+        # (and a batch cutting across records gives each record a cut of its own), so where the
+        # option is set the message names both sources.
+        source = (
+            ""
+            if ctx.configured.cut_every is None
+            else f" (its own cut, or for a label without one {option_name('cut_every')})"
+        )
         ctx.findings.refuse(
-            FindingCode.NO_CUTTER, "the label asks for cutting but the printer is configured without a cutter"
+            FindingCode.NO_CUTTER, f"the label asks for cutting{source} but the printer is configured without a cutter"
         )
     elif ctx.cutter_installed is None:
         ctx.findings.info(

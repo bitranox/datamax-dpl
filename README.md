@@ -152,8 +152,10 @@ answer: about 17 minutes per 1000 labels. With no clear before the downloads a l
 costs one more read before them (about 35 minutes per 1000), and a label whose images the printer
 already holds costs that read alone. To send
 bytes open a transport with `open_printer(uri, timeout=10)` and call `send(data)` on it. `explain(data)`
-reads DPL bytes back, as the command `datamax-dpl explain job.dpl` does. All of these are imported
-from `datamax_dpl`.
+reads DPL bytes back, as the command `datamax-dpl explain job.dpl` does: it explains every command
+and rebuilds the label as JSON only from a job with exactly one label format. A job with more (any
+`--data` job) gets the problem "N label formats: only a stream with exactly one is rebuilt as a
+label", and the command exits 1. All of these are imported from `datamax_dpl`.
 
 The rest of the commands have library forms too, imported from `datamax_dpl` as well:
 
@@ -170,8 +172,8 @@ The rest of the commands have library forms too, imported from `datamax_dpl` as 
   `across_frame_width` (the frame length to measure, `ACROSS_INSET_MM` in from each edge) and
   `ALONG_LENGTH_MM` (200) are the parts it uses. Pass `options=RenderOptions(model=...)` and an
   along bar of no given length is the longest one format holds on that printer
-  (`default_along_length`, 190 mm on the Allegro 2), as `calibrate print` sizes it; without
-  options it is 200 mm.
+  (`datamax_dpl.domain.calibration.default_along_length`, 190 mm on the Allegro 2), as
+  `calibrate print` sizes it; without options it is 200 mm.
 
 `send(data)` writes the job as it is: it does not check what the printer stored, so an image
 download a full module lost gives a label with that image missing, and no error.
@@ -300,7 +302,9 @@ is sent. Before the first label of a two-way job `print` reads the printer's sta
 `[printer] reset_check_wait` seconds (3): on a reported reset one calibration label goes first
 (`printer_reset_calibrated`), see [CONFIG.md](CONFIG.md).
 
-`reset`, `cancel`, `pause`, `feed` and `cut` send single printer commands.
+`reset`, `cancel`, `pause`, `feed` and `cut` send single printer commands. `feed` turns the cutter
+off first (`<STX>V0`) where a label's job would send `<STX>V` (`cutter` `yes` or `no` on a model
+whose job sets it), so the feed does not cut.
 
 `memory` lists what the printer's memory modules hold and how many bytes each has free
 (`<STX>W`); `--kind` picks `graphic` (the default), `font`, `format` or `all`:
@@ -341,6 +345,10 @@ the borders on opposite sides and pass them in pairs (`--top`/`--bottom`, `--lef
 print sits centred, independent of the tear-off position. Print again to confirm. Fonts and images
 sized in printer dots are not scaled.
 
+`calibrate print --axis across` or `--axis along` prints one of the two labels (default `both`).
+`--width` and `--height` give the label size in mm (default the printer's `label_width` and
+`label_height`); both labels need the width, the across label the height too.
+
 The along bar is the longest one format holds at the printer's current calibration, in whole
 10 mm and at most 200 mm (190 mm on an Allegro 2 at its 0.976 default, where a 200 mm bar needs
 row 1653, past the Allegro 2's limit of 1648), and `calibrate set` measures against that same
@@ -353,7 +361,8 @@ built the label. `--along-length` sets another; one longer than a format holds i
 render option changed it), its output says which `--along-length` to pass.
 
 Where nothing is configured, a model's measured defaults apply: the `allegro-2` profile prints with
-`scale_along` 0.976, `offset_along` -0.25 mm and a 66.8 mm tear-off stop, every other model nominal.
+`scale_along` 0.976, `offset_along` -0.25 mm, a 66.8 mm tear-off stop, and, measured with a
+cutter, a 76.8 mm cutter stop and a 25.4 mm joined stop; every other model prints nominal.
 The result names each default it used (`model_defaults_applied`); `calibrate print` prints with
 them and `calibrate set` starts from them. Any key you set, even `scale_along = 1.0`, wins.
 
@@ -375,17 +384,20 @@ these that applies:
 2. On a model with `<STX>f` but no `<STX>Kf`, the label's `present_distance`, sent as the label's
    stop position (`present_distance_unsupported`: it is then measured from the sensor rather than
    from the next label).
-3. A configured stop: `[printer] cutter_stop_position` for a job that cuts (the label has `cut`),
-   `[printer] stop_position` for every other job. Both are sent exactly as configured, without
-   scale or offset. An unset `stop_position` takes the model's default, which only `allegro-2`
+3. A configured stop: `[printer] cutter_stop_position` for a job that cuts (the label has `cut`,
+   `[printer] cut_every` gives it one, or it is the last label of a print that `[printer]
+   cut_after_print` cuts, with `cutter = yes` on a model whose job sets `<STX>V`),
+   `[printer] joined_stop_position` for a record of a `--data` series that the next record follows
+   uncut, and `[printer] stop_position` for every other job. Each is sent exactly as configured,
+   without scale or offset. An unset `stop_position` takes the model's default, which only `allegro-2`
    has (66.8 mm, sent as `<STX>f263`); `stop_position = "printer"` sends none, the model's default
    included. An unset `cutter_stop_position` takes the model's cutter default, which only
    `allegro-2` has (76.8 mm, sent as `<STX>f302`, where one Allegro 2's cutter cut in the gap,
-   2026-11-06); on other models a cutting job then sends no stop. A record of a `--data` series
-   that the next record follows uncut sends `[printer] joined_stop_position` instead, at or below
-   the start of print, so the printer does not pull the stock back between the two; unset, it takes
-   the model's default, which only `allegro-2` has (25.4 mm, `<STX>f100`, 2026-11-09), else the
-   cutter stop.
+   2026-11-06); on other models a cutting job then sends no stop. `joined_stop_position` belongs at
+   or below the start of print, so the printer does not pull the stock back between the two
+   records; unset, it takes the model's default, which only `allegro-2` has (25.4 mm, `<STX>f100`,
+   2026-11-09), else the cutter stop. The last record of such a series stops at the cutter stop,
+   and so does the calibration label that goes before a job that cuts.
 4. Nothing: the printer keeps its own setting.
 
 A `present_distance` can also go out beside that stop:
@@ -428,14 +440,18 @@ each label, not the label's length. The measurements are in
    the seams where nothing crosses them.
 3. Print them in one job (`datamax-dpl print segment.json --data segments.json --printer lager`) or as
    separate `print` commands: on one Allegro 2 both left the same 2 mm.
+   With a cutter installed (`[printer] cutter = yes`) each `print` is cut after its last label
+   (`[printer] cut_after_print`), so separate prints cut the segments apart: print all segments in
+   one job to keep them joined, or run the separate prints with `--set printer.cut_after_print=false`.
 4. Return to the label sensor and the tear-off position:
 
    ```bash
    datamax-dpl feed --media gap --printer lager
    ```
 
-   `feed --media gap` (or `reflective`) sends `<STX>c0000`, the sensor (`<STX>e` or `<STX>r`), the
-   configured stop position (the Allegro 2 default `<STX>f263`) and one feed. On the Allegro 2 this
+   `feed --media gap` (or `reflective`) sends `<STX>n`, `<STX>c0000`, the sensor (`<STX>e` or
+   `<STX>r`), the cutter off (`<STX>V0`, where a label's job would send `<STX>V`), the configured stop
+   position (the Allegro 2 default `<STX>f263`) and one feed. On the Allegro 2 this
    left the stock at the tear-off position in both prints. A model that cannot choose its sensor or
    has no stop command gets the same findings a label's job gives (the Prodigy: only `<STX>c0000`
    and the feed). Without that feed the next gap label's job sets the sensor itself, but the stock
@@ -492,13 +508,13 @@ parse error goes by its line in the file. When the
 command cannot run at all, the envelope carries `error` (the exception type) and `message`
 instead of `data`.
 
-| Exit code | Meaning                                                                                                                                                                                                                                                                                                                                                        |
-|-----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0         | Done.                                                                                                                                                                                                                                                                                                                                                          |
-| 1         | Refused: at least one finding is an error. Nothing more was printed or written; a `--data` batch may have printed earlier labels, and the `record` of the finding says where it stopped. `status` also exits 1 when the printer reports a problem (paper out, for example), `explain` when it could not read part of the job, and `detect` when no model fits. |
-| 2         | Could not run: unreadable or invalid label, unknown model, bad configuration, printer not reachable.                                                                                                                                                                                                                                                           |
-| 130       | Interrupted (Ctrl-C, or Ctrl-Break on Windows). For a command that sends, part of a job may already have been sent. On Windows a Ctrl-C during a wait on a silent socket takes effect only when that wait ends, up to its timeout.                                                                                                                             |
-| 141       | The reader of the output went away (`datamax-dpl schema \| head -1`); nothing more is said.                                                                                                                                                                                                                                                                    |
+| Exit code | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0         | Done.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 1         | Refused: at least one finding is an error. Nothing more was printed or written; a `--data` batch may have printed earlier labels, and the `record` of the finding says where it stopped. `status` also exits 1 when the printer reports a problem (paper out, for example), `explain` when it could not read part of the job or cannot rebuild it as one label (a job with more than one format, such as any `--data` job; every command is still explained), and `detect` when no model fits. |
+| 2         | Could not run: unreadable or invalid label, unknown model, bad configuration, printer not reachable.                                                                                                                                                                                                                                                                                                                                                                                           |
+| 130       | Interrupted (Ctrl-C, or Ctrl-Break on Windows). For a command that sends, part of a job may already have been sent. On Windows a Ctrl-C during a wait on a silent socket takes effect only when that wait ends, up to its timeout.                                                                                                                                                                                                                                                             |
+| 141       | The reader of the output went away (`datamax-dpl schema \| head -1`); nothing more is said.                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 `info` and the config commands answer in the same envelopes (`config`: the dict `config --format
 json` prints; `config-deploy` and `config-generate-examples`: the written paths under `paths`) and

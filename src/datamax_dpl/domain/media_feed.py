@@ -11,9 +11,10 @@ the same media and stop, so a model without a sensor or stop command gets the sa
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
-from .enums import MediaSensor, Severity
+from ._invariants import require_update_fields
+from .enums import MediaSensor, PrinterSetting, Severity
 from .job import feed_settings, software_switches
 from .label import Label, Text
 from .render import job_context
@@ -25,6 +26,24 @@ if TYPE_CHECKING:
 
 #: The sensors the feed can return to; continuous media has no edge to feed to.
 FEED_MEDIA = (MediaSensor.GAP, MediaSensor.REFLECTIVE)
+
+
+class _FeedUpdate(TypedDict):
+    """What a feed changes of the options: the configured settings go, and nothing cuts."""
+
+    send_settings: frozenset[PrinterSetting] | None
+    cut_every: int | None
+    cut_after_print: bool
+
+
+class _MediaFeedUpdate(_FeedUpdate):
+    """What a media feed changes besides: the sensor it returns to."""
+
+    media: MediaSensor
+
+
+require_update_fields(_FeedUpdate, RenderOptions)
+require_update_fields(_MediaFeedUpdate, RenderOptions)
 
 
 @dataclass(frozen=True)
@@ -72,7 +91,7 @@ def media_feed(media: MediaSensor, options: RenderOptions | None = None) -> Medi
         raise ValueError(f"a feed returns to the gap or reflective sensor, not to {media.value} media")
     # A fed label is never cut, so no default cut applies to it, and no cut after the print either.
     chosen = (options or RenderOptions()).model_copy(
-        update={"media": media, "send_settings": None, "cut_every": None, "cut_after_print": False}
+        update=_MediaFeedUpdate(media=media, send_settings=None, cut_every=None, cut_after_print=False)
     )
     # A label stands in for the job: the media and the stop come from the options, as for every
     # job, and the label asks for neither, so a model that cannot set them only reports it. It
@@ -105,7 +124,7 @@ def plain_feed(options: RenderOptions | None = None) -> MediaFeed:
     """
     # As in media_feed: a fed label is never cut, whatever a default cut or send_settings say.
     chosen = (options or RenderOptions()).model_copy(
-        update={"send_settings": None, "cut_every": None, "cut_after_print": False}
+        update=_FeedUpdate(send_settings=None, cut_every=None, cut_after_print=False)
     )
     label = Label(elements=[Text(x=0, y=0, text="0")])
     ctx = job_context(label, chosen)

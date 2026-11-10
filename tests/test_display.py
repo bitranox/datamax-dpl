@@ -75,6 +75,14 @@ def test_display_json_renders_output(capsys: pytest.CaptureFixture[str]) -> None
 
 
 @pytest.mark.os_agnostic
+def test_display_takes_the_format_as_its_plain_value(capsys: pytest.CaptureFixture[str]) -> None:
+    """An untyped caller passing "json" gets JSON, as for OutputFormat.JSON, rather than an AttributeError."""
+    config = Config({"section": {"key": "value"}}, {})
+    display_config(config, output_format=cast("OutputFormat", "json"))
+    assert json.loads(capsys.readouterr().out) == {"section": {"key": "value"}}
+
+
+@pytest.mark.os_agnostic
 def test_display_human_renders_profile_in_provenance(
     capsys: pytest.CaptureFixture[str],
     source_info_factory: Callable[..., SourceInfo],
