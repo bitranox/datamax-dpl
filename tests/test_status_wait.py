@@ -247,6 +247,10 @@ def test_a_give_up_reports_the_seconds_waited_not_the_wait_asked_for(cli_runner:
             f"printer.status_wait={wait:g}",
             "--set",
             f"printer.answer_retry_interval={interval:g}",
+            # The fake printer is on loopback with no serial line behind it: a close wait for one
+            # would spend the time this test sizes for the second attempt.
+            "--set",
+            "printer.link_bytes_per_second=0",
             "status",
             "--printer",
             server.address,

@@ -256,7 +256,7 @@ timeout = 10.0
 # Purpose: Seconds one opening of a tcp connection keeps retrying a refused
 #          connect before it reports the refusal, never longer than timeout. A
 #          print server that just closed a job's connection refuses the next one
-#          for a moment (about 1-2 s measured on a SerComm PS301). Other connect
+#          for a moment (0.1-2 s measured on a SerComm PS301). Other connect
 #          errors (unknown host, unreachable, timeout) are not retried. A host
 #          that keeps refusing is reported after this plus one connect.
 # Type: float, greater than 0, at most 2147483
@@ -271,6 +271,27 @@ timeout = 10.0
 # Default: 0.25
 # Environment Variable: DATAMAX_DPL___PRINTER__REFUSED_CONNECT_RETRY_INTERVAL=0.5
 # refused_connect_retry_interval = 0.25
+
+# Purpose: How fast the link behind a tcp connection carries a job to the
+#          printer, in bytes per second. A print server feeding a serial
+#          printer takes the whole job at once and passes it on at the line's
+#          speed; a new connection opened before it has finished loses its
+#          data until the print server restarts (measured on a SerComm PS301).
+#          So a tcp close waits until the bytes written since the printer last
+#          answered have had this speed to reach it, plus link_drain_margin.
+#          960 is 9600 baud 8N1; set the printer's own line speed, or 0 to
+#          close at once (a printer with its own network card).
+# Type: float, 0 or more, at most 125000000 (bytes per second)
+# Default: 960.0
+# Environment Variable: DATAMAX_DPL___PRINTER__LINK_BYTES_PER_SECOND=1920
+# link_bytes_per_second = 960.0
+
+# Purpose: Seconds a tcp close waits on top of the drain time from
+#          link_bytes_per_second.
+# Type: float, 0 or more, at most 2147483
+# Default: 1.0
+# Environment Variable: DATAMAX_DPL___PRINTER__LINK_DRAIN_MARGIN=2
+# link_drain_margin = 1.0
 
 # Purpose: Whether the printer has its cutter installed and enabled.
 #          yes:     cut commands are sent as the label asks

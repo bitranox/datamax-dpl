@@ -119,7 +119,8 @@ def test_the_cap_holds_on_the_send_pass_over_tcp_in_both_modes(
 ) -> None:
     """The report the answer shows comes from the send pass there, under the same configured keys."""
     label, data = _batch(tmp_path)
-    limits = ("--set", _LIMIT, "--set", "printer.max_reported_downloads=1")
+    # The fake printer is on loopback with no serial line, so its closes need no wait.
+    limits = ("--set", _LIMIT, "--set", "printer.max_reported_downloads=1", "--set", "printer.link_bytes_per_second=0")
 
     def answer(*modes: str) -> Result:
         server = serve(module_printer(ImageModules()), next_connection_within=0.1)

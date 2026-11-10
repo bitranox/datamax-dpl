@@ -287,6 +287,13 @@ A job goes out in pieces of `[printer] send_chunk_bytes` (default 1024, at most 
 piece needs its size over the line's speed, about 1.07 s for 1024 bytes at 9600 baud (about 960
 bytes/s), so with a timeout well above that it fires only when the printer stops taking data,
 however long the whole job takes.
+A print server can take the whole job at once and pass it on at the line's speed; a SerComm PS301
+then lost the next connection's data, a `status` asked right after the job included, until it was
+restarted. So a tcp connection waits before it closes until the bytes written since the printer last
+answered could have crossed the line: their count over `[printer] link_bytes_per_second` (960, 9600
+baud 8N1) plus `link_drain_margin` seconds (1). A 10 KB job therefore holds `print` about 12 s after
+the last byte went out. Set `link_bytes_per_second` to the line's speed, or to 0 for a network
+printer with no serial line behind it.
 
 Before each label no clear precedes, `print` may spend up to `[printer] stored_names_wait` seconds
 (30), plus the 1 s of silence that ends the printer's answer (`directory_idle`), reading the printer's stored image

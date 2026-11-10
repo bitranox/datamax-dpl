@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-10
+
+### Fixed
+
+- A tcp connection now waits, before it closes, until the job could have reached the printer through
+  a serial line behind the print server: a SerComm PS301 feeding a 9600 baud printer takes a whole
+  job at once, and a new connection opened while it still passed the job on lost its data until
+  the print server was restarted (a `status` 0.5 s after a 1361-byte job, 3 of 3 times). The wait
+  is the bytes written since the printer last answered on that connection, divided by the new
+  settings key `[printer] link_bytes_per_second` (default `960`, 9600 baud 8N1; `0` turns the wait
+  off), plus `[printer] link_drain_margin` (default `1.0` s). An answer read on the connection ends
+  the wait for what was written before it, and a write that failed (a printer that stopped taking
+  data) leaves none. Serial, device, file and stdout outputs do not wait.
+- Library: `TransportTuning` gains `link_bytes_per_second` and `link_drain_margin`.
+
 ## [0.10.0] - 2026-11-10
 
 ### Changed

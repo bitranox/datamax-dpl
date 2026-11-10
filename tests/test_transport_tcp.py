@@ -22,6 +22,7 @@ from datamax_dpl.adapters.transport import open_printer
 from datamax_dpl.adapters.transport.tcp import (
     MAX_ANSWER_BYTES,
     MAX_IDLE_ANSWER_BYTES,
+    LinkTimer,
     TcpTransport,
 )
 from datamax_dpl.adapters.transport.uri import TcpUri
@@ -40,12 +41,16 @@ if TYPE_CHECKING:
     from _typeshed import ReadableBuffer
     from printer_server import PrinterServer
 
+#: A fake printer on loopback or a socket pair has no serial line behind it, so a test not about
+#: the close wait sends with none; the default (960 bytes/s) would hold a 77 KB job's close 81 s.
+_NO_LINK = TransportTuning(link_bytes_per_second=0)
+
 
 @pytest.mark.os_agnostic
 def test_sent_bytes_arrive_identical(serve: Callable[..., PrinterServer]) -> None:
     server = serve(silent)
     payload = bytes(range(256)) * 300 + b"\x02L\rD11\r\x0dE\r"
-    with TcpTransport.connect(server.uri, timeout=2.0) as printer:
+    with TcpTransport.connect(server.uri, timeout=2.0, tuning=_NO_LINK) as printer:
         printer.send(payload[:1000])
         printer.send(payload[1000:])
     server.join()
@@ -291,7 +296,7 @@ def test_a_job_is_written_in_pieces_no_larger_than_the_send_chunk() -> None:
     reader.start()
     job = b"x" * (3 * SEND_CHUNK_BYTES + 5)
     recording = _RecordingSocket(fileno=ours.detach())
-    with TcpTransport(recording, uri=TcpUri(host="127.0.0.1"), timeout=2.0) as printer:
+    with TcpTransport(recording, uri=TcpUri(host="127.0.0.1"), timeout=2.0, tuning=_NO_LINK) as printer:
         printer.send(job)
     reader.join(JOIN_SECONDS)
 
@@ -352,7 +357,7 @@ class _SlowPrinter:
         self.received = bytearray()
         self._reader = threading.Thread(target=self._read, daemon=True)
         self._reader.start()
-        tuning = TransportTuning(send_chunk_bytes=send_chunk_bytes)
+        tuning = TransportTuning(send_chunk_bytes=send_chunk_bytes, link_bytes_per_second=0)
         self.transport = TcpTransport(ours, uri=TcpUri(host="127.0.0.1"), timeout=_SLOW_TIMEOUT, tuning=tuning)
 
     def _read(self) -> None:
@@ -1142,3 +1147,139 @@ def test_a_zone_id_the_socket_cannot_encode_is_a_transport_error() -> None:
     """The URI check passes it, since a zone is free text; the socket's codec is what refuses it."""
     with pytest.raises(TransportError, match="cannot be encoded"):
         open_printer("tcp://[fe80::1%25\udcff]:9100", timeout=1.0)
+
+
+class _Clock:
+    """A clock the transport reads and a sleep that moves it, so a wait is measured without waiting."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+        self.slept: list[float] = []
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.slept.append(seconds)
+        self.now += seconds
+
+    def timer(self) -> LinkTimer:
+        return LinkTimer(clock=self, sleep=self.sleep)
+
+
+_LINK = TransportTuning(link_bytes_per_second=1000.0, link_drain_margin=0.5)
+
+
+def _drained_transport(server: PrinterServer, clock: _Clock, tuning: TransportTuning = _LINK) -> TcpTransport:
+    return TcpTransport.connect(server.uri, timeout=2.0, tuning=tuning, timer=clock.timer())
+
+
+@pytest.mark.os_agnostic
+def test_a_close_after_a_job_waits_until_the_link_has_carried_it(serve: Callable[..., PrinterServer]) -> None:
+    """2000 bytes at 1000 bytes/s reach the printer 2 s after the send; the close waits that plus the margin."""
+    server = serve(silent)
+    clock = _Clock()
+    printer = _drained_transport(server, clock)
+    printer.send(b"x" * 2000)
+    clock.now += 0.5
+
+    printer.close()
+
+    server.join()
+    assert clock.slept == [pytest.approx(2.0)]
+    assert bytes(server.received) == b"x" * 2000
+
+
+@pytest.mark.os_agnostic
+def test_a_close_long_after_the_job_drained_does_not_wait(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(silent)
+    clock = _Clock()
+    printer = _drained_transport(server, clock)
+    printer.send(b"x" * 2000)
+    clock.now += 3.0
+
+    printer.close()
+
+    server.join()
+    assert clock.slept == []
+
+
+@pytest.mark.os_agnostic
+def test_an_answer_proves_the_job_arrived_so_the_close_does_not_wait(serve: Callable[..., PrinterServer]) -> None:
+    """The printer answers a query only after it has read the job sent before it."""
+    server = serve(answering(b"x" * 2000 + b"\x01A", b"NNNNNNNN\r"))
+    clock = _Clock()
+    printer = _drained_transport(server, clock)
+    printer.send(b"x" * 2000)
+    assert printer.query(b"\x01A", timeout=1.0) == b"NNNNNNNN\r"
+
+    printer.close()
+
+    server.join()
+    assert clock.slept == []
+
+
+@pytest.mark.os_agnostic
+def test_bytes_sent_after_an_answer_are_still_waited_for(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(answering(b"\x01A", b"NNNNNNNN\r"))
+    clock = _Clock()
+    printer = _drained_transport(server, clock)
+    assert printer.query(b"\x01A", timeout=1.0) == b"NNNNNNNN\r"
+    printer.send(b"y" * 300)
+
+    printer.close()
+
+    server.join()
+    assert clock.slept == [pytest.approx(0.8)]
+
+
+@pytest.mark.os_agnostic
+def test_a_link_rate_of_zero_closes_at_once(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(silent)
+    clock = _Clock()
+    printer = _drained_transport(server, clock, TransportTuning(link_bytes_per_second=0, link_drain_margin=0.5))
+    printer.send(b"x" * 2000)
+
+    printer.close()
+    printer.close()
+
+    server.join()
+    assert clock.slept == []
+
+
+@pytest.mark.os_agnostic
+def test_a_second_close_does_not_wait_again(serve: Callable[..., PrinterServer]) -> None:
+    server = serve(silent)
+    clock = _Clock()
+    printer = _drained_transport(server, clock)
+    printer.send(b"x" * 1000)
+
+    printer.close()
+    printer.close()
+
+    server.join()
+    assert clock.slept == [pytest.approx(1.5)]
+
+
+@pytest.mark.os_agnostic
+def test_a_close_after_a_send_that_timed_out_does_not_wait(serve: Callable[..., PrinterServer]) -> None:
+    """The job is cut off and the error advises a power cycle; waiting out what the socket took helps nothing.
+
+    A printer reading nothing still lets loopback take megabytes, which at 1000 bytes/s would hold
+    the close for hours.
+    """
+    stop = threading.Event()
+
+    def play(server: PrinterServer, connection: socket.socket) -> None:
+        stop.wait(JOIN_SECONDS)
+
+    server = serve(play)
+    clock = _Clock()
+    try:
+        printer = TcpTransport.connect(server.uri, timeout=0.3, tuning=_LINK, timer=clock.timer())
+        with pytest.raises(PrinterTimeoutError, match="cannot write to tcp"):
+            printer.send(b"x" * (64 * 1024 * 1024))
+        printer.close()
+    finally:
+        stop.set()
+    assert clock.slept == []

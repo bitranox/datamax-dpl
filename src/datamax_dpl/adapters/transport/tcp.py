@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import socket
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from datamax_dpl.domain.errors import AnswerNotEndedError, PrinterProtocolError, TransportError
@@ -29,6 +30,8 @@ from .uri import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from datamax_dpl.application.ports import Clock, Sleep
+
 #: Longest answer read before the printer is judged to be sending something other than an answer.
 MAX_ANSWER_BYTES = 64 * 1024
 #: Longest answer :meth:`TcpTransport.read_answer` collects. That answer (the ``<STX>W`` module
@@ -44,6 +47,22 @@ _RECV_CHUNK = 4096
 _MOST_STALE_BYTES = MAX_IDLE_ANSWER_BYTES
 
 
+@dataclass(frozen=True)
+class LinkTimer:
+    """The clock and the pause :meth:`TcpTransport.close` times its wait for the link with.
+
+    One value rather than two parameters, so a test injects both together and measures the wait
+    without waiting.
+    """
+
+    clock: Clock = time.monotonic
+    sleep: Sleep = time.sleep
+
+
+#: The real clock and pause.
+SYSTEM_LINK_TIMER = LinkTimer()
+
+
 class TcpTransport(ClosingTransport):
     """A connected raw socket to one printer.
 
@@ -52,33 +71,55 @@ class TcpTransport(ClosingTransport):
     """
 
     def __init__(
-        self, sock: socket.socket, *, uri: TcpUri, timeout: float, tuning: TransportTuning = DEFAULT_TRANSPORT_TUNING
+        self,
+        sock: socket.socket,
+        *,
+        uri: TcpUri,
+        timeout: float,
+        tuning: TransportTuning = DEFAULT_TRANSPORT_TUNING,
+        timer: LinkTimer = SYSTEM_LINK_TIMER,
     ) -> None:
-        """Wrap ``sock``; ``timeout`` bounds the write of every piece of ``tuning.send_chunk_bytes``."""
+        """Wrap ``sock``; ``timeout`` bounds the write of every piece of ``tuning.send_chunk_bytes``.
+
+        ``timer`` times the wait :meth:`close` makes for the link to carry what was written
+        (``tuning.link_bytes_per_second``).
+        """
         self._sock = sock
         self._uri = uri
         self._timeout = check_timeout(timeout)
         self._tuning = tuning
+        self._clock = timer.clock
+        self._sleep = timer.sleep
+        # When the printer has had every byte written so far, by the link's rate; None when nothing
+        # is outstanding: no write yet, an answer since the last one, or the rate is 0.
+        self._carried_at: float | None = None
         sock.settimeout(self._timeout)
 
     @classmethod
     def connect(
-        cls, uri: TcpUri, *, timeout: float, tuning: TransportTuning = DEFAULT_TRANSPORT_TUNING
+        cls,
+        uri: TcpUri,
+        *,
+        timeout: float,
+        tuning: TransportTuning = DEFAULT_TRANSPORT_TUNING,
+        timer: LinkTimer = SYSTEM_LINK_TIMER,
     ) -> TcpTransport:
         """Connect to ``uri`` within ``timeout`` seconds.
 
         Args:
             uri: Host and port.
             timeout: Seconds for the connection and for every later write of one piece.
-            tuning: The piece size a job is written in, and how a refused connect is retried.
+            tuning: The piece size a job is written in, how a refused connect is retried, and the
+                link speed the close waits for.
+            timer: The clock and pause of that wait.
 
         Returns:
             The connected transport.
 
         A refused connection is retried every ``tuning.refused_connect_retry_interval`` seconds for
         up to ``tuning.refused_connect_wait`` (never longer than ``timeout``) before it is reported.
-        A print server that just closed a job's connection refuses the next one for a moment (about
-        1-2 s measured on a SerComm PS301); other connect errors are not retried. A refusal, a
+        A print server that just closed a job's connection refuses the next one for a moment (0.1-2 s
+        measured on a SerComm PS301); other connect errors are not retried. A refusal, a
         connect timeout and a reset while connecting are ``unanswered``: no request went out.
 
         Raises:
@@ -105,7 +146,7 @@ class TcpTransport(ClosingTransport):
             # IPv6 zone id is free text it cannot always encode. No connection was attempted.
             reason = OSError(errno.EINVAL, "the host name cannot be encoded")
             raise transport_error(uri, action=ChannelAction.CONNECT, error=reason) from exc
-        return cls(sock, uri=uri, timeout=timeout, tuning=tuning)
+        return cls(sock, uri=uri, timeout=timeout, tuning=tuning, timer=timer)
 
     @property
     def bidirectional(self) -> bool:
@@ -178,9 +219,11 @@ class TcpTransport(ClosingTransport):
         self._send_request(request)
         try:
             answer = _Lines(f"tcp {self._uri.target}", terminator, lines=lines, accept=accept)
-            return self._read_until(answer, wait=wait)
+            reply = self._read_until(answer, wait=wait)
         finally:
             self._sock.settimeout(self._timeout)
+        self._carried_at = None
+        return reply
 
     def read_answer(self, request: bytes, *, timeout: float, idle: float, total: float = MAX_ANSWER_SECONDS) -> bytes:
         """Send ``request`` and return every byte until ``idle`` seconds pass without a new one.
@@ -214,12 +257,29 @@ class TcpTransport(ClosingTransport):
         self._send_request(request)
         try:
             answer = self._receive_start(Wait.since(started, min(timeout, total)))
-            return self._receive_rest(answer, idle=idle, end=started + total, total=total)
+            reply = self._receive_rest(answer, idle=idle, end=started + total, total=total)
         finally:
             self._sock.settimeout(self._timeout)
+        self._carried_at = None
+        return reply
 
     def close(self) -> None:
-        """Close the socket; safe to call twice."""
+        """Close the socket once the link has carried what was written; safe to call twice.
+
+        A print server feeding a serial printer takes a whole job at once and passes it on at the
+        line's speed, and a new connection opened before it has finished loses its data until the
+        print server restarts (a SerComm PS301, measured 2026-11-10). So the close waits until the
+        bytes written since the last answer have had ``tuning.link_bytes_per_second`` to reach the
+        printer, plus ``tuning.link_drain_margin``; while the connection stays open, a second one is
+        refused rather than lost. An answer read on this connection ends the wait for everything
+        written before it, since the printer answered after reading it.
+        """
+        carried_at = self._carried_at
+        self._carried_at = None
+        if carried_at is not None and self._sock.fileno() != -1:
+            wait = carried_at + self._tuning.link_drain_margin - self._clock()
+            if wait > 0:
+                self._sleep(wait)
         self._sock.close()
 
     def _ensure_open(self) -> None:
@@ -256,8 +316,14 @@ class TcpTransport(ClosingTransport):
             # not full (a 64 MB job "sent" to a printer reading nothing, in 0.02 s), so a job sent
             # in one call never times out there.
             for written in range(0, len(view), piece):
-                self._sock.sendall(view[written : written + piece])
+                chunk = view[written : written + piece]
+                self._sock.sendall(chunk)
+                self._note_written(len(chunk))
         except OSError as exc:
+            # A failed write ends the job here, and the error already advises a power cycle; a
+            # close that then waited for every byte the socket took (megabytes on loopback, at
+            # 960 bytes/s) would hold the command for hours over a printer that takes nothing.
+            self._carried_at = None
             hung_up = request and _is_hang_up(exc)
             # A timeout is the measured case of a printer left waiting for the rest of a job, and a
             # reset or a broken pipe can cut a job off just as well. ``written`` is where the
@@ -267,6 +333,15 @@ class TcpTransport(ClosingTransport):
             raise transport_error(
                 self._uri, action=ChannelAction.WRITE, error=exc, unanswered=hung_up, advice=advice
             ) from exc
+
+    def _note_written(self, size: int) -> None:
+        """Move the time the printer has every written byte by, at the link's rate; 0 waits for none."""
+        rate = self._tuning.link_bytes_per_second
+        if rate <= 0:
+            return
+        now = self._clock()
+        start = now if self._carried_at is None else max(now, self._carried_at)
+        self._carried_at = start + size / rate
 
     def _discard_waiting(self) -> None:
         """Read and drop whatever already sits in the receive buffer, without waiting.
@@ -472,4 +547,11 @@ def _connect_retrying_refusals(
         time.sleep(interval)
 
 
-__all__ = ["MAX_ANSWER_BYTES", "MAX_ANSWER_SECONDS", "MAX_IDLE_ANSWER_BYTES", "TcpTransport"]
+__all__ = [
+    "MAX_ANSWER_BYTES",
+    "MAX_ANSWER_SECONDS",
+    "MAX_IDLE_ANSWER_BYTES",
+    "SYSTEM_LINK_TIMER",
+    "LinkTimer",
+    "TcpTransport",
+]

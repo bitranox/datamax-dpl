@@ -58,7 +58,17 @@ def _arguments(command: str, directory: Path, *, port: int) -> list[str]:
     data = str(directory / "data.csv")
     common = [label, "--data", data, "--model", "dmx-600"]
     return {
-        "print": ["--json-bare", "print", *common, "--printer", f"tcp://127.0.0.1:{port}"],
+        # The printer above is on loopback with no serial line behind it: at the 960 bytes/s
+        # default the close would wait 10 s per record of this ~10 KB-a-record batch.
+        "print": [
+            "--json-bare",
+            "--set",
+            "printer.link_bytes_per_second=0",
+            "print",
+            *common,
+            "--printer",
+            f"tcp://127.0.0.1:{port}",
+        ],
         "print-one-way": ["--json-bare", "print", *common, "--printer", f"file:{directory / 'sent.dpl'}"],
         "render": ["--json-bare", "render", *common, "-o", str(directory / "job.dpl")],
         "render-stdout": ["render", *common, "-o", "-"],

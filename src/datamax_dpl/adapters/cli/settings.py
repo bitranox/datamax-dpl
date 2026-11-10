@@ -57,7 +57,10 @@ from ...domain.reset_label import (
     check_label_text,
 )
 from ...domain.timing import (
+    LINK_BYTES_PER_SECOND,
+    LINK_DRAIN_MARGIN_SECONDS,
     MAX_ANSWER_SECONDS,
+    MAX_LINK_BYTES_PER_SECOND,
     MAX_SEND_CHUNK_BYTES,
     MAX_TIMEOUT_SECONDS,
     REFUSED_CONNECT_RETRY_INTERVAL_SECONDS,
@@ -204,6 +207,11 @@ class PrinterSettings(BaseModel):
     refused_connect_retry_interval: float = Field(
         default=REFUSED_CONNECT_RETRY_INTERVAL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS
     )
+    # How fast the link behind a tcp connection carries a job to the printer, and the margin added:
+    # a tcp close waits for it (TransportTuning), so the next connection never meets an undrained
+    # print server. 0 turns the wait off.
+    link_bytes_per_second: float = Field(default=LINK_BYTES_PER_SECOND, ge=0, le=MAX_LINK_BYTES_PER_SECOND)
+    link_drain_margin: float = Field(default=LINK_DRAIN_MARGIN_SECONDS, ge=0, le=MAX_TIMEOUT_SECONDS)
     cutter: CutterPresence = CutterPresence.UNKNOWN
     options: frozenset[HardwareOption] = Field(default_factory=frozenset[HardwareOption])
     # Same range as RenderOptions, so a bad value is refused here with its config key named. None
@@ -288,6 +296,8 @@ class PrinterSettings(BaseModel):
         "send_chunk_bytes",
         "refused_connect_wait",
         "refused_connect_retry_interval",
+        "link_bytes_per_second",
+        "link_drain_margin",
         "scale_across",
         "scale_along",
         "offset_across",
@@ -705,6 +715,8 @@ def transport_tuning(settings: PrinterSettings) -> TransportTuning:
         send_chunk_bytes=settings.send_chunk_bytes,
         refused_connect_wait=settings.refused_connect_wait,
         refused_connect_retry_interval=settings.refused_connect_retry_interval,
+        link_bytes_per_second=settings.link_bytes_per_second,
+        link_drain_margin=settings.link_drain_margin,
     )
 
 

@@ -579,6 +579,24 @@ def test_a_transport_tuning_refuses_a_piece_above_64_kib_as_the_settings_do() ->
         TransportTuning(send_chunk_bytes=MAX_SEND_CHUNK_BYTES + 1)
 
 
+@pytest.mark.os_agnostic
+def test_a_tcp_close_waits_for_a_9600_baud_link_by_default() -> None:
+    """A print server feeding a 9600 8N1 printer loses the next connection's data while it drains."""
+    tuning = transport_tuning(_settings({}))
+
+    assert (tuning.link_bytes_per_second, tuning.link_drain_margin) == (960.0, 1.0)
+    assert (TransportTuning().link_bytes_per_second, TransportTuning().link_drain_margin) == (960.0, 1.0)
+
+
+@pytest.mark.os_agnostic
+def test_the_configured_link_keys_reach_the_transport_tuning() -> None:
+    config = {"printer": {"link_bytes_per_second": 0, "link_drain_margin": 0.25}}
+
+    tuning = transport_tuning(_settings(config))
+
+    assert (tuning.link_bytes_per_second, tuning.link_drain_margin) == (0.0, 0.25)
+
+
 _REFUSED_CONNECT_KEYS = ("refused_connect_wait", "refused_connect_retry_interval")
 
 

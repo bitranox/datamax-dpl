@@ -39,10 +39,21 @@ SEND_CHUNK_BYTES = 1024
 MAX_SEND_CHUNK_BYTES = 65536
 #: Default of ``[printer] refused_connect_wait``: longest one opening of a TCP connection retries a
 #: refused connect. A print server that just closed a job's connection refuses the next one for a
-#: moment (about 1-2 s measured on a SerComm PS301), so a status query sent right after a print would
+#: moment (0.1-2 s measured on a SerComm PS301), so a status query sent right after a print would
 #: otherwise fail although nothing is wrong. Other connect errors (unknown host, unreachable,
 #: timeout) are not retried.
 REFUSED_CONNECT_WAIT_SECONDS = 3.0
+#: Default of ``[printer] link_bytes_per_second``: how fast the link behind a TCP connection carries
+#: a job to the printer, 9600 baud 8N1. A SerComm PS301 feeding a serial printer takes a whole job
+#: at once and then passes it on at this speed; a NEW connection opened before it has finished
+#: loses its data (measured 2026-11-10: a 1361-byte job then a status query 0.5 s later 3 of 3,
+#: 3 s later 0 of 3; 4753 bytes: 3 s later 3 of 3, 7 s later 0 of 3), and only a print-server
+#: restart clears it. 0 turns the wait off.
+LINK_BYTES_PER_SECOND = 960.0
+#: Default of ``[printer] link_drain_margin``: seconds added to that drain time before a TCP close.
+LINK_DRAIN_MARGIN_SECONDS = 1.0
+#: Fastest link rate taken: about a gigabit, past which the wait is too short to matter.
+MAX_LINK_BYTES_PER_SECOND = 1.25e8
 #: Default of ``[printer] refused_connect_retry_interval``: the pause before a refused connect is
 #: tried again within that window.
 REFUSED_CONNECT_RETRY_INTERVAL_SECONDS = 0.25
@@ -68,6 +79,8 @@ class TransportTuning(BaseModel, frozen=True, extra="forbid"):
     refused_connect_retry_interval: float = Field(
         default=REFUSED_CONNECT_RETRY_INTERVAL_SECONDS, gt=0, le=MAX_TIMEOUT_SECONDS
     )
+    link_bytes_per_second: float = Field(default=LINK_BYTES_PER_SECOND, ge=0, le=MAX_LINK_BYTES_PER_SECOND)
+    link_drain_margin: float = Field(default=LINK_DRAIN_MARGIN_SECONDS, ge=0, le=MAX_TIMEOUT_SECONDS)
 
 
 #: The tuning a transport uses when it is given none.
@@ -123,7 +136,10 @@ def check_timeout(timeout: float, *, name: TimeoutName = TimeoutName.TIMEOUT) ->
 
 __all__ = [
     "DEFAULT_TRANSPORT_TUNING",
+    "LINK_BYTES_PER_SECOND",
+    "LINK_DRAIN_MARGIN_SECONDS",
     "MAX_ANSWER_SECONDS",
+    "MAX_LINK_BYTES_PER_SECOND",
     "MAX_SEND_CHUNK_BYTES",
     "MAX_TIMEOUT_SECONDS",
     "REFUSED_CONNECT_RETRY_INTERVAL_SECONDS",

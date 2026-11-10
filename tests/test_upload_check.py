@@ -1149,7 +1149,13 @@ def test_print_over_tcp_with_upload_check_rounds_0_keeps_the_model_budget_as_a_o
     [halved] = render_label(Label(elements=[BIG]), ALLEGRO).downloads
     args = ["--json", "print", _big_label_file(tmp_path), "--model", "allegro-2", "--printer", server.address]
 
-    printed = _run(cli_runner, args, DATAMAX_DPL___PRINTER__UPLOAD_CHECK_ROUNDS="0")
+    # The fake printer is on loopback with no serial line: no close wait for the 28 KB job.
+    printed = _run(
+        cli_runner,
+        args,
+        DATAMAX_DPL___PRINTER__UPLOAD_CHECK_ROUNDS="0",
+        DATAMAX_DPL___PRINTER__LINK_BYTES_PER_SECOND="0",
+    )
     server.join()
 
     assert printed.exit_code == 0, printed.output

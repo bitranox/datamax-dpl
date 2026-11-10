@@ -124,6 +124,8 @@ PRINTER_NUMBERS = [
     "send_chunk_bytes",
     "refused_connect_wait",
     "refused_connect_retry_interval",
+    "link_bytes_per_second",
+    "link_drain_margin",
     "scale_across",
     "scale_along",
     "offset_across",
