@@ -170,7 +170,9 @@ def _calibration_table(profiles: list[PrinterProfile]) -> list[str]:
         "`scale_along`",
         "`offset_across` (mm)",
         "`offset_along` (mm)",
-        "Stop (mm)",
+        "Tear-off stop (mm)",
+        "Cutter stop (mm)",
+        "Joined stop (mm)",
         "Source",
     ]
     rows = [
@@ -181,6 +183,8 @@ def _calibration_table(profiles: list[PrinterProfile]) -> list[str]:
             _number(c.offset_across),
             _number(c.offset_along),
             "printer setting" if c.stop_position_mm is None else _number(c.stop_position_mm),
+            "printer setting" if c.cutter_stop_position_mm is None else _number(c.cutter_stop_position_mm),
+            "cutter stop" if c.joined_stop_position_mm is None else _number(c.joined_stop_position_mm),
             c.provenance,
         ]
         for p in profiles

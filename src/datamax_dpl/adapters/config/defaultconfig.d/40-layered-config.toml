@@ -15,13 +15,15 @@
 # Maximum length: 64 characters (DEFAULT_MAX_PROFILE_LENGTH)
 #
 # Character rules:
-#   - Must contain only ASCII alphanumeric characters, hyphens, underscores
+#   - Must contain only ASCII alphanumeric characters, hyphens, underscores, dots
 #   - Must start with an alphanumeric character
+#   - Must not end with a dot
 #   - Must not be empty
 #
 # Security checks:
-#   - Rejects Windows reserved names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
-#   - Rejects path separators and traversal sequences (/, \, ..)
+#   - Rejects Windows reserved names (CON, PRN, AUX, NUL, COM1-9, LPT1-9), also
+#     before a dot (CON.txt)
+#   - Rejects path separators (/, \), so no traversal (../etc)
 #   - Rejects control characters
 #
 # These validation rules are enforced by lib_layered_config and cannot be

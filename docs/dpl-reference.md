@@ -64,11 +64,14 @@ limits and only features every model has) and `permissive` (no model limits, syn
 | Default bar widths (`c`=`d`=`0`)                | Y                  | Y             | -                  | Y       | Y       | Y       | Y       | Y                         | Y        | Y          |
 | Store / recall format (`s`, `r`), `U`, `<STX>U` | Y                  | -             | Y                  | Y       | Y       | Y       | Y       | Y                         | Y        | Y          |
 | Print time/date in data (`<STX>T`)              | Y                  | -             | Y                  | Y       | Y       | Y       | Y       | Y                         | Y        | Y          |
+| Clear module (`<STX>q`)                         | Y                  | -             | Y                  | Y       | Y       | Y       | Y       | Y                         | Y        | Y          |
+| Remove one image (`<STX>R`)                     | -                  | Y             | -                  | -       | -       | -       | -       | -                         | -        | -          |
 
 Heat (`Hnn`): 00-20 on every model, 00-30 on prodigy-max-*, pe42, pe43, ovation*, titan-6200.
 Default 10.
 
-Font 9 point sizes (`A04`..`A72`): A72 only on dmx-600/800; no A04/A05 on pe42 and prodigy-max-*;
+Font 9 point sizes (`A04`..`A72`): A72 only on dmx-600/800; no A04/A05 on pe42, pe43 (section 9)
+and prodigy-max-*;
 the old numbering `000`-`010` works everywhere except that `000` (5 pt) is missing on allegro,
 allegro-2, prodigy-plus. Models without the A-series use the old numbering only.
 
@@ -94,13 +97,24 @@ N 7.5, O 8.0, P 8.5, Q 9.0, R 9.5, S 10.0 inches per second.
 | ovation*        | A-C, C                 | A-C, C                | A-C, C                  |
 | titan-6200      | C-K, G                 | C-K, K                | C-G, C                  |
 
-The 152 dpi variants take the values of their 203 dpi sibling. The slew default above K on a model
-whose slew range ends at K is clamped by the range.
+The 152 dpi variants take the values of their 203 dpi sibling. The DMX 400's slew default K lies
+outside its own range C-I (section 9): a label asking for K gets I (`speed_out_of_range`), and no
+feed rate is sent unless `[printer] feed_rate` sets one in the range (`printer_settings_unknown`).
 
 ## 4. Job structure
 
 ```
-[system commands]          e.g. <STX>m, <STX>V, <STX>Kf0100, <STX>f230
+<STX>n                     inch mode for the system commands that follow
+<STX>c0000 / <STX>cnnnn    leave continuous mode, or the length on continuous media
+[<STX>e / <STX>r]          gap or reflective sensor
+[<STX>Onnnn]               start of print
+[<STX>Mnnnn]               maximum label length
+[<STX>Sa]                  feed rate
+[<STX>Vh]                  software switches, one hex digit; the cutter bit only for a label that cuts
+[<STX>fnnn] [<STX>Kfnnnn]  stop position, present distance
+[<STX>J]                   pause after each label
+[<STX>q<m>]                clear the image module (plain Prodigy: <STX>R<name><CR> before each download)
+[<STX>I<m>AF<name><CR>...] image downloads
 <STX>L<CR>                 enter label formatting
 m<CR> / n<CR>              metric or inch units, first, on a model that has the choice
 Dwh<CR>                    dot size (D11, D22 ...); sent as D11 when the label sets none
@@ -110,7 +124,15 @@ Hnn<CR> Pa<CR> Sa<CR> pa<CR> Cnnnn<CR> Rnnnn<CR> An<CR> M<CR> ySxx<CR> :nnnn<CR>
 Qnnnn<CR>                  quantity
 E<CR>                      end and print   (X: end without printing, s<mod><name>: store)
 [<STX>o]                   cut the rest of a cut-by batch now
+[<STX>q<m>]                clear the image module after the label (plain Prodigy: <STX>R<name><CR>)
 ```
+
+The system commands from `<STX>c` to `<STX>Kf` go out only where the model has the command and a
+known value, and `[printer] send_settings` lists the setting; `<STX>J` goes out for a label with
+`pause_each_label`. `<STX>n` goes first whenever one of them does, and always on a model without
+metric formats. `<STX>f` and `<STX>Kf` are three and four digits of hundredths of an inch. The clears go out where `[printer] clear_graphics_before` and
+`clear_graphics_after` allow, and only to a module that is the model's built-in RAM (section 5).
+Of the two cut-by forms datamax-dpl sends `:nnnn`.
 
 Label-format commands are ignored by the printer outside `<STX>L` ... `E`; system and immediate
 commands are not allowed inside it. `:nnnn` (4 digits, 0001-9999) and `cnn` (2 digits) cut after
@@ -153,7 +175,9 @@ Circle: `1X11ppprrrrccccC0010001rrrr`: centre at the header's row/column, radius
 Fill patterns: 0 none, 1 solid, 2 6%, 3 12%, 4 25%, 5 38%, 6 50%, 7 diamonds, 8 circles,
 9 right diagonal, 10 left diagonal, 11 grid.
 
-Image placement: `1Y11000rrrrccccNAME` (rotation 1 only, name up to 8 characters). Image download:
+Image placement: `1Ycd000rrrrccccNAME` (rotation 1 only, name up to 8 characters), `c` and `d`
+the dots per image dot across and along, which datamax-dpl writes as `1`-`9` (an image's
+`magnification`, a QR Code's `module_dots`). Image download:
 `<STX>ImAFNAME<CR>` followed by rows `80nn<hex bytes><CR>` (nn = byte count in hex),
 `0000FFnn<CR>` (repeat the previous row nn times), and `FFFF<CR>` to end. `m` is the memory module
 the image is stored in, `A` to `E`, with `C` the default module on every model (`<STX>X`).
@@ -164,6 +188,13 @@ Allegro 2, DMX 400/430, Prodigy Max, PE42/PE43, Ovation and Titan 6200; module E
 Prodigy and Prodigy Plus, whose A and B are both plug-ins, so a job there that downloads an image
 is refused (`image_module_unknown`) until `image_module` names the module fitted. `generic` and
 `permissive` use A. Only module A has been seen on a printer (an Allegro 2).
+
+Clearing: `<STX>q<m>` (Clear Module, p.35) removes every file in module `m`, images, formats and
+fonts alike, and each clear wears a flash module. datamax-dpl sends it before the downloads and
+again after the label (`[printer] clear_graphics_before` and `clear_graphics_after`, both on by
+default), and only to the model's built-in RAM module. The plain Prodigy has no `<STX>q`; it sends
+`<STX>R<name><CR>` (p.36) for each name the label downloads, before that download and after the
+label.
 
 Every image a job downloads is named `D` plus 7 characters from the 62 symbols `0-9 A-Z a-z` (a
 base-62 number) taken from a sha256 of its size and bits: an `image` element with a `bitmap` as
@@ -366,9 +397,10 @@ fit it.
 What one printer did on paper where the manual is silent or gives only nominal values. Measured on
 an Allegro 2 (firmware CA02 03.04, 203 dpi, 100 x 55 mm gap labels).
 
-These values are now the `allegro-2` model defaults (`scale_along` 0.976, `offset_along` -0.25 mm,
+These values are the `allegro-2` model defaults (`scale_along` 0.976, `offset_along` -0.25 mm,
 tear-off stop position 66.8 mm, see the calibration defaults table in
-[capabilities.md](capabilities.md)). They apply wherever nothing is configured, and the job reports
+[capabilities.md](capabilities.md); with the cutter, the cutter stop 76.8 mm and the joined stop
+25.4 mm below). They apply wherever nothing is configured, and the job reports
 them in the info finding `model_defaults_applied`. A printer's own calibration
 (`calibrate set`, or the keys in [CONFIG.md](../CONFIG.md)) wins over them.
 
@@ -377,14 +409,14 @@ to nominal length with no correction. A calibration label printed at `scale_alon
 199.8 mm of 200, and `calibrate set` stored 0.977 x 199.8 / 200 = 0.976; at 0.976 the next label
 measured exactly 200 mm.
 
-| Topic                  | Measured                                                                                                                                                                                                                                                                              | We use                                                                                                                                                                                                   |
-|------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 1/100 in in inch mode  | printed as 2 whole dots on both axes (0.250 mm, not 0.254 mm), so inch lengths came out 1.6 % short                                                                                                                                                                                   | the `allegro-2` profile converts with 2 dots per unit; other profiles keep the exact 0.254 mm                                                                                                            |
-| Length along the feed  | a dot row is 0.1221 mm: 0.977 of nominal, from the platen roller, so it differs per printer                                                                                                                                                                                           | `scale_along`, measured per printer with `calibrate print` / `calibrate set`; `scale_across` likewise                                                                                                    |
-| Position on the label  | a frame meant to sit 2 mm in from every edge sat 0.25 mm high (1.8 mm from the top, 2.3 mm from the bottom), independent of the tear-off position; after `calibrate set --top 1.8 --bottom 2.3` stored `offset_along = -0.25`, all four borders and both lengths measured as intended | `offset_along` / `offset_across`, measured per printer from the across label's borders                                                                                                                   |
-| Overlapping fields     | XOR: dots two fields share print white (a box over an image of the same size showed only their difference); no attribute command                                                                                                                                                      | calibration labels keep every field apart; a label's `attribute` 2 is emulated (below); otherwise `preview` shows the XOR                                                                                |
-| Longest format         | cut off at a row that depends on the format's content, never below commanded row 1648 in the formats tried (below)                                                                                                                                                                    | `max_format_rows` 1648 in the `allegro-2` profile, the lowest cut seen, so conservative; the along calibration bar defaults to the longest whole 10 mm under it, 190 mm at 0.976 (200 mm needs row 1653) |
-| Tear-off stop position | found on the printer by trial in gap mode on 2026-10-30: `<STX>f265` stopped the label 1 mm too far out, `<STX>f261` 0.5 mm short, `<STX>f263` where wanted; stored as 66.8 mm, which converts back to `<STX>f263`                                                                    | `stop_position` (and the `allegro-2` default 66.8 mm) is sent unscaled: a scaled conversion would move the stop that was found                                                                           |
+| Topic                  | Measured                                                                                                                                                                                                                                                                              | We use                                                                                                                                                                                                                                                      |
+|------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 1/100 in in inch mode  | printed as 2 whole dots on both axes (0.250 mm, not 0.254 mm), so inch lengths came out 1.6 % short                                                                                                                                                                                   | the `allegro-2` profile converts with 2 dots per unit; other profiles keep the exact 0.254 mm                                                                                                                                                               |
+| Length along the feed  | a dot row is 0.1221 mm: 0.977 of nominal, from the platen roller, so it differs per printer                                                                                                                                                                                           | `scale_along`, measured per printer with `calibrate print` / `calibrate set`; `scale_across` likewise                                                                                                                                                       |
+| Position on the label  | a frame meant to sit 2 mm in from every edge sat 0.25 mm high (1.8 mm from the top, 2.3 mm from the bottom), independent of the tear-off position; after `calibrate set --top 1.8 --bottom 2.3` stored `offset_along = -0.25`, all four borders and both lengths measured as intended | `offset_along` / `offset_across`, measured per printer from the across label's borders                                                                                                                                                                      |
+| Overlapping fields     | XOR: dots two fields share print white (a box over an image of the same size showed only their difference); no attribute command                                                                                                                                                      | calibration labels keep every field apart; a label's `attribute` 2 is emulated (below); otherwise `preview` shows the XOR                                                                                                                                   |
+| Longest format         | cut off at a row that depends on the format's content, never below commanded row 1648 in the formats tried (below)                                                                                                                                                                    | `max_format_rows` 1648 in the `allegro-2` profile, the lowest cut seen, so conservative; the along calibration bar defaults to the longest whole 10 mm under it, 190 mm at 0.976 (200 mm needs row 1653)                                                    |
+| Tear-off stop position | found on the printer by trial in gap mode on 2026-10-30: `<STX>f265` stopped the label 1 mm too far out, `<STX>f261` 0.5 mm short, `<STX>f263` where wanted; stored as 66.8 mm, which converts back to `<STX>f263`                                                                    | `[printer] stop_position` (and the `allegro-2` default 66.8 mm) is sent unscaled: a scaled conversion would move the stop that was found; a label's own `stop_position` is a length on the label and goes through `scale_along` (66.8 mm gives `<STX>f274`) |
 
 ### Cutting on the Allegro 2
 
@@ -459,7 +491,7 @@ left the stock at the tear-off position, in both prints.
 
 Measured again on 2026-11-09 on the same printer, with `<STX>c0001` and the reading taken as above. With 100 mm segments it was 4 mm in each of three prints sent as one job and each of three prints sent as two separate `print` commands, interleaved, so separate jobs follow each other as records of one job do. With 50 mm segments it was 4 mm in each of three prints, so the blank paper is a fixed amount per seam and not a share of the length, which rules out the feed scale. Then `feed --media gap` stopped the stock at the tear bar with no cut; the first label after it is the known shifted one, and the label after that fed exactly one label.
 
-datamax-dpl does not build such a job yet: a label is one format, and on continuous media it sends
+datamax-dpl does not build such a job: a label is one format, and on continuous media it sends
 `continuous_length` (or `height`) as `<STX>c`.
 
 ### Transparent labels on models without `A`

@@ -29,9 +29,14 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
   layout) only every N-th record and the last turn it on, which one Allegro 2 cut right on paper.
   Otherwise the job sends a cut command after every N-th record (`batch_cut_unverified`: the
   printer must not also cut each label by itself).
-- `feed`, and the calibration label after a reset, turn an installed cutter off, so they are not
-  cut through a label's adhesive. Where no `<STX>V` can be built (`generic`, cutter not configured)
-  the printer keeps its last cutter state: give `feed` the model with `--set printer.model=ID`.
+- `feed`, and the calibration label after a reset, turn an installed cutter off (`<STX>V0`), so
+  they are not cut through a label's adhesive. Where no `<STX>V` can be built (the model `generic`,
+  `cutter` neither `yes` nor `no`, or `label_present` unset on a model with that bit) `feed` sends
+  the form feed alone, the printer keeps its last cutter state, and the info
+  `software_switches_not_sent` says why. `feed` takes no `--model` or `--cutter`: give it
+  `--set printer.model=ID --set printer.cutter=yes` (or `no`: either value lets `<STX>V0` go out;
+  plus `--set printer.label_present=yes` or `no` there) before the command, or a
+  `--printer NAME` whose `[printers.<name>]` section sets them.
 - The Prodigy has neither command. The labels still print, with the warning `cut_by_unsupported`
   (copies of one label) or `batch_cut_unsupported` (a `--data` batch); under `--policy strict`
   that warning is an error and nothing prints. The printer then cuts as its own
@@ -95,8 +100,8 @@ the model's default from the manual; a library caller sets the same fields in `R
   `no`; else `software_switches_not_sent` (info), whose message names the one missing. The Allegro
   and Allegro 2 have no such bit, so `--cutter` (or `[printer] cutter`) alone decides there. The
   cutter bit is on only for a label that is cut (a label with `cut`, or the last label of a print
-  under `cut_after_print`: both send `<STX>V1<STX>f302` on the Allegro 2); `feed --media` sends
-  it off.
+  under `cut_after_print`: both send `<STX>V1<STX>f302` on the Allegro 2); `feed` and
+  `feed --media` send it off.
 - `heat` (0-30; above the model's maximum it is clamped, `heat_out_of_range`), `print_speed`,
   `slew_speed`, `backup_speed`, `column_offset`, `row_offset` and `present_distance` go out only
   when the label sets them (at the top level of its JSON, beside `quantity`) or the same-named key

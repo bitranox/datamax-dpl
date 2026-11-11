@@ -49,7 +49,10 @@ since the printer last answered could have crossed a serial line behind the prin
 (`[printer] link_bytes_per_second`, 960 = 9600 baud 8N1, plus `link_drain_margin` seconds, 0.25): a
 SerComm PS301 lost the next connection's data, a `status` included, when it came sooner, and only
 a restart of the print server cleared it. So `print` holds about 1 s per 960 bytes after the last
-one went out; that is the wait, not a hang. Set 0 for a network printer with no serial line.
+one went out; that is the wait, not a hang. An answer read on the connection ends the wait for what
+was written before it, a write that failed leaves none, and serial, device, file and stdout outputs
+never wait. Set `link_bytes_per_second = 0` for a network printer with no serial line: then no
+close waits, the margin included.
 
 Every key with its range, default and environment variable is in
 <https://github.com/bitranox/datamax-dpl/blob/HEAD/CONFIG.md>.

@@ -394,8 +394,9 @@ these that applies:
 3. A configured stop: `[printer] cutter_stop_position` for a job that cuts (the label has `cut`,
    `[printer] cut_every` gives it one, or it is the last label of a print that `[printer]
    cut_after_print` cuts, with `cutter = yes` on a model whose job sets `<STX>V`),
-   `[printer] joined_stop_position` for a record of a `--data` series that the next record follows
-   uncut, and `[printer] stop_position` for every other job. Each is sent exactly as configured,
+   `[printer] joined_stop_position` for a record of a `--data` series that cuts, where the next
+   record follows it uncut with the cutter off (`cutter = yes` on a model whose job sets `<STX>V`),
+   and `[printer] stop_position` for every other job. Each is sent exactly as configured,
    without scale or offset. An unset `stop_position` takes the model's default, which only `allegro-2`
    has (66.8 mm, sent as `<STX>f263`); `stop_position = "printer"` sends none, the model's default
    included. An unset `cutter_stop_position` takes the model's cutter default, which only

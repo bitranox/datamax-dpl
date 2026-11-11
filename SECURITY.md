@@ -32,7 +32,7 @@ You can expect a first answer within 72 hours.
 - pip-audit, dependency vulnerability scanning
 - Ruff with the `S` (flake8-bandit) and `B` (bugbear) rule sets
 
-GitHub CodeQL scans the repository every week and on pushes.
+GitHub CodeQL scans the repository every week, on pushes and on pull requests.
 
 ## Dependency Policy
 

@@ -82,8 +82,9 @@ console_stream = "stderr"
 
 # Purpose: Console line layout preset
 # Type: string (case-insensitive)
-# Default: None (platform-dependent); set to "short_loc" as explicit default
-# Values: "full", "short", "full_loc", "short_loc"
+# Default: None (platform-dependent: "short_loc", "short_loc_icon" on Windows); set to
+#          "short_loc" as explicit default
+# Values: "full", "short", "full_loc", "short_loc", "short_loc_icon"
 # Environment Variable: DATAMAX_DPL___LIB_LOG_RICH__CONSOLE_FORMAT_PRESET=short_loc
 # .env: LIB_LOG_RICH__CONSOLE_FORMAT_PRESET=short_loc
 # Details:
@@ -91,6 +92,7 @@ console_stream = "stderr"
 #   - short: Minimal format with level and message
 #   - full_loc: Like full but with local timezone
 #   - short_loc: Like short but with local timezone
+#   - short_loc_icon: Local time, level icon and message (console only; a text dump refuses it)
 console_format_preset = "short_loc"
 
 # Purpose: Custom console output template (overrides preset)
@@ -137,7 +139,7 @@ console_format_template = ""
 # Purpose: Rich color palette for console output
 # Type: string
 # Default: "dark"
-# Values: "classic", "dark", "neon", "pastel", or other Rich theme names
+# Values: "classic", "dark", "neon", "pastel" (any other name is refused)
 # Environment Variable: DATAMAX_DPL___LIB_LOG_RICH__CONSOLE_THEME=dark
 # .env: LIB_LOG_RICH__CONSOLE_THEME=dark
 console_theme = "dark"
@@ -302,6 +304,15 @@ enable_ring_buffer = true
 # Environment Variable: DATAMAX_DPL___LIB_LOG_RICH__RING_BUFFER_SIZE=25000
 # .env: LIB_LOG_RICH__RING_BUFFER_SIZE=25000
 ring_buffer_size = 25000
+
+# Purpose: JSON-lines file the ring buffer loads at start and appends its events to
+#          when flushed (at shutdown, by a dump)
+# Type: string (file path); an existing directory is refused
+# Default: None (no checkpoint file); empty string is coerced to None
+# Environment Variable: DATAMAX_DPL___LIB_LOG_RICH__RING_BUFFER_CHECKPOINT=/path/to/ring.jsonl
+# .env: LIB_LOG_RICH__RING_BUFFER_CHECKPOINT=/path/to/ring.jsonl
+# Note: the native LOG_RING_BUFFER_CHECKPOINT variable wins over it
+# ring_buffer_checkpoint = "/path/to/ring.jsonl"
 
 # ------------------------------------------------------------------------------
 # Dump Format Settings (for log.dump())

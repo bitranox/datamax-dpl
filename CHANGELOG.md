@@ -6,13 +6,32 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-11-11
+
 ### Fixed
 
-- `feed` no longer reports model defaults or format units it does not use: the plain feed (`<STX>V`
-  and a form feed) reported the model's scale, offset and stop position and the inch units, and
-  `feed --media` reported scale, offset and inch units beside the stop position it sends. The
-  feeds now name only the model stop position they send. The bytes sent are unchanged.
-- Library: `feed_context` builds a feed's context; `media_feed` and `plain_feed` use it.
+- `feed` no longer reports model defaults or format units it does not use: the plain feed (a form
+  feed, after `<STX>V` when the cutter is known) reported the model's scale, offset and stop
+  position and the inch units, and `feed --media` reported scale, offset and inch units beside the
+  stop position it sends. The feeds now name only the model stop position they send, so the plain
+  feed names none. The bytes sent are unchanged.
+- Library: `datamax_dpl.domain.render.feed_context` builds a feed's context, like `job_context`
+  but its findings never name a scale, an offset or the format unit; `media_feed` and `plain_feed`
+  use it. It is reached through its module path and is not exported from the package root.
+
+### Documentation
+
+- README, CONFIG.md, `.env.example`, the bundled config files, the label spec, the DPL reference,
+  the module reference, ADR 0002, SECURITY.md and the skill were checked against the code and
+  corrected: the joined stop applies only to a `--data` series that cuts; the job's system
+  commands start with `<STX>n` and are listed in the order they are sent; an image record's
+  magnification digits, the module clears and the plain Prodigy's `<STX>R` are described;
+  `.env.example` lists every `[printer]` key and a `[preview]` block; `feed` and `feed --media`
+  name the bytes they send and need `[printer] cutter` set to switch a cutter off; the library page
+  shows `open_printer(..., tuning=TransportTuning(link_bytes_per_second=0))` to turn off the tcp
+  close wait.
+- docs/capabilities.md: the calibration table shows the cutter and joined stops beside the
+  tear-off stop.
 
 ## [0.10.2] - 2026-11-11
 

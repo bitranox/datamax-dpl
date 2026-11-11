@@ -19,7 +19,11 @@ Global options (`--json` / `--json-bare`, `--set SECTION.KEY=VALUE`, `--profile`
 `--traceback`) go BEFORE the command; every other option goes after it. Machine-readable output:
 `datamax-dpl --json validate label.json`. stdout is then one envelope `{"ok", "command", "data",
 "skipped"}`; errors are `{"ok": false, "command", "error", "message"}` (`command` null when none was
-named). Exit codes: 0 done, 1 refused (an error finding), 2 could not run (a usage error, bad JSON,
+named). `render` with no `-o` puts the job in `data.dpl` (control bytes as `<STX>`) and
+`data.dpl_base64`; `render -o FILE` writes the job to the file, and only when it passed, and still
+prints the envelope; `render -o -` writes the raw bytes to stdout and is refused with `--json`
+(exit 2).
+Exit codes: 0 done, 1 refused (an error finding), 2 could not run (a usage error, bad JSON,
 a data record without a field a placeholder names, unknown model, printer unreachable or silent,
 broken config), 130 interrupted (Ctrl-C, or Ctrl-Break on Windows; for a command that sends, part
 of a job may already have gone), 141 the reader of the output went away. Every other exit code (a

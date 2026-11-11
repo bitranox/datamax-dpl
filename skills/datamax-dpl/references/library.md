@@ -69,7 +69,14 @@ catch both.
 The element types are the classes `Text`, `ScalableText`, `Barcode`, `Qr`, `Line`, `Box`, `Circle`,
 `Polygon` and `Image`, with `Cut`, `Counter`, `Pdf417Options` and `DataMatrixOptions` for their
 settings. `timeout` is in seconds. A printer that refuses, is unreachable or stops answering raises
-`TransportError` from `open_printer` or `send` (a timeout is its subclass): catch that. A bad URI
+`TransportError` from `open_printer` or `send` (a timeout is its subclass): catch that.
+`open_printer(uri, timeout=10, tuning=TransportTuning(...))` takes the `[printer]` keys
+`send_chunk_bytes`, `refused_connect_wait`, `refused_connect_retry_interval`,
+`link_bytes_per_second` (960) and `link_drain_margin` (0.25) as fields of the same names; with the
+defaults a tcp close waits for a serial line behind a print server as the CLI does (see
+`exit-codes-timeouts-and-retries.md`), and `TransportTuning(link_bytes_per_second=0)` waits for
+none. For `print_label` or `print_checked` pass
+`open_printer=functools.partial(open_printer, tuning=...)` in the `PrinterEndpoint`. A bad URI
 raises `ConfigurationError`; `DatamaxDplError` is the base of both, and of every other type the
 package raises, except pydantic's `ValidationError` and a plain `ValueError` for an argument.
 

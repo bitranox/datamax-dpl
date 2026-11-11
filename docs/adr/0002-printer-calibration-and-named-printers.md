@@ -45,9 +45,9 @@ its own label size. The configuration had a single `[printer]` section.
      can be asked for; a longer one than a format holds is refused.
    Each label prints its printer name, nominal length and the factor in use.
 5. **CLI.** `datamax-dpl calibrate print --printer NAME` prints both labels with the printer's
-   current factors. `datamax-dpl calibrate set --printer NAME --along MM [--across MM]` sets
-   the new factor to `old x measured / nominal` and writes it into `[printers.NAME]` in the
-   user configuration file, keeping its comments. It refuses a printer given only as a URI and
+   current factors. `datamax-dpl calibrate set --printer NAME [--along MM] [--across MM]` (at least
+   one measurement) sets the new factor to `old x measured / nominal` and writes it into
+   `[printers.NAME]` in the user configuration file, keeping its comments. It refuses a printer given only as a URI and
    warns when a `.env` file or an environment variable still overrides the value it wrote.
    Printing the labels again afterwards should measure the nominal lengths.
 
@@ -55,7 +55,8 @@ its own label size. The configuration had a single `[printer]` section.
 
 - A second calibration round corrects the first, because the labels print with the factors
   already in use.
-- The CLI writes a configuration file for the first time; everything else still only reads.
+- `calibrate set` is the one command that edits an existing configuration file; `config-deploy` and
+  `config-generate-examples` write the bundled defaults, everything else only reads.
 - `--printer` has two meanings, told apart by the URI prefixes above.
 - The along label uses several labels per print.
 - The 1648-row cutoff and the whole-dot inch unit are measured on one Allegro 2; other models

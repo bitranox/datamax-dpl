@@ -8,14 +8,22 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
   its label as JSON in `data.label`; `data.problems` lists what it could not read. To see it,
   save `data.label` to a file and `preview` that. A file holding several label formats rebuilds
   no label and exits 1 (`data.commands` and `data.problems` are still filled).
-- `status` (paper out, ribbon out, paused, busy; tcp or serial only), `feed` (one label), `cut`
+- `status` (paper out, ribbon out, paused, busy; tcp or serial only), `feed` (one label: `<STX>V0`,
+  which turns an installed cutter off, then the form feed `<STX>F`), `cut`
   (cut now; the printer's cutter must be installed and enabled), `pause` (toggles), `cancel`
   (drops the current job and pauses) and `reset` (clears the printer's buffers) each take
   `--printer` (default `[printer] uri`) and `--timeout`. To stop a job printing garbage:
-  `cancel`, then `pause` to resume.
+  `cancel`, then `pause` to resume. `feed` takes no `--model` or `--cutter`, and with neither
+  configured it sends the form feed alone (see "Cutting" in `cutting-stops-and-printer-state.md`).
 - `feed --media gap` (or `reflective`) ends continuous mode (`<STX>c0000`), selects that sensor,
-  sends the configured stop position and feeds once: run it after labels printed on continuous
-  media to bring the stock back to the tear-off position.
+  turns an installed cutter off, sends the stop position a label that is not cut takes
+  (`[printer] stop_position`, else the model's tear-off stop, `<STX>f263` on an Allegro 2; never
+  the cutter stop; `"printer"` sends none) and feeds once: run it after labels printed on
+  continuous media to bring the stock back to the tear-off position. A feed reports only what it
+  sends: the plain `feed` names no model defaults, `feed --media` only the model stop position
+  (`model_defaults_applied`). On an Allegro 2 with `cutter` set (`yes` or `no`) and no stop
+  configured, `feed` sends `<STX>V0<STX>F` and `feed --media gap` sends
+  `<STX>n<STX>c0000<STX>e<STX>V0<STX>f263<STX>F`.
 - A label longer than one format (`allegro-2`: 1648 dot rows, about 200 mm) prints as segments:
   each segment its own label (or one label filled from records), `"media": "continuous"`,
   `"continuous_length": 0.25`, all in one `print` job, then `feed --media gap`. Measured on one
