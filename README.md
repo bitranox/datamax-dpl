@@ -291,7 +291,7 @@ A print server can take the whole job at once and pass it on at the line's speed
 then lost the next connection's data, a `status` asked right after the job included, until it was
 restarted. So a tcp connection waits before it closes until the bytes written since the printer last
 answered could have crossed the line: their count over `[printer] link_bytes_per_second` (960, 9600
-baud 8N1) plus `link_drain_margin` seconds (1). A 10 KB job therefore holds `print` about 12 s after
+baud 8N1) plus `link_drain_margin` seconds (0.25). A 10 KB job therefore holds `print` about 11 s after
 the last byte went out. Set `link_bytes_per_second` to the line's speed, or to 0 for a network
 printer with no serial line behind it.
 

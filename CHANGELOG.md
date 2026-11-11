@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-11-11
+
+### Changed
+
+- `[printer] link_drain_margin` now defaults to `0.25` s instead of `1.0` s, so a `print` over tcp
+  closes 0.75 s sooner. On a SerComm PS301 feeding a 9600 baud printer, margins of 0.25, 0.5 and
+  1.0 s each kept a `status` asked at once after a 1361- or 4753-byte job answered, 3 of 3 times,
+  while closing at once wedged the print server every time. Set it higher for a print server that
+  is slower to pass a job on.
+
 ## [0.10.1] - 2026-11-10
 
 ### Fixed

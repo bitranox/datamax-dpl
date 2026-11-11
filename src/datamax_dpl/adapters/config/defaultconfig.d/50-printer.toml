@@ -289,9 +289,9 @@ timeout = 10.0
 # Purpose: Seconds a tcp close waits on top of the drain time from
 #          link_bytes_per_second.
 # Type: float, 0 or more, at most 2147483
-# Default: 1.0
+# Default: 0.25
 # Environment Variable: DATAMAX_DPL___PRINTER__LINK_DRAIN_MARGIN=2
-# link_drain_margin = 1.0
+# link_drain_margin = 0.25
 
 # Purpose: Whether the printer has its cutter installed and enabled.
 #          yes:     cut commands are sent as the label asks

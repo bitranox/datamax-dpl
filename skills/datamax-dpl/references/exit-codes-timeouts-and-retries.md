@@ -46,7 +46,7 @@ refuses either whatever `--policy` says). A job is sent in `[printer] send_chunk
 (1024) and the timeout bounds each one; a job cut off part way says to power-cycle the printer,
 which may be waiting for the rest. Before a tcp connection closes it waits until the bytes written
 since the printer last answered could have crossed a serial line behind the print server
-(`[printer] link_bytes_per_second`, 960 = 9600 baud 8N1, plus `link_drain_margin` seconds, 1): a
+(`[printer] link_bytes_per_second`, 960 = 9600 baud 8N1, plus `link_drain_margin` seconds, 0.25): a
 SerComm PS301 lost the next connection's data, a `status` included, when it came sooner, and only
 a restart of the print server cleared it. So `print` holds about 1 s per 960 bytes after the last
 one went out; that is the wait, not a hang. Set 0 for a network printer with no serial line.

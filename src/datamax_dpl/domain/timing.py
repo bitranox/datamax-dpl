@@ -51,7 +51,9 @@ REFUSED_CONNECT_WAIT_SECONDS = 3.0
 #: restart clears it. 0 turns the wait off.
 LINK_BYTES_PER_SECOND = 960.0
 #: Default of ``[printer] link_drain_margin``: seconds added to that drain time before a TCP close.
-LINK_DRAIN_MARGIN_SECONDS = 1.0
+#: On a SerComm PS301 margins of 0.25, 0.5 and 1.0 s all kept a status asked at once after a 1361-
+#: or 4753-byte job answered, while closing at once wedged it every time; below 0.25 s is unmeasured.
+LINK_DRAIN_MARGIN_SECONDS = 0.25
 #: Fastest link rate taken: about a gigabit, past which the wait is too short to matter.
 MAX_LINK_BYTES_PER_SECOND = 1.25e8
 #: Default of ``[printer] refused_connect_retry_interval``: the pause before a refused connect is
