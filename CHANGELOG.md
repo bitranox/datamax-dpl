@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `feed` no longer reports model defaults or format units it does not use: the plain feed (`<STX>V`
+  and a form feed) reported the model's scale, offset and stop position and the inch units, and
+  `feed --media` reported scale, offset and inch units beside the stop position it sends. The
+  feeds now name only the model stop position they send. The bytes sent are unchanged.
+- Library: `feed_context` builds a feed's context; `media_feed` and `plain_feed` use it.
+
 ## [0.10.2] - 2026-11-11
 
 ### Changed

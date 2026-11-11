@@ -17,7 +17,7 @@ from ._invariants import require_update_fields
 from .enums import MediaSensor, PrinterSetting, Severity
 from .job import feed_settings, software_switches
 from .label import Label, Text
-from .render import job_context
+from .render import feed_context
 from .render_context import RenderOptions
 from .status import FORM_FEED
 
@@ -97,7 +97,7 @@ def media_feed(media: MediaSensor, options: RenderOptions | None = None) -> Medi
     # job, and the label asks for neither, so a model that cannot set them only reports it. It
     # does not cut either, so an installed cutter is switched off for it.
     label = Label(elements=[Text(x=0, y=0, text="0")])
-    ctx = job_context(label, chosen)
+    ctx = feed_context(label, chosen)
     commands = feed_settings(label, ctx)
     return MediaFeed(data=b"".join([*commands, FORM_FEED]), findings=ctx.findings.findings())
 
@@ -122,12 +122,15 @@ def plain_feed(options: RenderOptions | None = None) -> MediaFeed:
         >>> plain_feed(RenderOptions(model="allegro-2", cutter_installed=True)).data
         b'\\x02V0\\x02F'
     """
-    # As in media_feed: a fed label is never cut, whatever a default cut or send_settings say.
+    # As in media_feed: a fed label is never cut, whatever a default cut says. It sends the
+    # software switches and nothing else, so no stop position counts as sent and none is reported.
     chosen = (options or RenderOptions()).model_copy(
-        update=_FeedUpdate(send_settings=None, cut_every=None, cut_after_print=False)
+        update=_FeedUpdate(
+            send_settings=frozenset({PrinterSetting.SOFTWARE_SWITCHES}), cut_every=None, cut_after_print=False
+        )
     )
     label = Label(elements=[Text(x=0, y=0, text="0")])
-    ctx = job_context(label, chosen)
+    ctx = feed_context(label, chosen)
     return MediaFeed(data=b"".join([*software_switches(label, ctx), FORM_FEED]), findings=ctx.findings.findings())
 
 

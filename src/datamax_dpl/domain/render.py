@@ -370,15 +370,24 @@ def _stops_sent(label: Label, ctx: RenderContext) -> frozenset[_DefaultOption]:
     return frozenset()
 
 
+_STOP_OPTIONS = frozenset(
+    {_DefaultOption.STOP_POSITION, _DefaultOption.CUTTER_STOP_POSITION, _DefaultOption.JOINED_STOP_POSITION}
+)
+
+
 def _report_model_defaults(
-    label: Label, ctx: RenderContext, *, provenance: str, from_model: tuple[_ModelDefault, ...]
+    label: Label, ctx: RenderContext, *, provenance: str, from_model: tuple[_ModelDefault, ...], formats: bool
 ) -> None:
-    """Record which model defaults this job uses, naming a stop position only where it is sent."""
+    """Record which model defaults this job uses, naming a stop position only where it is sent.
+
+    Without ``formats`` (a feed) only a stop position can apply: scale and offset place format fields.
+    """
     # The label's own stop replaces the model's, a job that cuts stops at the cutter and one that
     # does not at the tear-off position, and a job that sends no stop position sends neither.
-    stops = (_DefaultOption.STOP_POSITION, _DefaultOption.CUTTER_STOP_POSITION, _DefaultOption.JOINED_STOP_POSITION)
     sent = _stops_sent(label, ctx)
-    from_model = tuple(default for default in from_model if default.option not in stops or default.option in sent)
+    from_model = tuple(
+        default for default in from_model if ((default.option in sent) if default.option in _STOP_OPTIONS else formats)
+    )
     if from_model:
         named = ", ".join(default.text for default in from_model)
         ctx.findings.info(FindingCode.MODEL_DEFAULTS_APPLIED, f"model defaults ({provenance}): {named}")
@@ -402,7 +411,7 @@ def _stored_names(label: Label, bitmap_rows: dict[str, tuple[str, ...]]) -> froz
     )
 
 
-def _context(label: Label, options: RenderOptions, *, halve: bool, held: HeldImages) -> RenderContext:
+def _context(label: Label, options: RenderOptions, *, halve: bool, held: HeldImages, formats: bool) -> RenderContext:
     profile = get_profile(options.model)
     findings = FindingCollector(options.policy)
     calibration = _resolve(options, profile.calibration)
@@ -436,10 +445,10 @@ def _context(label: Label, options: RenderOptions, *, halve: bool, held: HeldIma
         held_images=held,
         held_image_severity=options.held_image_severity,
     )
-    _report_model_defaults(label, probe, provenance=calibration.provenance, from_model=from_model)
+    _report_model_defaults(label, probe, provenance=calibration.provenance, from_model=from_model, formats=formats)
     if label.unit is Unit.MM and probe.supports(Feature.FORMAT_METRIC):
         probe.dpl_unit = DplUnit.MM_TENTHS
-    elif label.unit is Unit.MM:
+    elif label.unit is Unit.MM and formats:
         findings.info(
             FindingCode.INCH_UNITS, f"{profile.name} formats take inches; millimetres are rounded to 1/100 in"
         )
@@ -500,7 +509,26 @@ def job_context(label: Label, options: RenderOptions | None = None) -> RenderCon
         2.0
     """
     chosen = options or RenderOptions()
-    return _context(with_default_cut(label, chosen), chosen, halve=False, held=HeldImages())
+    return _context(with_default_cut(label, chosen), chosen, halve=False, held=HeldImages(), formats=True)
+
+
+def feed_context(label: Label, options: RenderOptions | None = None) -> RenderContext:
+    """Return the context a feed for ``label`` and ``options`` builds its system commands with.
+
+    Like :func:`job_context`, but a feed sends no format: its findings name only the model stop
+    position it sends, never a scale, an offset or the format unit.
+
+    Raises:
+        UnknownModelError: ``options.model`` names no profile.
+
+    Example:
+        >>> from datamax_dpl.domain.label import Label, Text
+        >>> ctx = feed_context(Label(elements=[Text(x=0, y=0, text="0")]), RenderOptions(model="allegro-2"))
+        >>> [finding.message.split(": ")[-1] for finding in ctx.findings.findings()]
+        ['stop_position 66.8 mm']
+    """
+    chosen = options or RenderOptions()
+    return _context(with_default_cut(label, chosen), chosen, halve=False, held=HeldImages(), formats=False)
 
 
 def _check_label_level(label: Label, ctx: RenderContext) -> None:
@@ -767,7 +795,7 @@ class _Job:
 
 def _encode(label: Label, options: RenderOptions, *, halve: bool, held: HeldImages) -> _Job:
     """Encode everything up to the format header, halving the job's images when ``halve``."""
-    ctx = _context(label, options, halve=halve, held=held)
+    ctx = _context(label, options, halve=halve, held=held, formats=True)
     _check_label_level(label, ctx)
     _check_qr_dot_size(label, ctx)
     _check_polygon_points(label, ctx, limit=options.max_polygon_points)
@@ -1077,6 +1105,7 @@ __all__ = [
     "build_jobs",
     "build_record",
     "effective_calibration",
+    "feed_context",
     "format_row_limit",
     "iter_jobs",
     "job_context",

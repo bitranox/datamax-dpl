@@ -116,3 +116,37 @@ def test_a_plain_feed_that_cannot_set_the_cutter_says_so_and_still_feeds(options
 
     assert feed.data == b"\x02F"
     assert FindingCode.SOFTWARE_SWITCHES_NOT_SENT in {finding.code for finding in feed.findings}
+
+
+@pytest.mark.os_agnostic
+def test_a_plain_feed_reports_nothing_it_does_not_send() -> None:
+    """It sends only <STX>V and the form feed: no stop, no format, so no model default and no unit."""
+    feed = plain_feed(RenderOptions(model="allegro-2", cutter_installed=True))
+
+    assert feed.data == b"\x02V0\x02F"
+    assert feed.findings == ()
+
+
+@pytest.mark.os_agnostic
+def test_a_plain_feed_that_cannot_set_the_cutter_reports_only_that() -> None:
+    feed = plain_feed(RenderOptions(model="allegro-2"))
+
+    assert [finding.code for finding in feed.findings] == [FindingCode.SOFTWARE_SWITCHES_NOT_SENT]
+
+
+@pytest.mark.os_agnostic
+def test_a_media_feed_names_the_model_stop_it_sends_and_no_format_default() -> None:
+    """The feed sends the model's stop (f263) but no format, so scale, offset and units do not apply."""
+    feed = media_feed(MediaSensor.GAP, RenderOptions(model="allegro-2"))
+
+    defaults = [f.message for f in feed.findings if f.code is FindingCode.MODEL_DEFAULTS_APPLIED]
+    assert len(defaults) == 1
+    assert defaults[0].endswith(": stop_position 66.8 mm")
+    assert FindingCode.INCH_UNITS not in {finding.code for finding in feed.findings}
+
+
+@pytest.mark.os_agnostic
+def test_a_media_feed_with_a_configured_stop_names_no_model_default() -> None:
+    feed = media_feed(MediaSensor.GAP, RenderOptions(model="allegro-2", stop_position_mm=50.8, cutter_installed=True))
+
+    assert feed.findings == ()
