@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.4] - 2026-11-18
+
 ### Changed
 
 - `lib_layered_config>=8.1.0`: `DeployAction` (and `DeployResult`) are imported from the package
