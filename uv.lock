@@ -747,7 +747,7 @@ wheels = [
 
 [[package]]
 name = "datamax-dpl"
-version = "0.10.4"
+version = "0.10.5"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -815,7 +815,7 @@ requires-dist = [
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.15" },
     { name = "jaraco-context", marker = "extra == 'dev'", specifier = ">=6.1.2" },
     { name = "lib-cli-exit-tools", specifier = ">=2.5.0" },
-    { name = "lib-layered-config", specifier = ">=8.1.0" },
+    { name = "lib-layered-config", specifier = ">=9.0.1" },
     { name = "lib-log-rich", specifier = ">=8.2.2" },
     { name = "orjson", specifier = ">=3.13.0" },
     { name = "pillow", marker = "python_full_version >= '3.11' and extra == 'dev'", specifier = ">=13.0.0" },
@@ -1675,7 +1675,7 @@ wheels = [
 
 [[package]]
 name = "lib-layered-config"
-version = "8.1.0"
+version = "9.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lib-cli-exit-tools" },
@@ -1684,9 +1684,9 @@ dependencies = [
     { name = "rtoml", marker = "python_full_version < '3.14'" },
     { name = "tomli", marker = "python_full_version == '3.14.*'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7e/11/9eda81ae0589ba7dc2c6fa342b7b72d6115ea7e1595c92093ddad3b20308/lib_layered_config-8.1.0.tar.gz", hash = "sha256:18c4e32ecf5ead99e93037088c2b2d1eec1d9df5fc82debdcfac7e7f4f41ca35", size = 566786, upload-time = "2026-11-18T09:57:38.271Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/21/1a/13106655a11774b76723bc1d3c3191c81f807c4a492099d74e04c29e626a/lib_layered_config-9.0.1.tar.gz", hash = "sha256:62d945789390a790656016104f22f46b426efec05cf6245e9ceefb45945c888e", size = 575256, upload-time = "2026-11-18T18:11:52.618Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/36/3c/00d6797bd5e42eebb613b567f573979db07fad372cfd98c0d72f0a3401db/lib_layered_config-8.1.0-py3-none-any.whl", hash = "sha256:63ad4856dc7c5bdd3e53f190863942d1a4290b91a93d190cc26df1fec61703fb", size = 228580, upload-time = "2026-11-18T09:57:36.76Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/ec/ff8b75ae28c7a83469269949c07741d95c700eddd129d3f59ac7aea93ce1/lib_layered_config-9.0.1-py3-none-any.whl", hash = "sha256:46b2c04bb66381c69ca343b075386512de6e7a5fcbfa8072e9bd3a0ea4a42008", size = 230592, upload-time = "2026-11-18T18:11:50.947Z" },
 ]
 
 [[package]]

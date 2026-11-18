@@ -1,6 +1,6 @@
 [project]
 name = "datamax-dpl"
-version = "0.10.4"
+version = "0.10.5"
 description = "Datamax DPL label printing: library, CLI and LLM-friendly JSON, with per-model capability checks"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,7 +12,7 @@ dependencies = [
     # 6.4.2: validate_config, the check config --profile runs, refuses exactly what init() refuses.
     "lib_log_rich>=8.2.2",
     "python-dotenv>=1.2.4",
-    "lib_layered_config>=8.1.0",
+    "lib-layered-config>=9.0.1",
     "pydantic>=2.14.3",
     # PydanticCustomError: a firmware field refuses a non-text value with pydantic's own string_type error.
     "pydantic-core>=2.50.4",

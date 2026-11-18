@@ -235,9 +235,9 @@ On Linux and macOS, `config-deploy` sets Unix file permissions based on the targ
 | `host` | `0o755` (rwxr-xr-x) | `0o644` (rw-r--r--) | World-readable for host-specific config |
 | `user` | `0o700` (rwx------) | `0o600` (rw-------) | Private to user only                    |
 
-With `--profile`, the `profile/` directory between the layer root and the profile (and a layer
-root created on the way) is made with the umask; only `profile/<name>/` and below get the modes
-above. The files themselves get the file mode.
+Every directory the deploy creates gets the directory mode, the layer root and, with `--profile`,
+`profile/` included. A directory that already existed keeps its own mode. The files get the file
+mode.
 
 **Permission options:**
 

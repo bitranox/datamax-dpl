@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.5] - 2026-11-18
+
+### Fixed
+
+- `config-deploy` gives every directory it creates the layer's directory mode. With `--profile`, a
+  first user deploy under umask 0002 used to leave the layer root and `profile/` at `775`,
+  group-writable, around `600` files; they are now `700`. A directory that already existed keeps
+  its mode. This comes from `lib_layered_config>=9.0.1`.
+
 ## [0.10.4] - 2026-11-18
 
 ### Changed
