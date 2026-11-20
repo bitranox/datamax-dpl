@@ -14,10 +14,12 @@ should follow, and no ``<STX>o``, cut once after each of them (printed twice, 2 
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
-from datamax_dpl.application.use_cases import check_batch, record_renders, render_batch
-from datamax_dpl.domain.enums import FindingCode, PrinterSetting, Severity
+from datamax_dpl.application.use_cases import BatchResult, check_batch, record_renders, render_batch
+from datamax_dpl.domain.enums import FindingCode, PrinterSetting, PrinterStop, Severity
 from datamax_dpl.domain.label import Cut, JoinedLabel, Label, Text
 from datamax_dpl.domain.render import RenderResult, build_job
 from datamax_dpl.domain.render_context import RenderOptions
@@ -411,6 +413,142 @@ def test_the_label_s_own_stop_wins_over_the_joined_stop() -> None:
     label = _label(stop_position=50).model_copy(update={"cut": JoinedLabel()})
     result = _job(label, model="allegro-2", cutter_installed=True)
     assert STX + b"f100" not in result.data
+
+
+# ======================== "printer" as the cutter and the joined stop ========================
+#
+# "printer" sends no <STX>f, so the printer keeps whatever stop it holds. In a series that holds
+# the joined stop the record before sent, so a cutter stop of "printer" beside a joined stop in mm
+# would cut where the joined stop says: such a job is refused (user, 2026-11-20). Both "printer"
+# sends no stop at all for the series.
+
+_MIXED = "stop_positions_mixed"
+
+
+def _record_stops(batch: BatchResult) -> list[list[bytes]]:
+    """Every ``<STX>f`` command of each record, in record order; an empty list where a record sends none."""
+    return [re.findall(rb"\x02(f[0-9]{3})", result.data) for result in batch.results]
+
+
+def _error_codes(batch: BatchResult) -> list[str]:
+    return [f.code.value for result in batch.results for f in result.errors] + [
+        f.code.value for f in batch.batch_findings if f.severity is Severity.ERROR
+    ]
+
+
+def _allegro_with_cutter(**options: object) -> RenderOptions:
+    return RenderOptions.model_validate({"model": "allegro-2", "cutter_installed": True, **options})
+
+
+def _every_two(**options: object) -> BatchResult:
+    """Four records cut after every second one: joined, cut, joined, cut."""
+    return render_batch(_batch_label(every=2), _records(4), _allegro_with_cutter(**options))
+
+
+def test_a_series_with_a_cutter_stop_of_printer_and_the_model_s_joined_stop_is_refused() -> None:
+    """Without the refusal the joined records sent f100 and the cut records nothing, so the cut came at f100."""
+    batch = _every_two(cutter_stop_position_mm=PrinterStop.PRINTER)
+    assert not batch.ok
+    assert _error_codes(batch) == [_MIXED, _MIXED]
+    assert all(STX + b"f" not in result.data for result in batch.results if result.errors)
+
+
+@pytest.mark.parametrize(
+    ("cutter", "joined", "expected"),
+    [
+        (None, None, [[b"f100"], [b"f302"]] * 2),
+        (None, 20.0, [[b"f079"], [b"f302"]] * 2),
+        (None, PrinterStop.PRINTER, [[], [b"f302"]] * 2),
+        (80.0, None, [[b"f100"], [b"f315"]] * 2),
+        (80.0, 20.0, [[b"f079"], [b"f315"]] * 2),
+        (80.0, PrinterStop.PRINTER, [[], [b"f315"]] * 2),
+        (PrinterStop.PRINTER, PrinterStop.PRINTER, [list[bytes](), list[bytes]()] * 2),
+    ],
+    ids=str,
+)
+def test_a_series_sends_each_records_stop_where_the_stops_do_not_mix(
+    cutter: float | PrinterStop | None, joined: float | PrinterStop | None, expected: list[list[bytes]]
+) -> None:
+    batch = _every_two(cutter_stop_position_mm=cutter, joined_stop_position_mm=joined)
+    assert _error_codes(batch) == []
+    assert _record_stops(batch) == expected
+
+
+@pytest.mark.parametrize("joined", [None, 20.0], ids=str)
+def test_a_series_with_a_cutter_stop_of_printer_beside_a_joined_stop_in_mm_is_refused(joined: float | None) -> None:
+    batch = _every_two(cutter_stop_position_mm=PrinterStop.PRINTER, joined_stop_position_mm=joined)
+    assert not batch.ok
+    assert _error_codes(batch) == [_MIXED, _MIXED]
+    # The records that are cut send no stop either way; the joined ones send nothing once refused.
+    assert _record_stops(batch) == [[], [], [], []]
+
+
+def test_the_refusal_names_both_settings_and_the_remedy() -> None:
+    batch = _every_two(cutter_stop_position_mm=PrinterStop.PRINTER, joined_stop_position_mm=20.0)
+    [message] = {f.message for result in batch.results for f in result.errors}
+    assert message == (
+        'RenderOptions.cutter_stop_position_mm is "printer" while RenderOptions.joined_stop_position_mm '
+        "sends 20 mm: the printer would keep that joined stop for the label that is cut; set "
+        'RenderOptions.joined_stop_position_mm to "printer" as well, or RenderOptions.cutter_stop_position_mm in mm'
+    )
+
+
+def test_a_series_ending_in_its_one_cut_is_refused_the_same_way() -> None:
+    """cut_after_print cuts only the last record; the records before it are joined."""
+    batch = render_batch(_uncut_label(), _records(3), _allegro_with_cutter(cutter_stop_position_mm="printer"))
+    assert _error_codes(batch) == [_MIXED, _MIXED]
+
+
+@pytest.mark.parametrize(
+    ("cutter", "joined"),
+    [(c, j) for c in (None, 80.0, PrinterStop.PRINTER) for j in (None, 20.0, PrinterStop.PRINTER)],
+    ids=str,
+)
+def test_a_single_label_that_cuts_is_never_refused_and_sends_only_the_cutter_stop(
+    cutter: float | PrinterStop | None, joined: float | PrinterStop | None
+) -> None:
+    """A single label is never followed uncut, so the joined stop does not apply to it."""
+    result = _job(
+        _label(cut=Cut()),
+        model="allegro-2",
+        cutter_installed=True,
+        cutter_stop_position_mm=cutter,
+        joined_stop_position_mm=joined,
+    )
+    assert result.ok
+    sent = {None: [b"f302"], 80.0: [b"f315"], PrinterStop.PRINTER: []}[cutter]
+    assert re.findall(rb"\x02(f[0-9]{3})", result.data) == sent
+
+
+@pytest.mark.parametrize(
+    ("cutter", "joined"),
+    [(c, j) for c in (None, 80.0, PrinterStop.PRINTER) for j in (None, 20.0, PrinterStop.PRINTER)],
+    ids=str,
+)
+def test_a_series_that_never_cuts_stops_at_tear_off_whatever_the_cutter_and_joined_stops(
+    cutter: float | PrinterStop | None, joined: float | PrinterStop | None
+) -> None:
+    options = _allegro_with_cutter(
+        cutter_installed=False, cutter_stop_position_mm=cutter, joined_stop_position_mm=joined
+    )
+    batch = render_batch(_uncut_label(), _records(3), options)
+    assert _error_codes(batch) == []
+    assert _record_stops(batch) == [[b"f263"]] * 3
+
+
+@pytest.mark.parametrize(
+    ("joined", "refused"),
+    [(None, False), (20.0, True), (PrinterStop.PRINTER, False)],
+    ids=str,
+)
+def test_on_a_model_without_a_joined_default_only_a_joined_stop_in_mm_mixes(
+    joined: float | PrinterStop | None, refused: bool
+) -> None:
+    """Unset, the joined records stop at the cutter stop, which "printer" makes none."""
+    options = _cutter_stop_options(cutter_stop_position_mm="printer", joined_stop_position_mm=joined)
+    batch = render_batch(_uncut_label(), _records(3), options)
+    assert _error_codes(batch) == ([_MIXED, _MIXED] if refused else [])
+    assert _record_stops(batch) == [[], [], []]
 
 
 def test_cut_after_print_is_a_bool() -> None:

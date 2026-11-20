@@ -212,7 +212,7 @@ def _resolve(options: RenderOptions, model: CalibrationDefaults) -> CalibrationD
         stop_position_mm=_sent_stop(options.stop_position_mm, model.stop_position_mm),
         cutter_stop_position_mm=_sent_stop(options.cutter_stop_position_mm, model.cutter_stop_position_mm),
         cutter_stop_provenance=model.cutter_stop_provenance,
-        joined_stop_position_mm=_pick(options.joined_stop_position_mm, model.joined_stop_position_mm),
+        joined_stop_position_mm=_sent_stop(options.joined_stop_position_mm, model.joined_stop_position_mm),
         joined_stop_provenance=model.joined_stop_provenance,
         provenance=model.provenance,
         image_memory_bytes=_pick(options.image_memory_bytes, model.image_memory_bytes),
@@ -221,10 +221,20 @@ def _resolve(options: RenderOptions, model: CalibrationDefaults) -> CalibrationD
 
 
 def _sent_stop(explicit: float | PrinterStop | None, default: float | None) -> float | None:
-    """Return the stop position a job sends (tear-off or cutter): none for ``"printer"``, else as :func:`_pick`."""
+    """Return the stop position a job sends, tear-off, cutter or joined: none for ``"printer"``, else :func:`_pick`."""
     if explicit is PrinterStop.PRINTER:
         return None
     return _pick(explicit, default)
+
+
+def _context_stop(given: float | PrinterStop | None, resolved: float | None) -> float | PrinterStop | None:
+    """Return the cutter or joined stop a context holds: ``"printer"`` where the options give it, else ``resolved``.
+
+    The calibration has no stop to send for ``"printer"`` and holds None, which a context must keep
+    apart from an unset stop: an unset joined stop falls back to the cutter stop, and a cutter stop
+    of ``"printer"`` refuses a joined stop in mm (``stop_positions_mixed``).
+    """
+    return PrinterStop.PRINTER if given is PrinterStop.PRINTER else resolved
 
 
 @dataclass(frozen=True, slots=True)
@@ -437,8 +447,8 @@ def _context(label: Label, options: RenderOptions, *, halve: bool, held: HeldIma
         offset_along=calibration.offset_along,
         model_offset_axes=frozenset(default.offset_axis for default in from_model if default.offset_axis is not None),
         stop_position_mm=calibration.stop_position_mm,
-        cutter_stop_position_mm=calibration.cutter_stop_position_mm,
-        joined_stop_position_mm=calibration.joined_stop_position_mm,
+        cutter_stop_position_mm=_context_stop(options.cutter_stop_position_mm, calibration.cutter_stop_position_mm),
+        joined_stop_position_mm=_context_stop(options.joined_stop_position_mm, calibration.joined_stop_position_mm),
         reserved_image_names=_stored_names(label, bitmap_rows),
         bitmap_rows=bitmap_rows,
         halve_images=halve,

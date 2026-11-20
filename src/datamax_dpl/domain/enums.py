@@ -374,6 +374,7 @@ class FindingCode(str, Enum):
     STOP_POSITION_TOO_LARGE = "stop_position_too_large"
     STORED_IMAGE_CLEARED = "stored_image_cleared"
     STOP_POSITION_UNSUPPORTED = "stop_position_unsupported"
+    STOP_POSITIONS_MIXED = "stop_positions_mixed"
     SYMBOL_SET_UNSUPPORTED = "symbol_set_unsupported"
     SYMBOLOGY_UNSUPPORTED = "symbology_unsupported"
     TEXT_UPPERCASED = "text_uppercased"

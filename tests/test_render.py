@@ -798,6 +798,14 @@ def test_a_cutter_stop_position_option_of_printer_leaves_no_cutter_stop_in_the_e
 
 
 @pytest.mark.os_agnostic
+def test_a_joined_stop_position_option_of_printer_leaves_no_joined_stop_in_the_effective_calibration() -> None:
+    options = RenderOptions(model="allegro-2", joined_stop_position_mm=PrinterStop.PRINTER)
+    calibration = effective_calibration(options)
+    assert calibration.joined_stop_position_mm is None
+    assert calibration.cutter_stop_position_mm == 76.8
+
+
+@pytest.mark.os_agnostic
 def test_the_labels_stop_position_wins_over_an_option_of_printer() -> None:
     with_printer = _stop_job({"stop_position": 50}, stop_position_mm="printer")
     plain = _stop_job({"stop_position": 50})
@@ -857,6 +865,7 @@ def test_a_stop_position_other_than_a_positive_number_or_printer_is_refused_once
         (Label, "stop_position", {"elements": [{"type": "text", "x": 5, "y": 5, "text": "X"}]}),
         (RenderOptions, "stop_position_mm", {"model": "allegro-2"}),
         (RenderOptions, "cutter_stop_position_mm", {"model": "allegro-2"}),
+        (RenderOptions, "joined_stop_position_mm", {"model": "allegro-2"}),
     ):
         with pytest.raises(ValidationError) as caught:
             model.model_validate({**document, field: value})
@@ -869,7 +878,12 @@ def test_a_stop_position_of_printer_is_held_as_the_member_and_written_as_the_wor
         {"stop_position": "printer", "elements": [{"type": "text", "x": 5, "y": 5, "text": "X"}]}
     )
     options = RenderOptions.model_validate(
-        {"model": "allegro-2", "stop_position_mm": "printer", "cutter_stop_position_mm": "printer"}
+        {
+            "model": "allegro-2",
+            "stop_position_mm": "printer",
+            "cutter_stop_position_mm": "printer",
+            "joined_stop_position_mm": "printer",
+        }
     )
     assert label.stop_position is PrinterStop.PRINTER
     assert options.stop_position_mm is PrinterStop.PRINTER
@@ -877,6 +891,8 @@ def test_a_stop_position_of_printer_is_held_as_the_member_and_written_as_the_wor
     assert label.model_dump(mode="json")["stop_position"] == "printer"
     assert '"stop_position_mm":"printer"' in options.model_dump_json()
     assert '"cutter_stop_position_mm":"printer"' in options.model_dump_json()
+    assert options.joined_stop_position_mm is PrinterStop.PRINTER
+    assert '"joined_stop_position_mm":"printer"' in options.model_dump_json()
 
 
 @pytest.mark.os_agnostic

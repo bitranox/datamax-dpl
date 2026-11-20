@@ -222,14 +222,16 @@ class PrinterSettings(BaseModel):
     offset_along: float | None = Field(default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM)
     # Bounded here, unlike RenderOptions, so a config typo is refused with its key named before any
     # job is built, rather than as a STOP_POSITION_TOO_LARGE finding on every label. "printer"
-    # sends no stop and keeps the printer's own, in either key. Unset, each takes the model's
-    # measured default, which only the Allegro 2 has; elsewhere a job that cuts then sends no stop.
+    # sends no stop and keeps the printer's own, in any of the three keys. Unset, each takes the
+    # model's measured default, which only the Allegro 2 has; elsewhere a job that cuts then sends
+    # no stop.
     stop_position: _ConfiguredStop | None = None
     cutter_stop_position: _ConfiguredStop | None = None
     # The stop of a --data record the next record follows uncut, at or below the start of print so
     # the printer does not pull the stock back between them. Unset takes the model's (allegro-2:
-    # 25.4), else such a record stops at the cutter stop.
-    joined_stop_position: float | None = Field(default=None, gt=0, le=MAX_STOP_POSITION_MM)
+    # 25.4), else such a record stops at the cutter stop. A number here (or the model's) beside a
+    # cutter_stop_position of "printer" refuses the job, since the cut would land at it.
+    joined_stop_position: _ConfiguredStop | None = None
     # The cut a label without its own "cut" gets: every N labels. Unset cuts no such label. Same
     # range as a label's cut, so a bad value is refused here naming its key.
     cut_every: int | None = Field(default=None, ge=1, le=MAX_QUANTITY)

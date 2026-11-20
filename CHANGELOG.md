@@ -10,14 +10,21 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- `[printer] cutter_stop_position = "printer"` (also in a `[printers.<name>]` section, with
-  `--set printer.cutter_stop_position=printer`, and as `RenderOptions(cutter_stop_position_mm=
-  "printer")`) sends no `<STX>f` for a job that cuts, so the printer keeps the stop set on it. Until
-  now an unset `cutter_stop_position` was the only way not to send one, and on an `allegro-2` that
-  sends the model's 76.8 mm (`<STX>f302`). Unset still takes the model's cutter default. It works
-  like `stop_position = "printer"`: `model_defaults_applied` no longer names the cutter stop, a
-  label's own `stop_position` still wins, each key's `"printer"` leaves the other stop alone, and
-  any other word is refused with the key named (`Input should be 'printer'`).
+- `[printer] cutter_stop_position = "printer"` and `[printer] joined_stop_position = "printer"` (also
+  in a `[printers.<name>]` section, with `--set`, and as `RenderOptions(cutter_stop_position_mm=
+  "printer")` and `joined_stop_position_mm="printer"`) send no `<STX>f` for a job that cuts and for
+  a `--data` record the next one follows uncut, so the printer keeps the stop set on it. Until now
+  an unset key was the only way not to send one, and on an `allegro-2` that sends the model's
+  76.8 mm (`<STX>f302`) and 25.4 mm (`<STX>f100`). Unset still takes the model's default. They work
+  like `stop_position = "printer"`: `model_defaults_applied` no longer names that stop, a label's
+  own `stop_position` still wins, and any other word is refused with the key named (`Input should
+  be 'printer'`).
+- The new error finding `stop_positions_mixed` refuses a job whose cutter stop is `"printer"` while
+  a record the next one follows uncut would send a joined stop in mm, given or the model's (25.4 mm
+  on an `allegro-2`): the printer would keep that stop for the record that is cut, so the cut would
+  land there. Nothing is sent. Set `joined_stop_position = "printer"` as well (no stop at all for
+  the series) or `cutter_stop_position` in mm. A single label and a job that does not cut are
+  never followed uncut, so the joined stop does not apply to them.
 
 ## [0.10.5] - 2026-11-18
 

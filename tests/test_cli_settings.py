@@ -438,6 +438,76 @@ _CUTTING_LINE = {**_LINE, "cut": {"every": 1}}
 
 
 @pytest.mark.os_agnostic
+def test_a_configured_joined_stop_position_of_printer_reaches_the_render_options() -> None:
+    options = _options({"printer": {"joined_stop_position": "printer"}})
+    assert options.joined_stop_position_mm is PrinterStop.PRINTER
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printers_joined_stop_of_printer_and_the_printer_sections_win_over_each_other_by_section() -> None:
+    config = {"printer": {"joined_stop_position": 20}, "printers": {"x": {"joined_stop_position": "printer"}}}
+    flipped = {"printer": {"joined_stop_position": "printer"}, "printers": {"x": {"joined_stop_position": 20}}}
+
+    assert _options(config, printer="x").joined_stop_position_mm is PrinterStop.PRINTER
+    assert _options(config).joined_stop_position_mm == 20
+    assert _options(flipped, printer="x").joined_stop_position_mm == 20
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("section", "printer"), [("printer", None), ("printers.x", "x")])
+def test_a_joined_stop_position_word_other_than_printer_is_refused_with_the_key_named(
+    section: str, printer: str | None
+) -> None:
+    config = {"printer": {"joined_stop_position": "paper"}}
+    if printer is not None:
+        config = {"printers": {"x": {"joined_stop_position": "paper"}}}
+
+    with pytest.raises(
+        ConfigurationError, match=rf"^{re.escape(section)}\.joined_stop_position: Input should be 'printer'$"
+    ):
+        _options(config, printer=printer)
+
+
+def _print_series(
+    cli_runner: CliRunner, printer: RecordingPrinter, tmp_path: Path, *extra: str
+) -> tuple[int, dict[str, Any]]:
+    """Print three records of an uncut label on an Allegro 2 with its cutter: joined, joined, cut."""
+    label = tmp_path / "label.json"
+    label.write_text(json.dumps({"elements": [{"type": "text", "x": 5, "y": 5, "text": "{n}"}]}), encoding="utf-8")
+    data = tmp_path / "records.csv"
+    data.write_text("n\n1\n2\n3\n", encoding="utf-8")
+    args = ["--set", "printer.cutter=yes", *extra, "--json", "print", str(label), "--data", str(data)]
+    args += ["--model", "allegro-2", "--printer", "tcp://192.0.2.60:9100"]
+    result = cli_runner.invoke(cli_mod.cli, args, obj=lambda: build_testing(printer=printer))
+    return result.exit_code, json.loads(result.stdout)
+
+
+@pytest.mark.os_agnostic
+def test_a_series_with_a_cutter_stop_of_printer_beside_the_models_joined_stop_is_refused_and_nothing_is_sent(
+    cli_runner: CliRunner, tmp_path: Path
+) -> None:
+    printer = RecordingPrinter()
+    exit_code, envelope = _print_series(cli_runner, printer, tmp_path, "--set", "printer.cutter_stop_position=printer")
+
+    assert exit_code == 1, envelope
+    assert envelope["ok"] is False
+    assert "stop_positions_mixed" in json.dumps(envelope)
+    assert "[printer] joined_stop_position" in json.dumps(envelope)
+    assert printer.sent == []
+
+
+@pytest.mark.os_agnostic
+def test_a_series_with_both_stops_printer_prints_and_sends_no_stop(cli_runner: CliRunner, tmp_path: Path) -> None:
+    printer = RecordingPrinter()
+    both = ["--set", "printer.cutter_stop_position=printer", "--set", "printer.joined_stop_position=printer"]
+    exit_code, envelope = _print_series(cli_runner, printer, tmp_path, *both)
+
+    assert exit_code == 0, envelope
+    assert printer.sent != []
+    assert all(b"\x02f" not in job for job in printer.sent)
+
+
+@pytest.mark.os_agnostic
 @pytest.mark.parametrize("cutter_stop", [{"cutter_stop_position": "printer"}, {}])
 def test_a_configured_cutter_stop_position_of_printer_keeps_the_allegro_2s_own_cutter_stop(
     cli_runner: CliRunner,

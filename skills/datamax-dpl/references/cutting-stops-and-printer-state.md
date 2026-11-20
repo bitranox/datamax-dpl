@@ -57,9 +57,12 @@ The stop position (`<STX>f`) comes from the first of these that applies:
    has (tear-off 66.8 mm, `<STX>f263`; cutter 76.8 mm, `<STX>f302`, measured with a cutter), and
    `"printer"` in either key sends none, that default included (a label's `"printer"` too); a
    `--data` record the next record follows uncut sends `[printer] joined_stop_position` instead
-   (allegro-2: 25.4 mm, `<STX>f100`), below the start of print, since a stop past it makes the
-   printer pull the stock back before the next record; unset on a model with no default, such a
-   record keeps the cutter stop. The last record and the calibration label take the cutter stop;
+   (allegro-2: 25.4 mm, `<STX>f100`; `"printer"` sends none), below the start of print, since a
+   stop past it makes the printer pull the stock back before the next record; unset on a model with no default, such a
+   record keeps the cutter stop. The last record and the calibration label take the cutter stop.
+   A cutter stop of `"printer"` beside a joined stop in mm (set or the model's) refuses the job
+   (`stop_positions_mixed`, nothing sent), since the printer would keep that stop for the cut: set
+   `joined_stop_position = "printer"` too (no stop at all) or the cutter stop in mm;
 4. otherwise the printer's own setting.
 
 A model with `<STX>Kf` (PE42, PE43, the Ovations, `permissive`) also sends `present_distance` as
