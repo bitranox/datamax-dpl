@@ -283,7 +283,7 @@ class _ValuedSetting:
         setting: The setting.
         what: Its name in the finding.
         key: The render option that sets it, which a caller of the command line reads with the
-            settings key of the printer section in use added (``with_setting_keys``).
+            settings key of the printer section in use in its place (``with_setting_keys``).
         value: The value the job would send; None where the model has no known default.
     """
 

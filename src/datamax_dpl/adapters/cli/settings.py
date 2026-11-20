@@ -688,20 +688,22 @@ OPTION_KEYS: Mapping[str, str] = MappingProxyType(
 
 
 def with_setting_keys(message: str, settings: PrinterSettings) -> str:
-    """``message`` with the key of the printer section in use after each render option it names.
+    """``message`` with each render option it names replaced by the key of the printer section in use.
 
     The domain names an option the way a library caller sets it; on the command line it is a key
-    of whichever section ``--printer`` chose, which only the command knows.
+    of whichever section ``--printer`` chose, which only the command knows. The key replaces the
+    option name rather than following it, since a command-line user can change only the key. An
+    option with no settings key keeps its library name.
 
     Example:
         >>> with_setting_keys("turn it on (RenderOptions.clear_graphics_before_label)", PrinterSettings(name="lager"))
-        'turn it on (RenderOptions.clear_graphics_before_label; [printers.lager] clear_graphics_before)'
+        'turn it on ([printers.lager] clear_graphics_before)'
     """
     section = printer_section(settings.name)
 
     def named(match: re.Match[str]) -> str:
         key = OPTION_KEYS.get(match[1])
-        return match[0] if key is None else f"{match[0]}; {section.setting(key)}"
+        return match[0] if key is None else section.setting(key)
 
     return OPTION_NAME.sub(named, message)
 

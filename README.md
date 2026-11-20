@@ -83,7 +83,7 @@ datamax-dpl validate examples/product-label.json --model dmx-600
 
 ```text
 OK: model dmx-600, 1 label(s), 5 field(s), 178 bytes
-INFO    software_switches_not_sent: software switches (<STX>V) not sent: whether the cutter is installed is unknown (set RenderOptions.cutter_installed; [printer] cutter)
+INFO    software_switches_not_sent: software switches (<STX>V) not sent: whether the cutter is installed is unknown (set [printer] cutter)
 INFO    check_digit_added [element 3]: the printer adds check digit 1
 INFO    cutter_assumed: cut commands assume the printer's cutter is installed and enabled
 ```
@@ -496,7 +496,7 @@ datamax-dpl --json validate examples/product-label.json --model allegro --policy
     "downloads_total": 1,
     "findings": [
       {"code": "inch_units", "severity": "info", "message": "Allegro formats take inches; millimetres are rounded to 1/100 in", "element": null, "fallback": null, "record": null},
-      {"code": "software_switches_not_sent", "severity": "info", "message": "software switches (<STX>V) not sent: whether the cutter is installed is unknown (set RenderOptions.cutter_installed; [printer] cutter)", "element": null, "fallback": null, "record": null},
+      {"code": "software_switches_not_sent", "severity": "info", "message": "software switches (<STX>V) not sent: whether the cutter is installed is unknown (set [printer] cutter)", "element": null, "fallback": null, "record": null},
       {"code": "check_digit_added", "severity": "info", "message": "the printer adds check digit 1", "element": 3, "fallback": null, "record": null},
       {"code": "circle_rasterized", "severity": "error", "message": "circle cannot be drawn natively: circles: Allegro does not have it", "element": 4, "fallback": "drawn as downloaded image DtLbYG5m (81x81 dots)", "record": null},
       {"code": "cutter_assumed", "severity": "info", "message": "cut commands assume the printer's cutter is installed and enabled", "element": null, "fallback": null, "record": null}

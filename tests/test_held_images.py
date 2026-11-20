@@ -841,7 +841,8 @@ def test_a_no_clear_image_batch_no_printer_is_read_for_is_refused_and_writes_not
     findings = json.loads(result.stdout)["data"]["findings"]
     [refusal] = {finding["message"] for finding in findings if finding["code"] == "batch_image_names_unread"}
     assert "two-way printer" in refusal
-    assert "clear_graphics_before_label" in refusal
+    assert "[printer] clear_graphics_before" in refusal
+    assert "RenderOptions." not in refusal
 
 
 @pytest.mark.os_agnostic

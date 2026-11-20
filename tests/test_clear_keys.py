@@ -92,10 +92,7 @@ def test_a_batch_on_the_built_in_module_is_told_to_turn_the_clear_before_on_and_
     refused = _validate(cli_runner, *no_clear, *common)
     assert refused.exit_code == 1, refused.output
     [message, *_] = _findings(refused, "batch_image_names_unread")
-    assert (
-        "turn on the clear before each label "
-        "(RenderOptions.clear_graphics_before_label; [printer] clear_graphics_before)" in message
-    )
+    assert "turn on the clear before each label ([printer] clear_graphics_before)" in message
     following = _validate(cli_runner, *no_clear, "--set", "printer.clear_graphics_before=true", *common)
     assert following.exit_code == 0, following.output
 
@@ -111,10 +108,7 @@ def test_a_batch_on_a_plug_in_module_is_told_the_ways_left_and_passes_with_one(
     assert refused.exit_code == 1, refused.output
     [message, *_] = _findings(refused, "batch_image_names_unread")
     assert "two-way printer (tcp or serial)" in message
-    assert (
-        "leave the image module unset (RenderOptions.image_module; [printer] image_module), "
-        "so the images go to module A" in message
-    )
+    assert "leave the image module unset ([printer] image_module), so the images go to module A" in message
     assert "module B takes no clear" in message
     following = _validate(cli_runner, *common)
     assert following.exit_code == 0, following.output

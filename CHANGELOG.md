@@ -35,6 +35,13 @@ All notable changes to this project are documented here. The format follows
   (`f100`, `f302`) did not. The job still prints; a joined stop in mm stops it. A model without a
   stop command gets no warning, since a stop in mm would not be sent there either.
 
+### Changed
+
+- A finding the command line reports names a setting by its key alone, `[printer] cutter` or
+  `[printers.<name>] cutter`, where it used to show the library name first
+  (`RenderOptions.cutter_installed; [printer] cutter`). The library's own findings still name the
+  `RenderOptions` field.
+
 ## [0.10.5] - 2026-11-18
 
 ### Fixed

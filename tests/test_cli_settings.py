@@ -482,6 +482,11 @@ def _print_series(
     return result.exit_code, json.loads(result.stdout)
 
 
+def _finding_messages(envelope: dict[str, Any], code: str) -> list[str]:
+    """The message of every finding with ``code`` the command reported."""
+    return [str(f["message"]) for f in envelope["data"]["findings"] if f["code"] == code]
+
+
 @pytest.mark.os_agnostic
 def test_a_series_with_a_cutter_stop_of_printer_beside_the_models_joined_stop_is_refused_and_nothing_is_sent(
     cli_runner: CliRunner, tmp_path: Path
@@ -491,8 +496,11 @@ def test_a_series_with_a_cutter_stop_of_printer_beside_the_models_joined_stop_is
 
     assert exit_code == 1, envelope
     assert envelope["ok"] is False
-    assert "stop_positions_mixed" in json.dumps(envelope)
-    assert "[printer] joined_stop_position" in json.dumps(envelope)
+    assert set(_finding_messages(envelope, "stop_positions_mixed")) == {
+        '[printer] cutter_stop_position is "printer" while [printer] joined_stop_position sends 25.4 mm: '
+        "the printer would keep that joined stop for the label that is cut; set [printer] joined_stop_position "
+        'to "printer" as well, or [printer] cutter_stop_position in mm'
+    }
     assert printer.sent == []
 
 
@@ -505,8 +513,10 @@ def test_a_series_with_both_stops_printer_prints_and_sends_no_stop(cli_runner: C
     assert exit_code == 0, envelope
     assert printer.sent != []
     assert all(b"\x02f" not in job for job in printer.sent)
-    assert "joined_stop_printer_backfeed" in json.dumps(envelope)
-    assert '[printer] joined_stop_position is \\"printer\\"' in json.dumps(envelope)
+    assert set(_finding_messages(envelope, "joined_stop_printer_backfeed")) == {
+        '[printer] joined_stop_position is "printer": the printer may pull the stock back between joined labels '
+        "(measured on an Allegro 2, 2026-11-20); set [printer] joined_stop_position in mm to stop that"
+    }
 
 
 @pytest.mark.os_agnostic
