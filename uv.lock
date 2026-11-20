@@ -815,7 +815,7 @@ requires-dist = [
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.15" },
     { name = "jaraco-context", marker = "extra == 'dev'", specifier = ">=6.1.2" },
     { name = "lib-cli-exit-tools", specifier = ">=2.5.0" },
-    { name = "lib-layered-config", specifier = ">=9.0.2" },
+    { name = "lib-layered-config", specifier = ">=9.0.3" },
     { name = "lib-log-rich", specifier = ">=8.2.2" },
     { name = "orjson", specifier = ">=3.13.0" },
     { name = "pillow", marker = "python_full_version >= '3.11' and extra == 'dev'", specifier = ">=13.0.0" },
@@ -1675,7 +1675,7 @@ wheels = [
 
 [[package]]
 name = "lib-layered-config"
-version = "9.0.2"
+version = "9.0.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lib-cli-exit-tools" },
@@ -1684,9 +1684,9 @@ dependencies = [
     { name = "rtoml", marker = "python_full_version < '3.14'" },
     { name = "tomli", marker = "python_full_version == '3.14.*'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/47/eb/9b3a7df8ac596bd1af2f0ed18cea737397cc09175dfa856112f898bd5ea7/lib_layered_config-9.0.2.tar.gz", hash = "sha256:dd5270350e9d510f2b5c1054c3ef2105f95001bc573d2d7e432a7f655ef50377", size = 579886, upload-time = "2026-11-18T23:42:50.55Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/a8/d8b5dc3ea8a1d6b18d4b4d327424f5dc35a4f8dcea8acc4d031f0a3e03c2/lib_layered_config-9.0.3.tar.gz", hash = "sha256:ccfb21baab23426069b0de6e9acf39d5256a72bb94b116d4a6d72d370c25a689", size = 580890, upload-time = "2026-11-20T08:30:26.699Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/46/f1/0f03c22ad5fbd53f9cd9724e4f5e92cfea21d343b05ce8ad9b44c11525b8/lib_layered_config-9.0.2-py3-none-any.whl", hash = "sha256:34a304ab24a0dec3ee0a74eb5d65990aaa7bdae5d5247a05da073a589d0e7caa", size = 231603, upload-time = "2026-11-18T23:42:48.601Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/11/5b2f03b5a01fa43ce7eab00c989c75feeda34728541c5c45b098652e0ccb/lib_layered_config-9.0.3-py3-none-any.whl", hash = "sha256:a089f0ef586b3ddf8d113798e139970bd584bb67a22c757a3575f1bf558f6c3e", size = 231768, upload-time = "2026-11-20T08:30:25.195Z" },
 ]
 
 [[package]]
