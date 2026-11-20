@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-20
+
 ### Added
 
 - `[printer] cutter_stop_position = "printer"` (also in a `[printers.<name>]` section, with
