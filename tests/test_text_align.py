@@ -60,22 +60,22 @@ def _codes(findings: Iterable[Finding]) -> set[FindingCode]:
 @pytest.mark.os_agnostic
 def test_left_is_the_default_and_places_the_field_at_x() -> None:
     assert Text(x=50, y=10, text="ABC").align is TextAlign.LEFT
-    assert _column(Text(x=50, y=10, text="ABC")) == _column(Text(x=50, y=10, text="ABC", align="left"))
+    assert _column(Text(x=50, y=10, text="ABC")) == _column(Text(x=50, y=10, text="ABC", align=TextAlign.LEFT))
 
 
 @pytest.mark.os_agnostic
 def test_a_right_aligned_font_2_line_moves_back_by_its_cells_less_the_last_gap() -> None:
     # Font 2 at 203 dpi: cells 10 dots wide with a 2-dot gap, so ABC spans 3 * 12 - 2 = 34 dots.
     left = _column(Text(x=50, y=10, text="ABC", font=2))
-    assert left - _column(Text(x=50, y=10, text="ABC", font=2, align="right")) == 34 // _DOTS_PER_UNIT
+    assert left - _column(Text(x=50, y=10, text="ABC", font=2, align=TextAlign.RIGHT)) == 34 // _DOTS_PER_UNIT
     # Centred: half of 34 dots is 8.5 units, rounded to the even 8.
-    assert left - _column(Text(x=50, y=10, text="ABC", font=2, align="center")) == 8
+    assert left - _column(Text(x=50, y=10, text="ABC", font=2, align=TextAlign.CENTER)) == 8
 
 
 @pytest.mark.os_agnostic
 def test_a_width_multiplier_of_fonts_0_to_8_widens_the_shift_with_the_cells() -> None:
     left = _column(Text(x=50, y=10, text="ABC", font=2, width_multiplier=2))
-    right = _column(Text(x=50, y=10, text="ABC", font=2, width_multiplier=2, align="right"))
+    right = _column(Text(x=50, y=10, text="ABC", font=2, width_multiplier=2, align=TextAlign.RIGHT))
     assert left - right == (3 * 24 - 4) // _DOTS_PER_UNIT
 
 
@@ -100,7 +100,9 @@ def test_font_9_is_measured_at_the_size_the_model_prints() -> None:
 @pytest.mark.os_agnostic
 def test_alignment_is_worked_out_per_record_after_the_placeholders_are_filled() -> None:
     label = Label(
-        width=100, height=55, elements=[Text(x=95, y=10, text="{qty} STK", font=FONT_9, points=30, align="right")]
+        width=100,
+        height=55,
+        elements=[Text(x=95, y=10, text="{qty} STK", font=FONT_9, points=30, align=TextAlign.RIGHT)],
     )
     batch = render_batch(label, [{"qty": "5"}, {"qty": "12345,5"}], RenderOptions(model=_MODEL))
     assert all(result.ok for result in batch.results)
@@ -114,7 +116,7 @@ def test_alignment_is_worked_out_per_record_after_the_placeholders_are_filled() 
 @pytest.mark.os_agnostic
 def test_a_line_that_would_start_left_of_the_label_is_refused() -> None:
     label = Label(
-        width=100, height=55, elements=[Text(x=5, y=10, text="WWWWWWWW", font=FONT_9, points=30, align="right")]
+        width=100, height=55, elements=[Text(x=5, y=10, text="WWWWWWWW", font=FONT_9, points=30, align=TextAlign.RIGHT)]
     )
     result = build_job(label, RenderOptions(model=_MODEL))
     assert not result.ok
@@ -145,7 +147,7 @@ def test_alignment_of_a_line_whose_width_is_unknown_is_refused(changes: dict[str
 
 @pytest.mark.os_agnostic
 def test_the_preview_ends_a_right_aligned_line_at_x() -> None:
-    element = Text(x=95, y=10, text="12345,5 STK", font=FONT_9, points=30, align="right")
+    element = Text(x=95, y=10, text="12345,5 STK", font=FONT_9, points=30, align=TextAlign.RIGHT)
     label = Label(width=100, height=55, elements=[element])
     canvas = canvas_for(label, get_profile(_MODEL))
     area = field_area(element, canvas)
@@ -157,12 +159,12 @@ def test_the_preview_ends_a_right_aligned_line_at_x() -> None:
 
 @pytest.mark.os_agnostic
 def test_the_label_edge_check_reads_the_aligned_position() -> None:
-    def edge_findings(align: str) -> set[FindingCode]:
+    def edge_findings(align: TextAlign) -> set[FindingCode]:
         text = Text(x=99, y=10, text="BOX 12/12", font=FONT_9, points=30, align=align)
         return _codes(render(Label(width=100, height=55, elements=[text]), RenderOptions(model=_MODEL)).findings)
 
-    assert FindingCode.ELEMENT_PAST_LABEL_EDGE in edge_findings("left")
-    assert FindingCode.ELEMENT_PAST_LABEL_EDGE not in edge_findings("right")
+    assert FindingCode.ELEMENT_PAST_LABEL_EDGE in edge_findings(TextAlign.LEFT)
+    assert FindingCode.ELEMENT_PAST_LABEL_EDGE not in edge_findings(TextAlign.RIGHT)
 
 
 @pytest.mark.os_agnostic
