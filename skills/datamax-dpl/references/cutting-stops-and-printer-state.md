@@ -60,9 +60,10 @@ The stop position (`<STX>f`) comes from the first of these that applies:
    (allegro-2: 25.4 mm, `<STX>f100`; `"printer"` sends none), below the start of print, since a
    stop past it makes the printer pull the stock back before the next record; unset on a model with no default, such a
    record keeps the cutter stop. The last record and the calibration label take the cutter stop.
-   A cutter stop of `"printer"` beside a joined stop in mm (set or the model's) refuses the job
-   (`stop_positions_mixed`, nothing sent), since the printer would keep that stop for the cut: set
-   `joined_stop_position = "printer"` too (no stop at all) or the cutter stop in mm;
+   In a series that cuts, one of the cutter and joined stops `"printer"` and the other in mm (set
+   or the model's) refuses the job (`stop_positions_mixed`, nothing sent): the printer keeps the
+   stop the record before sent, so the cut or the next joined record would stop at the wrong one.
+   Set both to `"printer"` (no stop at all) or both in mm;
 4. otherwise the printer's own setting.
 
 A model with `<STX>Kf` (PE42, PE43, the Ovations, `permissive`) also sends `present_distance` as

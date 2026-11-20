@@ -418,9 +418,10 @@ def test_the_label_s_own_stop_wins_over_the_joined_stop() -> None:
 # ======================== "printer" as the cutter and the joined stop ========================
 #
 # "printer" sends no <STX>f, so the printer keeps whatever stop it holds. In a series that holds
-# the joined stop the record before sent, so a cutter stop of "printer" beside a joined stop in mm
-# would cut where the joined stop says: such a job is refused (user, 2026-11-20). Both "printer"
-# sends no stop at all for the series.
+# the stop the record before sent: a cutter stop of "printer" beside a joined stop in mm would cut
+# where the joined stop says, and a joined stop of "printer" beside a cutter stop in mm would stop
+# the next joined record at the cutter stop, pulling the stock back. Either mix is refused (user,
+# 2026-11-20). Both "printer" sends no stop at all for the series; both in mm is the old behaviour.
 
 _MIXED = "stop_positions_mixed"
 
@@ -458,10 +459,8 @@ def test_a_series_with_a_cutter_stop_of_printer_and_the_model_s_joined_stop_is_r
     [
         (None, None, [[b"f100"], [b"f302"]] * 2),
         (None, 20.0, [[b"f079"], [b"f302"]] * 2),
-        (None, PrinterStop.PRINTER, [[], [b"f302"]] * 2),
         (80.0, None, [[b"f100"], [b"f315"]] * 2),
         (80.0, 20.0, [[b"f079"], [b"f315"]] * 2),
-        (80.0, PrinterStop.PRINTER, [[], [b"f315"]] * 2),
         (PrinterStop.PRINTER, PrinterStop.PRINTER, [list[bytes](), list[bytes]()] * 2),
     ],
     ids=str,
@@ -481,6 +480,32 @@ def test_a_series_with_a_cutter_stop_of_printer_beside_a_joined_stop_in_mm_is_re
     assert _error_codes(batch) == [_MIXED, _MIXED]
     # The records that are cut send no stop either way; the joined ones send nothing once refused.
     assert _record_stops(batch) == [[], [], [], []]
+
+
+@pytest.mark.parametrize(("cutter", "cut_stop"), [(None, b"f302"), (80.0, b"f315")], ids=str)
+def test_a_series_with_a_joined_stop_of_printer_beside_a_cutter_stop_in_mm_is_refused(
+    cutter: float | None, cut_stop: bytes
+) -> None:
+    """Without the refusal it sent [-, f315, -, f315]: the second joined record stopped at f315.
+
+    An unset cutter stop is the model's 76.8 mm on an Allegro 2, which counts as mm.
+    """
+    batch = _every_two(cutter_stop_position_mm=cutter, joined_stop_position_mm=PrinterStop.PRINTER)
+    assert not batch.ok
+    assert _error_codes(batch) == [_MIXED, _MIXED]
+    # The refused joined records send nothing; the cut records still name their stop.
+    assert _record_stops(batch) == [[], [cut_stop]] * 2
+
+
+def test_the_refusal_of_a_printer_joined_stop_names_both_settings_and_the_remedy() -> None:
+    batch = _every_two(cutter_stop_position_mm=80.0, joined_stop_position_mm=PrinterStop.PRINTER)
+    [message] = {f.message for result in batch.results for f in result.errors}
+    assert message == (
+        'RenderOptions.joined_stop_position_mm is "printer" while RenderOptions.cutter_stop_position_mm '
+        "sends 80 mm: the printer would keep that cutter stop for the label the next one follows uncut and "
+        'pull the stock back; set RenderOptions.cutter_stop_position_mm to "printer" as well, or '
+        "RenderOptions.joined_stop_position_mm in mm"
+    )
 
 
 def test_the_refusal_names_both_settings_and_the_remedy() -> None:
@@ -537,18 +562,24 @@ def test_a_series_that_never_cuts_stops_at_tear_off_whatever_the_cutter_and_join
 
 
 @pytest.mark.parametrize(
-    ("joined", "refused"),
-    [(None, False), (20.0, True), (PrinterStop.PRINTER, False)],
+    ("cutter", "joined", "refused"),
+    [
+        (PrinterStop.PRINTER, None, False),
+        (PrinterStop.PRINTER, 20.0, True),
+        (PrinterStop.PRINTER, PrinterStop.PRINTER, False),
+        (None, PrinterStop.PRINTER, False),
+        (80.0, PrinterStop.PRINTER, True),
+    ],
     ids=str,
 )
-def test_on_a_model_without_a_joined_default_only_a_joined_stop_in_mm_mixes(
-    joined: float | PrinterStop | None, refused: bool
+def test_on_a_model_without_stop_defaults_only_printer_beside_mm_mixes(
+    cutter: float | PrinterStop | None, joined: float | PrinterStop | None, refused: bool
 ) -> None:
-    """Unset, the joined records stop at the cutter stop, which "printer" makes none."""
-    options = _cutter_stop_options(cutter_stop_position_mm="printer", joined_stop_position_mm=joined)
+    """Unset, the joined records stop at the cutter stop, and an unset cutter stop sends none here."""
+    options = _cutter_stop_options(cutter_stop_position_mm=cutter, joined_stop_position_mm=joined)
     batch = render_batch(_uncut_label(), _records(3), options)
     assert _error_codes(batch) == ([_MIXED, _MIXED] if refused else [])
-    assert _record_stops(batch) == [[], [], []]
+    assert all(stops == [] for stops in _record_stops(batch)[:2])
 
 
 def test_cut_after_print_is_a_bool() -> None:

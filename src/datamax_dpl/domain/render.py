@@ -231,8 +231,8 @@ def _context_stop(given: float | PrinterStop | None, resolved: float | None) -> 
     """Return the cutter or joined stop a context holds: ``"printer"`` where the options give it, else ``resolved``.
 
     The calibration has no stop to send for ``"printer"`` and holds None, which a context must keep
-    apart from an unset stop: an unset joined stop falls back to the cutter stop, and a cutter stop
-    of ``"printer"`` refuses a joined stop in mm (``stop_positions_mixed``).
+    apart from an unset stop: an unset joined stop falls back to the cutter stop, and either stop
+    as ``"printer"`` beside the other in mm refuses the job (``stop_positions_mixed``).
     """
     return PrinterStop.PRINTER if given is PrinterStop.PRINTER else resolved
 

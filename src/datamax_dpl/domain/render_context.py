@@ -187,9 +187,10 @@ class RenderOptions(BaseModel):
             next record follows uncut, sent as configured; set at or below the start of print, so
             the printer does not pull the stock back between the two. ``"printer"`` sends none and
             keeps the printer's own setting. None takes the model's default; where the model has
-            none, such a record stops at the cutter stop. A ``cutter_stop_position_mm`` of
-            ``"printer"`` beside a joined stop in mm that a record would send refuses the job
-            (``stop_positions_mixed``): the printer would keep that stop for the record that is cut.
+            none, such a record stops at the cutter stop. Where a record would send it, one of
+            this and ``cutter_stop_position_mm`` ``"printer"`` and the other in mm (set or the
+            model's) refuses the job (``stop_positions_mixed``): the printer keeps the stop the
+            record before sent, so the cut or the next joined record would stop at the wrong one.
         cut_every: The cut a label that sets no ``cut`` gets: every this many labels, as a
             label's ``cut.every``; None leaves such a label uncut (the cutter is switched off
             for it). A label's own ``cut`` wins; a feed never cuts.

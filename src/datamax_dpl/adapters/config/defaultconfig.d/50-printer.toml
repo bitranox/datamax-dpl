@@ -386,10 +386,12 @@ options = []
 #          cutter ran a series on without pulling back, 2026-11-09), else such a
 #          record stops at cutter_stop_position. Sent exactly as set; a label's
 #          own stop_position wins. The last record and the calibration label
-#          stop at cutter_stop_position. "printer" sends none. A joined stop in
-#          mm (this one or the model's) beside cutter_stop_position = "printer"
-#          refuses the job (stop_positions_mixed): the printer would keep it for
-#          the record that is cut. Set both to "printer", or the cutter stop in mm.
+#          stop at cutter_stop_position. "printer" sends none. In a series that
+#          cuts, one of this and cutter_stop_position "printer" and the other in
+#          mm (set or the model's) refuses the job (stop_positions_mixed): the
+#          printer keeps the stop the record before sent, so the cut or the next
+#          joined record would stop at the wrong one. Set both to "printer", or
+#          both in mm.
 # Type: float, greater than 0, at most 253.746 (999/100 inch, the DPL limit), or
 #       "printer"
 # Default: unset (the model's default, else the cutter stop)

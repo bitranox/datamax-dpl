@@ -455,11 +455,14 @@ def _configured_stop(label: Label, ctx: RenderContext) -> list[bytes]:
         # stop command beside it would only be overwritten by it.
         return []
     if stops_at_tear_off(label, ctx):
-        configured = ctx.stop_position_mm
-    elif stops_joined(label, ctx):
-        configured = ctx.joined_stop_position_mm
-    else:
-        configured = ctx.cutter_stop_position_mm
+        return _sent_configured_stop(ctx.stop_position_mm, ctx)
+    if stops_joined(label, ctx):
+        return _joined_stop(ctx)
+    return _sent_configured_stop(ctx.cutter_stop_position_mm, ctx)
+
+
+def _sent_configured_stop(configured: float | PrinterStop | None, ctx: RenderContext) -> list[bytes]:
+    """Return the command for one configured stop: none for ``"printer"`` or unset, an info where unsupported."""
     if configured is None or configured is PrinterStop.PRINTER:
         return []
     if not ctx.supports(Feature.STOP_POSITION):
@@ -469,26 +472,73 @@ def _configured_stop(label: Label, ctx: RenderContext) -> list[bytes]:
             f"no stop-position command ({ctx.requirement(Feature.STOP_POSITION)})",
         )
         return []
-    if stops_joined(label, ctx) and ctx.cutter_stop_position_mm is PrinterStop.PRINTER:
-        _refuse_mixed_stops(configured, ctx)
-        return []
     return _stop_command(ctx.nominal_inch_hundredths(configured), ctx)
 
 
-def _refuse_mixed_stops(joined: float, ctx: RenderContext) -> None:
-    """Refuse a joined stop in mm beside a cutter stop of ``"printer"`` (user decision 2026-11-20).
+def _joined_stop(ctx: RenderContext) -> list[bytes]:
+    """Return the stop of a label the next one follows uncut, refusing it where the two stops mix.
 
-    ``"printer"`` sends no ``<STX>f``, so the record that is cut stops wherever the printer's stop
-    stands, and in a series the record before it has just set that to the joined stop, below the
-    start of print: the cut would land there. Sending the joined stop anyway, or dropping it, would
-    each print something neither setting asked for, so the job is refused with both named.
+    ``"printer"`` sends no ``<STX>f``, so a record stops wherever the printer's stop stands, which in
+    a series is what the record before it sent. A cutter stop of ``"printer"`` after a joined stop in
+    mm would cut at the joined stop, below the start of print; a joined stop of ``"printer"`` after a
+    cutter stop in mm would stop the next joined record at the cutter stop and pull the stock back.
+    Sending one stop and dropping the other prints what neither setting asked for, so either mix is
+    refused with both settings named (user decisions 2026-11-20). An unset cutter stop with no model
+    default sends none and mixes with nothing, and a model without a stop command sends neither.
     """
-    cutter, joined_name = option_name("cutter_stop_position_mm"), option_name("joined_stop_position_mm")
+    joined, cutter = ctx.joined_stop_position_mm, ctx.cutter_stop_position_mm
+    joined_mm, cutter_mm = _in_mm(joined), _in_mm(cutter)
+    if ctx.supports(Feature.STOP_POSITION):
+        if cutter is PrinterStop.PRINTER and joined_mm is not None:
+            return _refuse_mixed_stops(_CUTTER_PRINTER, sends=joined_mm, ctx=ctx)
+        if joined is PrinterStop.PRINTER and cutter_mm is not None:
+            return _refuse_mixed_stops(_JOINED_PRINTER, sends=cutter_mm, ctx=ctx)
+    return _sent_configured_stop(joined, ctx)
+
+
+def _in_mm(stop: float | PrinterStop | None) -> float | None:
+    """Return the distance ``stop`` sends, or None for ``"printer"`` and for no stop."""
+    return None if stop is PrinterStop.PRINTER else stop
+
+
+@dataclass(frozen=True, slots=True)
+class _StopMix:
+    """One way the cutter and joined stops mix: the option that is ``"printer"``, the other one in mm.
+
+    Attributes:
+        printer: The render option set to ``"printer"``.
+        other: The render option that sends a distance.
+        kept: Which stop the printer would keep, and for which label, as the refusal says it.
+    """
+
+    printer: str
+    other: str
+    kept: str
+
+
+_CUTTER_PRINTER = _StopMix(
+    printer="cutter_stop_position_mm", other="joined_stop_position_mm", kept="joined stop for the label that is cut"
+)
+_JOINED_PRINTER = _StopMix(
+    printer="joined_stop_position_mm",
+    other="cutter_stop_position_mm",
+    kept="cutter stop for the label the next one follows uncut and pull the stock back",
+)
+
+
+def _refuse_mixed_stops(mix: _StopMix, *, sends: float, ctx: RenderContext) -> list[bytes]:
+    """Refuse a stop of ``"printer"`` beside the other stop in mm, naming both options and both remedies.
+
+    Returns:
+        No commands: a refused job sends neither stop.
+    """
+    printer_name, other_name = option_name(mix.printer), option_name(mix.other)
     ctx.findings.refuse(
         FindingCode.STOP_POSITIONS_MIXED,
-        f'{cutter} is "printer" while {joined_name} sends {joined:g} mm: the printer would keep that joined stop '
-        f'for the label that is cut; set {joined_name} to "printer" as well, or {cutter} in mm',
+        f'{printer_name} is "printer" while {other_name} sends {sends:g} mm: the printer would keep that '
+        f'{mix.kept}; set {other_name} to "printer" as well, or {printer_name} in mm',
     )
+    return []
 
 
 def _present_commands(label: Label, ctx: RenderContext) -> list[bytes]:

@@ -407,9 +407,10 @@ these that applies:
    records; unset, it takes the model's default, which only `allegro-2` has (25.4 mm, `<STX>f100`,
    2026-11-09), else the cutter stop, and `joined_stop_position = "printer"` sends none. The last
    record of such a series stops at the cutter stop, and so does the calibration label that goes
-   before a job that cuts. A cutter stop of `"printer"` beside a joined stop in mm (set, or the
-   model's) is refused (`stop_positions_mixed`, nothing is sent): the printer would keep the joined
-   stop for the record that is cut. Set both to `"printer"`, or the cutter stop in mm.
+   before a job that cuts. In a series that cuts, one of the cutter and joined stops `"printer"`
+   and the other in mm (set, or the model's) is refused (`stop_positions_mixed`, nothing is sent):
+   the printer keeps the stop the record before sent, so the cut would land at the joined stop, or
+   the next joined record would stop at the cutter stop. Set both to `"printer"`, or both in mm.
 4. Nothing: the printer keeps its own setting.
 
 A `present_distance` can also go out beside that stop:

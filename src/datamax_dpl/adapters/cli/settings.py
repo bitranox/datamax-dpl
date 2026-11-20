@@ -229,8 +229,8 @@ class PrinterSettings(BaseModel):
     cutter_stop_position: _ConfiguredStop | None = None
     # The stop of a --data record the next record follows uncut, at or below the start of print so
     # the printer does not pull the stock back between them. Unset takes the model's (allegro-2:
-    # 25.4), else such a record stops at the cutter stop. A number here (or the model's) beside a
-    # cutter_stop_position of "printer" refuses the job, since the cut would land at it.
+    # 25.4), else such a record stops at the cutter stop. In a series that cuts, this and
+    # cutter_stop_position mixing "printer" and a number (or the model's) refuse the job.
     joined_stop_position: _ConfiguredStop | None = None
     # The cut a label without its own "cut" gets: every N labels. Unset cuts no such label. Same
     # range as a label's cut, so a bad value is refused here naming its key.

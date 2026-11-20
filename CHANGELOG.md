@@ -19,12 +19,14 @@ All notable changes to this project are documented here. The format follows
   like `stop_position = "printer"`: `model_defaults_applied` no longer names that stop, a label's
   own `stop_position` still wins, and any other word is refused with the key named (`Input should
   be 'printer'`).
-- The new error finding `stop_positions_mixed` refuses a job whose cutter stop is `"printer"` while
-  a record the next one follows uncut would send a joined stop in mm, given or the model's (25.4 mm
-  on an `allegro-2`): the printer would keep that stop for the record that is cut, so the cut would
-  land there. Nothing is sent. Set `joined_stop_position = "printer"` as well (no stop at all for
-  the series) or `cutter_stop_position` in mm. A single label and a job that does not cut are
-  never followed uncut, so the joined stop does not apply to them.
+- The new error finding `stop_positions_mixed` refuses a series that cuts where one of the cutter
+  and the joined stop is `"printer"` and the other a distance in mm, given or the model's (76.8 mm
+  and 25.4 mm on an `allegro-2`). The printer keeps the stop the record before sent: with a cutter
+  stop of `"printer"` the cut would land at the joined stop, and with a joined stop of `"printer"`
+  the next joined record would stop at the cutter stop and pull the stock back. Nothing is sent.
+  Set both to `"printer"` (no stop at all for the series) or both in mm. A model with no joined
+  default and the joined stop unset is not refused (its joined records stop at the cutter stop),
+  and neither are a single label and a job that does not cut, which are never followed uncut.
 
 ## [0.10.5] - 2026-11-18
 
