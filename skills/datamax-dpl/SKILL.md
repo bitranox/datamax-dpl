@@ -55,10 +55,20 @@ are in [exit-codes-timeouts-and-retries.md](references/exit-codes-timeouts-and-r
    [label-json.md](references/label-json.md)), rotation, and line
    records exactly; text is grey cells, or Pillow's font (not the printer's) with the `preview`
    extra (`uvx --from "datamax-dpl[preview]" datamax-dpl`, Python 3.11+). A label longer than
-   `[preview] max_length_mm` (2000) is refused.
-4. Print ONE label first: a data file with the header and one row, `datamax-dpl print label.json
-   --data one.csv --model MODEL --printer tcp://HOST:9100`. Scan the barcode and compare the label
-   with the preview yourself: the tool has no camera and never inspects the printed label. Then
+   `[preview] max_length_mm` (2000) is refused. The preview cuts each text where datamax-dpl
+   ESTIMATES the line ends (font 9 by a Helvetica-Bold stand-in for the printer's widths, unverified
+   on paper; fonts 0-8 by their exact cells), and `validate` judges `element_past_label_edge` by
+   the same estimate: a preview cut is not evidence of overflow, and a clean validate is not proof
+   the text fits. Only paper decides.
+4. Print ONE label first, with the options production sends (`--cutter`, `--set`, `--option`): a
+   data file with the header and one row,
+   `datamax-dpl print label.json --data one.csv --model MODEL --printer tcp://HOST:9100`. The
+   cutter option changes the job: an allegro-2 job with no `--cutter` sends no `<STX>V` (the
+   printer keeps its last cutter state) and the tear-off stop `<STX>f263`, `--cutter no` sends
+   `<STX>V0` and `f263`, and only `--cutter yes` sends `<STX>V1` and the cutter stop `f302`; a test
+   print without `--cutter yes` on a printer with a cutter cuts in the wrong place. Scan the
+   barcode and compare the label with the preview yourself: the tool has no camera and never
+   inspects the printed label. Then
    print the remaining rows (leave out the one already printed). `--printer` takes
    `tcp://HOST[:PORT]` (port 9100 when left out),
    `serial:///dev/ttyS0?baud=9600&parity=N&bytesize=8&stopbits=1&rtscts=0&xonxoff=0`
@@ -88,7 +98,9 @@ are in [exit-codes-timeouts-and-retries.md](references/exit-codes-timeouts-and-r
   Barcode `data` is at most 255 characters, 3000 for PDF417, counting the PDF417 and DataMatrix
   parameter header (8 and 10 characters): 2992 and 245 characters of data there.
 - **y counts from the BOTTOM edge**, x from the left; a field's reference point is its
-  lower-left corner (a circle's is its centre). "At the top" means a HIGH `y`.
+  lower-left corner (a circle's is its centre). "At the top" means a HIGH `y`. A `text` field
+  takes `"align": "right"` (`x` is where the line ends) or `"center"`, worked out per record
+  after filling; the rules are in [label-json.md](references/label-json.md).
 - `{name}` placeholders take values from `--data` (CSV header names, a JSON array of objects or
   JSON lines), one label per record. The file is UTF-8; only a CSV file may start with a BOM (it is
   dropped before the header is read), and a JSON array or JSON lines file that starts with one is
@@ -135,7 +147,7 @@ leaves out.
 | Topic                                                                                                                                                                                                                                                                                                              | Page                                                                                  |
 |--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------|
 | Exit codes per command (`config` 22 and 78, `config-deploy` 13), `timeout`, refused connects, `status_wait`, stored-name reads, `directory_idle`, `batch_image_names_unread` and what to do on a route that reads no printer (`render`, `print` to `file:`), `held_image_severity`, `send_chunk_bytes`             | [exit-codes-timeouts-and-retries.md](references/exit-codes-timeouts-and-retries.md)   |
-| Fonts 0-9 and umlauts, QR Codes (`module_dots`, `quiet_zone`, versions, sizes in mm, `micro`), overlapping fields (`attribute`, XOR, `transparency_emulated`)                                                                                                                                                      | [label-json.md](references/label-json.md)                                             |
+| Fonts 0-9 and umlauts, font 9 widths, right-aligned or centred text (`align`, `text_past_left_edge`), QR Codes (`module_dots`, `quiet_zone`, versions, sizes in mm, same printed size for any data length, `micro`), overlapping fields (`attribute`, XOR, `transparency_emulated`)                                | [label-json.md](references/label-json.md)                                             |
 | The longest format a model prints (`format_past_max_length`), image memory budget (`image_memory_bytes`, `image_halved`), image module and its clears, the upload check on a two-way `print` (`upload_check_rounds`, `image_upload_refused`), printer reset, image names, `memory`                                 | [images-and-memory.md](references/images-and-memory.md)                               |
 | `cut` and `cut_every`, the cut after every print (`cut_after_print`), `:nnnn`, cutter on Prodigy, where the label stops or is cut (`stop_position`, `cutter_stop_position`, `joined_stop_position`, `present_distance`), the settings each job sends (`send_settings`, media, `start_of_print_mm`, `<STX>V`, heat) | [cutting-stops-and-printer-state.md](references/cutting-stops-and-printer-state.md)   |
 | `explain` a DPL file, `status`/`feed`/`cut`/`pause`/`cancel`/`reset`, `feed --media gap`, a label longer than one format (past about 200 mm on an Allegro 2) printed as segments, `[printers.<name>]`, `calibrate print` / `calibrate set`, `scale_across`/`scale_along`, offsets                                  | [printer-controls-and-calibration.md](references/printer-controls-and-calibration.md) |

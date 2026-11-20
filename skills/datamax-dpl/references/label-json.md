@@ -7,6 +7,24 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
 - Fonts 0-8 are fixed bitmaps scaled by `width_multiplier`/`height_multiplier`; 3-6 print
   capitals only. Font 9 needs `points`. Umlauts work in fonts 1, 2 and 9, capital umlauts and
   sharp s also in 3-6; the euro sign in none.
+- Font 9 is CG Triumvirate Bold, proportional: `W` is about three times as wide as `i`. Its widths
+  are not in the manual, so it is measured with Helvetica-Bold's widths at the point size the
+  model prints (the nearest one after `font_size_substituted`), unverified on paper. Fonts 0-8
+  are measured exactly by their cells.
+- `"align": "right"` puts a `text` field's line END at `x` (`"center"` its middle; `"left"` is the
+  default): DPL has no justification, so the field is moved back by the measured width, per record
+  after `{name}` is filled, rounded to the job's DPL unit (2 dots on an Allegro 2). A quantity
+  ending 5 mm from the right edge of a 100 mm label:
+
+  ```json
+  {"type": "text", "x": 95, "y": 40, "text": "{qty} STK", "font": 9, "points": 30, "align": "right"}
+  ```
+
+  Refused: a line that would start left of the label (`text_past_left_edge`, exit 1), and an
+  aligned field that is rotated or has a `counter`, a `font_id`, or in font 9 a `width_multiplier`
+  (the label JSON is invalid: every command reading it exits 2); a left-aligned field takes all
+  of them. Font 9 alignment is only as good as the stand-in widths: print one label and check how
+  far each line ends from `x` before relying on it to the dot.
 
 ## QR Codes
 
@@ -27,6 +45,17 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
   data fits one (else a full code), `"boost_error": true` raises the level where the version has
   room; both default `false`. More sizes:
   <https://github.com/bitranox/datamax-dpl/blob/HEAD/docs/label-spec.md>.
+- To keep a QR Code the same printed size when the data length varies: the symbol is
+  `(17 + 4 x version)` modules of `module_dots` dots each, and the version grows with the data.
+  Measured with the preview at level `M`, byte data (lower case, URLs): up to 14 bytes version 1,
+  15-26 version 2, 27-42 version 3, 43-62 version 4 (digits and upper case pack tighter and stay
+  smaller longer). At 203 dpi, symbol alone (the quiet zone adds `quiet_zone` modules on each
+  side): V1 at 9 dots, the most `module_dots` takes, is 23.6 mm, V2 at 8 dots 25.0 mm, V3 at 7
+  dots 25.4 mm and V4 at 6 dots 24.8 mm. There is no version key, so keep one QR element per
+  `module_dots` and let the caller pick the one whose version range fits the value: one label file
+  per module size, identical but for that QR element, each record rendered with the file that
+  fits. Two QR elements in one label cannot take turns: a `{name}` filled with an empty value is
+  refused (`data` needs at least one character).
 
 ## Overlapping fields
 
