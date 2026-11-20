@@ -27,6 +27,13 @@ All notable changes to this project are documented here. The format follows
   Set both to `"printer"` (no stop at all for the series) or both in mm. A model with no joined
   default and the joined stop unset is not refused (its joined records stop at the cutter stop),
   and neither are a single label and a job that does not cut, which are never followed uncut.
+- The new warning finding `joined_stop_printer_backfeed` marks each record of a series that cuts
+  which the next one follows uncut while the joined stop is `"printer"` (and not refused): the
+  printer then stops it at its own stop. Measured 2026-11-20 on an Allegro 2 with its cutter
+  (50x20 mm labels, cut every 2), both stops `"printer"` cut after labels 2 and 4 as asked but
+  pulled the stock back between labels 1 and 2 and between 3 and 4, while the model's stops
+  (`f100`, `f302`) did not. The job still prints; a joined stop in mm stops it. A model without a
+  stop command gets no warning, since a stop in mm would not be sent there either.
 
 ## [0.10.5] - 2026-11-18
 

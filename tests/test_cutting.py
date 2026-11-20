@@ -582,6 +582,80 @@ def test_on_a_model_without_stop_defaults_only_printer_beside_mm_mixes(
     assert all(stops == [] for stops in _record_stops(batch)[:2])
 
 
+# A joined stop of "printer" sends no <STX>f, so between joined labels the printer stops where its
+# own stop stands. Measured 2026-11-20 on one Allegro 2 with its cutter (50x20 mm labels, cut every
+# 2): with both stops "printer" it cut after labels 2 and 4 as asked but pulled the stock back
+# between labels 1 and 2 and between 3 and 4; with the model's stops (f100, f302) it ran on. So a
+# joined stop of "printer" prints, with a warning on each joined record (user, 2026-11-20).
+
+_BACKFEED = "joined_stop_printer_backfeed"
+
+
+def _warning_codes(batch: BatchResult) -> list[list[str]]:
+    """The warning codes of each record, in record order."""
+    return [[f.code.value for f in result.warnings] for result in batch.results]
+
+
+@pytest.mark.parametrize("policy", ["degrade", "strict"])
+def test_a_joined_stop_of_printer_warns_on_each_joined_record_and_still_prints(policy: str) -> None:
+    batch = _every_two(
+        cutter_stop_position_mm=PrinterStop.PRINTER, joined_stop_position_mm=PrinterStop.PRINTER, policy=policy
+    )
+    assert batch.ok
+    assert _error_codes(batch) == []
+    assert _record_stops(batch) == [list[bytes]()] * 4
+    assert _warning_codes(batch) == [[_BACKFEED], [], [_BACKFEED], []]
+
+
+def test_the_backfeed_warning_names_the_option_the_measurement_and_the_remedy() -> None:
+    batch = _every_two(cutter_stop_position_mm=PrinterStop.PRINTER, joined_stop_position_mm=PrinterStop.PRINTER)
+    (warning,) = batch.results[0].warnings
+    assert warning.message == (
+        'RenderOptions.joined_stop_position_mm is "printer": the printer may pull the stock back between '
+        "joined labels (measured on an Allegro 2, 2026-11-20); set RenderOptions.joined_stop_position_mm in mm "
+        "to stop that"
+    )
+
+
+def test_an_unset_cutter_stop_with_no_model_default_beside_a_joined_stop_of_printer_warns() -> None:
+    options = _cutter_stop_options(joined_stop_position_mm=PrinterStop.PRINTER)
+    batch = render_batch(_uncut_label(), _records(3), options)
+    assert _error_codes(batch) == []
+    assert _warning_codes(batch) == [[_BACKFEED], [_BACKFEED], []]
+
+
+@pytest.mark.parametrize(
+    ("label", "records", "options"),
+    [
+        pytest.param(_batch_label(every=2), 1, {}, id="single label"),
+        pytest.param(_batch_label(every=1), 3, {}, id="cut every 1"),
+        pytest.param(_uncut_label(), 3, {"cutter_installed": False}, id="never cuts"),
+        # prodigy has no <STX>f and no <STX>V either, so no record is joined there: this case does
+        # not reach the stop-command guard in _joined_stop, which no model today can reach.
+        pytest.param(_uncut_label(), 3, {"model": "prodigy"}, id="model without a stop command"),
+    ],
+)
+def test_no_backfeed_warning_where_no_record_stops_at_a_joined_stop_of_printer(
+    label: Label, records: int, options: dict[str, object]
+) -> None:
+    both = {"cutter_stop_position_mm": PrinterStop.PRINTER, "joined_stop_position_mm": PrinterStop.PRINTER}
+    batch = render_batch(label, _records(records), _allegro_with_cutter(**both, **options))
+    assert _error_codes(batch) == []
+    assert all(_BACKFEED not in codes for codes in _warning_codes(batch))
+
+
+@pytest.mark.parametrize(
+    ("cutter", "joined"),
+    [(None, None), (80.0, 20.0), (80.0, PrinterStop.PRINTER), (PrinterStop.PRINTER, 20.0)],
+    ids=str,
+)
+def test_no_backfeed_warning_for_a_joined_stop_in_mm_unset_or_refused(
+    cutter: float | PrinterStop | None, joined: float | PrinterStop | None
+) -> None:
+    batch = _every_two(cutter_stop_position_mm=cutter, joined_stop_position_mm=joined)
+    assert all(_BACKFEED not in codes for codes in _warning_codes(batch))
+
+
 def test_cut_after_print_is_a_bool() -> None:
     with pytest.raises(ValueError, match="cut_after_print"):
         RenderOptions.model_validate({"cut_after_print": "yes"})

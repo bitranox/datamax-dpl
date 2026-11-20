@@ -342,6 +342,7 @@ class FindingCode(str, Enum):
     IMAGE_UPLOAD_RENDER_REFUSED = "image_upload_render_refused"
     IMAGE_UPLOAD_RETRIED = "image_upload_retried"
     INCH_UNITS = "inch_units"
+    JOINED_STOP_PRINTER_BACKFEED = "joined_stop_printer_backfeed"
     LABEL_SETTING_NOT_SENT = "label_setting_not_sent"
     LABEL_WIDER_THAN_PRINT_WIDTH = "label_wider_than_print_width"
     MAX_LABEL_LENGTH_TOO_SHORT = "max_label_length_too_short"

@@ -191,6 +191,8 @@ class RenderOptions(BaseModel):
             this and ``cutter_stop_position_mm`` ``"printer"`` and the other in mm (set or the
             model's) refuses the job (``stop_positions_mixed``): the printer keeps the stop the
             record before sent, so the cut or the next joined record would stop at the wrong one.
+            Otherwise ``"printer"`` warns on each such record (``joined_stop_printer_backfeed``):
+            the printer stops it at its own stop, and an Allegro 2 pulled the stock back there.
         cut_every: The cut a label that sets no ``cut`` gets: every this many labels, as a
             label's ``cut.every``; None leaves such a label uncut (the cutter is switched off
             for it). A label's own ``cut`` wins; a feed never cuts.

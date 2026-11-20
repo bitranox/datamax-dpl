@@ -54,7 +54,8 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
   (a label `present_distance` without `<STX>Kf` still goes out as `<STX>f`);
   `cutter_stop_position = "printer"` and `joined_stop_position = "printer"` do the same for a job
   that cuts and a `--data` record followed uncut, the model's 76.8 mm and 25.4 mm included (one
-  of the two `"printer"` and the other in mm is refused, `stop_positions_mixed`).
+  of the two `"printer"` and the other in mm is refused, `stop_positions_mixed`; a joined stop of
+  `"printer"` warns, `joined_stop_printer_backfeed`, since an Allegro 2 pulled the stock back).
   Calibrate once per printer:
   1. `datamax-dpl calibrate print --printer NAME` prints two labels with the printer's current
      factors: the ACROSS label (a thin frame 2 mm in from every edge, so 96 mm on a 100 mm

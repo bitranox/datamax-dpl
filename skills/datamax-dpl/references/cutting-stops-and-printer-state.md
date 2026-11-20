@@ -63,7 +63,12 @@ The stop position (`<STX>f`) comes from the first of these that applies:
    In a series that cuts, one of the cutter and joined stops `"printer"` and the other in mm (set
    or the model's) refuses the job (`stop_positions_mixed`, nothing sent): the printer keeps the
    stop the record before sent, so the cut or the next joined record would stop at the wrong one.
-   Set both to `"printer"` (no stop at all) or both in mm;
+   Set both to `"printer"` (no stop at all) or both in mm. A joined stop of `"printer"` that is
+   not refused prints with the warning `joined_stop_printer_backfeed` on each joined record (none
+   on a model without `<STX>f`). Measured 2026-11-20 on an Allegro 2 with its cutter (50x20 mm
+   labels, cut every 2): with both stops `"printer"` it cut after labels 2 and 4 as asked but
+   pulled the stock back between labels 1 and 2 and between 3 and 4; with the model's stops
+   (`f100`, `f302`) it cut at the same places and did not pull back. A joined stop in mm stops it;
 4. otherwise the printer's own setting.
 
 A model with `<STX>Kf` (PE42, PE43, the Ovations, `permissive`) also sends `present_distance` as

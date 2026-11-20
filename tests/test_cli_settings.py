@@ -505,6 +505,8 @@ def test_a_series_with_both_stops_printer_prints_and_sends_no_stop(cli_runner: C
     assert exit_code == 0, envelope
     assert printer.sent != []
     assert all(b"\x02f" not in job for job in printer.sent)
+    assert "joined_stop_printer_backfeed" in json.dumps(envelope)
+    assert '[printer] joined_stop_position is \\"printer\\"' in json.dumps(envelope)
 
 
 @pytest.mark.os_agnostic

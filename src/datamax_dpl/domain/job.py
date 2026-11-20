@@ -485,6 +485,11 @@ def _joined_stop(ctx: RenderContext) -> list[bytes]:
     Sending one stop and dropping the other prints what neither setting asked for, so either mix is
     refused with both settings named (user decisions 2026-11-20). An unset cutter stop with no model
     default sends none and mixes with nothing, and a model without a stop command sends neither.
+
+    A joined stop of ``"printer"`` that is not refused still prints, with a warning: the printer then
+    stops each joined label at its own stop, and on an Allegro 2 that pulled the stock back between
+    joined labels (measured 2026-11-20). A model without a stop command gets no warning, since a
+    stop in mm, the remedy it names, would not be sent there either.
     """
     joined, cutter = ctx.joined_stop_position_mm, ctx.cutter_stop_position_mm
     joined_mm, cutter_mm = _in_mm(joined), _in_mm(cutter)
@@ -493,7 +498,19 @@ def _joined_stop(ctx: RenderContext) -> list[bytes]:
             return _refuse_mixed_stops(_CUTTER_PRINTER, sends=joined_mm, ctx=ctx)
         if joined is PrinterStop.PRINTER and cutter_mm is not None:
             return _refuse_mixed_stops(_JOINED_PRINTER, sends=cutter_mm, ctx=ctx)
+        if joined is PrinterStop.PRINTER:
+            _warn_joined_backfeed(ctx)
     return _sent_configured_stop(joined, ctx)
+
+
+def _warn_joined_backfeed(ctx: RenderContext) -> None:
+    """Warn that a joined stop of ``"printer"`` may pull the stock back, naming the remedy."""
+    name = option_name("joined_stop_position_mm")
+    ctx.findings.warn(
+        FindingCode.JOINED_STOP_PRINTER_BACKFEED,
+        f'{name} is "printer": the printer may pull the stock back between joined labels '
+        f"(measured on an Allegro 2, 2026-11-20); set {name} in mm to stop that",
+    )
 
 
 def _in_mm(stop: float | PrinterStop | None) -> float | None:

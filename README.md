@@ -411,6 +411,9 @@ these that applies:
    and the other in mm (set, or the model's) is refused (`stop_positions_mixed`, nothing is sent):
    the printer keeps the stop the record before sent, so the cut would land at the joined stop, or
    the next joined record would stop at the cutter stop. Set both to `"printer"`, or both in mm.
+   Both `"printer"` prints, with the warning `joined_stop_printer_backfeed` on each joined record:
+   measured 2026-11-20 on an Allegro 2, the printer then pulled the stock back between joined
+   labels, which a joined stop in mm stops.
 4. Nothing: the printer keeps its own setting.
 
 A `present_distance` can also go out beside that stop:
