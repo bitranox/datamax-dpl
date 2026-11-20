@@ -33,7 +33,7 @@ def _validate(example: str, *, tmp_path: Path, capsys: pytest.CaptureFixture[str
 @pytest.mark.os_agnostic
 def test_the_page_still_holds_its_examples() -> None:
     """A changed fence must not leave the tests below with nothing to read."""
-    assert len(_examples()) == 11
+    assert len(_examples()) == 12
     assert sum(_STORED_IMAGE_EXAMPLE in example for example in _examples()) == 1
 
 

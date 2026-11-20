@@ -59,6 +59,7 @@ from .qr import QrDataTooLongError
 from .raster import Bitmap
 from .raster_fallback import draw_graphic, frame_of
 from .render_context import MAX_FIELD_VALUE
+from .text_metrics import align_shift_units
 from .units import Axis
 
 if TYPE_CHECKING:
@@ -343,11 +344,14 @@ def _field_rectangle(element: Text | ScalableText | Barcode, ctx: RenderContext)
     """The rectangle the preview draws for a text field or barcode, turned, at the printed position.
 
     The size is the preview's (fonts and bars are counted in dots, which no scale changes); the
-    reference point is where the record puts it.
+    reference point is where the record puts it, a centred or right-aligned text field moved back
+    by its alignment as the encoder moves it.
     """
     # A one-pixel canvas puts the reference point's row at minus its height above the bottom.
     area = field_area(element, Canvas(width=1, height=1, geometry=PreviewGeometry(ctx)))
-    x, y = _dots_at(element.x, axis=Axis.ACROSS, ctx=ctx), _dots_at(element.y, axis=Axis.ALONG, ctx=ctx)
+    shift = align_shift_units(element, ctx) if isinstance(element, Text) else 0
+    x = ctx.printed_dots(position_units(element.x, axis=Axis.ACROSS, ctx=ctx) - shift)
+    y = _dots_at(element.y, axis=Axis.ALONG, ctx=ctx)
     box = dataclasses.replace(area, x=x, y=-y).box()
     return DotArea(left=box.left, bottom=-(box.top + box.height - 1), width=box.width, height=box.height)
 

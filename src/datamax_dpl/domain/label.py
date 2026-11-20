@@ -35,6 +35,7 @@ from .enums import (
     QrError,
     Rotation,
     SpeedCode,
+    TextAlign,
     Unit,
     ValidationErrorType,
 )
@@ -188,9 +189,18 @@ class Text(_Placed):
     ``font_id`` selects a downloaded or cartridge font by its DPL id (``100``-``999``, ``B04``...)
     instead and needs ``font=9``.
 
+    ``align`` says where ``x`` sits on the printed line: its left end (the default), its centre or
+    its right end. The encoder moves the field back by the width the line prints, worked out per
+    record after placeholders are filled (:mod:`~datamax_dpl.domain.text_metrics`: exact for fonts
+    0-8, a Helvetica-Bold stand-in for font 9). An aligned field must be upright and take no
+    counter, no ``font_id`` and, in font 9, no ``width_multiplier``: the width of a turned,
+    counting, downloaded-font or widened font 9 line is not known here.
+
     Example:
         >>> Text(x=5, y=10, text="Hello").font
         2
+        >>> Text(x=95, y=10, text="5 STK", font=9, points=30, align="right").align
+        <TextAlign.RIGHT: 'right'>
     """
 
     type: Literal["text"] = "text"
@@ -202,6 +212,27 @@ class Text(_Placed):
     height_multiplier: Multiplier = 1
     attribute: _Coded[Attribute] | None = None
     counter: Counter | None = None
+    align: TextAlign = Field(
+        default=TextAlign.LEFT,
+        description="Where x sits on the printed line: its left end, its centre or its right end.",
+    )
+
+    @model_validator(mode="after")
+    def _only_a_known_width_aligns(self) -> Text:
+        if self.align is TextAlign.LEFT:
+            return self
+        if self.rotation != Rotation.DEG_0:
+            reason = "an upright field (rotation 0)"
+        elif self.counter is not None:
+            reason = "a field without a counter, whose width changes from label to label on the printer"
+        elif self.font_id is not None:
+            reason = "a built-in font, not a font_id, whose widths are not known"
+        elif self.font == FONT_9 and self.width_multiplier != 1:
+            reason = "font 9 without a width_multiplier, whose effect on font 9 widths is not known"
+        else:
+            return self
+        msg = f"align {self.align.value!r} needs {reason}"
+        raise ValueError(msg)
 
     @model_validator(mode="after")
     def _font9_needs_a_size(self) -> Text:

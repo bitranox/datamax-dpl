@@ -250,6 +250,12 @@ repeat record; its decoder still reads them.
 | 8    | OCR-B digits and a few symbols  | 28/15/5                        | 41/22/7    | 40/22/7       |
 | 9    | CG Triumvirate, size from `eee` | proportional                   |            |               |
 
+Font 9 is CG Triumvirate Bold: the manual's table "Font 9 Bitmapped Resident fonts specifications"
+names it for both the `000`-`010` and the `A04`-`A72` sizes (printed page 174, PDF page 184). Its
+character widths are not in the manual; `src/datamax_dpl/domain/text_metrics.py` holds a
+Helvetica-Bold stand-in (unverified on paper) that text alignment, the preview and the label edge
+check measure a font 9 line with.
+
 Character codes above 127 follow code page 437 for fonts 1, 2 and 9 (ä 132, ö 148, ü 129, Ä 142, Ö
 153, Ü 154, ß 225); fonts 3-6 print capitals only, so a lower-case letter prints as its capital (an
 umlaut too), and above 127 they have codes 128, 142-144, 146, 153, 154, 156, 157, 165, 168 and 225,

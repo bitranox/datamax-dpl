@@ -149,23 +149,57 @@ the preview's reading of the figure is unverified until a test print.
 
 ### `text`: built-in fonts
 
-| Key                 | Type                | Default | Meaning                                                                              |
-|---------------------|---------------------|---------|--------------------------------------------------------------------------------------|
-| `x`, `y`            | number >= 0         | -       | Lower-left corner.                                                                   |
-| `rotation`          | 0, 90, 180, 270     | 0       | Rotation in degrees.                                                                 |
-| `text`              | string, 1-255 chars | -       | The text; may contain `{name}` placeholders.                                         |
-| `font`              | integer 0-9         | 2       | Fonts 0-8 are fixed bitmapped fonts; 9 is CG Triumvirate in point sizes.             |
-| `points`            | integer 4-72        | none    | Point size for font 9. A size the model lacks is replaced by the nearest one it has. |
-| `font_id`           | three characters    | none    | A downloaded or cartridge font by DPL id (`100`-`999`, `B04` ...); needs `font` 9.   |
-| `width_multiplier`  | integer 1-24        | 1       | Horizontal scale of fonts 0-8.                                                       |
-| `height_multiplier` | integer 1-24        | 1       | Vertical scale of fonts 0-8.                                                         |
-| `attribute`         | 1, 2, 3, 5          | none    | Attribute for this field only.                                                       |
-| `counter`           | object              | none    | Make the field count from label to label, see below.                                 |
+| Key                 | Type                      | Default | Meaning                                                                              |
+|---------------------|---------------------------|---------|--------------------------------------------------------------------------------------|
+| `x`, `y`            | number >= 0               | -       | Lower-left corner.                                                                   |
+| `rotation`          | 0, 90, 180, 270           | 0       | Rotation in degrees.                                                                 |
+| `text`              | string, 1-255 chars       | -       | The text; may contain `{name}` placeholders.                                         |
+| `font`              | integer 0-9               | 2       | Fonts 0-8 are fixed bitmapped fonts; 9 is CG Triumvirate in point sizes.             |
+| `points`            | integer 4-72              | none    | Point size for font 9. A size the model lacks is replaced by the nearest one it has. |
+| `font_id`           | three characters          | none    | A downloaded or cartridge font by DPL id (`100`-`999`, `B04` ...); needs `font` 9.   |
+| `width_multiplier`  | integer 1-24              | 1       | Horizontal scale of fonts 0-8.                                                       |
+| `height_multiplier` | integer 1-24              | 1       | Vertical scale of fonts 0-8.                                                         |
+| `attribute`         | 1, 2, 3, 5                | none    | Attribute for this field only.                                                       |
+| `counter`           | object                    | none    | Make the field count from label to label, see below.                                 |
+| `align`             | `left`, `center`, `right` | `left`  | Where `x` sits on the printed line: its left end, its centre or its right end.       |
 
 Font 9 needs `points` or `font_id`; the other fonts take neither. Fonts 3 to 6 print capitals
 only, font 7 is OCR-A and font 8 OCR-B. Characters above ASCII follow code page 437 in fonts 1, 2
 and 9 (German umlauts and sharp s included); fonts 3 to 6 print capital umlauts and sharp s; a
 character a font cannot print becomes `?` with a warning.
+
+#### Alignment and text widths
+
+DPL has no justification: a field is placed at its lower-left corner. For `"align": "right"` the
+encoder moves the field back from `x` by the width the line prints, so the line ends at `x`; for
+`"center"` by half of it. The width is worked out per record, after `{name}` placeholders are
+filled, so `{"text": "{qty} STK", "align": "right"}` ends at the same `x` whatever the quantity.
+It is rounded to whole DPL units (on an Allegro 2, 1/100 in, 2 dots). A line that would start left
+of the label is refused (`text_past_left_edge`); `x` itself is checked against the printable width
+like any field's start (`outside_print_width`).
+
+- Fonts 0-8 are measured by their character cells (dpl-reference.md, section 6): exact. The gap
+  after the last character prints nothing and is left out, so the last character's cell ends at
+  `x`.
+- Font 9 is the resident CG Triumvirate Bold (manual, printed page 174). The manual gives no
+  widths, so each character is measured by Helvetica-Bold's published advance width at the point
+  size the model prints, the point size taken as the em. That is a stand-in, not the printer's
+  own bitmap widths: unverified until a test print, which may move a right-aligned line's end by a
+  few dots. A font 9 line in the preview, the label edge check (`element_past_label_edge`) and the
+  overlap checks is as long as these widths say, aligned or not.
+- An aligned field must be upright (rotation 0) and take no `counter` (the printer changes the
+  number, and so the width, from label to label), no `font_id` (a downloaded font's widths are not
+  known) and, in font 9, no `width_multiplier`; each is refused when the label is read.
+
+```json
+{
+  "unit": "mm", "width": 100, "height": 55,
+  "elements": [
+    {"type": "text", "x": 95, "y": 40, "text": "{qty} STK", "font": 9, "points": 30, "align": "right"},
+    {"type": "text", "x": 50, "y": 5, "text": "centred", "font": 2, "align": "center"}
+  ]
+}
+```
 
 `counter`:
 

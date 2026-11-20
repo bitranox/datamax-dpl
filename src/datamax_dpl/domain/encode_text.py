@@ -17,6 +17,8 @@ from .enums import FindingCode
 from .label import FONT_9, ScalableText, Text
 from .profiles import OLD_SERIES_POINTS, Feature
 from .records import Header, line
+from .text_metrics import align_shift_units, font9_points
+from .units import MM_PER_INCH
 
 if TYPE_CHECKING:
     from .render_context import RenderContext
@@ -34,16 +36,12 @@ def _size_code(points: int, ctx: RenderContext) -> str | None:
     return None
 
 
-def _available_points(ctx: RenderContext) -> list[int]:
-    return sorted(set(ctx.profile.a_series_points) | set(ctx.profile.old_series_points))
-
-
 def font9_size(points: int, *, index: int, ctx: RenderContext) -> str:
     """Return the size code for font 9 at ``points``, substituting the nearest size the model has."""
     code = _size_code(points, ctx)
     if code is not None:
         return code
-    nearest = min(_available_points(ctx), key=lambda p: (abs(p - points), p))
+    nearest = font9_points(points, ctx.profile)
     ctx.findings.deviate(
         FindingCode.FONT_SIZE_SUBSTITUTED,
         f"{ctx.profile.name} has no {points} pt size of font 9",
@@ -66,6 +64,28 @@ def _report_unmappable(encoded: EncodedText, *, index: int, ctx: RenderContext, 
     )
 
 
+def _text_column(element: Text, *, index: int, ctx: RenderContext) -> int:
+    """Return the record column of a text field: ``x``'s, moved back by its alignment.
+
+    ``x`` itself is checked against the printable width (``outside_print_width``), so a centred or
+    right-aligned line whose middle or end is past it is refused like a field starting there. A
+    line that would start left of the label's 0 edge is refused (``text_past_left_edge``) and
+    written at column 0, so the job still renders for the findings.
+    """
+    column = column_of(element.x, index=index, ctx=ctx)
+    shift = align_shift_units(element, ctx)
+    if shift <= column:
+        return column - shift
+    mm_per_unit = ctx.dots_per_unit / ctx.profile.dpi * MM_PER_INCH
+    ctx.findings.refuse(
+        FindingCode.TEXT_PAST_LEFT_EDGE,
+        f"the {element.align.value}-aligned line would start about {(shift - column) * mm_per_unit:.1f} mm left of "
+        "the label's left edge; move x right by that or shorten the text",
+        element=index,
+    )
+    return 0
+
+
 def encode_text(element: Text, *, index: int, ctx: RenderContext) -> list[bytes]:
     """Return the format lines of a text field."""
     size = "000"
@@ -83,7 +103,7 @@ def encode_text(element: Text, *, index: int, ctx: RenderContext) -> list[bytes]
         height=element.height_multiplier,
         size=size,
         row=row_of(element.y, index=index, ctx=ctx),
-        column=column_of(element.x, index=index, ctx=ctx),
+        column=_text_column(element, index=index, ctx=ctx),
     ).encode()
     lines = attribute_lines(element.attribute, index=index, ctx=ctx, text=True)
     lines.append(line(head + encoded.data))

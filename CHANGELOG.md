@@ -6,6 +6,38 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A `text` field takes `"align": "right"` or `"center"` (default `"left"`, the placement so far):
+  `x` is then the END or the middle of the printed line. DPL has no justification, so datamax-dpl
+  measures the line and moves the field back by that width, per record after `{name}` is filled,
+  rounded to the job's DPL unit (2 dots on an `allegro-2`). The preview and the label checks place
+  the field the same way. `TextAlign` is exported. Fonts 0-8 are measured exactly by their cells;
+  font 9 by a stand-in width table (below). An aligned field must be upright and take no `counter`
+  (the printer changes its width), no `font_id` (widths unknown) and, in font 9, no
+  `width_multiplier`: each is refused when the label is read (exit 2).
+- The new error finding `text_past_left_edge` refuses a centred or right-aligned line that would
+  start left of the label, naming how far; nothing is sent (exit 1).
+
+### Changed
+
+- Font 9 is measured per character: the manual names it CG Triumvirate Bold but lists no widths,
+  so datamax-dpl uses the Helvetica-Bold widths (Adobe Core14 AFM) at the point size the model
+  prints, marked unverified until checked on paper. The preview, the label-edge check
+  (`element_past_label_edge`) and the overlap check now use these widths instead of a flat
+  0.6 em per character, and the preview sizes font 9 at the printed point size (after
+  `font_size_substituted`) instead of the requested one. Findings for font 9 text change with it:
+  a line of narrow letters ends earlier than before and one of wide capitals later, so a field
+  that warned may no longer, and the reverse. On an Allegro 2 the old estimate cut "NORTHWAY"
+  (8 pt) and "ABCDEF00123" (30 pt) in the preview although the printer printed them whole.
+- The PNG preview letters font 9 and scalable text one character at a time, each at its estimated
+  advance, so a proportional line no longer squeezes into a box of equal cells.
+- Skill: the preview and `validate` work from estimated text ends, so only paper decides whether
+  a line fits; the test print takes the options production sends, with the allegro-2 cutter bytes
+  (no `--cutter`: no `<STX>V`, stop `f263`; `--cutter no`: `<STX>V0`, `f263`; `--cutter yes`:
+  `<STX>V1`, `f302`); how to keep a QR Code the same printed size as its data grows (one label
+  file per `module_dots`, with the level-M version bands).
+
 ## [0.11.0] - 2026-11-20
 
 ### Added

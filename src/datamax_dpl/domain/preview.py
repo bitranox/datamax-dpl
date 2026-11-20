@@ -65,6 +65,7 @@ from .profiles import Feature, get_profile
 from .qr import QrDataTooLongError, element_symbol
 from .raster import Bitmap
 from .render_context import RenderOptions
+from .text_metrics import CELLS, align_shift_units, char_advances, font9_em_dots
 from .units import Axis, to_inches
 
 if TYPE_CHECKING:
@@ -75,55 +76,9 @@ if TYPE_CHECKING:
 
 _DPI_203 = 203
 _DPI_300 = 300
-_DPI_289 = 289
 #: The DMX 430's resolution, the one the third column of the font tables is for.
 _DPI_289_56 = 289.56
-
-
-@dataclass(frozen=True)
-class _CharCell:
-    """One character of a font in dots: its height, its width and the gap after it."""
-
-    height: int
-    width: int
-    gap: int
-
-
-@dataclass(frozen=True)
-class _FontCells:
-    """A bitmapped font's character cell at each resolution the font tables list."""
-
-    dpi_203: _CharCell
-    dpi_300: _CharCell
-    dpi_289: _CharCell
-
-    def at(self, dpi: float) -> _CharCell:
-        """The cell at ``dpi``: 300 dpi and up, 289.56 dpi (the DMX 430), else 203 dpi."""
-        if dpi >= _DPI_300:
-            return self.dpi_300
-        if dpi >= _DPI_289:
-            return self.dpi_289
-        return self.dpi_203
-
-
-#: Character cell (height, width, gap) in dots at 203 / 300 / 289.56 dpi, for fonts 0-8.
-_CELLS: Mapping[int, _FontCells] = MappingProxyType(
-    {
-        0: _FontCells(_CharCell(7, 5, 1), _CharCell(10, 7, 1), _CharCell(10, 7, 1)),
-        1: _FontCells(_CharCell(13, 7, 2), _CharCell(19, 10, 3), _CharCell(18, 10, 3)),
-        2: _FontCells(_CharCell(18, 10, 2), _CharCell(27, 15, 3), _CharCell(26, 14, 3)),
-        3: _FontCells(_CharCell(27, 14, 2), _CharCell(40, 21, 3), _CharCell(39, 20, 3)),
-        4: _FontCells(_CharCell(36, 18, 3), _CharCell(53, 27, 4), _CharCell(52, 26, 4)),
-        5: _FontCells(_CharCell(52, 18, 3), _CharCell(77, 27, 4), _CharCell(75, 26, 4)),
-        6: _FontCells(_CharCell(64, 32, 4), _CharCell(95, 47, 6), _CharCell(92, 46, 6)),
-        7: _FontCells(_CharCell(32, 15, 5), _CharCell(47, 22, 7), _CharCell(46, 22, 7)),
-        8: _FontCells(_CharCell(28, 15, 5), _CharCell(41, 22, 7), _CharCell(40, 22, 7)),
-    }
-)
-_POINTS_PER_INCH = 72
 _MM_PER_INCH = 25.4
-#: Average glyph width of a proportional font as a share of its point size.
-_PROPORTIONAL_WIDTH = 0.6
 #: Estimated modules per character for module barcodes (Code 128 is 11).
 _MODULES_PER_CHAR = 11
 _DEFAULT_BARCODE_HEIGHT_IN = 0.5
@@ -136,6 +91,9 @@ _BARCODE_TEXT_SHARE = 4
 STORED_IMAGE_DOTS = 40
 _MIN_POINTS = 4
 _MAX_POINTS = 72
+#: Font 9 size a field with neither ``points`` nor ``font_id`` is drawn at; validation refuses such
+#: a field, so this only keeps the arithmetic total.
+_DEFAULT_POINTS = 10
 
 
 @dataclass(frozen=True)
@@ -259,24 +217,50 @@ def widest_cell_mm(font: int) -> CellMm:
         >>> round(cell.advance, 2), round(cell.height, 2)
         (1.14, 1.63)
     """
-    font_cells = _CELLS[font]
+    font_cells = CELLS[font]
     cells = ((font_cells.dpi_203, _DPI_203), (font_cells.dpi_300, _DPI_300), (font_cells.dpi_289, _DPI_289_56))
     advance = max((cell.width + cell.gap) / dpi for cell, dpi in cells)
     height = max(cell.height / dpi for cell, dpi in cells)
     return CellMm(advance=advance * _MM_PER_INCH, height=height * _MM_PER_INCH)
 
 
-def _text_size(element: Text, dpi: float) -> _CharCell:
-    """Return the cell in dots of one character, multiplied as the field asks."""
+def _cell_height(element: Text, profile: PrinterProfile) -> int:
+    """Return the dots one line of ``element`` is tall: font 9's printed em, else the cell times its multiplier."""
     if element.font == FONT_9:
-        height = round((element.points or 10) * dpi / _POINTS_PER_INCH)
-        return _CharCell(height=height, width=round(height * _PROPORTIONAL_WIDTH), gap=0)
-    cell = _CELLS[element.font].at(dpi)
-    return _CharCell(
-        height=cell.height * element.height_multiplier,
-        width=cell.width * element.width_multiplier,
-        gap=cell.gap * element.width_multiplier,
-    )
+        return round(font9_em_dots(element.points or _DEFAULT_POINTS, profile))
+    return CELLS[element.font].at(profile.dpi).height * element.height_multiplier
+
+
+def _ink_width(element: Text, profile: PrinterProfile) -> int | None:
+    """Return the dots of a character cell that print ink in fonts 0-8, None for font 9's touching cells."""
+    if element.font == FONT_9:
+        return None
+    return CELLS[element.font].at(profile.dpi).width * element.width_multiplier
+
+
+def letter_spans(element: Text | ScalableText, canvas: Canvas) -> tuple[Span, ...]:
+    """Return where each character of a text field lies along its line, from its reference point.
+
+    Each starts where the advances before it end (:func:`~.text_metrics.char_advances`) and is as
+    long as its cell: the cell's width in fonts 0-8, which leaves the gap after it blank, and the
+    whole advance in font 9, whose cells touch. A scalable text field is measured as the font 9
+    field the preview draws for it.
+
+    Example:
+        >>> label = Label(elements=[Text(x=0, y=0, text="Wi", font=9, points=8)])
+        >>> canvas = canvas_for(label, get_profile("allegro-2"))
+        >>> letter_spans(label.elements[0], canvas)
+        (Span(start=0, length=21), Span(start=21, length=6))
+    """
+    text = _as_text(element) if isinstance(element, ScalableText) else element
+    profile = canvas.geometry.ctx.profile
+    ink = _ink_width(text, profile)
+    spans: list[Span] = []
+    start = 0
+    for advance in char_advances(text, profile):
+        spans.append(Span(start=start, length=advance if ink is None else ink))
+        start += advance
+    return tuple(spans)
 
 
 class UprightPart(NamedTuple):
@@ -412,15 +396,29 @@ def _barcode_size(element: Barcode, canvas: Canvas) -> Size:
 
 
 def field_area(element: Text | ScalableText | Barcode, canvas: Canvas) -> FieldArea:
-    """Return the reference point, upright size and rotation of a text field's line or a barcode."""
+    """Return the reference point, upright size and rotation of a text field's line or a barcode.
+
+    A text field's line is as long as its characters' advances (:func:`~.text_metrics.char_advances`).
+    A centred or right-aligned one starts where its record is written: moved back from ``x`` by
+    :func:`~.text_metrics.align_shift_units`, as the encoder moves it.
+    """
     x, y = canvas.point(element.x, element.y)
     if isinstance(element, Barcode):
         size = _barcode_size(element, canvas)
         return FieldArea(x=x, y=y, length=size.width, height=size.height, rotation=element.rotation)
     text = _as_text(element) if isinstance(element, ScalableText) else element
-    cell = _text_size(text, canvas.dpi)
+    geometry = canvas.geometry
+    shift = align_shift_units(text, geometry.ctx)
+    if shift:
+        column = position_units(text.x, axis=Axis.ACROSS, ctx=geometry.ctx) - shift
+        x = geometry.at_units(column, axis=Axis.ACROSS)
+    profile = geometry.ctx.profile
     return FieldArea(
-        x=x, y=y, length=len(text.text) * (cell.width + cell.gap), height=cell.height, rotation=text.rotation
+        x=x,
+        y=y,
+        length=sum(char_advances(text, profile)),
+        height=_cell_height(text, profile),
+        rotation=text.rotation,
     )
 
 
@@ -459,10 +457,8 @@ def text_box(element: Text | ScalableText | Barcode, canvas: Canvas) -> Rect:
 def _draw_text(element: Text, bitmap: Bitmap, canvas: Canvas) -> None:
     """Draw one grey cell per character, advancing from the reference point the way the field turns."""
     area = field_area(element, canvas)
-    cell = _text_size(element, canvas.dpi)
-    for index, char in enumerate(element.text):
+    for char, along in zip(element.text, letter_spans(element, canvas), strict=True):
         if not char.isspace():
-            along = Span(start=index * (cell.width + cell.gap), length=cell.width)
             bitmap.fill_rect(*area.part(along=along), pattern=FillPattern.SHADE_50)
 
 
@@ -941,6 +937,7 @@ __all__ = [
     "check_preview_length",
     "draw_element",
     "field_area",
+    "letter_spans",
     "mask_area",
     "mask_box",
     "preview_bitmap",

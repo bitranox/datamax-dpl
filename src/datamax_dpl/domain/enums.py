@@ -122,6 +122,23 @@ class QrError(str, Enum):
     H = "H"
 
 
+class TextAlign(str, Enum):
+    """Where a text field's ``x`` sits on its printed line (the ``align`` key of a ``text`` element).
+
+    DPL places every field at its lower-left corner and has no justification, so for ``right`` and
+    ``center`` the encoder moves the field back by the width the line prints
+    (:mod:`~datamax_dpl.domain.text_metrics`), worked out per record after placeholders are filled.
+
+    Example:
+        >>> TextAlign("right") is TextAlign.RIGHT
+        True
+    """
+
+    LEFT = "left"
+    CENTER = "center"
+    RIGHT = "right"
+
+
 class Attribute(IntEnum):
     """How a field combines with what is already printed (format command ``An``).
 
@@ -378,6 +395,7 @@ class FindingCode(str, Enum):
     STOP_POSITIONS_MIXED = "stop_positions_mixed"
     SYMBOL_SET_UNSUPPORTED = "symbol_set_unsupported"
     SYMBOLOGY_UNSUPPORTED = "symbology_unsupported"
+    TEXT_PAST_LEFT_EDGE = "text_past_left_edge"
     TEXT_UPPERCASED = "text_uppercased"
     TOO_MANY_FIELDS = "too_many_fields"
     TRANSPARENCY_EMULATED = "transparency_emulated"
@@ -648,6 +666,7 @@ __all__ = [
     "SpeedCode",
     "StatusFlag",
     "StatusProblem",
+    "TextAlign",
     "Unit",
     "ValidationErrorType",
 ]

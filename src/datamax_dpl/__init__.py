@@ -77,6 +77,7 @@ from .domain.enums import (
     Severity,
     SpeedCode,
     StatusProblem,
+    TextAlign,
     Unit,
 )
 from .domain.errors import (
@@ -220,6 +221,7 @@ __all__ = [
     "Support",
     "Symbology",
     "Text",
+    "TextAlign",
     "TransportError",
     "TransportTuning",
     "UndescribedBit",

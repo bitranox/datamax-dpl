@@ -5,7 +5,10 @@ Pillow available, each text field and each barcode's data is lettered in Pillow'
 font, so a reader (or an LLM looking at the PNG) sees what the label says. The lettering goes to
 the domain as a mask of its glyph pixels (``preview_bitmap``'s ``masks``) and is combined with the
 other fields there, so a line crossing text gaps only under the strokes, as on paper. The lettering
-is Pillow's font, not the printer's: shapes and widths differ from a real print. A turned field is
+is Pillow's font, not the printer's: shapes differ from a real print. Fonts 0-8 are lettered as one
+string, whose widths differ from the printer's cells too; font 9 and scalable text are lettered one
+character at a time, each where the printer's advance puts it (``domain.text_metrics``), so the
+field ends where the printed line is estimated to end. A turned field is
 lettered upright in a picture of its own and that picture is turned clockwise (exactly, a quarter
 turn being a transpose) into the field's turned box, by the rule in ``domain.preview``.
 
@@ -23,7 +26,7 @@ from typing import TYPE_CHECKING, Protocol, cast
 
 from ...domain.enums import FindingCode, Severity
 from ...domain.findings import Finding
-from ...domain.label import Barcode, ScalableText, Text
+from ...domain.label import FONT_9, Barcode, ScalableText, Text
 from ...domain.png import encode_png
 from ...domain.preview import (
     DEFAULT_PREVIEW_MAX_LENGTH_MM,
@@ -32,12 +35,16 @@ from ...domain.preview import (
     canvas_for,
     check_preview_fields,
     check_preview_length,
+    letter_spans,
     mask_area,
     preview_bitmap,
 )
 from ...domain.raster import Bitmap
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from ...domain.geometry import Span
     from ...domain.label import Label
     from ...domain.preview import SentAs
     from ...domain.profiles import PrinterProfile
@@ -113,7 +120,22 @@ def pillow_available() -> bool:
     return _pillow() is not None
 
 
-def _text_mask(pillow: _Pillow, area: FieldArea, text: str, canvas: Canvas) -> Bitmap | None:
+def _letter_spans(element: Text | ScalableText | Barcode, canvas: Canvas) -> tuple[Span, ...] | None:
+    """Where each letter goes for a field lettered one character at a time, None for one lettered whole.
+
+    Font 9 (without a ``font_id``) and scalable text go letter by letter; fonts 0-8, a downloaded
+    font and a barcode's data are lettered as one string.
+    """
+    if isinstance(element, ScalableText) or (
+        isinstance(element, Text) and element.font == FONT_9 and element.font_id is None
+    ):
+        return letter_spans(element, canvas)
+    return None
+
+
+def _text_mask(
+    pillow: _Pillow, area: FieldArea, text: str, canvas: Canvas, *, spans: Sequence[Span] | None = None
+) -> Bitmap | None:
     """Letter the part of ``text`` that lands on ``canvas``, turn it into place and return its glyph pixels.
 
     The picture is a mode "1" image drawn without anti-aliasing, so each pixel is a glyph's dot or
@@ -122,6 +144,11 @@ def _text_mask(pillow: _Pillow, area: FieldArea, text: str, canvas: Canvas) -> B
     picture of the whole string at a byte per pixel first, which took 1.9 s and 459 MB for one
     field of 255 characters at 24 times the size, nearly all of it past the canvas.
 
+    With ``spans`` (one per character, :func:`~datamax_dpl.domain.preview.letter_spans`) each
+    letter is drawn on its own where the printer's advance puts it, not at Pillow's own advance:
+    lettered as one string, Pillow's narrower font ran short of the field, or past it, and the end
+    of a font 9 line read as cut off where the paper printed it whole.
+
     Returns:
         The glyph pixels, the size of the field's ``mask_box``; None when the field misses the canvas.
     """
@@ -129,12 +156,19 @@ def _text_mask(pillow: _Pillow, area: FieldArea, text: str, canvas: Canvas) -> B
     if part is None:
         return None
     size = max(_MIN_FONT_PIXELS, area.height)
-    letters = (part.along.start + part.along.length) // max(1, size // _NARROWEST_LETTER_SHARE) + 1
     above = area.height - part.up.start - part.up.length
     upright = pillow.image.new("1", (part.along.length, part.up.length), _NONE)
     draw = pillow.draw.Draw(upright)
     draw.fontmode = "1"
-    draw.text((-part.along.start, -above), text[:letters], fill=_INK, font=pillow.font.load_default(size=size))
+    font = pillow.font.load_default(size=size)
+    if spans is None:
+        letters = (part.along.start + part.along.length) // max(1, size // _NARROWEST_LETTER_SHARE) + 1
+        draw.text((-part.along.start, -above), text[:letters], fill=_INK, font=font)
+    else:
+        end = part.along.start + part.along.length
+        for char, span in zip(text, spans, strict=True):
+            if span.start < end and span.start + span.length > part.along.start and not char.isspace():
+                draw.text((span.start - part.along.start, -above), char, fill=_INK, font=font)
     # Pillow turns counter-clockwise by positive angles; the manual's rotations turn clockwise.
     turned = upright.rotate(-area.rotation.value, expand=True)
     width, height = turned.size
@@ -150,7 +184,7 @@ def _masks(pillow: _Pillow, label: Label, profile: PrinterProfile, options: Rend
         if not isinstance(element, (Text, ScalableText, Barcode)):
             continue
         text = element.data if isinstance(element, Barcode) else element.text
-        mask = _text_mask(pillow, mask_area(element, canvas), text, canvas)
+        mask = _text_mask(pillow, mask_area(element, canvas), text, canvas, spans=_letter_spans(element, canvas))
         if mask is not None:
             masks[index] = mask
     return masks

@@ -58,9 +58,13 @@ pip install datamax-dpl
 Python 3.11 or newer) it writes the actual text into the picture, and a field crossing the text
 combines with the letters' dots, as the printer does: a line through text on an Allegro 2 (which
 XORs) shows gaps only under the strokes. The lettering is an approximation in the preview's own
-font, not the printer's, and may be cut at the end of the field, so the gaps near the end can
-differ from the paper. Without the extra the text combines as whole cells, and `preview` says so
-with the `preview_text_approximated` finding:
+font, not the printer's. Font 9 is lettered one character at a time where the printer's advance
+widths put each letter, so the line ends where the printed line is estimated to end; those widths
+are a Helvetica-Bold stand-in for the printer's CG Triumvirate Bold, unverified on paper (see
+[Alignment and text widths](docs/label-spec.md#alignment-and-text-widths)). Fonts 0-8 are lettered
+as one string, which may be cut at the end of the field, so the gaps near the end can differ from
+the paper. Without the extra the text combines as whole cells, and `preview` says so with the
+`preview_text_approximated` finding:
 
 ```bash
 uvx --from "datamax-dpl[preview]" datamax-dpl --help
