@@ -761,6 +761,43 @@ def test_a_stop_position_option_of_printer_leaves_no_stop_in_the_effective_calib
 
 
 @pytest.mark.os_agnostic
+def test_a_cutter_stop_position_option_of_printer_sends_no_stop_for_a_job_that_cuts() -> None:
+    """Unset, the Allegro 2 cuts at its measured 76.8 mm (f302); "printer" sends no <STX>f at all."""
+    cutting: dict[str, object] = {"cut": {"every": 1}}
+    with_printer = _stop_job(cutting, cutter_installed=True, cutter_stop_position_mm="printer")
+    plain = _stop_job(cutting, cutter_installed=True)
+    assert _stop_commands(plain) == [STX + b"f302"]
+    assert _stop_commands(with_printer) == []
+    assert not _names_the_model_stop(with_printer)
+    assert with_printer.errors == ()
+
+
+@pytest.mark.os_agnostic
+def test_a_cutter_stop_position_option_of_printer_leaves_the_tear_off_stop_of_a_job_that_does_not_cut() -> None:
+    with_printer = _stop_job(cutter_stop_position_mm="printer")
+    plain = _stop_job()
+    assert _stop_commands(plain) == [STX + b"f263"]
+    assert with_printer.data == plain.data
+
+
+@pytest.mark.os_agnostic
+def test_the_labels_stop_position_wins_over_a_cutter_stop_option_of_printer() -> None:
+    cutting: dict[str, object] = {"stop_position": 50, "cut": {"every": 1}}
+    with_printer = _stop_job(cutting, cutter_installed=True, cutter_stop_position_mm="printer")
+    plain = _stop_job(cutting, cutter_installed=True)
+    assert _stop_commands(plain) not in ([], [STX + b"f302"])
+    assert with_printer.data == plain.data
+
+
+@pytest.mark.os_agnostic
+def test_a_cutter_stop_position_option_of_printer_leaves_no_cutter_stop_in_the_effective_calibration() -> None:
+    options = RenderOptions(model="allegro-2", cutter_stop_position_mm=PrinterStop.PRINTER)
+    calibration = effective_calibration(options)
+    assert calibration.cutter_stop_position_mm is None
+    assert calibration.stop_position_mm == 66.8
+
+
+@pytest.mark.os_agnostic
 def test_the_labels_stop_position_wins_over_an_option_of_printer() -> None:
     with_printer = _stop_job({"stop_position": 50}, stop_position_mm="printer")
     plain = _stop_job({"stop_position": 50})
@@ -819,6 +856,7 @@ def test_a_stop_position_other_than_a_positive_number_or_printer_is_refused_once
     for model, field, document in (
         (Label, "stop_position", {"elements": [{"type": "text", "x": 5, "y": 5, "text": "X"}]}),
         (RenderOptions, "stop_position_mm", {"model": "allegro-2"}),
+        (RenderOptions, "cutter_stop_position_mm", {"model": "allegro-2"}),
     ):
         with pytest.raises(ValidationError) as caught:
             model.model_validate({**document, field: value})
@@ -830,11 +868,15 @@ def test_a_stop_position_of_printer_is_held_as_the_member_and_written_as_the_wor
     label = Label.model_validate(
         {"stop_position": "printer", "elements": [{"type": "text", "x": 5, "y": 5, "text": "X"}]}
     )
-    options = RenderOptions.model_validate({"model": "allegro-2", "stop_position_mm": "printer"})
+    options = RenderOptions.model_validate(
+        {"model": "allegro-2", "stop_position_mm": "printer", "cutter_stop_position_mm": "printer"}
+    )
     assert label.stop_position is PrinterStop.PRINTER
     assert options.stop_position_mm is PrinterStop.PRINTER
+    assert options.cutter_stop_position_mm is PrinterStop.PRINTER
     assert label.model_dump(mode="json")["stop_position"] == "printer"
     assert '"stop_position_mm":"printer"' in options.model_dump_json()
+    assert '"cutter_stop_position_mm":"printer"' in options.model_dump_json()
 
 
 @pytest.mark.os_agnostic

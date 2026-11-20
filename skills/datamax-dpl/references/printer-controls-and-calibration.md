@@ -51,7 +51,9 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
   `scale_along`, `offset_across`, `offset_along`, `stop_position`, `cutter_stop_position`,
   `joined_stop_position`) wins, even scale 1.0 or offset
   0.0; `stop_position = "printer"` (in the label too) sends no `<STX>f`: the printer's own stop
-  (a label `present_distance` without `<STX>Kf` still goes out as `<STX>f`).
+  (a label `present_distance` without `<STX>Kf` still goes out as `<STX>f`);
+  `cutter_stop_position = "printer"` does the same for a job that cuts, the model's 76.8 mm
+  included.
   Calibrate once per printer:
   1. `datamax-dpl calibrate print --printer NAME` prints two labels with the printer's current
      factors: the ACROSS label (a thin frame 2 mm in from every edge, so 96 mm on a 100 mm

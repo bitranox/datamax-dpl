@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `[printer] cutter_stop_position = "printer"` (also in a `[printers.<name>]` section, with
+  `--set printer.cutter_stop_position=printer`, and as `RenderOptions(cutter_stop_position_mm=
+  "printer")`) sends no `<STX>f` for a job that cuts, so the printer keeps the stop set on it. Until
+  now an unset `cutter_stop_position` was the only way not to send one, and on an `allegro-2` that
+  sends the model's 76.8 mm (`<STX>f302`). Unset still takes the model's cutter default. It works
+  like `stop_position = "printer"`: `model_defaults_applied` no longer names the cutter stop, a
+  label's own `stop_position` still wins, each key's `"printer"` leaves the other stop alone, and
+  any other word is refused with the key named (`Input should be 'printer'`).
+
 ## [0.10.5] - 2026-11-18
 
 ### Fixed

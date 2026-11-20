@@ -209,8 +209,8 @@ def _resolve(options: RenderOptions, model: CalibrationDefaults) -> CalibrationD
         scale_along=_pick(options.scale_along, model.scale_along),
         offset_across=_pick(options.offset_across, model.offset_across),
         offset_along=_pick(options.offset_along, model.offset_along),
-        stop_position_mm=_tear_off_stop(options.stop_position_mm, model.stop_position_mm),
-        cutter_stop_position_mm=_pick(options.cutter_stop_position_mm, model.cutter_stop_position_mm),
+        stop_position_mm=_sent_stop(options.stop_position_mm, model.stop_position_mm),
+        cutter_stop_position_mm=_sent_stop(options.cutter_stop_position_mm, model.cutter_stop_position_mm),
         cutter_stop_provenance=model.cutter_stop_provenance,
         joined_stop_position_mm=_pick(options.joined_stop_position_mm, model.joined_stop_position_mm),
         joined_stop_provenance=model.joined_stop_provenance,
@@ -220,8 +220,8 @@ def _resolve(options: RenderOptions, model: CalibrationDefaults) -> CalibrationD
     )
 
 
-def _tear_off_stop(explicit: float | PrinterStop | None, default: float | None) -> float | None:
-    """Return the tear-off stop position a job sends: none for ``"printer"``, else as :func:`_pick`."""
+def _sent_stop(explicit: float | PrinterStop | None, default: float | None) -> float | None:
+    """Return the stop position a job sends (tear-off or cutter): none for ``"printer"``, else as :func:`_pick`."""
     if explicit is PrinterStop.PRINTER:
         return None
     return _pick(explicit, default)

@@ -180,8 +180,8 @@ class RenderOptions(BaseModel):
             model's default, which for most models leaves the printer's own setting. A label's own
             ``stop_position`` wins, and a job that cuts never uses it.
         cutter_stop_position_mm: Stop position in mm for a job that cuts, sent as configured;
-            None takes the model's default, which for most models sends none and leaves the
-            printer's own setting.
+            ``"printer"`` sends none and keeps the printer's own setting; None takes the model's
+            default, which for most models sends none and leaves the printer's own setting.
         joined_stop_position_mm: Stop position in mm for a record of a ``--data`` series that the
             next record follows uncut, sent as configured; set at or below the start of print, so
             the printer does not pull the stock back between the two. None takes the model's
@@ -277,7 +277,7 @@ class RenderOptions(BaseModel):
         default=None, ge=-MAX_OFFSET_MM, le=MAX_OFFSET_MM, strict=True, allow_inf_nan=False
     )
     stop_position_mm: StopPosition | None = None
-    cutter_stop_position_mm: Positive | None = None
+    cutter_stop_position_mm: StopPosition | None = None
     joined_stop_position_mm: Positive | None = None
     cut_every: int | None = Field(default=None, ge=1, le=MAX_QUANTITY, strict=True)
     cut_after_print: bool = Field(default=True, strict=True)

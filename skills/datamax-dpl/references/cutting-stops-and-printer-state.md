@@ -54,7 +54,8 @@ The stop position (`<STX>f`) comes from the first of these that applies:
 3. `[printer] cutter_stop_position` for a job that is cut (a label with `cut`, or any label
    under `cut_after_print` whose job sends `<STX>V`, above), else `[printer] stop_position` (mm,
    at most 253.746), both sent unscaled; unset, each takes the model default, which only allegro-2
-   has (tear-off 66.8 mm, `<STX>f263`; cutter 76.8 mm, `<STX>f302`, measured with a cutter); a
+   has (tear-off 66.8 mm, `<STX>f263`; cutter 76.8 mm, `<STX>f302`, measured with a cutter), and
+   `"printer"` in either key sends none, that default included (a label's `"printer"` too); a
    `--data` record the next record follows uncut sends `[printer] joined_stop_position` instead
    (allegro-2: 25.4 mm, `<STX>f100`), below the start of print, since a stop past it makes the
    printer pull the stock back before the next record; unset on a model with no default, such a

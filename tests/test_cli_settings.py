@@ -344,10 +344,34 @@ def test_a_stop_position_word_other_than_printer_is_refused_with_the_key_named(
 
 
 @pytest.mark.os_agnostic
-def test_the_cutter_stop_position_takes_no_printer_value() -> None:
-    """A job that cuts needs the stop where the cutter is; unset already sends none (decision D37)."""
-    with pytest.raises(ConfigurationError, match=r"^printer\.cutter_stop_position: Input should be a valid number"):
-        _options({"printer": {"cutter_stop_position": "printer"}})
+def test_a_configured_cutter_stop_position_of_printer_reaches_the_render_options() -> None:
+    options = _options({"printer": {"cutter_stop_position": "printer"}})
+    assert options.cutter_stop_position_mm is PrinterStop.PRINTER
+
+
+@pytest.mark.os_agnostic
+def test_a_named_printers_cutter_stop_of_printer_and_the_printer_sections_win_over_each_other_by_section() -> None:
+    config = {"printer": {"cutter_stop_position": 80}, "printers": {"x": {"cutter_stop_position": "printer"}}}
+    flipped = {"printer": {"cutter_stop_position": "printer"}, "printers": {"x": {"cutter_stop_position": 80}}}
+
+    assert _options(config, printer="x").cutter_stop_position_mm is PrinterStop.PRINTER
+    assert _options(config).cutter_stop_position_mm == 80
+    assert _options(flipped, printer="x").cutter_stop_position_mm == 80
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("section", "printer"), [("printer", None), ("printers.x", "x")])
+def test_a_cutter_stop_position_word_other_than_printer_is_refused_with_the_key_named(
+    section: str, printer: str | None
+) -> None:
+    config = {"printer": {"cutter_stop_position": "paper"}}
+    if printer is not None:
+        config = {"printers": {"x": {"cutter_stop_position": "paper"}}}
+
+    with pytest.raises(
+        ConfigurationError, match=rf"^{re.escape(section)}\.cutter_stop_position: Input should be 'printer'$"
+    ):
+        _options(config, printer=printer)
 
 
 def _render(
@@ -407,6 +431,45 @@ def test_a_set_override_of_printer_reaches_render(
     factory = config_cli_context({"printer": {"stop_position": 60}})
     dpl = _render(cli_runner, factory, tmp_path, "--set", "printer.stop_position=printer", model="allegro-2")
 
+    assert "<STX>f" not in dpl
+
+
+_CUTTING_LINE = {**_LINE, "cut": {"every": 1}}
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("cutter_stop", [{"cutter_stop_position": "printer"}, {}])
+def test_a_configured_cutter_stop_position_of_printer_keeps_the_allegro_2s_own_cutter_stop(
+    cli_runner: CliRunner,
+    config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]],
+    tmp_path: Path,
+    cutter_stop: dict[str, Any],
+) -> None:
+    """Without the config value a cut on the Allegro 2 sends its measured 76.8 mm; with it, no stop at all."""
+    factory = config_cli_context({"printer": {"cutter": "yes", **cutter_stop}})
+    dpl = _render(cli_runner, factory, tmp_path, label=_CUTTING_LINE, model="allegro-2")
+
+    assert ("<STX>f302" in dpl) is (cutter_stop == {})
+    assert ("<STX>f" in dpl) is (cutter_stop == {})
+
+
+@pytest.mark.os_agnostic
+def test_a_set_override_of_a_cutter_stop_of_printer_reaches_render(
+    cli_runner: CliRunner, config_cli_context: Callable[[dict[str, Any]], Callable[[], Any]], tmp_path: Path
+) -> None:
+    factory = config_cli_context({"printer": {"cutter": "yes", "cutter_stop_position": 80}})
+    configured = _render(cli_runner, factory, tmp_path, label=_CUTTING_LINE, model="allegro-2")
+    dpl = _render(
+        cli_runner,
+        factory,
+        tmp_path,
+        "--set",
+        "printer.cutter_stop_position=printer",
+        label=_CUTTING_LINE,
+        model="allegro-2",
+    )
+
+    assert "<STX>f315" in configured
     assert "<STX>f" not in dpl
 
 
