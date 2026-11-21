@@ -80,7 +80,9 @@ All notable changes to this project are documented here. The format follows
   (`FONT_9_MEASURED` names the measured bytes). Up to 12 pt each character advances by its own
   width rounded to whole dots, from 18 pt up only the position each reaches is rounded (14 pt is
   unmeasured), and a line ends at its last glyph's ink, its right side bearing (AFM) before its
-  advance. The 30 pt line ends are fitted with the Allegro 2's font 9 print shift (below) taken out,
+  advance. `/` advances 11 dots at 12 pt, more than its width rounds to (10); only a 203 dpi model
+  printing 12 pt takes that, every other size and resolution scales the width (unverified). The
+  30 pt line ends are fitted with the Allegro 2's font 9 print shift (below) taken out,
   since a line's end cannot tell it from the widths: `M` advances 28 dots at 12 pt, 41.99 at
   18 pt, 56.8 at 24 pt and 70.42 at 30 pt. Scaled from one size, the advances at another were
   off by up to 1.07 dots per character (`/` at 18 pt from 30 pt), more than a millimetre over ten

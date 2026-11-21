@@ -84,8 +84,11 @@ A character advances by `width * em / 1000` dots, the em being `points * 203 / 7
   the fit takes the shift off each 30 pt line before it reads the widths.
 - `/` is the one measured character whose 12 pt bitmap rounds against its design width: it
   advances 11 dots at 12 pt (line 45, `O7.5`), while at 30 pt it is exactly as wide as `,` and the
-  space (lines 50-52, `O2` each), which gives 10 dots at 12 pt. datamax-dpl keeps 11 dots as a
-  12 pt exception.
+  space (lines 50-52, `O2` each), which gives 10 dots at 12 pt. datamax-dpl keeps 11 dots as an
+  exception for a 203 dpi model at 12 pt only; any other size, and 12 pt at another resolution,
+  scales the width. The fill round finds `/` wider than `,` at 18 and 24 pt too (15.95 against
+  14.97 dots, 20.81 against 19.96), so below 12 pt the scaled width may well be narrow; no size
+  below 12 pt was measured.
 
 Widths: a character measured at 30 pt takes its 30 pt width; one measured only at 12 pt the middle
 of the widths that round to its 12 pt advance, which leaves +/- 15/1000 em open at other sizes. The

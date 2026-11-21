@@ -23,7 +23,9 @@ dots).
 How the printer rounds, fitted to those lines: up to 12 pt (:data:`WHOLE_DOT_MAX_POINTS`) each
 character advances by its own width rounded to whole dots; from 18 pt up the characters advance by
 their exact widths and only the position each reaches is rounded. 14 pt, in between, is
-unmeasured. A line's ink ends before its last advance by that glyph's right side bearing
+unmeasured. One 12 pt advance rounds against its width: ``/`` advances 11 dots where its width
+gives 10; only a 203 dpi model printing 12 pt takes that, other sizes and resolutions scale the
+width (unverified). A line's ink ends before its last advance by that glyph's right side bearing
 (:data:`FONT_9_RIGHT_BEARINGS`, from the same AFM file): an M ends 68 thousandths of the em before
 its advance, on paper as in the AFM. The Allegro 2 starts a font 9 line 2 dots right of its record
 at 30 pt (:class:`~.profiles.Font9PrintShift`, measured apart): the 30 pt lines were read with it
@@ -142,18 +144,19 @@ _HELVETICA_BOLD: dict[int, int] = {
 # each byte's advance in dots at 203 dpi, before the printer rounds it (module docstring), per
 # printed size. 12 pt: widths that round to the advance each 12 pt line gave, the middle of that
 # range for a character measured at 12 pt only, and the 30 pt width scaled for one measured at both;
-# "/" advances 11 dots, which no width it shares with 30 pt gives. 30 pt: the line-end lines for
-# M, the digits, "," "." "/" space and S T K B O X (read to 0.1 mm over 9 to 25 characters), the
-# fill-and-V round for the rest. 18 and 24 pt: the fill-and-V round (an advance to 2 dots / N over
-# N = 10 to 49 characters), except U V W X Y at 24 pt, whose label repeats another label's readings:
-# they take the per-point mean of their 18 and 30 pt advances, unverified. The ten digits share one
-# advance and the period the comma's at 12 and 30 pt, as in the design; the fill round printed
-# each and found the same at every size. Lines of the 30 pt line-end round were read with the print shift
+# "/" keeps that scaled width here, and the 11 dots its 12 pt line gave are kept apart
+# (_BITMAP_ADVANCES_203_12). 30 pt: the line-end lines for M, the digits, "," "." "/" space and
+# S T K B O X (read to 0.1 mm over 9 to 25 characters), the fill-and-V round for the rest. 18 and
+# 24 pt: the fill-and-V round (an advance to 2 dots / N over N = 10 to 49 characters), except
+# U V W X Y at 24 pt, whose label repeats another label's readings: they take the per-point mean of
+# their 18 and 30 pt advances, unverified. The ten digits share one advance and the period the
+# comma's at 12 and 30 pt, as in the design; the fill round printed each and found the same at
+# every size. Lines of the 30 pt line-end round were read with the print shift
 # (profiles.Font9PrintShift: 2 dots at 30 pt) taken out; the fill round reads it out too.
 # fmt: off
 _PRINTED_ADVANCES_203: dict[int, dict[int, float]] = {
     12: {
-        32: 9.92, 44: 9.92, 45: 10.0, 46: 9.92, 47: 11.0, 48: 18.27, 49: 18.27, 50: 18.27, 51: 18.27, 52: 18.27,
+        32: 9.92, 44: 9.92, 45: 10.0, 46: 9.92, 47: 9.92, 48: 18.27, 49: 18.27, 50: 18.27, 51: 18.27, 52: 18.27,
         53: 18.27, 54: 18.27, 55: 18.27, 56: 18.27, 57: 18.27, 65: 23.0, 66: 22.64, 67: 24.0, 68: 24.0,
         69: 22.0, 70: 20.0, 71: 26.0, 72: 25.0, 73: 9.0, 74: 17.0, 75: 21.89, 76: 19.0, 77: 28.17, 78: 25.0,
         79: 25.77, 80: 22.0, 81: 26.0, 82: 24.0, 83: 21.89, 84: 20.25, 85: 25.0, 86: 22.0, 87: 31.0, 88: 21.89,
@@ -234,6 +237,10 @@ _HELVETICA_BOLD_LEFT_BEARINGS: dict[int, int] = {
 
 #: Resolution the font 9 advances in :data:`FONT_9_PRINTED_ADVANCES` were measured at.
 MEASURED_DPI = 203
+#: The one advance a 12 pt line measured that no width gives: "/" advances 11 dots at 12 pt, where
+#: the width it shares with 30 pt rounds to 10. It was measured at that size and resolution only, so
+#: only a 203 dpi model printing 12 pt takes it; any other size or resolution scales the width.
+_BITMAP_ADVANCES_203_12: Mapping[int, int] = FrozenMapping({47: 11})
 #: The paper-measured font 9 advance of each byte in :data:`FONT_9_MEASURED`, in dots at
 #: :data:`MEASURED_DPI` before the printer rounds it, by printed point size (12, 18, 24 and 30).
 FONT_9_PRINTED_ADVANCES: Mapping[int, Mapping[int, float]] = FrozenMapping(
@@ -306,13 +313,17 @@ def font9_measured_points(points: int) -> int:
     return min(FONT_9_PRINTED_ADVANCES, key=lambda size: (abs(size - points), size))
 
 
-def _font9_exact_advances(data: bytes, points: int, em: float) -> list[float]:
+def _font9_exact_advances(data: bytes, points: int, *, em: float, dpi: float) -> list[float]:
     # The measured size's advances, scaled by the em: exactly the table at a measured size on a
     # 203 dpi model, the nearest size's advances stretched to the printed em anywhere else.
     measured = font9_measured_points(points)
     scale = em / (measured * MEASURED_DPI / _POINTS_PER_INCH)
     table = FONT_9_PRINTED_ADVANCES[measured]
-    return [table[byte] * scale if byte in table else FONT_9_STAND_IN_ADVANCES[byte] * em / EM_UNITS for byte in data]
+    bitmap = _BITMAP_ADVANCES_203_12 if (round(dpi), points) == (MEASURED_DPI, 12) else {}
+    return [
+        bitmap.get(byte, table[byte] * scale) if byte in table else FONT_9_STAND_IN_ADVANCES[byte] * em / EM_UNITS
+        for byte in data
+    ]
 
 
 def char_advances(element: Text, profile: PrinterProfile) -> tuple[int, ...]:
@@ -344,7 +355,7 @@ def char_advances(element: Text, profile: PrinterProfile) -> tuple[int, ...]:
     if element.font_id is not None:
         return (round(em * _UNKNOWN_FONT_ADVANCE),) * len(element.text)
     data = encode_for_bitmapped_font(element.text, font=FONT_9).data
-    exact = _font9_exact_advances(data, points, em)
+    exact = _font9_exact_advances(data, points, em=em, dpi=profile.dpi)
     if points <= WHOLE_DOT_MAX_POINTS:
         return tuple(round(advance) for advance in exact)
     reached = [0, *(round(position) for position in accumulate(exact))]

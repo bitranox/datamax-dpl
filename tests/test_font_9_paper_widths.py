@@ -165,6 +165,18 @@ def test_a_measured_character_advances_its_paper_width_at_12_pt(char: str, dots:
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("model", "points", "dots"),
+    [("allegro-2", 12, 11), ("allegro-2", 6, 5), ("allegro-2", 10, 8), ("allegro-2", 14, 12), ("dmx-600", 12, 15)],
+)
+def test_the_11_dot_slash_holds_at_203_dpi_and_12_pt_only(model: str, points: int, dots: int) -> None:
+    # Its 12 pt line gave "/" 11 dots, more than its width (9.92 dots at 12 pt) rounds to. Every other
+    # size, and 12 pt at another resolution, scales the width: 6 pt 4.96, 10 pt 8.27, 14 pt 11.58
+    # dots, and 14.66 dots at 300 dpi.
+    assert char_advances(Text(x=0, y=0, text="/", font=FONT_9, points=points), get_profile(model)) == (dots,)
+
+
+@pytest.mark.os_agnostic
 @pytest.mark.parametrize(("char", "dots"), sorted(_PAPER_30_PT.items()), ids=sorted(_PAPER_30_PT))
 def test_a_measured_character_is_its_paper_width_at_30_pt_within_a_tenth_of_a_dot(char: str, dots: float) -> None:
     # The digits share the mean of 0 and 5, which read 0.13 dots apart; every other width matches
