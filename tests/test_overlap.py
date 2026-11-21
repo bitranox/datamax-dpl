@@ -11,7 +11,16 @@ from hypothesis import strategies as st
 
 from datamax_dpl.application.use_cases import render_batch
 from datamax_dpl.domain.decoder import explain
-from datamax_dpl.domain.enums import CombineMode, FallbackPolicy, FillPattern, FindingCode, ImageModule, Severity, Unit
+from datamax_dpl.domain.enums import (
+    CombineMode,
+    FallbackPolicy,
+    FillPattern,
+    FindingCode,
+    ImageModule,
+    Severity,
+    TextAlign,
+    Unit,
+)
 from datamax_dpl.domain.errors import LabelRejectedError
 from datamax_dpl.domain.image_budget import halve, magnify
 from datamax_dpl.domain.image_records import decode_image
@@ -108,6 +117,16 @@ def test_two_texts_whose_rectangles_only_touch_do_not_overlap() -> None:
     assert overlaps(first, Text(x=20, y=38, text="CD", font=2)) == OverlapReport()
     assert overlaps(first, Text(x=40, y=20, text="CD", font=2)) == OverlapReport(inexact=(0, 1))
     assert overlaps(first, Text(x=20, y=36, text="CD", font=2)) == OverlapReport(inexact=(0, 1))
+
+
+@pytest.mark.os_agnostic
+def test_a_right_aligned_line_kept_on_the_label_is_compared_where_its_record_prints() -> None:
+    """Right-aligned "ABCD" (46 dots, 23 units) at x 20 dots (10 units) would start at unit -13; the
+    record is written at column 0, so the line covers columns 0-45: a field at 30 meets it, one at
+    46 only touches it. Placed at the unclamped start it would end at column 19."""
+    first = Text(x=20, y=20, text="ABCD", font=2, align=TextAlign.RIGHT)
+    assert overlaps(first, Text(x=30, y=20, text="CD", font=2)) == OverlapReport(inexact=(0, 1))
+    assert overlaps(first, Text(x=46, y=20, text="CD", font=2)) == OverlapReport()
 
 
 @pytest.mark.os_agnostic
