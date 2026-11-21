@@ -65,15 +65,7 @@ from .profiles import Feature, get_profile
 from .qr import QrDataTooLongError, element_symbol
 from .raster import Bitmap
 from .render_context import RenderOptions
-from .text_metrics import (
-    CELLS,
-    char_advances,
-    font9_em_dots,
-    font9_field_points,
-    font9_print_shift_dots,
-    text_column,
-    text_extent,
-)
+from .text_metrics import CELLS, font9_em_dots, font9_field_points, measured, text_column
 from .units import Axis, to_inches
 
 if TYPE_CHECKING:
@@ -259,15 +251,16 @@ def letter_spans(element: Text | ScalableText, canvas: Canvas) -> tuple[Span, ..
         (Span(start=0, length=21), Span(start=21, length=4))
     """
     text = _as_text(element) if isinstance(element, ScalableText) else element
-    profile = canvas.geometry.ctx.profile
-    ink = _ink_width(text, profile)
+    ctx = canvas.geometry.ctx
+    measure = measured(text, ctx)
+    ink = _ink_width(text, ctx.profile)
     spans: list[Span] = []
     start = 0
-    for advance in char_advances(text, profile):
+    for advance in measure.advances:
         spans.append(Span(start=start, length=advance if ink is None else ink))
         start += advance
     if ink is None and spans:
-        spans[-1] = Span(start=spans[-1].start, length=text_extent(text, profile) - spans[-1].start)
+        spans[-1] = Span(start=spans[-1].start, length=measure.extent - spans[-1].start)
     return tuple(spans)
 
 
@@ -421,13 +414,13 @@ def field_area(element: Text | ScalableText | Barcode, canvas: Canvas) -> FieldA
     text = _as_text(element) if isinstance(element, ScalableText) else element
     ctx = canvas.geometry.ctx
     # A scalable field is drawn as font 9 but is not the resident font the shift was measured for.
-    printed = font9_print_shift_dots(element, ctx.profile) if isinstance(element, Text) else 0
+    printed = measured(element, ctx).print_shift if isinstance(element, Text) else 0
     if text.align != TextAlign.LEFT or printed:
         x -= ctx.printed_dots(position_units(text.x, axis=Axis.ACROSS, ctx=ctx) - text_column(text, ctx)) - printed
     return FieldArea(
         x=x,
         y=y,
-        length=text_extent(text, ctx.profile),
+        length=measured(text, ctx).extent,
         height=_cell_height(text, ctx.profile),
         rotation=text.rotation,
     )

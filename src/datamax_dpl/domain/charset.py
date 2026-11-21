@@ -9,7 +9,7 @@ glyph.
 
 from __future__ import annotations
 
-from functools import partial
+from functools import lru_cache, partial
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
@@ -206,6 +206,14 @@ def _codec_byte(ch: str, *, codec: str) -> int | None:
     return encoded[0] if len(encoded) == 1 else None
 
 
+#: Entries the byte lookup of a bitmapped font keeps: one per character and font, so a label's
+#: characters stay cached across its records while the cache stays bounded whatever text arrives.
+_BYTE_CACHE_SIZE = 4096
+
+
+# Cached: every text field of every record encodes each character through str.encode, and an
+# aligned font 9 line encodes it again to measure; the answer depends on the arguments alone.
+@lru_cache(maxsize=_BYTE_CACHE_SIZE)
 def _bitmapped_byte(ch: str, *, allowed: frozenset[int], capitals_only: bool, codec: str) -> int | None:
     value = _codec_byte(ch, codec=codec)
     if value is not None and value in allowed:

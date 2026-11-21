@@ -22,14 +22,7 @@ from .label import FONT_9, ScalableText, Text
 from .placeholders import placeholders_in
 from .profiles import OLD_SERIES_POINTS, Feature
 from .records import Header, line
-from .text_metrics import (
-    font9_field_points,
-    font9_points,
-    font9_print_shift_dots,
-    label_edge_column,
-    text_column,
-    units_left_of_x,
-)
+from .text_metrics import font9_field_points, font9_points, label_edge_column, measured, text_column, units_left_of_x
 from .units import MM_PER_INCH, Axis
 
 if TYPE_CHECKING:
@@ -116,7 +109,7 @@ def _report_line_start(element: Text, *, back: int, index: int, ctx: RenderConte
     the printhead by the record, which no column left of the first dot can hold.
     """
     edge = label_edge_column(ctx)
-    printed = font9_print_shift_dots(element, ctx.profile)
+    printed = measured(element, ctx).print_shift
     on_label = _first_start_on_label(edge, printed=printed, ctx=ctx)
     start = _line_start(element.x, back=back, ctx=ctx)
     if start < on_label:

@@ -318,20 +318,20 @@ def font9_measured_points(points: int) -> int:
         >>> [font9_measured_points(points) for points in (24, 14, 15, 48)]
         [24, 12, 12, 30]
     """
-    return nearest_size(FONT_9_PRINTED_ADVANCES, points)
+    return nearest_size(_PRINTED_ADVANCES_203, points)
 
 
 def _font9_exact_advances(data: bytes, points: int, *, em: float, dpi: float) -> list[float]:
     # The measured size's advances, scaled by the em: exactly the table at a measured size on a
     # 203 dpi model, the nearest size's advances stretched to the printed em anywhere else.
+    # The plain dicts behind the public read-only tables: a FrozenMapping lookup per character
+    # costs a Python-level call, and these are only read here.
     measured = font9_measured_points(points)
     scale = em / (measured * MEASURED_DPI / _POINTS_PER_INCH)
-    table = FONT_9_PRINTED_ADVANCES[measured]
+    table = _PRINTED_ADVANCES_203[measured]
     bitmap: Mapping[int, int] = _BITMAP_ADVANCES_203_12 if (round(dpi), points) == (MEASURED_DPI, 12) else {}
-    return [
-        bitmap.get(byte, table[byte] * scale) if byte in table else FONT_9_STAND_IN_ADVANCES[byte] * em / EM_UNITS
-        for byte in data
-    ]
+    stand_in = _HELVETICA_BOLD
+    return [bitmap.get(byte, table[byte] * scale) if byte in table else stand_in[byte] * em / EM_UNITS for byte in data]
 
 
 def font9_field_points(element: Text) -> int:
@@ -394,7 +394,12 @@ def text_extent(element: Text, profile: PrinterProfile) -> int:
         >>> text_extent(Text(x=0, y=0, text="MM", font=9, points=12), get_profile("allegro-2"))
         54
     """
-    total = sum(char_advances(element, profile))
+    return _extent(element, profile, char_advances(element, profile))
+
+
+def _extent(element: Text, profile: PrinterProfile, advances: tuple[int, ...]) -> int:
+    """The extent of ``element`` from its :func:`char_advances`, which the caller has already worked out."""
+    total = sum(advances)
     if not element.text:
         return total
     if element.font != FONT_9:
@@ -403,7 +408,7 @@ def text_extent(element: Text, profile: PrinterProfile) -> int:
         return total
     last = encode_for_bitmapped_font(element.text[-1], font=FONT_9).data[0]
     em = font9_em_dots(font9_field_points(element), profile)
-    return total - round(FONT_9_RIGHT_BEARINGS[last] * em / EM_UNITS)
+    return total - round(_HELVETICA_BOLD_RIGHT_BEARINGS[last] * em / EM_UNITS)
 
 
 def font9_print_shift_dots(element: Text, profile: PrinterProfile) -> int:
@@ -442,18 +447,19 @@ def units_left_of_x(element: Text, ctx: RenderContext) -> int:
 
     Args:
         element: The text field, after its placeholders are filled.
-        ctx: The context the job is encoded with.
+        ctx: The context the job is encoded with; the line is measured once in it (:func:`measured`).
 
     Returns:
         The units to subtract from the column ``x`` is written at.
     """
+    measure = measured(element, ctx)
     share = 0.0
     # == rather than is: a field copied with model_copy(update=...) keeps the plain string it was given.
     if element.align == TextAlign.RIGHT:
-        share = text_extent(element, ctx.profile)
+        share = measure.extent
     elif element.align == TextAlign.CENTER:
-        share = (text_extent(element, ctx.profile) + font9_left_bearing_dots(element, ctx.profile)) / 2
-    return round((share + font9_print_shift_dots(element, ctx.profile)) / ctx.dots_per_unit)
+        share = (measure.extent + measure.left_bearing) / 2
+    return round((share + measure.print_shift) / ctx.dots_per_unit)
 
 
 def font9_left_bearing_dots(element: Text, profile: PrinterProfile) -> float:
@@ -475,7 +481,58 @@ def font9_left_bearing_dots(element: Text, profile: PrinterProfile) -> float:
         return 0.0
     first = encode_for_bitmapped_font(element.text[0], font=FONT_9).data[0]
     em = font9_em_dots(font9_field_points(element), profile)
-    return FONT_9_LEFT_BEARINGS[first] * em / EM_UNITS
+    return _HELVETICA_BOLD_LEFT_BEARINGS[first] * em / EM_UNITS
+
+
+@dataclass(frozen=True)
+class TextMeasure:
+    """How one text field prints on one model: each figure the encoder, the preview and the checks read.
+
+    Attributes:
+        advances: :func:`char_advances`.
+        extent: :func:`text_extent`.
+        left_bearing: :func:`font9_left_bearing_dots`.
+        print_shift: :func:`font9_print_shift_dots`.
+    """
+
+    advances: tuple[int, ...]
+    extent: int
+    left_bearing: float
+    print_shift: int
+
+
+def measure_text(element: Text, profile: PrinterProfile) -> TextMeasure:
+    """Return every figure of how ``profile`` prints ``element``, each worked out once.
+
+    Example:
+        >>> from datamax_dpl.domain.profiles import get_profile
+        >>> measure_text(Text(x=0, y=0, text="Wi", font=9, points=8), get_profile("allegro-2")).extent
+        25
+    """
+    advances = char_advances(element, profile)
+    return TextMeasure(
+        advances=advances,
+        extent=_extent(element, profile, advances),
+        left_bearing=font9_left_bearing_dots(element, profile),
+        print_shift=font9_print_shift_dots(element, profile),
+    )
+
+
+def measured(element: Text, ctx: RenderContext) -> TextMeasure:
+    """Return :func:`measure_text` of ``element`` on the context's model, measured once per render.
+
+    The encoder, the overlap and edge checks and the preview each place an aligned line by these
+    figures, several times per record, and measuring a font 9 line encodes and sums every
+    character. Kept in ``ctx.text_measures`` by the field's value, so the same line twice in a
+    label is measured once, and gone with the context, so nothing outlives the record it was built
+    for. Only the profile's figures are kept; what depends on the job's unit (its dots per unit) is
+    worked out from them on each call, so a context whose unit is set after a line was measured
+    still places it right.
+    """
+    measure = ctx.text_measures.get(element)
+    if measure is None:
+        measure = ctx.text_measures[element] = measure_text(element, ctx.profile)
+    return measure
 
 
 def label_edge_column(ctx: RenderContext) -> int:
@@ -519,6 +576,7 @@ __all__ = [
     "WHOLE_DOT_MAX_POINTS",
     "CharCell",
     "FontCells",
+    "TextMeasure",
     "char_advances",
     "font9_em_dots",
     "font9_field_points",
@@ -527,6 +585,8 @@ __all__ = [
     "font9_points",
     "font9_print_shift_dots",
     "label_edge_column",
+    "measure_text",
+    "measured",
     "text_column",
     "text_extent",
     "units_left_of_x",

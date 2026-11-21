@@ -65,8 +65,9 @@ if TYPE_CHECKING:
 
     from .enums import QrError
     from .findings import FindingCollector
-    from .label import Image, Qr
+    from .label import Image, Qr, Text
     from .profiles import Firmware, PrinterProfile
+    from .text_metrics import TextMeasure
 
 #: Largest value of a four-digit DPL distance field.
 MAX_FIELD_VALUE = 9999
@@ -686,6 +687,8 @@ class RenderContext:
             a record's, and an aligned field is not refused for it.
         qr_symbols: The symbol of each QR Code this render encoded, by what makes it (see
             :meth:`qr_symbol`); filled as the render goes and gone with it.
+        text_measures: How each text field prints on this model, by the field's value (see
+            :func:`~.text_metrics.measured`); filled as the render goes and gone with it.
     """
 
     profile: PrinterProfile
@@ -721,6 +724,9 @@ class RenderContext:
     module_refused: bool = field(default=False, init=False)
     qr_symbols: dict[tuple[str, QrError, bool, bool], Bitmap] = field(
         default_factory=dict[tuple[str, "QrError", bool, bool], Bitmap], init=False, repr=False, compare=False
+    )
+    text_measures: dict[Text, TextMeasure] = field(
+        default_factory=dict["Text", "TextMeasure"], init=False, repr=False, compare=False
     )
 
     def correction(self, axis: Axis) -> Correction:

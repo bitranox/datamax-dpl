@@ -59,7 +59,7 @@ from .qr import QrDataTooLongError
 from .raster import Bitmap
 from .raster_fallback import draw_graphic, frame_of
 from .render_context import MAX_FIELD_VALUE
-from .text_metrics import font9_print_shift_dots, text_column
+from .text_metrics import measured, text_column
 from .units import Axis
 
 if TYPE_CHECKING:
@@ -351,7 +351,7 @@ def _field_rectangle(element: Text | ScalableText | Barcode, ctx: RenderContext)
     # A one-pixel canvas puts the reference point's row at minus its height above the bottom.
     area = field_area(element, Canvas(width=1, height=1, geometry=PreviewGeometry(ctx)))
     if isinstance(element, Text):
-        x = ctx.printed_dots(text_column(element, ctx)) + font9_print_shift_dots(element, ctx.profile)
+        x = ctx.printed_dots(text_column(element, ctx)) + measured(element, ctx).print_shift
     else:
         x = ctx.printed_dots(position_units(element.x, axis=Axis.ACROSS, ctx=ctx))
     y = _dots_at(element.y, axis=Axis.ALONG, ctx=ctx)
