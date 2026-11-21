@@ -166,7 +166,7 @@ the preview's reading of the figure is unverified until a test print.
 Font 9 needs `points` or `font_id`; the other fonts take neither. Fonts 3 to 6 print capitals
 only, font 7 is OCR-A and font 8 OCR-B. Characters above ASCII follow code page 437 in fonts 1 and
 2 and code page 850 in font 9 (German umlauts and sharp s included in all three; font 9 adds the
-accented capitals such as `Á` and signs such as `©`); fonts 3 to 6 print capital umlauts and sharp
+accented letters such as `Á` and signs such as `©`); fonts 3 to 6 print capital umlauts and sharp
 s; a character a font cannot print becomes `?` with a warning.
 
 #### Alignment and text widths
@@ -177,22 +177,28 @@ encoder moves the field back from `x` by the width the line prints, so the line 
 filled, so `{"text": "{qty} STK", "align": "right"}` ends at the same `x` whatever the quantity.
 It is rounded to whole DPL units (on an Allegro 2, 1/100 in, 2 dots). A line that would start left
 of the label's left edge is refused (`text_past_left_edge`, the distance measured from that edge
-wherever `offset_across` puts it on the printhead); one on the label but left of the printhead's
-first dot, where a negative `offset_across` puts the label's edge, is reported like a left-aligned
-field that offset moves there (`offset_past_label_edge`). A label rendered without `--data` prints
+wherever `offset_across` puts it on the printhead, and named as the move `x` needs, rounded up to
+0.1 mm); one on the label but left of the printhead's first dot, where a negative `offset_across`
+puts the label's edge, is reported like a left-aligned field that offset moves there
+(`offset_past_label_edge`). Either is measured from where `x` lies, even left of the printhead, and
+a field gets one of them. A refused line is still encoded from the label's left edge, so one wider
+than the label also gets `element_past_label_edge`. A label rendered without `--data` prints
 each placeholder field as its template, braces and all, and is not refused for that template's
 width: only filled records are measured. `x` itself is checked against the printable width like
 any field's start (`outside_print_width`).
 
-- Fonts 0-8 are measured by their character cells (dpl-reference.md, section 6): exact. The gap
+- Fonts 0-8 are measured by their character cells (dpl-reference.md, section 6): exact, and
+  confirmed on paper (Allegro 2: right-aligned lines in each font ended on their mark). The gap
   after the last character prints nothing and is left out, so the last character's cell ends at
   `x`; the preview, the label edge check and the overlap checks end the line there too, aligned or
   not.
 - Font 9 is the resident CG Triumvirate Bold (manual, printed page 174). The manual gives no
   widths, so each character is measured by Helvetica-Bold's published advance width at the point
   size the model prints, the point size taken as the em. That is a stand-in, not the printer's
-  own bitmap widths: unverified until a test print, which may move a right-aligned line's end by a
-  few dots. A font 9 line in the preview, the label edge check (`element_past_label_edge`) and the
+  own bitmap widths, and unverified: the first test print (Allegro 2) found whole lines from about
+  9% narrower (the lower-case alphabet) to 22% wider (`+,-./:;<=>?`) than predicted, so a
+  right-aligned font 9 line can end millimetres from `x` until a per-character measurement replaces
+  the table. A font 9 line in the preview, the label edge check (`element_past_label_edge`) and the
   overlap checks is as long as these widths say, aligned or not.
 - An aligned field must be upright (rotation 0) and take no `counter` (the printer changes the
   number, and so the width, from label to label), no `font_id` (a downloaded font's widths are not

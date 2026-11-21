@@ -19,33 +19,48 @@ All notable changes to this project are documented here. The format follows
   (the printer changes its width), no `font_id` (widths unknown) and, in font 9, no
   `width_multiplier`: each is refused when the label is read (exit 2).
 - The new error finding `text_past_left_edge` refuses a centred or right-aligned line that would
-  start left of the label's left edge, naming how far from that edge wherever `offset_across` puts
-  it on the printhead; nothing is sent (exit 1). A line on the label but left of the printhead's
-  first dot (a negative `offset_across`) is reported as a left-aligned field moved there by the
-  offset would be (`offset_past_label_edge`, or `model_offset_clamped` for a model default). A
-  label rendered without `--data` is not refused for the width of a placeholder field's template
-  (`{qty}` with its braces): only filled records are measured.
+  start left of the label's left edge, measured from that edge wherever `offset_across` puts it on
+  the printhead and from where `x` itself lies, even left of the printhead; nothing is sent (exit
+  1). The distance it names, rounded up to 0.1 mm, is how far `x` must move right. A line on the
+  label but left of the printhead's first dot (a negative `offset_across`) is reported as a
+  left-aligned field moved there by the offset would be (`offset_past_label_edge`, or
+  `model_offset_clamped` for a model default). Each field gets one of these findings, for where its
+  line starts. A refused line is still encoded at the label's left edge, so a line wider than the
+  label also gets `element_past_label_edge` for its end. A label rendered without `--data` is not
+  refused for the width of a placeholder field's template (`{qty}` with its braces): only filled
+  records are measured.
 
 ### Changed
 
 - Font 9 now encodes code page 850 instead of code page 437 (BEHAVIOUR CHANGE). The manual's list
-  of font 9's codes fits code page 850 alone: above 127 it holds that page's accented capitals and
-  signs and leaves out exactly its box-drawing positions, where code page 437 has box drawing and
-  Greek letters CG Triumvirate has no glyph for. So `Á`, `Ó`, `Ú`, `©`, `®`, `×` and the other
-  accented capitals now print in font 9 instead of being refused as `?`, and `¢` and `¥` are sent
-  as their code page 850 bytes (the code page 437 bytes sent before are `ø` and `Ø` there). Umlauts
-  and `ß` have the same bytes in both. `explain` reads font 9 records back in code page 850 too. Read
-  from the manual's list, to be confirmed by a test print. Fonts 0-8 keep code page 437.
+  of font 9's codes fits code page 850: above 127 it holds that page's accented letters and signs,
+  where code page 437 has box drawing and Greek letters CG Triumvirate has no glyph for. It leaves
+  out 850's box-drawing, shade and block positions and 16 more: `¬` `«` `»` `¤` `¦` `¯` `´`, the
+  soft hyphen, `‗` `¶` `§` `¹` `³` `²` `■` and the no-break space (bytes 170, 174, 175, 207, 221,
+  238-240, 242, 244, 245, 251-255). Gained: `Á`, `Ó`, `Ú`, `©`, `®`, `×` and the other accented
+  letters print in font 9 instead of being replaced by `?`, and `¢` and `¥` are sent as their code
+  page 850 bytes (the code page 437 bytes sent before are `ø` and `Ø` there). Lost: `₧` `⌐` `∞`
+  `≤` `≈` `∙` (bytes 158, 169, 236, 243, 247, 249) and the box-drawing and Greek characters at
+  positions in the set, which were sent before, now become `?` with a `characters_unmappable`
+  warning. Umlauts and `ß` have the same bytes in both. `explain` reads font 9 records back in code
+  page 850 too. Confirmed on paper (Allegro 2, 2026-11-21): the code page test label printed code
+  page 850. Fonts 0-8 keep code page 437.
 - The label-edge check (`element_past_label_edge`) and the overlap checks end a fonts 0-8 line at
   its last character, without the blank gap after it, aligned or not: a field whose last character
   ends at the label's right edge no longer warns (under `--policy strict`, no longer refuses) for
-  that gap (up to 0.6 mm at 203 dpi, more with a `width_multiplier`).
-
+  that gap (up to 0.6 mm at 203 dpi, more with a `width_multiplier`). Confirmed on paper (Allegro 2,
+  2026-11-21): right-aligned lines in each of fonts 0-8 ended on the 95 mm mark.
+- The calibration label after a printer reset and a plain `feed` centre their text by the same
+  measure, without the gap after the last character, so the text moves up to one DPL unit right
+  (`allegro-2`, 100 mm, "CAL": column 0191 becomes 0192).
 - Font 9 is measured per character: the manual names it CG Triumvirate Bold but lists no widths,
   so datamax-dpl uses the Helvetica-Bold widths (Adobe Core14 AFM) at the point size the model
-  prints, marked unverified until checked on paper. The preview, the label-edge check
-  (`element_past_label_edge`) and the overlap check now use these widths instead of a flat
-  0.6 em per character, and the preview sizes font 9 at the printed point size (after
+  prints, marked unverified. The first paper test (Allegro 2, 2026-11-21) found them off by
+  character group, from the lower-case alphabet printing about 9% narrower than the table predicts
+  to `+,-./:;<=>?` printing about 22% wider, and a four-size sample about 5% narrower at 8, 30 and
+  48 pt; a per-character measurement follows, and the table is unchanged until then. The preview,
+  the label-edge check (`element_past_label_edge`) and the overlap check now use these widths
+  instead of a flat 0.6 em per character, and the preview sizes font 9 at the printed point size (after
   `font_size_substituted`) instead of the requested one. Findings for font 9 text change with it:
   a line of narrow letters ends earlier than before and one of wide capitals later, so a field
   that warned may no longer, and the reverse. On an Allegro 2 the old estimate cut "NORTHWAY"

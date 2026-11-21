@@ -22,10 +22,13 @@ if TYPE_CHECKING:
 #: Bitmapped fonts 0-8 index code page 437; the byte values below are positions in it.
 BITMAPPED_CODEC = "cp437"
 #: Font 9 indexes code page 850 instead. The manual lists only byte values ("Valid Human-Readable
-#: Font ASCII Characters"), and they fit 850 alone: above 127 the set holds 850's accented capitals
-#: and signs (181-184 are A acute, A circumflex, A grave, copyright) and leaves out exactly 850's
-#: box-drawing positions, where 437 would put box drawing and Greek letters CG Triumvirate has no
-#: glyph for. Read from the manual's set, unverified on paper.
+#: Font ASCII Characters"), and they fit 850: above 127 the set holds 850's accented letters and
+#: signs (181-184 are A acute, A circumflex, A grave, copyright), where 437 would put box drawing
+#: and Greek letters CG Triumvirate has no glyph for. It leaves out 850's box-drawing, shade and
+#: block positions and 16 others (170, 174, 175, 207, 221, 238-240, 242, 244, 245, 251-255: not
+#: sign, guillemets, currency sign, broken bar, macron, acute, soft hyphen, double low line, pilcrow,
+#: section, superscripts, black square, no-break space). Confirmed on paper on an Allegro 2
+#: (2026-11-21): the bytes that differ between 437 and 850 printed their 850 glyphs.
 FONT_CODECS: Mapping[int, str] = FrozenMapping({9: "cp850"})
 #: Symbol set used when a scalable-font record names none.
 DEFAULT_SYMBOL_SET = "PC"

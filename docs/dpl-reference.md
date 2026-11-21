@@ -253,17 +253,23 @@ repeat record; its decoder still reads them.
 Font 9 is CG Triumvirate Bold: the manual's table "Font 9 Bitmapped Resident fonts specifications"
 names it for both the `000`-`010` and the `A04`-`A72` sizes (printed page 174, PDF page 184). Its
 character widths are not in the manual; `src/datamax_dpl/domain/text_metrics.py` holds a
-Helvetica-Bold stand-in (unverified on paper) that text alignment, the preview and the label edge
-check measure a font 9 line with.
+Helvetica-Bold stand-in that text alignment, the preview and the label edge check measure a font 9
+line with. It is unverified: a first paper test (Allegro 2, 2026-11-21) found it off by character
+group, from the lower-case alphabet printing about 9% narrower than predicted to `+,-./:;<=>?`
+about 22% wider, and one sample about 5% narrower at 8, 30 and 48 pt. Right-aligned lines in fonts
+0-8, measured by their cells, ended exactly on their mark in the same test.
 
 Character codes above 127 follow code page 437 for fonts 1 and 2 and code page 850 for font 9 (ä
 132, ö 148, ü 129, Ä 142, Ö 153, Ü 154, ß 225 in all three). The manual lists font 9's codes only by
-number, and they fit code page 850 alone: 181-184, 189, 190, 198, 199, 208-216, 222 and 224-237 are
-its accented capitals and signs (Á Â À ©, ¢ ¥, ã Ã, ð Ð Ê Ë È ı Í Î Ï, Ì, Ó ß Ô Ò õ Õ µ þ Þ Ú Û Ù ý
-Ý), and the set leaves out exactly code page 850's box-drawing positions, where code page 437 has
-box drawing and Greek letters. Read from the manual's list, unverified on paper. Fonts 3-6 print
-capitals only, so a lower-case letter prints as its capital (an umlaut too), and above 127 they have codes 128, 142-144, 146, 153, 154, 156, 157, 165, 168 and 225,
-Ä Ö Ü and ß among them. Scalable fonts use the symbol set chosen with `ySxx` (for example `PM` code
+number, and they fit code page 850: 181-184, 189, 190, 198, 199, 208-216, 222 and 224-237 are its
+accented letters and signs (Á Â À ©, ¢ ¥, ã Ã, ð Ð Ê Ë È ı Í Î Ï, Ì, Ó ß Ô Ò õ Õ µ þ Þ Ú Û Ù ý Ý),
+where code page 437 has box drawing and Greek letters. The set leaves out code page 850's
+box-drawing, shade and block positions and 16 more: ¬ « » ¤ ¦ ¯ ´, the soft hyphen, ‗ ¶ § ¹ ³ ² ■
+and the no-break space (170, 174, 175, 207, 221, 238-240, 242, 244, 245, 251-255). Confirmed on
+paper (Allegro 2, 2026-11-21): bytes that differ between the two pages printed their code page 850
+glyphs. Fonts 3-6 print capitals only, so a lower-case letter prints as its capital (an umlaut
+too), and above 127 they have codes 128, 142-144, 146, 153, 154, 156, 157, 165, 168 and 225, Ä Ö Ü
+and ß among them. Scalable fonts use the symbol set chosen with `ySxx` (for example `PM` code
 page 850, `W1` Windows Latin 1, `E1` ISO 8859-1).
 
 ## 7. Barcodes

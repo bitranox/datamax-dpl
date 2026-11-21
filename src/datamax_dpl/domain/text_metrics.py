@@ -213,9 +213,10 @@ def align_shift_units(element: Text, ctx: RenderContext) -> int:
     Right-aligned text moves back by its whole :func:`text_extent`, centred text by half of it,
     each converted at the job's dots per unit and rounded to the nearest unit. The line ends (or
     is centred) within about one unit of the dot ``x`` prints at: half a unit from rounding the
-    shift, plus the rounding of units to whole dots (up to 2 dots measured on a DMX 430, whose
-    unit is 2.9 dots). The encoder, the preview and the overlap and edge checks all place an
-    aligned field by this one number (:func:`text_column`).
+    shift, plus the rounding of units to whole dots (up to 2 dots measured on a DMX 430 in inch
+    format, whose 1/100 in unit is 2.9 dots; in metric format its 1/10 mm unit is 1.14 dots). The
+    encoder, the preview and the overlap and edge checks all place an aligned field by this one
+    number (:func:`text_column`).
 
     Args:
         element: The text field, after its placeholders are filled.

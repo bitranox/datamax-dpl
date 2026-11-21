@@ -9,8 +9,10 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
   sharp s also in 3-6; the euro sign in none.
 - Font 9 is CG Triumvirate Bold, proportional: `W` is about three times as wide as `i`. Its widths
   are not in the manual, so it is measured with Helvetica-Bold's widths at the point size the
-  model prints (the nearest one after `font_size_substituted`), unverified on paper. Fonts 0-8
-  are measured exactly by their cells.
+  model prints (the nearest one after `font_size_substituted`). A first paper test (Allegro 2)
+  found whole lines 9% narrower to 22% wider than predicted, by character group, so a
+  right-aligned font 9 line can end millimetres from `x`: check it on paper. Fonts 0-8 are
+  measured exactly by their cells (confirmed on paper).
 - `"align": "right"` puts a `text` field's line END at `x` (`"center"` its middle; `"left"` is the
   default): DPL has no justification, so the field is moved back by the measured width, per record
   after `{name}` is filled, rounded to the job's DPL unit (2 dots on an Allegro 2). A quantity
