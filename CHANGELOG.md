@@ -70,16 +70,23 @@ All notable changes to this project are documented here. The format follows
   (`allegro-2`, 100 mm, "CAL": column 0191 becomes 0192).
 - Font 9 is measured per character: the manual names it CG Triumvirate Bold but lists no widths.
   The capitals, the digits, `,` `-` `.` `/` and the space take widths measured on paper on an
-  Allegro 2 (firmware CA02 03.04, 2026-11-21), at 12 and 30 pt
-  (`docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths`); every other character keeps
-  the Helvetica-Bold width (Adobe Core14 AFM), marked unverified (`FONT_9_MEASURED` names the
-  measured bytes). Up to 12 pt each character advances by its own width rounded to whole dots,
-  above it only the position each reaches is rounded (sizes from 14 to 24 pt are unmeasured), and
-  a line ends at its last glyph's ink, its right side bearing (AFM) before its advance; `/` at
-  12 pt advances 11 dots, one more than its width gives. The 30 pt widths are fitted with the
-  Allegro 2's font 9 print shift (below) taken out, since a line's end cannot tell it from the
-  widths: `M` is 70.4 dots wide at 30 pt and 28 at 12 pt. Every measured line ends within 0.35 mm
-  of where it printed (the largest residual 0.32 mm); placed by the stand-in, a right-aligned line
+  Allegro 2 (firmware CA02 03.04, 2026-11-21), at 12, 18, 24 and 30 pt, one table of advances per
+  printed size, since the widths do not scale from one size to another
+  (`docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths`). `U` `V` `W` `X` `Y` at 24 pt
+  are interpolated between 18 and 30 pt, unverified (their label repeated another label's
+  readings). Any other printed size (6, 8, 10, 14, 36 and 48 pt) takes the nearest measured size's
+  advances scaled by size, and another resolution scaled by its dpi, both unverified. Every other
+  character keeps the Helvetica-Bold width (Adobe Core14 AFM), marked unverified
+  (`FONT_9_MEASURED` names the measured bytes). Up to 12 pt each character advances by its own
+  width rounded to whole dots, from 18 pt up only the position each reaches is rounded (14 pt is
+  unmeasured), and a line ends at its last glyph's ink, its right side bearing (AFM) before its
+  advance. The 30 pt line ends are fitted with the Allegro 2's font 9 print shift (below) taken out,
+  since a line's end cannot tell it from the widths: `M` advances 28 dots at 12 pt, 41.99 at
+  18 pt, 56.8 at 24 pt and 70.42 at 30 pt. Scaled from one size, the advances at another were
+  off by up to 1.07 dots per character (`/` at 18 pt from 30 pt), more than a millimetre over ten
+  characters. Every measured line end lies within 0.35 mm of where it printed (the largest
+  residual 0.32 mm), and every row of the 18, 24 and 30 pt round within the half line it was read
+  to; placed by the stand-in, a right-aligned line
   of 36 digits at 12 pt ended 5 mm short of `x` and lines of `,` `.` `/` and spaces ran off the
   label. A first test with the stand-in found the lower-case alphabet about 9% narrower than it
   predicts and `+,-./:;<=>?` about 22% wider; those characters are still unmeasured. The preview,

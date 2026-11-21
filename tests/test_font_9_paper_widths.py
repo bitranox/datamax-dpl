@@ -7,6 +7,11 @@ predicted end is its record column plus the dots the Allegro 2 prints font 9 rig
 (:func:`~datamax_dpl.domain.text_metrics.font9_print_shift_dots`, measured apart with the V-line
 label) plus :func:`~datamax_dpl.domain.text_metrics.text_extent`; its measured end is the reference
 line less the reading.
+
+The fill-and-V round (``fill.json`` in the same record) adds 12, 18, 24 and 30 pt: each row repeats
+one character N times before a final M, and the reading says how many vertical lines (0.5 mm apart)
+the M's ink middle sits off the middle line. The row's record columns and its reading give how far
+the N characters reached, independently of the widths shipped.
 """
 
 from __future__ import annotations
@@ -21,15 +26,16 @@ from datamax_dpl.domain.label import FONT_9, Text
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.text_metrics import (
     EM_UNITS,
-    FONT_9_ADVANCES,
     FONT_9_MEASURED,
+    FONT_9_PRINTED_ADVANCES,
     char_advances,
     font9_em_dots,
     font9_print_shift_dots,
     text_extent,
 )
 
-_RECORD = Path(__file__).parents[1] / "docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths/lines.json"
+_RECORD_DIR = Path(__file__).parents[1] / "docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths"
+_RECORD = _RECORD_DIR / "lines.json"
 _PROFILE = get_profile("allegro-2")
 _DOTS_PER_MM = _PROFILE.dpi / 25.4
 #: The Allegro 2 prints 2 dots per 1/100 in, the unit the record columns are in.
@@ -163,10 +169,74 @@ def test_a_measured_character_advances_its_paper_width_at_12_pt(char: str, dots:
 def test_a_measured_character_is_its_paper_width_at_30_pt_within_a_tenth_of_a_dot(char: str, dots: float) -> None:
     # The digits share the mean of 0 and 5, which read 0.13 dots apart; every other width matches
     # its line to 0.003 dots.
-    width = FONT_9_ADVANCES[char.encode("cp850")[0]] * font9_em_dots(30, _PROFILE) / EM_UNITS
-    assert width == pytest.approx(dots, abs=0.1)
+    assert FONT_9_PRINTED_ADVANCES[30][char.encode("cp850")[0]] == pytest.approx(dots, abs=0.1)
 
 
 @pytest.mark.os_agnostic
 def test_the_30_pt_paper_widths_cover_every_character_measured_at_30_pt() -> None:
     assert sorted(_PAPER_30_PT) == sorted("M05, /STKBOX")
+
+
+class _FillRow(BaseModel):
+    """One row of the fill-and-V round: ``char`` N times, then an M right-aligned at x 95 mm."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    line: int
+    label: str
+    points: int
+    char: str
+    count: int
+    reading: float
+    text_column: int
+    line_column: int
+
+    @property
+    def name(self) -> str:
+        return f"{self.line}:{self.points}pt:{self.char!r}"
+
+    def reached_dots(self) -> float:
+        """How far the N characters reached on paper, from the text record's start, in dots.
+
+        The middle vertical line's ink middle, less the reading (lines 4 dots apart, + = the M must
+        move right), is where the M's ink middle printed. Less the text record's start, the print
+        shift and the M's ink middle beyond its origin, that leaves the N advances.
+        """
+        line_middle = self.line_column * _DOTS_PER_UNIT + _LINE_RECORD_MIDDLE
+        m_ink_middle = _M_INK_MIDDLE * self.points * _PROFILE.dpi / 72 / EM_UNITS
+        shift = _SHIFT_30_PT if self.points == 30 else 0
+        start = self.text_column * _DOTS_PER_UNIT + shift
+        return line_middle - _DOTS_PER_V_LINE * self.reading - start - m_ink_middle
+
+
+#: A line record is one unit (2 dots) wide, so its middle lies 1 dot right of its column.
+_LINE_RECORD_MIDDLE = 1
+#: The five vertical lines lie 0.5 mm, 2 units, 4 dots apart; readings come in half lines.
+_DOTS_PER_V_LINE = 4
+_HALF_V_LINE = _DOTS_PER_V_LINE / 2
+#: M's ink middle right of its origin in the AFM: (llx 69 + urx 765) / 2, thousandths of the em.
+_M_INK_MIDDLE = (69 + 765) / 2
+#: Label f23 read the very readings of label f13 and is left out (the record's README).
+_REPEATED_LABEL = "fill/f23-24pt-lines-118-122.json"
+_FILL = TypeAdapter(list[_FillRow]).validate_json((_RECORD_DIR / "fill.json").read_bytes())
+#: At 30 pt the characters the line-end round measured keep its finer widths, checked above.
+_FILL_CHECKED = [
+    row for row in _FILL if row.label != _REPEATED_LABEL and not (row.points == 30 and row.char in _PAPER_30_PT)
+]
+
+
+@pytest.mark.os_agnostic
+def test_the_fill_round_holds_every_row_and_checks_all_but_the_repeated_label_and_the_line_end_characters() -> None:
+    assert (len(_FILL), len(_FILL_CHECKED)) == (164, 147)
+    assert {(row.points, row.char) for row in _FILL} == {
+        (points, chr(byte)) for points in (12, 18, 24, 30) for byte in FONT_9_MEASURED
+    }
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("row", _FILL_CHECKED, ids=[row.name for row in _FILL_CHECKED])
+def test_a_fill_row_gives_the_advance_datamax_dpl_prints_within_its_resolution(row: _FillRow) -> None:
+    # A half line (2 dots) over N characters is what one reading resolves. The advances are the
+    # printed ones, rounded as the printer rounds, so they compare with the paper as they are.
+    printed = char_advances(Text(x=0, y=0, text=row.char * row.count, font=FONT_9, points=row.points), _PROFILE)
+    assert sum(printed) / row.count == pytest.approx(row.reached_dots() / row.count, abs=_HALF_V_LINE / row.count)

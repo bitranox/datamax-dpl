@@ -26,7 +26,13 @@ from datamax_dpl.domain.preview import canvas_for, field_area, letter_spans
 from datamax_dpl.domain.profiles import get_profile
 from datamax_dpl.domain.render import RenderResult, build_job, render
 from datamax_dpl.domain.render_context import RenderOptions
-from datamax_dpl.domain.text_metrics import FONT_9_ADVANCES, char_advances, text_extent
+from datamax_dpl.domain.text_metrics import (
+    FONT_9_MEASURED,
+    FONT_9_PRINTED_ADVANCES,
+    FONT_9_STAND_IN_ADVANCES,
+    char_advances,
+    text_extent,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -200,8 +206,15 @@ def test_the_label_edge_check_reads_the_aligned_position() -> None:
 
 @pytest.mark.os_agnostic
 def test_every_byte_font_9_prints_has_a_width() -> None:
-    assert set(FONT_9_ADVANCES) == set(FONT_BYTES[FONT_9])
-    assert all(0 < width <= 1000 for width in FONT_9_ADVANCES.values())
+    assert set(FONT_9_STAND_IN_ADVANCES) == set(FONT_BYTES[FONT_9])
+    assert all(0 < width <= 1000 for width in FONT_9_STAND_IN_ADVANCES.values())
+
+
+@pytest.mark.os_agnostic
+def test_every_measured_font_9_size_holds_every_measured_byte() -> None:
+    assert sorted(FONT_9_PRINTED_ADVANCES) == [12, 18, 24, 30]
+    assert all(set(advances) == FONT_9_MEASURED for advances in FONT_9_PRINTED_ADVANCES.values())
+    assert set(FONT_BYTES[FONT_9]) > FONT_9_MEASURED
 
 
 @pytest.mark.os_agnostic
@@ -430,7 +443,7 @@ def _line_job(model: str, text: Text, *, offset_across: float, scale_across: flo
         ("dmx-600", -0.25, Text(x=0, y=10, text="A", font=2, align=TextAlign.RIGHT)),
         ("dmx-600", -3.65, Text(x=0, y=10, text="AAA", font=2, align=TextAlign.RIGHT)),
         ("dmx-600", 0.55, Text(x=0, y=10, text="A", font=2, align=TextAlign.CENTER)),
-        ("dmx-430", 0.13, Text(x=6.62, y=10, text="A", font=FONT_9, points=30, align=TextAlign.RIGHT)),
+        ("dmx-430", 0.13, Text(x=6.22, y=10, text="A", font=FONT_9, points=30, align=TextAlign.RIGHT)),
     ],
 )
 def test_the_named_move_clears_the_edge_on_a_tenth_millimetre_model(
@@ -552,9 +565,9 @@ def test_font_9_prints_code_page_850() -> None:
 @pytest.mark.os_agnostic
 def test_every_font_9_character_has_its_own_stand_in_width() -> None:
     # Code page 850 has a Helvetica-Bold glyph for every byte of the set: no fallback width.
-    assert FONT_9_ADVANCES[0xB5] == 722  # A acute, as wide as A
-    assert FONT_9_ADVANCES[0xBD] == 556  # cent
-    assert FONT_9_ADVANCES[0xB8] == 737  # copyright
+    assert FONT_9_STAND_IN_ADVANCES[0xB5] == 722  # A acute, as wide as A
+    assert FONT_9_STAND_IN_ADVANCES[0xBD] == 556  # cent
+    assert FONT_9_STAND_IN_ADVANCES[0xB8] == 737  # copyright
 
 
 @pytest.mark.os_agnostic

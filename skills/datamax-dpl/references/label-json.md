@@ -9,10 +9,10 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
   sharp s also in 3-6; the euro sign in none.
 - Font 9 is CG Triumvirate Bold, proportional: `W` is about three times as wide as `i`. Its widths
   are not in the manual. The capitals, the digits, `,` `-` `.` `/` and the space are measured on
-  paper (Allegro 2, at 12 and 30 pt): a right-aligned line of them ends within about 0.35 mm of
-  `x` there. Other characters (lower case, other punctuation, umlauts) take Helvetica-Bold's
+  paper (Allegro 2, at 12, 18, 24 and 30 pt; other sizes scale the nearest, unverified): a
+  right-aligned line of them ends within about 0.35 mm of `x` there. Other characters (lower case, other punctuation, umlauts) take Helvetica-Bold's
   widths, unverified: lines of them printed 9% narrower to 22% wider than predicted, so check such
-  a line on paper, as any font 9 line at 14-24 pt or on another model. Widths are taken at the
+  a line on paper, as any font 9 line at 6-10, 14, 36 or 48 pt or on another model. Widths are taken at the
   point size the model prints (the nearest one after `font_size_substituted`). Fonts 0-8 are
   measured exactly by their cells (confirmed on paper).
 - An Allegro 2 prints font 9 2 dots (0.25 mm) right of its record at 30 pt (none at 12-24 pt;
