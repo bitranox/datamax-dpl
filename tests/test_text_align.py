@@ -442,6 +442,17 @@ def test_a_refused_line_is_written_at_the_label_edge_or_the_printheads_first_col
 
 
 @pytest.mark.os_agnostic
+def test_an_aligned_line_past_four_digit_columns_is_written_at_the_cap() -> None:
+    # x 2600 mm is column 10236, past the four digits a record holds: refused (distance_too_large)
+    # and written at 9999, as a left-aligned field is, not at its own start of 10213.
+    text = Text(x=2600, y=10, text="AAAA", font=2, align=TextAlign.RIGHT)
+    result = build_job(Label(width=3000, height=55, elements=[text]), RenderOptions(model=_MODEL))
+    assert FindingCode.DISTANCE_TOO_LARGE in _codes(result.findings)
+    [record] = [record for record in result.data.split(b"\r") if record.endswith(b"AAAA")]
+    assert record == b"121100000409999AAAA"
+
+
+@pytest.mark.os_agnostic
 def test_a_line_whose_x_and_start_are_both_left_of_the_printhead_gets_one_offset_finding() -> None:
     # x 2.5 mm is 2 units left of the printhead; one character (5 units) starts 7 units (1.75 mm)
     # left of it and 5 units right of the label's edge: one finding, for where the line starts. It
