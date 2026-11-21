@@ -265,7 +265,8 @@ FONT_9_LEFT_BEARINGS: Mapping[int, int] = FrozenMapping(_HELVETICA_BOLD_LEFT_BEA
 #: position each character reaches instead (module docstring). 12 pt advances by whole dots on
 #: paper and 18, 24 and 30 pt do not (at 18 pt U, W, P and Y each lie clearly between two), so the
 #: paper puts this bound anywhere from 12 to 17; 14 pt, the one size in between, is unmeasured. 12
-#: is the smallest bound the record allows.
+#: is the smallest bound the record allows. No test pins the rounding from 13 to 17 pt: the whole
+#: suite passes with this set to 13, 14 or 17.
 WHOLE_DOT_MAX_POINTS = 12
 
 
