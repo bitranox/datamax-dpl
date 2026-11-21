@@ -177,15 +177,16 @@ encoder moves the field back from `x` by the width the line prints, so the line 
 filled, so `{"text": "{qty} STK", "align": "right"}` ends at the same `x` whatever the quantity.
 It is rounded to whole DPL units (on an Allegro 2, 1/100 in, 2 dots). A line that would start left
 of the label's left edge is refused (`text_past_left_edge`, the distance measured from that edge
-wherever `offset_across` puts it on the printhead, and named as the move `x` needs, rounded up to
-0.1 mm); one on the label but left of the printhead's first dot, where a negative `offset_across`
-puts the label's edge, is reported like a left-aligned field that offset moves there
+wherever `offset_across` puts it on the printhead, rounded up to 0.1 mm; when a negative
+`offset_across` puts that edge left of the printhead's first dot, the move to that dot is named
+too, and moving `x` right by the move named gives a job that prints); one on the label but left of
+the printhead's first dot is reported like a left-aligned field that offset moves there
 (`offset_past_label_edge`). Either is measured from where `x` lies, even left of the printhead, and
-a field gets one of them. A refused line is still encoded from the label's left edge, so one wider
-than the label also gets `element_past_label_edge`. A label rendered without `--data` prints
-each placeholder field as its template, braces and all, and is not refused for that template's
-width: only filled records are measured. `x` itself is checked against the printable width like
-any field's start (`outside_print_width`).
+a field gets one of them. A refused line is still encoded, at the later of the label's left edge
+and the printhead's first dot, so one wider than the label also gets `element_past_label_edge`. A
+label rendered without `--data` prints each placeholder field as its template, braces and all,
+and is not refused for that template's width: only filled records are measured. `x` itself is
+checked against the printable width like any field's start (`outside_print_width`).
 
 - Fonts 0-8 are measured by their character cells (dpl-reference.md, section 6): exact, and
   confirmed on paper (Allegro 2: right-aligned lines in each font ended on their mark). The gap

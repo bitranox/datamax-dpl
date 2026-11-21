@@ -21,14 +21,16 @@ All notable changes to this project are documented here. The format follows
 - The new error finding `text_past_left_edge` refuses a centred or right-aligned line that would
   start left of the label's left edge, measured from that edge wherever `offset_across` puts it on
   the printhead and from where `x` itself lies, even left of the printhead; nothing is sent (exit
-  1). The distance it names, rounded up to 0.1 mm, is how far `x` must move right. A line on the
-  label but left of the printhead's first dot (a negative `offset_across`) is reported as a
-  left-aligned field moved there by the offset would be (`offset_past_label_edge`, or
+  1). It names that distance, rounded up to 0.1 mm; where a negative `offset_across` puts the
+  label's edge left of the printhead's first dot, it also names the move to that dot. Moving `x`
+  right by the move named (the distance itself when there is no second one) gives a job that
+  prints. A line on the label but left of the printhead's first dot (a negative `offset_across`) is
+  reported as a left-aligned field moved there by the offset would be (`offset_past_label_edge`, or
   `model_offset_clamped` for a model default). Each field gets one of these findings, for where its
-  line starts. A refused line is still encoded at the label's left edge, so a line wider than the
-  label also gets `element_past_label_edge` for its end. A label rendered without `--data` is not
-  refused for the width of a placeholder field's template (`{qty}` with its braces): only filled
-  records are measured.
+  line starts. A refused line is still encoded, at the later of the label's left edge and the
+  printhead's first dot, so a line wider than the label also gets `element_past_label_edge` for its
+  end. A label rendered without `--data` is not refused for the width of a placeholder field's
+  template (`{qty}` with its braces): only filled records are measured.
 
 ### Changed
 
@@ -40,11 +42,11 @@ All notable changes to this project are documented here. The format follows
   238-240, 242, 244, 245, 251-255). Gained: `Á`, `Ó`, `Ú`, `©`, `®`, `×` and the other accented
   letters print in font 9 instead of being replaced by `?`, and `¢` and `¥` are sent as their code
   page 850 bytes (the code page 437 bytes sent before are `ø` and `Ø` there). Lost: `₧` `⌐` `∞`
-  `≤` `≈` `∙` (bytes 158, 169, 236, 243, 247, 249) and the box-drawing and Greek characters at
-  positions in the set, which were sent before, now become `?` with a `characters_unmappable`
-  warning. Umlauts and `ß` have the same bytes in both. `explain` reads font 9 records back in code
-  page 850 too. Confirmed on paper (Allegro 2, 2026-11-21): the code page test label printed code
-  page 850. Fonts 0-8 keep code page 437.
+  `≤` `≈` `∙` (bytes 158, 169, 236, 243, 247, 249) and the box-drawing, block (`▐`, byte 222) and
+  Greek characters at positions in the set, which were sent before, now become `?` with a
+  `characters_unmappable` warning. Umlauts and `ß` have the same bytes in both. `explain` reads font
+  9 records back in code page 850 too. Confirmed on paper (Allegro 2, 2026-11-21): the code page
+  test label printed code page 850. Fonts 0-8 keep code page 437.
 - The label-edge check (`element_past_label_edge`) and the overlap checks end a fonts 0-8 line at
   its last character, without the blank gap after it, aligned or not: a field whose last character
   ends at the label's right edge no longer warns (under `--policy strict`, no longer refuses) for
@@ -60,10 +62,10 @@ All notable changes to this project are documented here. The format follows
   to `+,-./:;<=>?` printing about 22% wider, and a four-size sample about 5% narrower at 8, 30 and
   48 pt; a per-character measurement follows, and the table is unchanged until then. The preview,
   the label-edge check (`element_past_label_edge`) and the overlap check now use these widths
-  instead of a flat 0.6 em per character, and the preview sizes font 9 at the printed point size (after
-  `font_size_substituted`) instead of the requested one. Findings for font 9 text change with it:
-  a line of narrow letters ends earlier than before and one of wide capitals later, so a field
-  that warned may no longer, and the reverse. On an Allegro 2 the old estimate cut "NORTHWAY"
+  instead of a flat 0.6 em per character, and the preview sizes font 9 at the printed point size
+  (after `font_size_substituted`) instead of the requested one. Findings for font 9 text change
+  with it: a line of narrow letters ends earlier than before and one of wide capitals later, so a
+  field that warned may no longer, and the reverse. On an Allegro 2 the old estimate cut "NORTHWAY"
   (8 pt) and "ABCDEF00123" (30 pt) in the preview although the printer printed them whole.
 - The PNG preview letters font 9 and scalable text one character at a time, each at its estimated
   advance, so a proportional line no longer squeezes into a box of equal cells.
