@@ -151,12 +151,13 @@ shift is the print shift above (2 dots at 30 pt, none below); the `M`'s ink midd
   ink ends about a dot further before its advance than the AFM bearing scaled to 12 pt (2.3 dots)
   as well as a constant per line; no round measured the 12 pt `M`'s ink end apart, and this round
   reads the `M`'s middle, not its end. The 12 pt widths stay as they are.
-- Whole dots do not hold above 12 pt: 23 of 41 advances at 18 pt and 33 of 41 at 24 pt lie within
-  their resolution of a whole number, against 41 of 41 at 12 pt and 3 of 41 at 30 pt. At 18 pt `U`
+- Whole dots do not hold above 12 pt: 23 of 41 advances at 18 pt and 31 of 36 at 24 pt (label f23
+  left out, below) lie within their resolution of a whole number, against 41 of 41 at 12 pt and 3
+  of 41 at 30 pt. At 18 pt `U`
   (37.52 dots), `W` (46.56), `P` (32.69) and `Y` (34.20) lie clearly between two. Exact advances
   with rounded positions, as at 30 pt, hold from 18 pt up.
 - The widths do not scale across sizes: against the build's scaled widths, 28 of 41 characters at
-  18 pt and 29 of 41 at 24 pt read outside their resolution, `/` at 18 pt by 1.07 dots per
+  18 pt and 25 of 36 at 24 pt (without label f23) read outside their resolution, `/` at 18 pt by 1.07 dots per
   character (15.95 against 14.88). Each measured size keeps its own table.
 - 30 pt: this round agrees with the widths above on all 21 characters they give at 30 pt (`M`, the
   digits, `,` `.` `/` space, `S` `T` `K` `B` `O` `X`): 20 read 0 and lie within this round's
