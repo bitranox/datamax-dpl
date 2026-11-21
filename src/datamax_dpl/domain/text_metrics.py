@@ -24,7 +24,9 @@ the one 18 pt line printed fits the second rule slightly better. A line's ink en
 advance by that glyph's right side bearing (:data:`FONT_9_RIGHT_BEARINGS`, from the same AFM file):
 an M ends 68 thousandths of the em before its advance, on paper as in the AFM. One measured bitmap
 rounds against its design width: ``/`` at 12 pt advances 11 dots where its 30 pt width gives 10
-(:data:`FONT_9_BITMAP_ADVANCES`).
+(:data:`FONT_9_BITMAP_ADVANCES`). The Allegro 2 starts a font 9 line 2 dots right of its record at
+30 pt (:class:`~.profiles.Font9PrintShift`, measured apart): :func:`units_left_of_x` writes the
+record that much further left.
 
 Text alignment (:class:`~.enums.TextAlign`) moves a field's reference point back by these widths:
 DPL places a field at its lower-left corner and has no justification of its own.
@@ -39,7 +41,7 @@ from typing import TYPE_CHECKING
 
 from .charset import encode_for_bitmapped_font
 from .encode_common import position_units
-from .enums import TextAlign
+from .enums import Rotation, TextAlign
 from .frozen_mapping import FrozenMapping
 from .label import FONT_9, Text
 from .units import Axis
@@ -284,16 +286,36 @@ def text_extent(element: Text, profile: PrinterProfile) -> int:
     return total - round(FONT_9_RIGHT_BEARINGS[last] * em / EM_UNITS)
 
 
-def align_shift_units(element: Text, ctx: RenderContext) -> int:
-    """Return how many DPL units a field's record column lies left of ``x``: 0 for left-aligned text.
+def font9_print_shift_dots(element: Text, profile: PrinterProfile) -> int:
+    """Return how many dots right of its record's column ``profile`` prints ``element``: 0 but for font 9.
 
-    Right-aligned text moves back by its whole :func:`text_extent`, centred text by half of it,
-    each converted at the job's dots per unit and rounded to the nearest unit. The line ends (or
-    is centred) within about one unit of the dot ``x`` prints at: half a unit from rounding the
-    shift, plus the rounding of units to whole dots (up to 2 dots measured on a DMX 430 in inch
-    format, whose 1/100 in unit is 2.9 dots; in metric format its 1/10 mm unit is 1.14 dots). The
-    encoder, the preview and the overlap and edge checks all place an aligned field by this one
-    number (:func:`text_column`).
+    The model's measured :class:`~.profiles.Font9PrintShift` at the printed point size, for an
+    upright field in the resident font 9. A turned field or one in a downloaded font (``font_id``)
+    was never measured and keeps 0, as does every model without a measured shift.
+
+    Example:
+        >>> from datamax_dpl.domain.profiles import get_profile
+        >>> line = Text(x=0, y=0, text="5 STK", font=9, points=30)
+        >>> font9_print_shift_dots(line, get_profile("allegro-2")), font9_print_shift_dots(line, get_profile("dmx-600"))
+        (2, 0)
+    """
+    shift = profile.font9_print_shift
+    if shift is None or element.font != FONT_9 or element.font_id is not None or element.rotation is not Rotation.DEG_0:
+        return 0
+    return shift.at(font9_points(element.points or _DEFAULT_POINTS, profile))
+
+
+def units_left_of_x(element: Text, ctx: RenderContext) -> int:
+    """Return how many DPL units left of ``x``'s column a field's record is written: 0 for most left-aligned text.
+
+    Right-aligned text moves back by its whole :func:`text_extent`, centred text by half of it, and
+    font 9 also by the dots the model prints it right of its record (:func:`font9_print_shift_dots`),
+    so its glyphs land where ``x`` says. The sum is converted at the job's dots per unit and rounded
+    to the nearest unit once. The line ends (or is centred, or starts) within about one unit of the
+    dot ``x`` prints at: half a unit from rounding, plus the rounding of units to whole dots (up to 2
+    dots measured on a DMX 430 in inch format, whose 1/100 in unit is 2.9 dots; in metric format its
+    1/10 mm unit is 1.14 dots). The encoder, the preview and the overlap and edge checks all place a
+    field by this one number (:func:`text_column`).
 
     Args:
         element: The text field, after its placeholders are filled.
@@ -302,11 +324,11 @@ def align_shift_units(element: Text, ctx: RenderContext) -> int:
     Returns:
         The units to subtract from the column ``x`` is written at.
     """
-    if element.align is TextAlign.LEFT:
-        return 0
-    extent = text_extent(element, ctx.profile)
-    share = extent if element.align is TextAlign.RIGHT else extent / 2
-    return round(share / ctx.dots_per_unit)
+    share = 0.0
+    if element.align is not TextAlign.LEFT:
+        extent = text_extent(element, ctx.profile)
+        share = extent if element.align is TextAlign.RIGHT else extent / 2
+    return round((share + font9_print_shift_dots(element, ctx.profile)) / ctx.dots_per_unit)
 
 
 def label_edge_column(ctx: RenderContext) -> int:
@@ -322,7 +344,7 @@ def text_column(element: Text, ctx: RenderContext) -> int:
     """Return the column a text field's record is written at, recording nothing.
 
     ``x``'s column (:func:`~.encode_common.position_units`) moved back by
-    :func:`align_shift_units`, kept on the label and on the printhead: a line that would start
+    :func:`units_left_of_x`, kept on the label and on the printhead: a line that would start
     left of either starts at the later of the two, where the encoder writes it after refusing it.
 
     Example:
@@ -333,7 +355,7 @@ def text_column(element: Text, ctx: RenderContext) -> int:
         >>> text_column(line, job_context(Label(elements=[line]), RenderOptions(model="allegro-2")))
         23
     """
-    column = position_units(element.x, axis=Axis.ACROSS, ctx=ctx) - align_shift_units(element, ctx)
+    column = position_units(element.x, axis=Axis.ACROSS, ctx=ctx) - units_left_of_x(element, ctx)
     return max(column, label_edge_column(ctx), 0)
 
 
@@ -347,11 +369,12 @@ __all__ = [
     "WHOLE_DOT_MAX_POINTS",
     "CharCell",
     "FontCells",
-    "align_shift_units",
     "char_advances",
     "font9_em_dots",
     "font9_points",
+    "font9_print_shift_dots",
     "label_edge_column",
     "text_column",
     "text_extent",
+    "units_left_of_x",
 ]

@@ -16,12 +16,12 @@ from .encode_common import (
     report_past_edge,
     row_of,
 )
-from .enums import FindingCode, Unit
+from .enums import FindingCode, TextAlign, Unit
 from .label import FONT_9, ScalableText, Text
 from .placeholders import placeholders_in
 from .profiles import OLD_SERIES_POINTS, Feature
 from .records import Header, line
-from .text_metrics import align_shift_units, font9_points, label_edge_column, text_column
+from .text_metrics import font9_points, font9_print_shift_dots, label_edge_column, text_column, units_left_of_x
 from .units import MM_PER_INCH, Axis
 
 if TYPE_CHECKING:
@@ -74,20 +74,22 @@ def _report_unmappable(encoded: EncodedText, *, index: int, ctx: RenderContext, 
 
 
 def _text_column(element: Text, *, index: int, ctx: RenderContext) -> int:
-    """Return the record column of a text field: ``x``'s, moved back by its alignment.
+    """Return the record column of a text field: ``x``'s, moved back by its alignment and its font 9 shift.
 
     ``x`` itself is checked against the printable width (``outside_print_width``), so a centred or
     right-aligned line whose middle or end is past it is refused like a field starting there. Where
     the line starts is measured from ``x`` as the offset moves it, before anything keeps it on the
-    printhead, so one finding gives the true distance: a line that would start left of the label's
-    left edge is refused (``text_past_left_edge``); one on the label but left of the printhead's
-    first column, where a negative offset across puts the label's edge, is reported as a
-    left-aligned field the offset moves there. Either is written at
+    printhead, so one finding gives the true distance: a line whose ink would start left of the
+    label's left edge is refused (``text_past_left_edge``); one on the label but with its record left
+    of the printhead's first column, where a negative offset across puts the label's edge, is
+    reported as a left-aligned field the offset moves there. Without such an offset only font 9's
+    print shift puts a record there (:func:`~.text_metrics.font9_print_shift_dots`): the record
+    cannot be written left of the first dot, so that line is refused too. Each is written at
     :func:`~.text_metrics.text_column`, so the job still renders for the findings. A field still
     holding a placeholder in a label rendered without data is checked at ``x`` only: it prints its
     template, and each record is measured once filled.
     """
-    shift = align_shift_units(element, ctx)
+    shift = units_left_of_x(element, ctx)
     if not shift or (ctx.template and placeholders_in(element.text)):
         # x is where the line starts, or its width is not known yet: x itself is checked.
         column = column_of(element.x, index=index, ctx=ctx)
@@ -101,19 +103,42 @@ def _text_column(element: Text, *, index: int, ctx: RenderContext) -> int:
 
 
 def _report_line_start(element: Text, *, back: int, index: int, ctx: RenderContext) -> None:
-    """Record an aligned line, ``back`` units left of ``x``'s column, if it starts left of the label or printhead."""
+    """Record a line whose record starts ``back`` units left of ``x``'s column, if it starts off the label or printhead.
+
+    The label's edge is judged by where the ink starts, which font 9 prints right of the record;
+    the printhead by the record, which no column left of the first dot can hold.
+    """
     edge = label_edge_column(ctx)
+    printed = font9_print_shift_dots(element, ctx.profile)
+    on_label = _first_start_on_label(edge, printed=printed, ctx=ctx)
     start = _line_start(element.x, back=back, ctx=ctx)
-    if start < edge:
-        ctx.findings.refuse(
-            FindingCode.TEXT_PAST_LEFT_EDGE, _past_edge_message(element, back=back, edge=edge, ctx=ctx), element=index
-        )
-    elif start < 0:
+    if start < on_label:
+        message = _past_edge_message(element, back=back, edge=edge, on_label=on_label, ctx=ctx)
+        ctx.findings.refuse(FindingCode.TEXT_PAST_LEFT_EDGE, message, element=index)
+    elif start < 0 and edge < 0:
         move = _clearing_move(element.x, back=back, target=0, step=_STEP[ctx.unit], ctx=ctx)
         report_past_edge(-move, Axis.ACROSS, index=index, ctx=ctx)
+    elif start < 0:
+        message = _past_printhead_message(element, back=back, printed=printed, ctx=ctx)
+        ctx.findings.refuse(FindingCode.TEXT_PAST_LEFT_EDGE, message, element=index)
 
 
-def _past_edge_message(element: Text, *, back: int, edge: int, ctx: RenderContext) -> str:
+def _first_start_on_label(edge: int, *, printed: int, ctx: RenderContext) -> int:
+    """Return the first record column whose ink, printed ``printed`` dots right of it, starts on the label.
+
+    The label's edge column itself without a print shift; with one, the first column whose printed
+    dots plus the shift reach the edge's, found through the same rounding of units to dots.
+    """
+    if not printed:
+        return edge
+    goal = ctx.printed_dots(edge)
+    start = edge - math.ceil(printed / ctx.dots_per_unit) - 1
+    while ctx.printed_dots(start) + printed < goal:
+        start += 1
+    return start
+
+
+def _past_edge_message(element: Text, *, back: int, edge: int, on_label: int, ctx: RenderContext) -> str:
     """Say how far ``x`` must move for the line to start on the label, in mm.
 
     The move goes to the later of the label's edge and the printhead's first column: with a negative
@@ -121,15 +146,28 @@ def _past_edge_message(element: Text, *, back: int, edge: int, ctx: RenderContex
     still be refused (``offset_past_label_edge``), so the message names both moves.
     """
     step = _label_length_of_mm(_MOVE_STEP_MM, ctx)
-    onto_label = _mm(_clearing_move(element.x, back=back, target=edge, step=step, ctx=ctx), ctx)
     line = f"the {element.align.value}-aligned line would start left of the label's left edge"
     if edge >= 0:
-        return f"{line}; move x right by {onto_label} mm or shorten the text"
+        move = _mm(_clearing_move(element.x, back=back, target=max(on_label, 0), step=step, ctx=ctx), ctx)
+        return f"{line}; move x right by {move} mm or shorten the text"
+    onto_label = _mm(_clearing_move(element.x, back=back, target=on_label, step=step, ctx=ctx), ctx)
     onto_printhead = _mm(_clearing_move(element.x, back=back, target=0, step=step, ctx=ctx), ctx)
     return (
         f"{line}, which the across offset of {ctx.offset_mm(Axis.ACROSS):g} mm puts left of the printhead's "
         f"first dot; move x right by {onto_printhead} mm ({onto_label} mm reaches only the label's edge) "
         "or shorten the text"
+    )
+
+
+def _past_printhead_message(element: Text, *, back: int, printed: int, ctx: RenderContext) -> str:
+    """Say why a font 9 line on the label cannot be written, and how far ``x`` must move, in mm."""
+    step = _label_length_of_mm(_MOVE_STEP_MM, ctx)
+    move = _mm(_clearing_move(element.x, back=back, target=0, step=step, ctx=ctx), ctx)
+    points = font9_points(element.points or _MIN_POINTS, ctx.profile)
+    shorten = "" if element.align is TextAlign.LEFT else " or shorten the text"
+    return (
+        f"the {ctx.profile.name} prints font 9 at {points} pt {printed} dots right of its record, which would "
+        f"start left of the printhead's first dot; move x right by {move} mm{shorten}"
     )
 
 

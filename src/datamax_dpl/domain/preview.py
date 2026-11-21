@@ -65,7 +65,7 @@ from .profiles import Feature, get_profile
 from .qr import QrDataTooLongError, element_symbol
 from .raster import Bitmap
 from .render_context import RenderOptions
-from .text_metrics import CELLS, char_advances, font9_em_dots, text_column, text_extent
+from .text_metrics import CELLS, char_advances, font9_em_dots, font9_print_shift_dots, text_column, text_extent
 from .units import Axis, to_inches
 
 if TYPE_CHECKING:
@@ -406,7 +406,8 @@ def field_area(element: Text | ScalableText | Barcode, canvas: Canvas) -> FieldA
     centred or right-aligned one starts where its record is written
     (:func:`~.text_metrics.text_column`), that many printed dots before ``x``: lettering is never
     scaled, so neither is the distance it is moved back, and the line ends at ``x`` under any
-    ``scale_across`` as it does on paper.
+    ``scale_across`` as it does on paper. Font 9 starts the dots the model prints it right of its
+    record further on (:func:`~.text_metrics.font9_print_shift_dots`), where it lands on paper.
     """
     x, y = canvas.point(element.x, element.y)
     if isinstance(element, Barcode):
@@ -414,8 +415,10 @@ def field_area(element: Text | ScalableText | Barcode, canvas: Canvas) -> FieldA
         return FieldArea(x=x, y=y, length=size.width, height=size.height, rotation=element.rotation)
     text = _as_text(element) if isinstance(element, ScalableText) else element
     ctx = canvas.geometry.ctx
-    if text.align is not TextAlign.LEFT:
-        x -= ctx.printed_dots(position_units(text.x, axis=Axis.ACROSS, ctx=ctx) - text_column(text, ctx))
+    # A scalable field is drawn as font 9 but is not the resident font the shift was measured for.
+    printed = font9_print_shift_dots(element, ctx.profile) if isinstance(element, Text) else 0
+    if text.align is not TextAlign.LEFT or printed:
+        x -= ctx.printed_dots(position_units(text.x, axis=Axis.ACROSS, ctx=ctx) - text_column(text, ctx)) - printed
     return FieldArea(
         x=x,
         y=y,
@@ -457,7 +460,7 @@ def text_box(element: Text | ScalableText | Barcode, canvas: Canvas) -> Rect:
     return field_area(element, canvas).box()
 
 
-def _draw_text(element: Text, bitmap: Bitmap, canvas: Canvas) -> None:
+def _draw_text(element: Text | ScalableText, bitmap: Bitmap, canvas: Canvas) -> None:
     """Draw one grey cell per character, advancing from the reference point the way the field turns."""
     area = field_area(element, canvas)
     for char, along in zip(element.text, letter_spans(element, canvas), strict=True):
@@ -618,9 +621,7 @@ def _as_text(element: ScalableText) -> Text:
 
 def draw_element(element: Element, bitmap: Bitmap, canvas: Canvas) -> None:
     """Draw one element onto ``bitmap``."""
-    if isinstance(element, ScalableText):
-        element = _as_text(element)
-    if isinstance(element, Text):
+    if isinstance(element, (Text, ScalableText)):
         _draw_text(element, bitmap, canvas)
     elif isinstance(element, Barcode):
         _draw_barcode(element, bitmap, canvas)

@@ -15,6 +15,10 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
   a line on paper, as any font 9 line at 14-24 pt or on another model. Widths are taken at the
   point size the model prints (the nearest one after `font_size_substituted`). Fonts 0-8 are
   measured exactly by their cells (confirmed on paper).
+- An Allegro 2 prints font 9 2 dots (0.25 mm) right of its record at 30 pt (none at 12-24 pt;
+  36 and 48 pt assumed 2, unverified), so `allegro-2` writes every upright font 9 field, left-aligned
+  too, that much further left and its glyphs land at `x`. At 30 pt that leaves `x` below 0.13 mm
+  (with no `offset_across`) nowhere to write the record: `text_past_left_edge` names the move.
 - `"align": "right"` puts a `text` field's line END at `x` (`"center"` its middle; `"left"` is the
   default): DPL has no justification, so the field is moved back by the measured width, per record
   after `{name}` is filled, rounded to the job's DPL unit (2 dots on an Allegro 2). A quantity

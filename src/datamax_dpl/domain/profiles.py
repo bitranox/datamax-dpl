@@ -322,6 +322,57 @@ class SoftwareSwitchBits:
         return ", ".join(f"{bit} {option}" for bit, option in named)
 
 
+@dataclass(frozen=True)
+class Font9PrintShift:
+    """How many dots right of its record's column a model prints font 9, per point size, as measured.
+
+    The printer places a font 9 field's first glyph that far right of the column the record names,
+    so a job writes every upright font 9 field that much further left (``text_metrics.units_left_of_x``).
+
+    Attributes:
+        dots: Dots right of the record's column, per measured point size; a read-only copy of the
+            mapping given.
+        provenance: Where, on what and how the sizes were measured.
+
+    Example:
+        >>> shift = Font9PrintShift(dots={12: 0, 30: 2}, provenance="one printer")
+        >>> shift.at(30), shift.at(48), shift.at(18), shift.measured(48)
+        (2, 2, 0, False)
+    """
+
+    dots: Mapping[int, int]
+    provenance: str
+
+    def __post_init__(self) -> None:
+        """Hold ``dots`` as a read-only copy, so a profile stays what it was made with."""
+        object.__setattr__(self, "dots", FrozenMapping(self.dots))
+
+    def at(self, points: int) -> int:
+        """Return the shift at a printed size: its own, else the nearest measured size's (the smaller of two).
+
+        An unmeasured size's shift is unverified (:meth:`measured`).
+        """
+        if points in self.dots:
+            return self.dots[points]
+        nearest = min(self.dots, key=lambda size: (abs(size - points), size))
+        return self.dots[nearest]
+
+    def measured(self, points: int) -> bool:
+        """True when the shift at ``points`` was measured, not taken from the nearest measured size."""
+        return points in self.dots
+
+
+#: Measured on one Allegro 2 with the V-line label
+#: (docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths/vline).
+_ALLEGRO_2_FONT_9_SHIFT = Font9PrintShift(
+    dots={12: 0, 18: 0, 24: 0, 30: 2},
+    provenance=(
+        "measured on one Allegro 2, firmware CA02 03.04, 2026-11-21: a lone right-aligned M per size "
+        "against a line at its predicted V tip, reprinted with the M moved until every reading was zero"
+    ),
+)
+
+
 def _no_features() -> Mapping[Feature, Support]:
     return FrozenMapping({})
 
@@ -373,6 +424,8 @@ class PrinterProfile:
             the manual gives no feed rate default. None where no single default applies.
         software_switches: Bit layout of ``<STX>V`` on this model, or None where the manual's
             table has no column for it.
+        font9_print_shift: How far right of its record's column the model prints font 9, per
+            point size; None where it was never measured, and font 9 is written at ``x``.
     """
 
     id: str
@@ -401,6 +454,7 @@ class PrinterProfile:
     max_label_length_mm: float | None = None
     feed_rate: SpeedCode | None = None
     software_switches: SoftwareSwitchBits | None = None
+    font9_print_shift: Font9PrintShift | None = None
 
     def __post_init__(self) -> None:
         """Hold ``features`` as a read-only copy, so a profile stays what it was made with."""
@@ -611,6 +665,10 @@ class _Row:
             bottom was cut at rows 1648 to 1652, a format with nothing tall printed to row 1675.
             So 1648 is conservative, and max_format_rows raises it. No other model has one: their
             manuals give none and none was measured.
+        font9_print_shift: How far right of its record's column the model prints font 9, per point
+            size, measured on paper. Only the Allegro 2 was measured: 2 dots at 30 pt and none at
+            12, 18 and 24 pt; its other sizes take the nearest measured size's, unverified. Every
+            other model writes font 9 at ``x`` until measured.
     """
 
     id: str
@@ -635,6 +693,7 @@ class _Row:
     inch_unit_dots: int | None = None
     calibration: CalibrationDefaults = CalibrationDefaults()
     max_format_rows: int | None = None
+    font9_print_shift: Font9PrintShift | None = None
 
 
 _ROWS: tuple[_Row, ...] = (
@@ -682,6 +741,7 @@ _ROWS: tuple[_Row, ...] = (
         inch_unit_dots=2,
         calibration=_ALLEGRO_2_CALIBRATION,
         max_format_rows=1648,
+        font9_print_shift=_ALLEGRO_2_FONT_9_SHIFT,
     ),
     _Row(
         id="prodigy",
@@ -1052,6 +1112,7 @@ def _build(row: _Row) -> PrinterProfile:
         # printer uses anyway is the reading that changes nothing a user would notice.
         feed_rate=_feed_rate(row.slew_speed),
         software_switches=row.software_switches,
+        font9_print_shift=row.font9_print_shift,
     )
 
 
@@ -1242,6 +1303,7 @@ __all__ = [
     "CalibrationKey",
     "Feature",
     "Firmware",
+    "Font9PrintShift",
     "ParsedFirmware",
     "PrinterProfile",
     "SoftwareSwitchBits",

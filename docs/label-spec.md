@@ -207,6 +207,18 @@ records are measured. `x` itself is checked against the printable width like any
   `x`. Sizes from 14 to 24 pt and other models are unmeasured. A font 9 line ends at its last
   glyph's ink, and in the preview, the label edge check (`element_past_label_edge`) and the
   overlap checks it is as long as these widths say, aligned or not.
+- An Allegro 2 prints font 9 a few dots right of the column its record names: 2 dots (one DPL
+  unit, 0.25 mm) at 30 pt and none at 12, 18 and 24 pt, measured with a lone `M` per size against a
+  line at its predicted middle (`docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths/vline`).
+  Every upright font 9 field on an `allegro-2`, left-aligned too, is written that much further
+  left, so its glyphs land where `x` says; the shift is added to the alignment's width before the
+  sum is rounded to whole units. A size not measured takes the nearest measured size's shift (6 to
+  14 pt none, 36 and 48 pt 2 dots), unverified; a turned field and every other model were never
+  measured and are written at `x`. The preview and the edge and overlap checks place the field
+  where it prints. The label's left edge is judged by where the ink starts, the printhead by the
+  record: a field whose ink is on the label but whose record would start left of the printhead's
+  first dot (at 30 pt, `x` below 0.13 mm with no `offset_across`) is refused
+  (`text_past_left_edge`) with the move of `x` that clears it.
 - An aligned field must be upright (rotation 0) and take no `counter` (the printer changes the
   number, and so the width, from label to label), no `font_id` (a downloaded font's widths are not
   known) and, in font 9, no `width_multiplier`; each is refused when the label is read.

@@ -79,6 +79,21 @@ All notable changes to this project are documented here. The format follows
   with it: a line of narrow letters ends earlier than before and one of wide capitals later, so a
   field that warned may no longer, and the reverse. On an Allegro 2 the old estimate cut "NORTHWAY"
   (8 pt) and "ABCDEF00123" (30 pt) in the preview although the printer printed them whole.
+- On an `allegro-2` every upright font 9 field is written further left by the dots the printer
+  prints font 9 right of its record, so its glyphs land where `x` says (BEHAVIOUR CHANGE): 2 dots
+  (one DPL unit, 0.25 mm) at 30 pt, none at 12, 18 and 24 pt. Measured on one Allegro 2 (firmware
+  CA02 03.04, 2026-11-21) with a lone `M` per size and a line at its predicted middle, reprinted
+  with the `M` moved until every reading was zero
+  (`docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths/vline`). Other sizes take the
+  nearest measured size's shift, unverified (6 to 14 pt none, 36 and 48 pt 2 dots). Left-aligned
+  font 9 labels at 30 pt or more on an Allegro 2 move 0.25 mm left; aligned fields add the shift
+  to their width before rounding, so they can move by one unit either way. Turned fields, other
+  models and `generic`/`permissive` are unchanged. The preview and the edge and overlap checks
+  place the field where it prints; the label's left edge is judged by where the ink starts, the
+  printhead by the record, so a 30 pt field with `x` below 0.13 mm (no `offset_across`) is now
+  refused (`text_past_left_edge`, naming the move of `x`): its record would start left of the
+  first dot. The profile carries it as `PrinterProfile.font9_print_shift` (`Font9PrintShift`,
+  exported).
 - The PNG preview letters font 9 and scalable text one character at a time, each at its estimated
   advance, so a proportional line no longer squeezes into a box of equal cells.
 - Skill: the preview and `validate` work from estimated text ends, so only paper decides whether
