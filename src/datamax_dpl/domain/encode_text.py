@@ -22,7 +22,14 @@ from .label import FONT_9, ScalableText, Text
 from .placeholders import placeholders_in
 from .profiles import OLD_SERIES_POINTS, Feature
 from .records import Header, line
-from .text_metrics import font9_points, font9_print_shift_dots, label_edge_column, text_column, units_left_of_x
+from .text_metrics import (
+    font9_field_points,
+    font9_points,
+    font9_print_shift_dots,
+    label_edge_column,
+    text_column,
+    units_left_of_x,
+)
 from .units import MM_PER_INCH, Axis
 
 if TYPE_CHECKING:
@@ -119,7 +126,7 @@ def _report_line_start(element: Text, *, back: int, index: int, ctx: RenderConte
         # One step of the precision report_past_edge states, so the move named is the smallest it can state.
         move = _clearing_move(element.x, back=back, target=0, step=1 / STEPS_PER_UNIT[ctx.unit], ctx=ctx)
         report_past_edge(move, Axis.ACROSS, index=index, ctx=ctx)
-    elif start < 0 and element.align is not TextAlign.LEFT:
+    elif start < 0 and element.align != TextAlign.LEFT:
         message = _past_printhead_message(element, back=back, printed=printed, ctx=ctx)
         ctx.findings.refuse(FindingCode.TEXT_PAST_LEFT_EDGE, message, element=index)
     # A left-aligned line there (font 9 at 30 pt and up on an Allegro 2, x below about one dot) is
@@ -151,7 +158,7 @@ def _past_edge_message(element: Text, *, back: int, edge: int, on_label: int, ct
     still be refused (``offset_past_label_edge``), so the message names both moves.
     """
     step = _label_length_of_mm(_MOVE_STEP_MM, ctx)
-    line = f"the {element.align.value}-aligned line would start left of the label's left edge"
+    line = f"the {TextAlign(element.align).value}-aligned line would start left of the label's left edge"
     if edge >= 0:
         move = _mm(_clearing_move(element.x, back=back, target=max(on_label, 0), step=step, ctx=ctx), ctx)
         return f"{line}; move x right by {move} mm or shorten the text"
@@ -168,10 +175,11 @@ def _past_printhead_message(element: Text, *, back: int, printed: int, ctx: Rend
     """Say why a font 9 line on the label cannot be written, and how far ``x`` must move, in mm."""
     step = _label_length_of_mm(_MOVE_STEP_MM, ctx)
     move = _mm(_clearing_move(element.x, back=back, target=0, step=step, ctx=ctx), ctx)
-    points = font9_points(element.points or _MIN_POINTS, ctx.profile)
+    points = font9_points(font9_field_points(element), ctx.profile)
+    align = TextAlign(element.align).value
     return (
         f"the {ctx.profile.name} prints font 9 at {points} pt {printed} dots right of its record, so its record "
-        f"goes {printed} dots left of where the {element.align.value}-aligned line starts, left of the printhead's "
+        f"goes {printed} dots left of where the {align}-aligned line starts, left of the printhead's "
         f"first dot; move x right by {move} mm or shorten the text"
     )
 
@@ -237,7 +245,7 @@ def encode_text(element: Text, *, index: int, ctx: RenderContext) -> list[bytes]
     """Return the format lines of a text field."""
     size = "000"
     if element.font == FONT_9:
-        size = element.font_id or font9_size(element.points or _MIN_POINTS, index=index, ctx=ctx)
+        size = element.font_id or font9_size(font9_field_points(element), index=index, ctx=ctx)
     encoded = encode_for_bitmapped_font(element.text, font=element.font)
     if element.font in CAPITALS_ONLY_FONTS and element.text != element.text.upper():
         ctx.findings.info(FindingCode.TEXT_UPPERCASED, f"font {element.font} prints capitals only", element=index)

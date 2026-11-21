@@ -24,6 +24,7 @@ from datamax_dpl.domain.profiles import (
     Support,
     get_profile,
     list_profiles,
+    nearest_size,
 )
 from datamax_dpl.domain.units import Axis
 
@@ -234,3 +235,9 @@ def test_every_profile_s_font_9_print_shift_is_well_formed() -> None:
     for shift in shifts:
         assert shift.dots
         assert all(type(size) is int and type(dots) is int for size, dots in shift.dots.items())
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("points", "nearest"), [(9, 8), (11, 10), (13, 12), (5, 6), (99, 12), (10, 10)])
+def test_the_nearest_size_takes_the_smaller_of_two_equally_near(points: int, nearest: int) -> None:
+    assert nearest_size([12, 6, 10, 8], points) == nearest

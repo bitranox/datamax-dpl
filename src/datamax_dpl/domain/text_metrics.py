@@ -48,6 +48,7 @@ from .encode_common import position_units
 from .enums import Rotation, TextAlign
 from .frozen_mapping import FrozenMapping
 from .label import FONT_9, Text
+from .profiles import nearest_size
 from .units import Axis
 
 if TYPE_CHECKING:
@@ -61,9 +62,10 @@ _DPI_289 = 289
 _POINTS_PER_INCH = 72
 #: The AFM widths and bearings here are thousandths of the em, as an AFM file states them.
 EM_UNITS = 1000
-#: Font 9 point size a field with neither ``points`` nor ``font_id`` is drawn at; validation
-#: refuses such a field, so this only keeps the arithmetic total.
-_DEFAULT_POINTS = 10
+#: Font 9 point size a field with neither ``points`` nor ``font_id`` is measured, drawn and sent at
+#: (:func:`font9_field_points`); validation refuses such a field, so this only keeps the arithmetic
+#: total for a field built without it.
+FONT_9_FALLBACK_POINTS = 10
 #: Share of the em one character of a font 9 field takes when its font is unknown (a ``font_id``
 #: names a downloaded or cartridge font, whose widths nothing here knows).
 _UNKNOWN_FONT_ADVANCE = 0.6
@@ -289,10 +291,10 @@ def font9_points(points: int, profile: PrinterProfile) -> int:
         >>> font9_points(8, get_profile("allegro-2")), font9_points(4, get_profile("allegro-2"))
         (8, 6)
     """
-    sizes = sorted(set(profile.a_series_points) | set(profile.old_series_points))
+    sizes = set(profile.a_series_points) | set(profile.old_series_points)
     if points in sizes or not sizes:
         return points
-    return min(sizes, key=lambda size: (abs(size - points), size))
+    return nearest_size(sizes, points)
 
 
 def font9_em_dots(points: int, profile: PrinterProfile) -> float:
@@ -316,7 +318,7 @@ def font9_measured_points(points: int) -> int:
         >>> [font9_measured_points(points) for points in (24, 14, 15, 48)]
         [24, 12, 12, 30]
     """
-    return min(FONT_9_PRINTED_ADVANCES, key=lambda size: (abs(size - points), size))
+    return nearest_size(FONT_9_PRINTED_ADVANCES, points)
 
 
 def _font9_exact_advances(data: bytes, points: int, *, em: float, dpi: float) -> list[float]:
@@ -330,6 +332,16 @@ def _font9_exact_advances(data: bytes, points: int, *, em: float, dpi: float) ->
         bitmap.get(byte, table[byte] * scale) if byte in table else FONT_9_STAND_IN_ADVANCES[byte] * em / EM_UNITS
         for byte in data
     ]
+
+
+def font9_field_points(element: Text) -> int:
+    """Return the font 9 point size a text field asks for: its ``points``, else :data:`FONT_9_FALLBACK_POINTS`.
+
+    Example:
+        >>> font9_field_points(Text(x=0, y=0, text="A", font=9, points=24))
+        24
+    """
+    return element.points or FONT_9_FALLBACK_POINTS
 
 
 def char_advances(element: Text, profile: PrinterProfile) -> tuple[int, ...]:
@@ -356,7 +368,7 @@ def char_advances(element: Text, profile: PrinterProfile) -> tuple[int, ...]:
     if element.font != FONT_9:
         cell = CELLS[element.font].at(profile.dpi)
         return ((cell.width + cell.gap) * element.width_multiplier,) * len(element.text)
-    points = font9_points(element.points or _DEFAULT_POINTS, profile)
+    points = font9_points(font9_field_points(element), profile)
     em = font9_em_dots(points, profile)
     if element.font_id is not None:
         return (round(em * _UNKNOWN_FONT_ADVANCE),) * len(element.text)
@@ -390,7 +402,7 @@ def text_extent(element: Text, profile: PrinterProfile) -> int:
     if element.font_id is not None:
         return total
     last = encode_for_bitmapped_font(element.text[-1], font=FONT_9).data[0]
-    em = font9_em_dots(element.points or _DEFAULT_POINTS, profile)
+    em = font9_em_dots(font9_field_points(element), profile)
     return total - round(FONT_9_RIGHT_BEARINGS[last] * em / EM_UNITS)
 
 
@@ -408,9 +420,9 @@ def font9_print_shift_dots(element: Text, profile: PrinterProfile) -> int:
         (2, 0)
     """
     shift = profile.font9_print_shift
-    if shift is None or element.font != FONT_9 or element.font_id is not None or element.rotation is not Rotation.DEG_0:
+    if shift is None or element.font != FONT_9 or element.font_id is not None or element.rotation != Rotation.DEG_0:
         return 0
-    return shift.at(font9_points(element.points or _DEFAULT_POINTS, profile))
+    return shift.at(font9_points(font9_field_points(element), profile))
 
 
 def units_left_of_x(element: Text, ctx: RenderContext) -> int:
@@ -436,9 +448,10 @@ def units_left_of_x(element: Text, ctx: RenderContext) -> int:
         The units to subtract from the column ``x`` is written at.
     """
     share = 0.0
-    if element.align is TextAlign.RIGHT:
+    # == rather than is: a field copied with model_copy(update=...) keeps the plain string it was given.
+    if element.align == TextAlign.RIGHT:
         share = text_extent(element, ctx.profile)
-    elif element.align is TextAlign.CENTER:
+    elif element.align == TextAlign.CENTER:
         share = (text_extent(element, ctx.profile) + font9_left_bearing_dots(element, ctx.profile)) / 2
     return round((share + font9_print_shift_dots(element, ctx.profile)) / ctx.dots_per_unit)
 
@@ -461,7 +474,7 @@ def font9_left_bearing_dots(element: Text, profile: PrinterProfile) -> float:
     if element.font != FONT_9 or element.font_id is not None or not element.text:
         return 0.0
     first = encode_for_bitmapped_font(element.text[0], font=FONT_9).data[0]
-    em = font9_em_dots(element.points or _DEFAULT_POINTS, profile)
+    em = font9_em_dots(font9_field_points(element), profile)
     return FONT_9_LEFT_BEARINGS[first] * em / EM_UNITS
 
 
@@ -496,6 +509,7 @@ def text_column(element: Text, ctx: RenderContext) -> int:
 __all__ = [
     "CELLS",
     "EM_UNITS",
+    "FONT_9_FALLBACK_POINTS",
     "FONT_9_LEFT_BEARINGS",
     "FONT_9_MEASURED",
     "FONT_9_PRINTED_ADVANCES",
@@ -507,6 +521,7 @@ __all__ = [
     "FontCells",
     "char_advances",
     "font9_em_dots",
+    "font9_field_points",
     "font9_left_bearing_dots",
     "font9_measured_points",
     "font9_points",

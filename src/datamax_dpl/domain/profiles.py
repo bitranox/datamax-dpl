@@ -29,7 +29,7 @@ from .label import DotSize
 from .units import Axis, hundredths_to_mm
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterable, Mapping
 
 
 class Feature(str, Enum):
@@ -322,6 +322,22 @@ class SoftwareSwitchBits:
         return ", ".join(f"{bit} {option}" for bit, option in named)
 
 
+def nearest_size(sizes: Iterable[int], points: int) -> int:
+    """Return the size in ``sizes`` nearest ``points``, the smaller of two equally near.
+
+    The one rule every substitution of a point size follows: the size a model prints, the measured
+    size whose widths a line takes, the measured size whose print shift it takes.
+
+    Raises:
+        ValueError: ``sizes`` is empty.
+
+    Example:
+        >>> nearest_size([6, 8, 10, 12], 9), nearest_size([6, 8, 10, 12], 48)
+        (8, 12)
+    """
+    return min(sizes, key=lambda size: (abs(size - points), size))
+
+
 def _is_int(value: object) -> bool:
     """True for an int that is not a bool (a bool is an int to Python, never a point size or dots)."""
     return isinstance(value, int) and not isinstance(value, bool)
@@ -375,8 +391,7 @@ class Font9PrintShift:
         """
         if points in self.dots:
             return self.dots[points]
-        nearest = min(self.dots, key=lambda size: (abs(size - points), size))
-        return self.dots[nearest]
+        return self.dots[nearest_size(self.dots, points)]
 
     def measured(self, points: int) -> bool:
         """True when the shift at ``points`` was measured, not taken from the nearest measured size."""
@@ -1335,5 +1350,6 @@ __all__ = [
     "UnknownModelError",
     "get_profile",
     "list_profiles",
+    "nearest_size",
     "parse_firmware",
 ]

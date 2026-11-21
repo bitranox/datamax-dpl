@@ -65,7 +65,15 @@ from .profiles import Feature, get_profile
 from .qr import QrDataTooLongError, element_symbol
 from .raster import Bitmap
 from .render_context import RenderOptions
-from .text_metrics import CELLS, char_advances, font9_em_dots, font9_print_shift_dots, text_column, text_extent
+from .text_metrics import (
+    CELLS,
+    char_advances,
+    font9_em_dots,
+    font9_field_points,
+    font9_print_shift_dots,
+    text_column,
+    text_extent,
+)
 from .units import Axis, to_inches
 
 if TYPE_CHECKING:
@@ -91,9 +99,6 @@ _BARCODE_TEXT_SHARE = 4
 STORED_IMAGE_DOTS = 40
 _MIN_POINTS = 4
 _MAX_POINTS = 72
-#: Font 9 size a field with neither ``points`` nor ``font_id`` is drawn at; validation refuses such
-#: a field, so this only keeps the arithmetic total.
-_DEFAULT_POINTS = 10
 
 
 @dataclass(frozen=True)
@@ -227,7 +232,7 @@ def widest_cell_mm(font: int) -> CellMm:
 def _cell_height(element: Text, profile: PrinterProfile) -> int:
     """Return the dots one line of ``element`` is tall: font 9's printed em, else the cell times its multiplier."""
     if element.font == FONT_9:
-        return round(font9_em_dots(element.points or _DEFAULT_POINTS, profile))
+        return round(font9_em_dots(font9_field_points(element), profile))
     return CELLS[element.font].at(profile.dpi).height * element.height_multiplier
 
 
@@ -417,7 +422,7 @@ def field_area(element: Text | ScalableText | Barcode, canvas: Canvas) -> FieldA
     ctx = canvas.geometry.ctx
     # A scalable field is drawn as font 9 but is not the resident font the shift was measured for.
     printed = font9_print_shift_dots(element, ctx.profile) if isinstance(element, Text) else 0
-    if text.align is not TextAlign.LEFT or printed:
+    if text.align != TextAlign.LEFT or printed:
         x -= ctx.printed_dots(position_units(text.x, axis=Axis.ACROSS, ctx=ctx) - text_column(text, ctx)) - printed
     return FieldArea(
         x=x,

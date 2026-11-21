@@ -20,18 +20,23 @@ from datamax_dpl import render_batch
 from datamax_dpl.adapters.preview import render_preview_png
 from datamax_dpl.domain.charset import FONT_BYTES, encode_for_bitmapped_font
 from datamax_dpl.domain.decoder import explain
+from datamax_dpl.domain.encode_text import encode_text
 from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, Rotation, TextAlign
 from datamax_dpl.domain.label import FONT_9, Counter, Label, Line, Text
 from datamax_dpl.domain.preview import canvas_for, field_area, letter_spans
 from datamax_dpl.domain.profiles import get_profile
-from datamax_dpl.domain.render import RenderResult, build_job, render
-from datamax_dpl.domain.render_context import RenderOptions
+from datamax_dpl.domain.render import RenderResult, build_job, job_context, render
+from datamax_dpl.domain.render_context import RenderContext, RenderOptions
 from datamax_dpl.domain.text_metrics import (
+    FONT_9_FALLBACK_POINTS,
     FONT_9_MEASURED,
     FONT_9_PRINTED_ADVANCES,
     FONT_9_STAND_IN_ADVANCES,
     char_advances,
+    font9_field_points,
+    font9_print_shift_dots,
     text_extent,
+    units_left_of_x,
 )
 
 if TYPE_CHECKING:
@@ -582,3 +587,58 @@ def test_a_font_9_record_reads_back_in_code_page_850() -> None:
     assert rebuilt is not None
     texts = [element.text for element in rebuilt.elements if isinstance(element, Text)]
     assert texts == [text.text]
+
+
+def _align_context(element: Text) -> RenderContext:
+    """The Allegro 2 job context of a label holding ``element`` alone."""
+    return job_context(Label(width=100, height=55, elements=[element]), RenderOptions(model=_MODEL))
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("align", ["right", "center"])
+def test_a_copied_field_holding_the_plain_align_string_is_still_aligned(align: str) -> None:
+    line = Text(x=50, y=20, text="5 STK", font=FONT_9, points=30, align=TextAlign(align))
+    copied = line.model_copy(update={"align": align})
+    assert type(copied.align) is str
+    assert units_left_of_x(copied, _align_context(copied)) == units_left_of_x(line, _align_context(line)) > 1
+
+
+@pytest.mark.os_agnostic
+def test_a_copied_upright_field_holding_the_plain_rotation_number_is_still_shifted() -> None:
+    line = Text(x=50, y=20, text="5 STK", font=FONT_9, points=30)
+    copied = line.model_copy(update={"rotation": 0})
+    assert type(copied.rotation) is int
+    profile = _align_context(line).profile
+    assert font9_print_shift_dots(copied, profile) == font9_print_shift_dots(line, profile) == 2
+    assert font9_print_shift_dots(line.model_copy(update={"rotation": Rotation.DEG_90}), profile) == 0
+
+
+@pytest.mark.os_agnostic
+def test_a_copied_left_field_at_the_edge_stays_silent() -> None:
+    # The user's decision keeps a left-aligned font 9 line at x 0 silent at column 0; a copy
+    # holding "left" as a plain string must not be refused as a centred or right-aligned one.
+    copied = Text(x=0, y=10, text="5 STK", font=FONT_9, points=30).model_copy(update={"align": "left"})
+    ctx = _align_context(copied)
+    encode_text(copied, index=0, ctx=ctx)
+    assert [f for f in ctx.findings.findings() if f.code == FindingCode.TEXT_PAST_LEFT_EDGE] == []
+
+
+@pytest.mark.os_agnostic
+def test_a_copied_right_field_past_the_edge_is_refused_naming_its_alignment() -> None:
+    copied = Text(x=1, y=10, text="5 STK", font=FONT_9, points=30).model_copy(update={"align": "right"})
+    ctx = _align_context(copied)
+    encode_text(copied, index=0, ctx=ctx)
+    messages = [f.message for f in ctx.findings.findings() if f.code == FindingCode.TEXT_PAST_LEFT_EDGE]
+    assert len(messages) == 1
+    assert "right-aligned line" in messages[0]
+
+
+@pytest.mark.os_agnostic
+def test_a_font_9_field_without_points_is_measured_and_sent_at_one_size() -> None:
+    # Validation refuses such a field; one built past it is measured, shifted and sent at the same
+    # fallback size, never measured at one size and sent at another.
+    line = Text.model_construct(x=50, y=20, text="5 STK", font=FONT_9, points=None, font_id=None, align=TextAlign.LEFT)
+    assert font9_field_points(line) == FONT_9_FALLBACK_POINTS
+    sized = Text(x=50, y=20, text="5 STK", font=FONT_9, points=FONT_9_FALLBACK_POINTS)
+    ctx = _align_context(sized)
+    assert encode_text(line, index=0, ctx=ctx) == encode_text(sized, index=0, ctx=ctx)
