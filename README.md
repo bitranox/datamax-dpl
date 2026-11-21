@@ -60,7 +60,8 @@ combines with the letters' dots, as the printer does: a line through text on an 
 XORs) shows gaps only under the strokes. The lettering is an approximation in the preview's own
 font, not the printer's. Font 9 is lettered one character at a time where the printer's advance
 widths put each letter, so the line ends where the printed line is estimated to end; those widths
-are a Helvetica-Bold stand-in for the printer's CG Triumvirate Bold, unverified on paper (see
+are measured on paper for the capitals, the digits, `,` `-` `.` `/` and the space (Allegro 2, at 12
+and 30 pt) and a Helvetica-Bold stand-in, unverified, for every other character (see
 [Alignment and text widths](docs/label-spec.md#alignment-and-text-widths)). Fonts 0-8 are lettered
 as one string, which may be cut at the end of the field, so the gaps near the end can differ from
 the paper. Without the extra the text combines as whole cells, and `preview` says so with the

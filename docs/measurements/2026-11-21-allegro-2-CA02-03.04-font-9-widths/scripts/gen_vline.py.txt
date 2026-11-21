@@ -24,9 +24,12 @@ from pathlib import Path
 from gen_calib import DOTS_PER_MM, RULER_LOW, TOP, extent_mm
 
 TARGETS = (50.0, 95.0)
-# Font 9 origin shift measured with the unshifted label (2026-11-21 14:25): font 9 prints this many dots
-# right of where datamax-dpl puts it. "shifted" moves each M left by it while the lines stay put.
-SHIFT_DOTS = {30: 3, 24: 2, 18: 0, 12: 2}
+# Font 9 origin shift: font 9 prints this many dots right of where datamax-dpl 3c5552b puts it.
+# "shifted" moves each M left by it while the lines stay put. The default is the final result of the
+# loop in ../vline/readings.txt (round 3); the dot figures first worked out from round 1,
+# {30: 3, 24: 2, 18: 0, 12: 2}, read its moves as offsets and are superseded there (CORRECTION).
+# A round passes its own shifts.
+SHIFT_DOTS = {30: 2}
 SHIFTED = len(sys.argv) > 2 and sys.argv[2] == "shifted"
 if len(sys.argv) > 3:  # iteration round: explicit shifts as JSON, e.g. '{"30": 2}'; file name gets the round tag
     SHIFT_DOTS = {int(k): v for k, v in json.loads(sys.argv[3]).items()}

@@ -38,11 +38,12 @@ All notable changes to this project are documented here. The format follows
   (`outside_print_width`), and must be shortened. A line on the label but left of the printhead's
   first dot (a negative `offset_across`) is reported as a left-aligned field moved there by the
   offset would be (`offset_past_label_edge`, or `model_offset_clamped` for a model default), with
-  the smallest move of `x`, in the label's unit, that clears it, a scale across included. Each field gets one of these findings, for where its
-  line starts. A refused line is still encoded, at the later of the label's left edge and the
-  printhead's first dot, so a line wider than the label also gets `element_past_label_edge` for its
-  end. A label rendered without `--data` is not refused for the width of a placeholder field's
-  template (`{qty}` with its braces): only filled records are measured.
+  the smallest move of `x`, in the label's unit, that clears it, a scale across included. Each
+  field gets one of these findings, for where its line starts. A refused line is still encoded, at
+  the later of the label's left edge and the printhead's first dot, so a line wider than the label
+  also gets `element_past_label_edge` for its end. A label rendered without `--data` is not refused
+  for the width of a placeholder field's template (`{qty}` with its braces): only filled records
+  are measured.
 
 ### Changed
 
@@ -95,14 +96,14 @@ All notable changes to this project are documented here. The format follows
   with the `M` moved until every reading was zero
   (`docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths/vline`). Other sizes take the
   nearest measured size's shift, unverified (6 to 14 pt none, 36 and 48 pt 2 dots). Left-aligned
-  font 9 labels at 30 pt or more on an Allegro 2 move 0.25 mm left; aligned fields add the shift
-  to their width before rounding, so they can move by one unit either way. Turned fields, other
-  models and `generic`/`permissive` are unchanged. The preview and the edge and overlap checks
-  place the field where it prints; the label's left edge is judged by where the ink starts, the
-  printhead by the record, so a left-aligned field at 30 pt or more with `x` of 0.125 mm or less
-  (no `offset_across`) is now refused (`text_past_left_edge`, naming the move of `x`): its record
-  goes 2 dots left of `x`, left of the printhead's first dot. The profile carries it as `PrinterProfile.font9_print_shift` (`Font9PrintShift`,
-  exported).
+  font 9 labels at 30 pt or more on an Allegro 2 move 0.25 mm left; aligned fields add the shift to
+  their width before rounding, so they can move by one unit either way. Turned fields, other models
+  and `generic`/`permissive` are unchanged. The preview and the edge and overlap checks place the
+  field where it prints; the label's left edge is judged by where the ink starts, the printhead by
+  the record, so a left-aligned field at 30 pt or more with `x` of 0.125 mm or less (no
+  `offset_across`) is now refused (`text_past_left_edge`, naming the move of `x`): its record goes
+  2 dots left of `x`, left of the printhead's first dot. The profile carries it as
+  `PrinterProfile.font9_print_shift` (`Font9PrintShift`, exported).
 - The PNG preview letters font 9 and scalable text one character at a time, each at its estimated
   advance, so a proportional line no longer squeezes into a box of equal cells.
 - Skill: the preview and `validate` work from estimated text ends, so only paper decides whether
