@@ -87,8 +87,12 @@ All notable changes to this project are documented here. The format follows
   18 pt, 56.8 at 24 pt and 70.42 at 30 pt. Scaled from one size, the advances at another were
   off by up to 1.07 dots per character (`/` at 18 pt from 30 pt), more than a millimetre over ten
   characters. Every measured line end lies within 0.35 mm of where it printed (the largest
-  residual 0.32 mm), and every row of the 18, 24 and 30 pt round within the half line it was read
-  to; placed by the stand-in, a right-aligned line
+  residual 0.32 mm). The 18 and 24 pt rows of the fill round, and its 30 pt rows of the 20
+  characters the line ends did not measure, give those advances themselves; the five rows of the
+  24 pt label that repeated another label's readings are left out. Its 30 pt rows of the 21
+  line-end characters lie within the half line they were read to of the line-end widths, but for
+  `S` (read half a line short, 2.4 dots off over 11 characters: 0.21 dot per character, within the
+  two rounds' combined resolution of 0.26). Placed by the stand-in, a right-aligned line
   of 36 digits at 12 pt ended 5 mm short of `x` and lines of `,` `.` `/` and spaces ran off the
   label. A first test with the stand-in found the lower-case alphabet about 9% narrower than it
   predicts and `+,-./:;<=>?` about 22% wider; those characters are still unmeasured. The preview,
