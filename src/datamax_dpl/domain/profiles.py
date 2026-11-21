@@ -322,6 +322,11 @@ class SoftwareSwitchBits:
         return ", ".join(f"{bit} {option}" for bit, option in named)
 
 
+def _is_int(value: object) -> bool:
+    """True for an int that is not a bool (a bool is an int to Python, never a point size or dots)."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 @dataclass(frozen=True)
 class Font9PrintShift:
     """How many dots right of its record's column a model prints font 9, per point size, as measured.
@@ -344,7 +349,20 @@ class Font9PrintShift:
     provenance: str
 
     def __post_init__(self) -> None:
-        """Hold ``dots`` as a read-only copy, so a profile stays what it was made with."""
+        """Hold ``dots`` as a read-only copy, so a profile stays what it was made with.
+
+        Raises:
+            ValueError: ``dots`` is empty (:meth:`at` would have no size to take), or a size or a
+                shift in it is not an int (a bool is refused too).
+        """
+        if not self.dots:
+            msg = "a font 9 print shift needs at least one measured point size"
+            raise ValueError(msg)
+        # Checked at run time: the annotation binds nothing, and a profile is built from literals.
+        wrong = [(size, shift) for size, shift in self.dots.items() if not (_is_int(size) and _is_int(shift))]
+        if wrong:
+            msg = f"a font 9 print shift maps int point sizes to int dots, not {wrong[0]!r}"
+            raise ValueError(msg)
         object.__setattr__(self, "dots", FrozenMapping(self.dots))
 
     def at(self, points: int) -> int:

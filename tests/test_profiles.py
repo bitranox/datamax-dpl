@@ -19,6 +19,7 @@ from datamax_dpl.domain.profiles import (
     CalibrationDefaults,
     CalibrationKey,
     Feature,
+    Font9PrintShift,
     PrinterProfile,
     Support,
     get_profile,
@@ -207,3 +208,29 @@ def test_a_calibration_key_reads_an_axis_given_by_its_value(axis: str) -> None:
 @pytest.mark.os_agnostic
 def test_the_axis_a_calibration_key_takes_is_exported() -> None:
     assert datamax_dpl.Axis is Axis
+
+
+@pytest.mark.os_agnostic
+def test_a_font_9_print_shift_without_a_size_is_refused_when_built() -> None:
+    with pytest.raises(ValueError, match="at least one measured point size"):
+        Font9PrintShift(dots={}, provenance="nothing measured")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "dots",
+    [{12.0: 0}, {"12": 0}, {True: 0}, {12: 0.5}, {12: "2"}, {12: False}, {12: 0, 30: None}],
+    ids=["float size", "str size", "bool size", "float dots", "str dots", "bool dots", "None dots"],
+)
+def test_a_font_9_print_shift_with_a_size_or_shift_that_is_not_an_int_is_refused(dots: dict[object, object]) -> None:
+    with pytest.raises(ValueError, match="int point sizes to int dots"):
+        Font9PrintShift(dots=cast("dict[int, int]", dots), provenance="typed wrong")
+
+
+@pytest.mark.os_agnostic
+def test_every_profile_s_font_9_print_shift_is_well_formed() -> None:
+    shifts = [profile.font9_print_shift for profile in MODEL_PROFILES.values() if profile.font9_print_shift]
+    assert shifts
+    for shift in shifts:
+        assert shift.dots
+        assert all(type(size) is int and type(dots) is int for size, dots in shift.dots.items())
