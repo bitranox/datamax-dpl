@@ -29,6 +29,11 @@ if TYPE_CHECKING:
 
 _MIN_POINTS = 4
 _MAX_POINTS = 72
+#: The step a move named in mm takes: the tenth of a millimetre the message states.
+_MOVE_STEP_MM = 0.1
+#: The step a move named in the label's own unit takes: the precision a message in it states
+#: (encode_common._readable).
+_STEP = {Unit.MM: 0.1, Unit.INCH: 0.01, Unit.DOTS: 1.0}
 
 
 def _size_code(points: int, ctx: RenderContext) -> str | None:
@@ -89,66 +94,100 @@ def _text_column(element: Text, *, index: int, ctx: RenderContext) -> int:
     else:
         shifted = ctx.shifted(element.x, axis=Axis.ACROSS)
         column = checked_column(max(shifted, 0.0), index=index, ctx=ctx)
-        start = ctx.dpl_units(shifted, axis=Axis.ACROSS) - shift
-        _report_line_start(element, start=start, index=index, ctx=ctx)
+        _report_line_start(element, back=shift, index=index, ctx=ctx)
     # text_column places the line as the preview and the overlap and edge checks do; min() keeps a
     # column past four digits at the cap the check above refused and returned.
     return min(text_column(element, ctx), column)
 
 
-def _report_line_start(element: Text, *, start: int, index: int, ctx: RenderContext) -> None:
-    """Record an aligned line starting at column ``start`` if that is left of the label's edge or the printhead's."""
+def _report_line_start(element: Text, *, back: int, index: int, ctx: RenderContext) -> None:
+    """Record an aligned line, ``back`` units left of ``x``'s column, if it starts left of the label or printhead."""
     edge = label_edge_column(ctx)
+    start = _line_start(element.x, back=back, ctx=ctx)
     if start < edge:
         ctx.findings.refuse(
-            FindingCode.TEXT_PAST_LEFT_EDGE, _past_edge_message(element, start=start, edge=edge, ctx=ctx), element=index
+            FindingCode.TEXT_PAST_LEFT_EDGE, _past_edge_message(element, back=back, edge=edge, ctx=ctx), element=index
         )
     elif start < 0:
-        report_past_edge(_label_length(start, ctx), Axis.ACROSS, index=index, ctx=ctx)
+        move = _clearing_move(element.x, back=back, target=0, step=_STEP[ctx.unit], ctx=ctx)
+        report_past_edge(-move, Axis.ACROSS, index=index, ctx=ctx)
 
 
-def _past_edge_message(element: Text, *, start: int, edge: int, ctx: RenderContext) -> str:
-    """Say how far a line starting at column ``start`` lies left of the label, and how far ``x`` must move.
+def _past_edge_message(element: Text, *, back: int, edge: int, ctx: RenderContext) -> str:
+    """Say how far ``x`` must move for the line to start on the label, in mm.
 
     The move goes to the later of the label's edge and the printhead's first column: with a negative
     offset across the edge lies left of that column, and a line moved only onto the label would
-    still be refused (``offset_past_label_edge``).
+    still be refused (``offset_past_label_edge``), so the message names both moves.
     """
-    line = (
-        f"the {element.align.value}-aligned line would start about {_mm_up(edge - start, ctx)} mm left of "
-        "the label's left edge"
-    )
+    step = _label_length_of_mm(_MOVE_STEP_MM, ctx)
+    onto_label = _mm(_clearing_move(element.x, back=back, target=edge, step=step, ctx=ctx), ctx)
+    line = f"the {element.align.value}-aligned line would start left of the label's left edge"
     if edge >= 0:
-        return f"{line}; move x right by that or shorten the text"
+        return f"{line}; move x right by {onto_label} mm or shorten the text"
+    onto_printhead = _mm(_clearing_move(element.x, back=back, target=0, step=step, ctx=ctx), ctx)
     return (
         f"{line}, which the across offset of {ctx.offset_mm(Axis.ACROSS):g} mm puts left of the printhead's "
-        f"first dot; move x right by about {_mm_up(-start, ctx)} mm or shorten the text"
+        f"first dot; move x right by {onto_printhead} mm ({onto_label} mm reaches only the label's edge) "
+        "or shorten the text"
     )
 
 
-def _mm_up(units: int, ctx: RenderContext) -> str:
-    """Return the move of ``x`` by ``units`` in mm, rounded up to the tenth shown so moving by it is enough."""
-    return f"{math.ceil(round(_x_move_mm(units, ctx) * 10, 6)) / 10:.1f}"
+def _line_start(x: float, *, back: int, ctx: RenderContext) -> int:
+    """Return the column a line starts at when its field sits at ``x`` and starts ``back`` units left of it."""
+    return ctx.dpl_units(ctx.shifted(x, axis=Axis.ACROSS), axis=Axis.ACROSS) - back
 
 
-def _x_move_mm(units: int, ctx: RenderContext) -> float:
-    """Return how many mm ``x`` must move to move its column by ``units``, the inverse of its conversion.
+def _clearing_move(x: float, *, back: int, target: int, step: float, ctx: RenderContext) -> float:
+    """Return the smallest multiple of ``step`` that moves ``x`` so its line starts at column ``target`` or later.
+
+    Found by trying each step through the conversion ``x`` itself takes, not by inverting it: that
+    conversion rounds the absolute position (the offset included) to whole units, half to even, so
+    moving ``x`` by ``d`` units' worth can move its column by only ``d - 1``. The search starts
+    below the move the inverse gives by more than a unit, so the first step that clears is the
+    smallest. Each candidate is tried as the number a reader types (``x`` plus the move shown), not
+    as the float sum, whose last bit can round a half unit the other way. The column only grows
+    with ``x``, so the search ends.
+    """
+    missing = target - _line_start(x, back=back, ctx=ctx)
+    estimate = _x_move(missing - 1, ctx)
+    steps = max(math.floor(estimate / step) - 1, 0)
+    while _line_start(_typed(x + steps * step), back=back, ctx=ctx) < target:
+        steps += 1
+    return _typed(steps * step)
+
+
+def _typed(value: float) -> float:
+    """Return ``value`` as the decimal a reader would type, without the float sum's last-bit noise."""
+    return round(value, 9)
+
+
+def _x_move(units: int, ctx: RenderContext) -> float:
+    """Return about how far ``x`` moves, in the label's unit, to move its column by ``units``.
 
     Not the dots the units print: a unit is rounded to whole dots on paper, and a scale across
-    stretches what ``x`` asks for, so a distance in printed dots falls short of the move needed.
+    stretches what ``x`` asks for. A label in dots asks for printed dots, which no scale changes
+    (units._printed_inches).
     """
-    mm = units * ctx.dots_per_unit / ctx.profile.dpi * MM_PER_INCH
-    # A label in dots asks for printed dots, which no scale changes (units._printed_inches).
-    return mm if ctx.unit is Unit.DOTS else mm * ctx.across.scale
-
-
-def _label_length(units: int, ctx: RenderContext) -> float:
-    """Return ``units`` of this job as a length in the label's unit, at the dots they print."""
-    dots = ctx.printed_dots(units)
+    inches = units * ctx.dots_per_unit / ctx.profile.dpi
     if ctx.unit is Unit.DOTS:
-        return float(dots)
-    inches = dots / ctx.profile.dpi
+        return inches * ctx.profile.dpi
+    inches *= ctx.across.scale
     return inches * MM_PER_INCH if ctx.unit is Unit.MM else inches
+
+
+def _label_length_of_mm(mm: float, ctx: RenderContext) -> float:
+    """Return ``mm`` in the label's unit, at this model's resolution for a label in dots."""
+    if ctx.unit is Unit.MM:
+        return mm
+    inches = mm / MM_PER_INCH
+    return inches * ctx.profile.dpi if ctx.unit is Unit.DOTS else inches
+
+
+def _mm(length: float, ctx: RenderContext) -> str:
+    """Return a move of ``length`` in the label's unit as mm to the tenth (a whole number of 0.1 mm steps)."""
+    mm = length if ctx.unit is Unit.MM else length / _label_length_of_mm(1.0, ctx)
+    return f"{mm:.1f}"
 
 
 def encode_text(element: Text, *, index: int, ctx: RenderContext) -> list[bytes]:

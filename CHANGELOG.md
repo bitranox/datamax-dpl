@@ -21,12 +21,17 @@ All notable changes to this project are documented here. The format follows
 - The new error finding `text_past_left_edge` refuses a centred or right-aligned line that would
   start left of the label's left edge, measured from that edge wherever `offset_across` puts it on
   the printhead and from where `x` itself lies, even left of the printhead; nothing is sent (exit
-  1). It names that distance, rounded up to 0.1 mm; where a negative `offset_across` puts the
-  label's edge left of the printhead's first dot, it also names the move to that dot. Moving `x`
-  right by the move named (the distance itself when there is no second one) gives a job that
-  prints. A line on the label but left of the printhead's first dot (a negative `offset_across`) is
-  reported as a left-aligned field moved there by the offset would be (`offset_past_label_edge`, or
-  `model_offset_clamped` for a model default). Each field gets one of these findings, for where its
+  1). It names the smallest move of `x`, in 0.1 mm steps, that puts the line on the label; where a
+  negative `offset_across` puts the label's edge left of the printhead's first dot, it names the
+  move to that dot too. Each move is tried through the same conversion `x` takes, since that
+  conversion rounds the position (the offset included) to whole units, half to even: on a model
+  that places fields in 0.1 mm (`dmx-600`, `dmx-430`) a move of `d` units' worth can move the
+  column only `d - 1`. Moving `x` right by the larger move named gives a line that starts on the
+  label and the printhead; a line wider than the printable width still does not fit after it
+  (`outside_print_width`), and must be shortened. A line on the label but left of the printhead's
+  first dot (a negative `offset_across`) is reported as a left-aligned field moved there by the
+  offset would be (`offset_past_label_edge`, or `model_offset_clamped` for a model default), with
+  the smallest move of `x`, in the label's unit, that clears it, a scale across included. Each field gets one of these findings, for where its
   line starts. A refused line is still encoded, at the later of the label's left edge and the
   printhead's first dot, so a line wider than the label also gets `element_past_label_edge` for its
   end. A label rendered without `--data` is not refused for the width of a placeholder field's

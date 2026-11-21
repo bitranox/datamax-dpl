@@ -253,11 +253,12 @@ def _font_2_line(
 @pytest.mark.parametrize("offset_across", [3.0, -3.0])
 def test_the_left_edge_refusal_measures_from_the_labels_edge_not_the_printheads(offset_across: float) -> None:
     # Eight characters span 94 dots (47 units): the line starts 7 units (1.75 mm) left of the label
-    # whichever way the printer's offset moves the label on the printhead.
+    # whichever way the printer's offset moves the label on the printhead. x 10 mm is 39.37 units,
+    # written 39; 11.7 mm is 46.06, written 46: 1.7 mm moves the column the 7 units.
     ok, findings = _font_2_line(8, offset_across=offset_across)
     assert not ok
     refusal = next(f for f in findings if f.code is FindingCode.TEXT_PAST_LEFT_EDGE)
-    assert "about 1.8 mm left of the label's left edge" in refusal.message
+    assert _label_edge_move(refusal.message) == pytest.approx(1.7)
 
 
 @pytest.mark.os_agnostic
@@ -284,16 +285,18 @@ def _edge_messages(findings: Iterable[Finding]) -> list[tuple[FindingCode, str]]
     ("x", "chars", "past"),
     [
         # x 1 mm with offset -3 mm is 8 units left of the printhead; four characters (23 units)
-        # start 31 units left of it, 19 units (4.75 mm) left of the label's edge at -12.
-        (1.0, 4, "about 4.8 mm"),
-        # One character (5 units) from x 1 mm starts 13 units left: 1 unit (0.25 mm) past the edge.
-        (1.0, 1, "about 0.3 mm"),
+        # start 31 units left of it, 19 units (4.75 mm) left of the label's edge at -12. x 5.7 mm
+        # (2.7 mm after the offset, 10.63 units) is written 11: 4.7 mm moves the column 19 units.
+        (1.0, 4, 4.7),
+        # One character (5 units) from x 1 mm starts 13 units left: 1 unit (0.25 mm) past the edge,
+        # which x 1.2 mm (-7.09 units, written -7) clears.
+        (1.0, 1, 0.2),
         # x 2.5 mm is 2 units left of the printhead; two characters (11 units) start 1 unit past the edge.
-        (2.5, 2, "about 0.3 mm"),
+        (2.5, 2, 0.2),
     ],
 )
 def test_a_line_whose_x_is_left_of_the_printhead_is_measured_from_its_true_start(
-    x: float, chars: int, past: str
+    x: float, chars: int, past: float
 ) -> None:
     ok, findings = _font_2_line(chars, offset_across=-3.0, x=x)
     assert not ok
@@ -301,7 +304,7 @@ def test_a_line_whose_x_is_left_of_the_printhead_is_measured_from_its_true_start
     assert len(edges) == 1, edges
     [(code, message)] = edges
     assert code is FindingCode.TEXT_PAST_LEFT_EDGE
-    assert f"{past} left of the label's left edge" in message
+    assert _label_edge_move(message) == pytest.approx(past)
 
 
 @pytest.mark.os_agnostic
@@ -326,17 +329,30 @@ def test_moving_x_right_by_the_reported_distance_puts_the_line_on_the_label(
     assert ok, moved
 
 
+def _label_edge_move(message: str) -> float:
+    """The move a text_past_left_edge refusal names for reaching the label's edge."""
+    named = re.search(r"\((\d+\.\d) mm reaches only the label's edge\)", message)
+    named = named or re.search(r"move x right by (\d+\.\d) mm", message)
+    assert named is not None, message
+    return float(named.group(1))
+
+
 def _reported_move(findings: Iterable[Finding]) -> float | None:
-    """The distance a text_past_left_edge refusal tells x to move, or None without one."""
-    refusal = next((f for f in findings if f.code is FindingCode.TEXT_PAST_LEFT_EDGE), None)
-    if refusal is None:
-        return None
-    named = re.search(r"move x right by about (\d+\.\d) mm", refusal.message)
-    past = named or re.search(
-        r"about (\d+\.\d) mm left of the label's left edge; move x right by that", refusal.message
-    )
-    assert past is not None, refusal.message
-    return float(past.group(1))
+    """The distance an edge refusal of an aligned line tells x to move, or None without one."""
+    for finding in findings:
+        if finding.code is FindingCode.TEXT_PAST_LEFT_EDGE:
+            # The older wordings too ("move x right by about", "... left of the label's left edge;
+            # move x right by that"), so a run against an older encoder checks its moves, not its words.
+            named = re.search(r"move x right by (?:about )?(\d+\.\d) mm", finding.message)
+            named = named or re.search(r"about (\d+\.\d) mm left of the label's left edge; move x", finding.message)
+            assert named is not None, finding.message
+            return float(named.group(1))
+    for finding in findings:
+        if finding.code is FindingCode.OFFSET_PAST_LABEL_EDGE:
+            past = re.search(r"moves this field (\d+(?:\.\d+)?) mm past the label edge", finding.message)
+            assert past is not None, finding.message
+            return float(past.group(1))
+    return None
 
 
 @pytest.mark.os_agnostic
@@ -359,6 +375,58 @@ def test_every_refused_line_moved_by_the_reported_distance_prints() -> None:
     assert not still_refused, still_refused[:5]
 
 
+def _line_job(model: str, text: Text, *, offset_across: float, scale_across: float = 1.0) -> tuple[bool, list[Finding]]:
+    result = build_job(
+        Label(width=100, height=55, elements=[text]),
+        RenderOptions(model=model, offset_across=offset_across, scale_across=scale_across),
+    )
+    return result.ok, list(result.findings)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("model", "offset_across", "text"),
+    [
+        # A 0.1 mm unit with the offset half a unit off the grid: the absolute position rounds half
+        # to even, so a move of d units' worth can move the column only d - 1.
+        ("dmx-600", -0.25, Text(x=0, y=10, text="A", font=2, align=TextAlign.RIGHT)),
+        ("dmx-600", -3.65, Text(x=0, y=10, text="AAA", font=2, align=TextAlign.RIGHT)),
+        ("dmx-600", 0.55, Text(x=0, y=10, text="A", font=2, align=TextAlign.CENTER)),
+        ("dmx-430", 0.13, Text(x=6.62, y=10, text="A", font=FONT_9, points=30, align=TextAlign.RIGHT)),
+    ],
+)
+def test_the_named_move_clears_the_edge_on_a_tenth_millimetre_model(
+    model: str, offset_across: float, text: Text
+) -> None:
+    _, findings = _line_job(model, text, offset_across=offset_across)
+    move = _reported_move(findings)
+    assert move is not None
+    ok, moved = _line_job(model, text.model_copy(update={"x": round(text.x + move, 6)}), offset_across=offset_across)
+    assert ok, moved
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("model", ["dmx-600", "dmx-430"])
+def test_every_named_move_clears_the_edge_on_a_tenth_millimetre_model(model: str) -> None:
+    """Offsets half a unit off the grid, scales, both alignments: the named move always gives a job that prints."""
+    still_refused: list[tuple[float, float, str, int, float, float, list[FindingCode]]] = []
+    refusals = 0
+    for offset, scale, align, chars, step in itertools.product(
+        (-0.25, -3.65, 0.55, 0.13), (1.0, 1.007), (TextAlign.RIGHT, TextAlign.CENTER), (1, 3, 8), range(15)
+    ):
+        text = Text(x=step * 0.37, y=10, text="A" * chars, font=2, align=align)
+        move = _reported_move(_line_job(model, text, offset_across=offset, scale_across=scale)[1])
+        if move is None:
+            continue
+        refusals += 1
+        moved = text.model_copy(update={"x": round(text.x + move, 6)})
+        ok, findings = _line_job(model, moved, offset_across=offset, scale_across=scale)
+        if not ok:
+            still_refused.append((offset, scale, align.value, chars, text.x, move, sorted(_codes(findings))))
+    assert refusals > 150, refusals  # the grid must reach the refusals it checks
+    assert not still_refused, still_refused[:5]
+
+
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize(("offset_across", "column"), [(2.0, b"0008"), (-3.0, b"0000"), (0.0, b"0000")])
 def test_a_refused_line_is_written_at_the_label_edge_or_the_printheads_first_column(
@@ -376,13 +444,14 @@ def test_a_refused_line_is_written_at_the_label_edge_or_the_printheads_first_col
 @pytest.mark.os_agnostic
 def test_a_line_whose_x_and_start_are_both_left_of_the_printhead_gets_one_offset_finding() -> None:
     # x 2.5 mm is 2 units left of the printhead; one character (5 units) starts 7 units (1.75 mm)
-    # left of it and 5 units right of the label's edge: one finding, for where the line starts.
+    # left of it and 5 units right of the label's edge: one finding, for where the line starts. It
+    # names the move that clears: x 4.2 mm (1.2 mm after the offset, 4.72 units) is written 5.
     _, findings = _font_2_line(1, offset_across=-3.0, x=2.5)
     edges = _edge_messages(findings)
     assert len(edges) == 1, edges
     [(code, message)] = edges
     assert code is FindingCode.OFFSET_PAST_LABEL_EDGE
-    assert "moves this field 1.75 mm past the label edge" in message
+    assert "moves this field 1.7 mm past the label edge" in message
 
 
 @pytest.mark.os_agnostic
