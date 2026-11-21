@@ -140,50 +140,65 @@ def test_the_preview_and_the_checks_place_font_9_where_it_prints(align: TextAlig
     assert field_area(line, Canvas(width=1, height=1, geometry=PreviewGeometry(ctx))).x == printed_at
 
 
-@pytest.mark.os_agnostic
-def test_a_left_font_9_field_at_the_label_edge_whose_record_cannot_go_further_left_is_refused() -> None:
-    # x 0 at 30 pt: the record would need column -1, left of the printhead's first dot.
-    ok, findings = _job(Text(x=0, y=10, text="5 STK", font=FONT_9, points=30))
-    assert not ok
-    messages = [f.message for f in findings if f.code is FindingCode.TEXT_PAST_LEFT_EDGE]
-    assert messages == [
-        "the Allegro 2 prints font 9 at 30 pt 2 dots right of its record, so its record goes 2 dots left of x, "
-        "left of the printhead's first dot; move x right by 0.2 mm"
-    ]
-    # 0.2 mm is 0.79 units, which rounds to the one unit the record needs.
-    assert _job(Text(x=0.2, y=10, text="5 STK", font=FONT_9, points=30))[0]
+def _element_findings(findings: list[Finding]) -> list[Finding]:
+    """The findings about a field; the job-level notes every Allegro 2 job carries are left out."""
+    return [finding for finding in findings if finding.element is not None]
 
 
 @pytest.mark.os_agnostic
-def test_a_centred_font_9_line_whose_record_cannot_go_further_left_says_where_the_line_starts() -> None:
-    ok, findings = _job(Text(x=1.55, y=10, text=".", font=FONT_9, points=30, align=TextAlign.CENTER))
-    assert not ok
-    (message,) = [f.message for f in findings if f.code is FindingCode.TEXT_PAST_LEFT_EDGE]
-    assert "so its record goes 2 dots left of where the center-aligned line starts, left of the printhead's" in message
-    assert message.endswith(" or shorten the text")
+def test_a_left_font_9_field_at_the_label_edge_prints_silently_at_column_0() -> None:
+    # x 0 at 30 pt: the record would need column -1, left of the printhead's first dot. The user's
+    # decision of 2026-11-21 keeps it as it printed before: column 0, no finding, its ink 2 dots
+    # (0.25 mm) right of x.
+    line = Text(x=0, y=10, text="5 STK", font=FONT_9, points=30)
+    ok, findings = _job(line)
+    assert ok
+    assert _element_findings(findings) == []
+    assert _records(_MODEL, line)[b"5 STK"][1] == 0
+    ctx = job_context(Label(width=100, height=55, elements=[line]), RenderOptions(model=_MODEL))
+    rectangle = inexact_rectangle(line, ctx)
+    assert rectangle is not None
+    assert rectangle.left == _MEASURED_SHIFT[30]
 
 
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("points", [30, 36, 48])
-@pytest.mark.parametrize(("x", "refused"), [(0.125, True), (0.1251, True), (0.1252, False), (0.126, False)])
-def test_the_left_edge_threshold_for_a_shifted_font_9_field_is_one_dot(points: int, x: float, refused: bool) -> None:
-    # The docs name it: x up to one dot (25.4 / 203 = 0.12512 mm, which rounds to column 0 half to
-    # even) leaves no column for the record at 30 pt and up; from about 0.1252 mm it prints.
-    ok, findings = _job(Text(x=x, y=10, text="5", font=FONT_9, points=points))
-    assert ok is not refused
-    assert any(f.code is FindingCode.TEXT_PAST_LEFT_EDGE for f in findings) is refused
+@pytest.mark.parametrize("x", [0.125, 0.1251, 0.1252, 0.126])
+def test_a_left_font_9_field_either_side_of_the_one_dot_threshold_prints_at_column_0(points: int, x: float) -> None:
+    # The docs name the threshold: x up to one dot (25.4 / 203 = 0.12512 mm, which rounds to column
+    # 0 half to even) leaves no column for the record at 30 pt and up; from about 0.1252 mm it has
+    # column 0. Below it the record is kept at column 0 without a finding, so both sides print there.
+    line = Text(x=x, y=10, text="5", font=FONT_9, points=points)
+    ok, findings = _job(line)
+    assert ok
+    assert _element_findings(findings) == []
+    assert _records(_MODEL, line)[b"5"][1] == 0
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize(
-    ("scale", "x", "refused"),
-    [(0.95, 0.1188, True), (0.95, 0.1189, False), (1.05, 0.1313, True), (1.05, 0.1314, False)],
-)
-def test_the_left_edge_threshold_scales_with_scale_across(scale: float, x: float, refused: bool) -> None:
+@pytest.mark.parametrize(("scale", "x"), [(0.95, 0.1188), (0.95, 0.1189), (1.05, 0.1313), (1.05, 0.1314)])
+def test_the_scaled_one_dot_threshold_prints_on_both_sides_without_a_finding(scale: float, x: float) -> None:
     # The docs name the threshold at scale_across 0.95 and 1.05 too: one dot times the scale.
     ok, findings = _job(Text(x=x, y=10, text="5", font=FONT_9, points=30), scale_across=scale)
-    assert ok is not refused
-    assert any(f.code is FindingCode.TEXT_PAST_LEFT_EDGE for f in findings) is refused
+    assert ok
+    assert _element_findings(findings) == []
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("align", [TextAlign.CENTER, TextAlign.RIGHT])
+def test_a_centred_or_right_aligned_font_9_line_starting_left_of_the_printhead_is_still_refused(
+    align: TextAlign,
+) -> None:
+    # Only the left-aligned case was decided; a line whose start the text width pushes left of the
+    # first dot is still refused, as before.
+    # The "." of each starts left of the first dot only near these x (1.38 to 1.62 mm, 2.38 to 2.62 mm).
+    x = {TextAlign.CENTER: 1.55, TextAlign.RIGHT: 2.5}[align]
+    ok, findings = _job(Text(x=x, y=10, text=".", font=FONT_9, points=30, align=align))
+    assert not ok
+    (finding,) = _element_findings(findings)
+    assert finding.code is FindingCode.TEXT_PAST_LEFT_EDGE
+    assert f"left of where the {align.value}-aligned line starts, left of the printhead's first dot" in finding.message
+    assert finding.message.endswith(" or shorten the text")
 
 
 @pytest.mark.os_agnostic

@@ -19,7 +19,10 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
   36 and 48 pt assumed 2, unverified), so `allegro-2` writes every upright font 9 field,
   left-aligned too, that much further left and its glyphs land at `x`. At 30 pt and up that leaves
   a left-aligned field with `x` below about 0.1252 mm (0.1189 mm at `scale_across` 0.95, 0.1314 mm
-  at 1.05; with no `offset_across`) nowhere to write the record: `text_past_left_edge` names the move.
+  at 1.05; with no `offset_across`) no column for the record: it is written at column 0 and prints
+  up to 0.25 mm right of `x` WITHOUT a finding (a deliberate exception: every other fallback is
+  reported). A centred or right-aligned line whose record would start left of the first dot is
+  refused (`text_past_left_edge` names the move).
 - `"align": "right"` puts a `text` field's line END at `x` (`"center"` its middle; `"left"` is the
   default): DPL has no justification, so the field is moved back by the measured width, per record
   after `{name}` is filled, rounded to the job's DPL unit (2 dots on an Allegro 2). A quantity

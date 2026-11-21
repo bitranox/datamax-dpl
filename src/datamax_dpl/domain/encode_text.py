@@ -84,7 +84,9 @@ def _text_column(element: Text, *, index: int, ctx: RenderContext) -> int:
     of the printhead's first column, where a negative offset across puts the label's edge, is
     reported as a left-aligned field the offset moves there. Without such an offset only font 9's
     print shift puts a record there (:func:`~.text_metrics.font9_print_shift_dots`): the record
-    cannot be written left of the first dot, so that line is refused too. Each is written at
+    cannot be written left of the first dot, so a centred or right-aligned line is refused too,
+    while a left-aligned one is written at column 0 and prints up to 0.25 mm right of ``x``, with
+    no finding. Each is written at
     :func:`~.text_metrics.text_column`, so the job still renders for the findings. A field still
     holding a placeholder in a label rendered without data is checked at ``x`` only: it prints its
     template, and each record is measured once filled.
@@ -118,9 +120,13 @@ def _report_line_start(element: Text, *, back: int, index: int, ctx: RenderConte
     elif start < 0 and edge < 0:
         move = _clearing_move(element.x, back=back, target=0, step=_STEP[ctx.unit], ctx=ctx)
         report_past_edge(move, Axis.ACROSS, index=index, ctx=ctx)
-    elif start < 0:
+    elif start < 0 and element.align is not TextAlign.LEFT:
         message = _past_printhead_message(element, back=back, printed=printed, ctx=ctx)
         ctx.findings.refuse(FindingCode.TEXT_PAST_LEFT_EDGE, message, element=index)
+    # A left-aligned line there (font 9 at 30 pt and up on an Allegro 2, x below about one dot) is
+    # written at column 0 without a finding and prints up to 0.25 mm right of x. A user decision
+    # keeps it silent, so a label laid out at x 0 prints as it did before the print shift existed;
+    # the documented exception to reporting every fallback.
 
 
 def _first_start_on_label(edge: int, *, printed: int, ctx: RenderContext) -> int:
@@ -164,13 +170,10 @@ def _past_printhead_message(element: Text, *, back: int, printed: int, ctx: Rend
     step = _label_length_of_mm(_MOVE_STEP_MM, ctx)
     move = _mm(_clearing_move(element.x, back=back, target=0, step=step, ctx=ctx), ctx)
     points = font9_points(element.points or _MIN_POINTS, ctx.profile)
-    left = element.align is TextAlign.LEFT
-    # The record moves left of where the line starts, which is x itself only for a left-aligned line.
-    start = "x" if left else f"where the {element.align.value}-aligned line starts"
-    shorten = "" if left else " or shorten the text"
     return (
         f"the {ctx.profile.name} prints font 9 at {points} pt {printed} dots right of its record, so its record "
-        f"goes {printed} dots left of {start}, left of the printhead's first dot; move x right by {move} mm{shorten}"
+        f"goes {printed} dots left of where the {element.align.value}-aligned line starts, left of the printhead's "
+        f"first dot; move x right by {move} mm or shorten the text"
     )
 
 
