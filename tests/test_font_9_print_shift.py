@@ -165,10 +165,23 @@ def test_a_centred_font_9_line_whose_record_cannot_go_further_left_says_where_th
 
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("points", [30, 36, 48])
-@pytest.mark.parametrize(("x", "refused"), [(0.125, True), (0.126, False)])
-def test_the_left_edge_threshold_for_a_shifted_font_9_field_is_0_125_mm(points: int, x: float, refused: bool) -> None:
-    # The docs name it: x of 0.125 mm or less leaves no column for the record at 30 pt and up.
+@pytest.mark.parametrize(("x", "refused"), [(0.125, True), (0.1251, True), (0.1252, False), (0.126, False)])
+def test_the_left_edge_threshold_for_a_shifted_font_9_field_is_one_dot(points: int, x: float, refused: bool) -> None:
+    # The docs name it: x up to one dot (25.4 / 203 = 0.12512 mm, which rounds to column 0 half to
+    # even) leaves no column for the record at 30 pt and up; from about 0.1252 mm it prints.
     ok, findings = _job(Text(x=x, y=10, text="5", font=FONT_9, points=points))
+    assert ok is not refused
+    assert any(f.code is FindingCode.TEXT_PAST_LEFT_EDGE for f in findings) is refused
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("scale", "x", "refused"),
+    [(0.95, 0.1188, True), (0.95, 0.1189, False), (1.05, 0.1313, True), (1.05, 0.1314, False)],
+)
+def test_the_left_edge_threshold_scales_with_scale_across(scale: float, x: float, refused: bool) -> None:
+    # The docs name the threshold at scale_across 0.95 and 1.05 too: one dot times the scale.
+    ok, findings = _job(Text(x=x, y=10, text="5", font=FONT_9, points=30), scale_across=scale)
     assert ok is not refused
     assert any(f.code is FindingCode.TEXT_PAST_LEFT_EDGE for f in findings) is refused
 
