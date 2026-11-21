@@ -1,0 +1,85 @@
+"""Build the font 9 right-alignment check label (user's V method, 2026-11-21).
+
+Each row is a right-aligned font 9 line ending in "M" at a target x, and a 1-dot vertical line at
+the predicted middle of that final M, where its two diagonals meet in the V. The Allegro 2 prints
+dots shared by text and line WHITE, so the line shows inverted wherever it crosses ink: centred in
+the V when the alignment is right, cutting one diagonal when the M sits left or right of where
+datamax-dpl placed it. Rows hold a lone "M", so only the alignment and the M's own width are under
+test, never the width table of other characters. Two target columns (x 50 and x 95) tell a
+constant offset from a scale error across the label.
+
+Copy to gen_vline.py beside gen_calib.py and run it with datamax-dpl installed:
+python gen_vline.py OUT_DIR [shifted SHIFTS_JSON ROUND]. Plain, it writes v01 (no shift); "shifted"
+moves each M left by SHIFTS_JSON dots per size ('{"30": 2}') and names the file after ROUND. The
+labels in ../vline/ were built with datamax-dpl 3c5552b, which placed the M by its advance with the
+Helvetica-Bold stand-in widths; run today, it places the M by the measured widths.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+from gen_calib import DOTS_PER_MM, RULER_LOW, TOP, extent_mm
+
+TARGETS = (50.0, 95.0)
+# Font 9 origin shift measured with the unshifted label (2026-11-21 14:25): font 9 prints this many dots
+# right of where datamax-dpl puts it. "shifted" moves each M left by it while the lines stay put.
+SHIFT_DOTS = {30: 3, 24: 2, 18: 0, 12: 2}
+SHIFTED = len(sys.argv) > 2 and sys.argv[2] == "shifted"
+if len(sys.argv) > 3:  # iteration round: explicit shifts as JSON, e.g. '{"30": 2}'; file name gets the round tag
+    SHIFT_DOTS = {int(k): v for k, v in json.loads(sys.argv[3]).items()}
+ROUND = sys.argv[4] if len(sys.argv) > 4 else "v02"
+SIZES = (30, 24, 18, 12)  # bottom row first
+FIRST_Y = 3.0
+GAP = 4.5
+UNIT = 0.25  # one DPL position unit on the Allegro 2 (2 dots); a line is one unit wide
+PITCH = 0.5  # two units apart, so each line keeps a one-unit gap to the next
+CAP = 0.72  # cap height of a Helvetica-style face, in em; the line overshoots it by 1 mm each way
+
+
+def ruler() -> list[dict[str, object]]:
+    elements: list[dict[str, object]] = []
+    for mm in range(5, 96):
+        low = RULER_LOW if mm % 5 == 0 else TOP - 2.0
+        elements.append({"type": "line", "x": mm, "y": low, "x2": mm, "y2": TOP - 0.5, "thickness": 0.25})
+    return elements
+
+
+def main() -> int:
+    out = Path(sys.argv[1])
+    out.mkdir(parents=True, exist_ok=True)
+    elements = ruler()
+    notes = ["Font 9 right-alignment check (V method), Allegro 2, 100 x 55 mm.", ""]
+    y = FIRST_Y
+    number = 1
+    for points in SIZES:
+        em_mm = points * 25.4 / 72
+        width = extent_mm("M", font=9, points=points)
+        for target in TARGETS:
+            vertex = target - width / 2
+            text_x = target - SHIFT_DOTS.get(points, 0) / DOTS_PER_MM if SHIFTED else target
+            elements.append({"type": "text", "x": text_x, "y": y, "text": "M", "font": 9, "points": points, "align": "right"})
+            for step in range(-2, 3):
+                x_line = vertex + step * PITCH
+                reach = 2.5 if step == 0 else 1.0  # the middle line sticks out further, so it can be found
+                elements.append(
+                    {"type": "line", "x": x_line, "y": y - reach, "x2": x_line, "y2": y + CAP * em_mm + reach, "thickness": UNIT}
+                )
+            elements.append({"type": "text", "x": target - 30.0, "y": y + 0.5, "text": str(number), "font": 1})
+            notes.append(
+                f"line {number:2d}  {points} pt  'M' right-aligned at x {target:.0f}; "
+                f"predicted M width {width:.3f} mm ({width * DOTS_PER_MM:.1f} dots); V line at x {vertex:.3f}"
+            )
+            number += 1
+        y += CAP * em_mm + GAP
+    label = {"unit": "mm", "width": 100, "height": 55, "elements": elements}
+    (out / (f"{ROUND}-font9-vline-shifted.json" if SHIFTED else "v01-font9-vline.json")).write_text(json.dumps(label, indent=1) + "\n", encoding="utf-8")
+    (out / "README.txt").write_text("\n".join(notes) + "\n", encoding="utf-8")
+    print(f"top of last row at y {y - GAP:.1f} mm")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
