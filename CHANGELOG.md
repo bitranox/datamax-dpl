@@ -75,7 +75,7 @@ All notable changes to this project are documented here. The format follows
   (`docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths`). Any other printed size (6, 8, 10, 14, 36 and 48 pt) takes the nearest measured size's
   advances scaled by size, and another resolution scaled by its dpi, both unverified. Every other
   character keeps the Helvetica-Bold width (Adobe Core14 AFM), marked unverified
-  (`FONT_9_MEASURED` names the measured bytes). Up to 12 pt each character advances by its own
+  (`datamax_dpl.domain.text_metrics.FONT_9_MEASURED` names the measured bytes). Up to 12 pt each character advances by its own
   width rounded to whole dots, from 18 pt up only the position each reaches is rounded (14 pt is
   unmeasured), and a line ends at its last glyph's ink, its right side bearing (AFM) before its
   advance. `/` advances 11 dots at 12 pt, more than its width rounds to (10); only a 203 dpi model
@@ -99,8 +99,9 @@ All notable changes to this project are documented here. The format follows
   instead of a flat 0.6 em per character, and the preview sizes font 9 at the printed point size
   (after `font_size_substituted`) instead of the requested one. Findings for font 9 text change
   with it: a line of narrow letters ends earlier than before and one of wide capitals later, so a
-  field that warned may no longer, and the reverse. On an Allegro 2 the old estimate cut "NORTHWAY"
-  (8 pt) and "ABCDEF00123" (30 pt) in the preview although the printer printed them whole.
+  field that warned may no longer, and the reverse. On an Allegro 2 the old estimate cut the last
+  letter of a line of eight wide capitals at 8 pt and the last digit of an 11-character part
+  number at 30 pt in the preview, although the printer printed both whole.
 - On an `allegro-2` every upright font 9 field is written further left by the dots the printer
   prints font 9 right of its record, so its glyphs land where `x` says (BEHAVIOUR CHANGE): 2 dots
   (one DPL unit, 0.25 mm) at 30 pt, none at 12, 18 and 24 pt. Measured on one Allegro 2 (firmware
@@ -114,7 +115,7 @@ All notable changes to this project are documented here. The format follows
   field where it prints; the label's left edge is judged by where the ink starts, the printhead by
   the record. A centred or right-aligned line whose record would start left of the printhead's
   first dot is refused (`text_past_left_edge`, naming the move of `x`). A left-aligned field at 30 pt
-  or more with `x` below about 0.1252 mm (0.1189 mm at `scale_across` 0.95, 0.1314 mm at 1.05; no
+  or more with `x` below about 0.1251 mm (one dot) (0.1189 mm at `scale_across` 0.95, 0.1314 mm at 1.05; no
   `offset_across`), whose record would need column -1, is written at column 0 without a finding,
   as before: it prints up to 0.25 mm right of `x` and nothing says so. That one case is a
   deliberate exception to the rule that every fallback is reported. The profile carries

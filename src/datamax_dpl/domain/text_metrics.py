@@ -27,7 +27,8 @@ unmeasured. One 12 pt advance rounds against its width: ``/`` advances 11 dots w
 gives 10; only a 203 dpi model printing 12 pt takes that, other sizes and resolutions scale the
 width (unverified). A line's ink ends before its last advance by that glyph's right side bearing
 (:data:`FONT_9_RIGHT_BEARINGS`, from the same AFM file): an M ends 68 thousandths of the em before
-its advance, on paper as in the AFM. The Allegro 2 starts a font 9 line 2 dots right of its record
+its advance, on paper as in the AFM at 30 pt (12 pt line ends fall about 1.4 dots short, which a
+12 pt M ending a dot earlier would explain; unresolved). The Allegro 2 starts a font 9 line 2 dots right of its record
 at 30 pt (:class:`~.profiles.Font9PrintShift`, measured apart): the 30 pt lines were read with it
 taken out, and :func:`units_left_of_x` writes the record that much further left.
 

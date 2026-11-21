@@ -84,3 +84,47 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
 - Fonts and images sized in printer dots are NOT scaled: on a printer whose feed prints short they
   stay the size the dots give. Positions, lines, boxes, barcode heights and shapes drawn as images
   are corrected.
+
+## Checking where font 9 text ends, on paper
+
+For a right-aligned or centred font 9 line that must end on a mark to a fraction of a millimetre,
+at a size, character or model whose widths are not measured (label-json.md, Fonts):
+
+- The grid comes first: a field's `x` moves in whole DPL units, and on an Allegro 2 one unit prints
+  as 2 dots, 0.25 mm (`inch_unit_dots`, above). A line whose best position falls between two units
+  never reads exactly 0; take the closer unit.
+- One row per character: repeat the character as often as fits (N times), end the row in a capital
+  `M`, and right-align every row (`"align": "right"`, also when the label centres the line: the
+  widths are the same, and only a right-aligned row reads them at full size) at one shared `x`,
+  N as many as fit between the label's left edge and `x`. Add a row of `M` alone at the same `x`:
+  it measures the `M`'s own placement, and every other row is read against it. Only sizes the
+  model prints count (an Allegro 2 has 6, 8, 10, 12, 14, 18, 24, 30, 36 and 48 pt; any
+  other is replaced, `font_size_substituted`). Widths measured at one size do not carry to another,
+  so measure each size the labels use.
+- Print the set name, the label number and the point size as text on every label: a stack of cut
+  labels cannot be matched to its rows otherwise.
+- Read each row with V-lines: five thin vertical `line` elements 0.5 mm apart through the row's
+  final `M`, the middle one where its two diagonals meet, at `x` minus about 0.123 mm per point
+  (3.7 mm at 30 pt, 1.5 mm at 12 pt: half the `M`'s ink), each as
+  `{"type": "line", "x": X, "y": Y1, "x2": X, "y2": Y2, "thickness": 0.25}` spanning the row's
+  height; a V outside the outer lines reads past 2, so move the lines and print again. Fields XOR
+  where they overlap (the default with no `attribute`, and always on a model without the `A`
+  command), so each line prints white across the ink and shows where it meets the V. The reading
+  `r` is how many lines (halves allowed) the `M` must move to put its V on the middle line,
+  positive to the right. Ask whoever reads the paper for that line count per row, not for a ruler
+  length: a reading taken from the last ink to a mark includes the glyph's side bearing, the V
+  does not.
+- One character's error is `(r_row - r_M) x 0.5 mm / N`: positive means it prints that much
+  narrower than predicted, negative wider. In dots that is `(r_row - r_M) x p / N`, `p` being
+  0.5 mm in the printer's dots (4 at 203 dpi). Long rows resolve it finer: 0.5 mm / N per character.
+- Offset or scale: put the `M`-alone row at two `x` far apart (50 and 95 mm on a 100 mm label).
+  The same reading at both is a constant offset of where the printer starts the line; a reading
+  that grows with `x` is a scale (`scale_across`, calibrated above).
+- To correct one field, move its `x` by `r x 0.5 mm`, print again and repeat until it reads 0.
+  When a move overshoots (the reading changes sign), move back by half the last move, rounded to
+  whole units; the smallest move is one unit (half a line on an Allegro 2). One row's reading
+  varies by about half a line between prints, so a row that keeps alternating between 0 and half a
+  line is done.
+- Font 9 widths come from the tool's own tables, not from the config: a character that reads off
+  on paper is a finding to report (https://github.com/bitranox/datamax-dpl/issues) with its label
+  and readings, not a setting to change.

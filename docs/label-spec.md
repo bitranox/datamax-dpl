@@ -225,7 +225,7 @@ records are measured. `x` itself is checked against the printable width like any
   where it prints. The label's left edge is judged by where the ink starts, the printhead by the
   record: a centred or right-aligned field whose ink is on the label but whose record would start
   left of the printhead's first dot is refused (`text_past_left_edge`) with the move of `x` that
-  clears it. A left-aligned field there (30 pt or more, `x` below about 0.1252 mm, 0.1189 mm at
+  clears it. A left-aligned field there (30 pt or more, `x` below about 0.1251 mm, one dot; 0.1189 mm at
   `scale_across` 0.95 and 0.1314 mm at 1.05, with no `offset_across`) is written at column 0 with
   no finding: it prints up to 0.25 mm right of `x` and nothing reports it, the one deliberate
   exception to reporting every fallback.

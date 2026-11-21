@@ -12,17 +12,19 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
   paper (Allegro 2, at 12, 18, 24 and 30 pt; other sizes scale the nearest, unverified): a
   right-aligned line of them ends within about 0.35 mm of `x` there. Other characters (lower case,
   other punctuation, umlauts) take Helvetica-Bold's widths, unverified: lines of them printed 9%
-  narrower to 22% wider than predicted, so check such a line on paper, as any font 9 line at 6-10,
-  14, 36 or 48 pt or on another model. Widths are taken at the point size the model prints (the nearest one after `font_size_substituted`). Fonts 0-8 are
-  measured exactly by their cells (confirmed on paper).
+  narrower to 22% wider than predicted, so check such a line on paper (method:
+  printer-controls-and-calibration.md, "Checking where font 9 text ends, on paper"), as any font 9
+  line at 6-10, 14, 36 or 48 pt or on another model. Widths are taken at the point size the model
+  prints (the nearest one after `font_size_substituted`). Fonts 0-8 are measured exactly by their
+  cells (confirmed on paper).
 - An Allegro 2 prints font 9 2 dots (0.25 mm) right of its record at 30 pt (none at 12-24 pt;
   36 and 48 pt assumed 2, unverified), so `allegro-2` writes every upright font 9 field,
   left-aligned too, that much further left and its glyphs land at `x`. At 30 pt and up that leaves
-  a left-aligned field with `x` below about 0.1252 mm (0.1189 mm at `scale_across` 0.95, 0.1314 mm
-  at 1.05; with no `offset_across`) no column for the record: it is written at column 0 and prints
-  up to 0.25 mm right of `x` WITHOUT a finding (a deliberate exception: every other fallback is
-  reported). A centred or right-aligned line whose record would start left of the first dot is
-  refused (`text_past_left_edge` names the move).
+  a left-aligned field with `x` below about 0.1251 mm, one dot (0.1189 mm at `scale_across` 0.95,
+  0.1314 mm at 1.05; with no `offset_across`) no column for the record: it is written at column 0
+  and prints up to 0.25 mm right of `x` WITHOUT a finding (a deliberate exception: every other
+  fallback is reported). A centred or right-aligned line whose record would start left of the
+  first dot is refused (`text_past_left_edge` names the move).
 - `"align": "right"` puts a `text` field's line END at `x` (`"center"` its middle; `"left"` is the
   default): DPL has no justification, so the field is moved back by the measured width, per record
   after `{name}` is filled, rounded to the job's DPL unit (2 dots on an Allegro 2). A quantity
@@ -32,7 +34,8 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
   {"type": "text", "x": 95, "y": 40, "text": "{qty} STK", "font": 9, "points": 30, "align": "right"}
   ```
 
-  Refused: a line that would start left of the label (`text_past_left_edge`, exit 1), and an
+  Refused: a line that would start left of the label (`text_past_left_edge`, exit 1 from `validate`
+  and `render`; `preview` reports no findings and draws the line at the label's edge), and an
   aligned field that is rotated or has a `counter`, a `font_id`, or in font 9 a `width_multiplier`
   (the label JSON is invalid: every command reading it exits 2); a left-aligned field takes all
   of them. Font 9 alignment is as good as the widths behind it: measured capitals and digits end

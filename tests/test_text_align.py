@@ -232,7 +232,10 @@ _DARK_BELOW = 128
 
 @pytest.mark.os_agnostic
 def test_the_lettered_preview_prints_the_last_letter_of_a_font_9_line() -> None:
-    """An Allegro 2 printed NORTHWAY whole at 8 pt where the preview cut its Y (2026-11-20)."""
+    """A line of eight wide capitals ending in Y prints whole at 8 pt; the old preview cut its Y.
+
+    An Allegro 2 printed such a line whole on 2026-11-20; NORTHWAY stands in for it.
+    """
     image_module = pytest.importorskip("PIL.Image")
     element = Text(x=5, y=20, text="NORTHWAY", font=FONT_9, points=8)
     # A vertical line as a landmark keeps the canvas from cropping anything: the label is fixed size.

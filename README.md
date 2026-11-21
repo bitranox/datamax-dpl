@@ -236,7 +236,8 @@ Coordinates follow DPL, which is not how screens do it:
 
 - `x` is measured from the left edge of the label.
 - `y` is measured from the BOTTOM edge. A larger `y` is higher up.
-- An element is placed by its lower-left corner before rotation; a circle by its centre.
+- An element is placed by its lower-left corner before rotation; a circle by its centre; a `text`
+  with `"align": "right"` or `"center"` by its line's right end or middle.
 - Lengths are millimetres unless the label sets `"unit": "in"` or `"unit": "dots"`.
 
 `datamax-dpl preview` draws the label with these rules, so you can check the placement before

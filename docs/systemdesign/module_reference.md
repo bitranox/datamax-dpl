@@ -66,11 +66,13 @@ code.
 - `_invariants.py` - import-time checks that an update's fields and a lookup table stay in step with
   the models and enums they name.
 - `enums.py` - units, rotations, fill patterns, attributes, speed letters, media, policy, severity,
-  finding codes, command kinds, status flags, model families and hardware options.
+  finding codes, command kinds, status flags, model families, hardware options and text alignment.
 - `units.py` - length conversion between label units, DPL units and printer dots.
+- `text_metrics.py` - how wide a text line prints (fonts 0-8 by their cells, font 9 by measured
+  widths), where an aligned line's record starts, and the font 9 print shift.
 - `symbology.py` - barcode symbologies and their DPL identifiers.
 - `barcodes.py` - barcode data checks per symbology, check digits, PDF417 and DataMatrix fields.
-- `charset.py` - text to font bytes (code page 437, symbol sets), unprintable characters.
+- `charset.py` - text to font bytes (code page 437 for fonts 0-8, 850 for font 9, symbol sets), unprintable characters.
 - `profiles.py` - the printer model profiles and their feature tables.
 - `frozen_mapping.py` - the read-only mapping frozen value objects hold (`FrozenMapping`); it copies
   and pickles.
