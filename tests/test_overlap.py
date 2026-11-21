@@ -100,12 +100,13 @@ def test_two_texts_whose_rectangles_meet_are_both_inexact() -> None:
 
 @pytest.mark.os_agnostic
 def test_two_texts_whose_rectangles_only_touch_do_not_overlap() -> None:
-    """Font 2 at 203 dpi is 18 dots high and advances 12 a character: "AB" at (20, 20) covers
-    columns 20-43 and rows 20-37, so a field starting at column 44 or row 38 only touches it."""
+    """Font 2 at 203 dpi is 18 dots high and advances 12 a character, a 10-dot cell and a 2-dot gap:
+    "AB" at (20, 20) covers columns 20-41 (the gap after B prints nothing) and rows 20-37, so a
+    field starting at column 42 or row 38 only touches it."""
     first = Text(x=20, y=20, text="AB", font=2)
-    assert overlaps(first, Text(x=44, y=20, text="CD", font=2)) == OverlapReport()
+    assert overlaps(first, Text(x=42, y=20, text="CD", font=2)) == OverlapReport()
     assert overlaps(first, Text(x=20, y=38, text="CD", font=2)) == OverlapReport()
-    assert overlaps(first, Text(x=42, y=20, text="CD", font=2)) == OverlapReport(inexact=(0, 1))
+    assert overlaps(first, Text(x=40, y=20, text="CD", font=2)) == OverlapReport(inexact=(0, 1))
     assert overlaps(first, Text(x=20, y=36, text="CD", font=2)) == OverlapReport(inexact=(0, 1))
 
 
