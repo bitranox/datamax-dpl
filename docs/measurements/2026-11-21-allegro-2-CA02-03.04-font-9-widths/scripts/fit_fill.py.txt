@@ -1,0 +1,137 @@
+"""Implied font 9 advances from the fill-and-V round (Allegro 2, 2026-11-21 16:39-17:10).
+
+Run with the build the labels were printed from (83272f6) first on PYTHONPATH:
+    PYTHONPATH=<83272f6 checkout>/src python fit_fill.py FILL_DIR [--json OUT]
+
+Each row is char * N + "M", right-aligned at x 95 mm, with five vertical lines 0.5 mm apart through the
+final M. A line record starts at its column and is one unit (2 dots) wide, so its middle is
+column * 2 + 1 dots. The reading r (lines, + = the final M should move right) puts the M's ink middle at
+the middle line's middle less 4 r dots (the lines lie 2 units, 4 dots, apart). The glyphs print
+SHIFT dots right of the text record's column (30 pt: 2, else 0), and an M's ink middle lies
+(llx + urx) / 2 = 417 / 1000 em right of its origin (Helvetica-Bold AFM: B 69 0 765 718). So the N
+characters reach
+    P = middle_line * 2 + 1 - 4 r - text_column * 2 - SHIFT - 0.417 em
+dots, and each advances P / N. Both columns are read from the rendered records, not from x.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+from pathlib import Path
+
+from datamax_dpl.domain.label import Label
+from datamax_dpl.domain.render import build_job
+from datamax_dpl.domain.render_context import RenderOptions
+
+DOTS_PER_UNIT = 2
+DOTS_PER_LINE = 4
+SHIFT = {30: 2}
+M_INK_MIDDLE = (69 + 765) / 2 / 1000
+TEXT = re.compile(rb"^19[1-9A-O][1-9A-O][0-9A-Za-z]{3}(\d{4})(\d{4})(.*)$")
+LINE = re.compile(rb"^1X11000(\d{4})(\d{4})l\d{3}(\d{3})$", re.IGNORECASE)
+
+
+def rows(fill: Path) -> list[tuple[int, int, str, int]]:
+    out = []
+    for line in (fill / "README.txt").read_text(encoding="utf-8").splitlines():
+        m = re.match(r"line +(\d+) +(\d+) pt +char '(.)' \(byte \d+\) +N=(\d+)", line)
+        if m:
+            out.append((int(m[1]), int(m[2]), m[3], int(m[4])))
+    return out
+
+
+def readings(fill: Path) -> list[float]:
+    values: list[float] = []
+    for line in (fill / "readings.txt").read_text(encoding="utf-8").splitlines():
+        body = line.split("):", 1)[1].split("[", 1)[0]
+        values.extend(float(v.replace(",", ".")) for v in body.split())
+    return values
+
+
+def columns(fill: Path) -> list[tuple[str, int, int]]:
+    """(label, text column, middle line column) of every row, label by label, bottom row first."""
+    found: list[tuple[str, int, int]] = []
+    for path in sorted(fill.glob("f*.json")):
+        result = build_job(Label.model_validate_json(path.read_bytes()), RenderOptions(model="allegro-2"))
+        assert result.ok, (path, result.findings)
+        records = result.data.split(b"\r")
+        for i, record in enumerate(records):
+            text = TEXT.match(record)
+            if not text or not text.group(3).endswith(b"M"):
+                continue
+            lines = [LINE.match(r) for r in records[i + 1 : i + 6]]
+            assert all(lines), records[i + 1 : i + 6]
+            # The middle line reaches further, so its record starts lower (a smaller row) and is taller.
+            middle = min(lines, key=lambda m: int(m.group(1)))  # type: ignore[union-attr]
+            found.append((f"fill/{path.name}", int(text.group(2)), int(middle.group(2))))  # type: ignore[union-attr]
+    return found
+
+
+#: The 30 pt advances the line-end record (../lines.json, read to 0.1 mm over 9 to 24 characters)
+#: already measured, finer than this round's half line over 8 to 28: they keep their value.
+LINE_END_30_PT = set("M0123456789,./ STKBOX")
+#: Label f23 (24 pt U V W X Y) read "2 0 -4 -1 3", the very readings of label f13 (18 pt P Q R S T),
+#: and W at 24 pt then fits neither 18 nor 30 pt: its five rows are left out, and those characters
+#: take the 24 pt advance interpolated per point between 18 and 30 pt.
+UNSUPPORTED_24_PT = set("UVWXY")
+
+
+def tables(out: list[dict[str, object]]) -> dict[int, dict[int, float]]:
+    """Per printed size, the advance in dots of each byte the round measured."""
+    from datamax_dpl.domain.label import Text  # the printed build's tables, for 12 pt and the line-end 30 pt
+    from datamax_dpl.domain.profiles import get_profile
+    from datamax_dpl.domain.text_metrics import FONT_9_ADVANCES, char_advances
+
+    profile = get_profile("allegro-2")
+    fill = {(int(row["points"]), str(row["char"])): float(row["advance_dots"]) for row in out}  # type: ignore[arg-type]
+    chars = sorted({char for _, char in fill})
+    byte = {char: char.encode("cp850")[0] for char in chars}
+    result: dict[int, dict[int, float]] = {12: {}, 18: {}, 24: {}, 30: {}}
+    for char in chars:
+        result[12][byte[char]] = char_advances(Text(x=0, y=0, text=char, font=9, points=12), profile)[0]
+        result[18][byte[char]] = round(fill[18, char], 2)
+        if char in LINE_END_30_PT:
+            result[30][byte[char]] = round(FONT_9_ADVANCES[byte[char]] * 30 * 203 / 72 / 1000, 2)
+        else:
+            result[30][byte[char]] = round(fill[30, char], 2)
+    for char in chars:
+        if char in UNSUPPORTED_24_PT:
+            per_point = (result[18][byte[char]] / 18 + result[30][byte[char]] / 30) / 2
+            result[24][byte[char]] = round(per_point * 24, 2)
+        else:
+            result[24][byte[char]] = round(fill[24, char], 2)
+    return result
+
+
+def main() -> int:
+    fill = Path(sys.argv[1])
+    table, values, cols = rows(fill), readings(fill), columns(fill)
+    assert len(table) == len(values) == len(cols) == 164, (len(table), len(values), len(cols))
+    out = []
+    for (number, points, char, count), reading, (label, text_column, line_column) in zip(table, values, cols):
+        em = points * 203 / 72
+        reached = (
+            line_column * DOTS_PER_UNIT + 1 - DOTS_PER_LINE * reading
+            - text_column * DOTS_PER_UNIT - SHIFT.get(points, 0) - M_INK_MIDDLE * em
+        )
+        out.append({
+            "line": number, "label": label, "points": points, "char": char, "count": count, "reading": reading,
+            "text_column": text_column, "line_column": line_column, "reached_dots": round(reached, 3),
+            "advance_dots": round(reached / count, 4), "resolution_dots": round(2 / count, 4),
+        })
+    for row in out:
+        print("{line:4d} {points:3d} {char!r:4} {count:3d} {reading:5.1f} col {text_column:4d} mid {line_column:4d} "
+              "reached {reached_dots:8.2f} advance {advance_dots:7.3f} +/- {resolution_dots:.3f}".format(**row))
+    if "--tables" in sys.argv:
+        Path(sys.argv[sys.argv.index("--tables") + 1]).write_text(
+            json.dumps(tables(out), indent=1, sort_keys=True) + "\n", encoding="utf-8"
+        )
+    if "--json" in sys.argv:
+        Path(sys.argv[sys.argv.index("--json") + 1]).write_text(json.dumps(out, indent=1) + "\n", encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

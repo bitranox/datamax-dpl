@@ -1,0 +1,105 @@
+"""Build the font 9 fill-and-V check labels (user's design, 2026-11-21 15:40).
+
+Every row repeats ONE character across the line and ends in an "M", right-aligned so the M's ink ends
+at a vertical border line at x 95. Through the final M sit five vertical lines 0.5 mm apart, the
+middle one at the middle of the M's ink as datamax-dpl predicts it. The accumulated width error of
+the repeated characters moves the final M off that middle line; the reader names how many lines the
+M should move (+ = right). All 41 measured characters at 12, 18, 24 and 30 pt, one size per label.
+
+Run with a frozen datamax-dpl build on PYTHONPATH: python gen_fill.py OUT_DIR
+"""
+
+from __future__ import annotations
+
+import json
+import string
+import sys
+from pathlib import Path
+
+from gen_calib import extent_mm
+
+RIGHT = 95.0
+LEFT_LIMIT = 6.0
+SIZES = (12, 18, 24, 30)
+CHARS = ["M", *string.digits, ",", ".", "/", "-", " ", *(c for c in string.ascii_uppercase if c != "M")]
+M_LSB_EM = 69 / 1000  # Helvetica-Bold M left side bearing (AFM B 69 0 765 718, WX 833)
+CAP = 0.72
+UNIT = 0.25  # one position unit on the Allegro 2 (2 dots); a line is one unit wide
+PITCH = 0.5
+REACH = 1.0  # the outer V lines overshoot the cap height and the baseline by this much
+MIDDLE_REACH = 1.8  # the middle line sticks out further, so it can be found
+NUMBER_GAP = 0.6  # between the top of the middle line and the row number
+NUMBER_HEIGHT = 1.6  # font 1
+BOTTOM = 2.0  # lowest baseline
+TOP = 54.0  # nothing above this
+
+
+def row_text(char: str, points: int) -> tuple[str, int]:
+    count = 1
+    while extent_mm(char * (count + 1) + "M", font=9, points=points) <= RIGHT - LEFT_LIMIT:
+        count += 1
+    return char * count + "M", count
+
+
+def row(number: int, char: str, points: int, y: float) -> tuple[list[dict[str, object]], str]:
+    em_mm = points * 25.4 / 72
+    text, count = row_text(char, points)
+    vertex = RIGHT - (extent_mm("M", font=9, points=points) - M_LSB_EM * em_mm) / 2
+    elements: list[dict[str, object]] = [
+        {"type": "text", "x": RIGHT, "y": y, "text": text, "font": 9, "points": points, "align": "right"}
+    ]
+    for step in range(-2, 3):
+        reach = MIDDLE_REACH if step == 0 else REACH
+        x = vertex + step * PITCH
+        elements.append({"type": "line", "x": x, "y": y - reach, "x2": x, "y2": y + CAP * em_mm + reach, "thickness": UNIT})
+    elements.append({"type": "text", "x": 1.0, "y": y, "text": str(number), "font": 1})
+    note = f"line {number:3d}  {points} pt  char {char!r} (byte {ord(char)})  N={count}"
+    return elements, note
+
+
+def row_height(points: int) -> float:
+    # The row number sits left of the row, so a row is only the middle line's height plus a gap.
+    return MIDDLE_REACH + CAP * points * 25.4 / 72 + MIDDLE_REACH + NUMBER_GAP
+
+
+def border() -> dict[str, object]:
+    return {"type": "line", "x": RIGHT, "y": 0.3, "x2": RIGHT, "y2": TOP + 0.5, "thickness": UNIT}
+
+
+def main() -> int:
+    out = Path(sys.argv[1])
+    out.mkdir(parents=True, exist_ok=True)
+    notes = [
+        "Font 9 fill-and-V check, Allegro 2, 100 x 55 mm, every row right-aligned at x 95 (border line).",
+        "Report per line: lines the final M should move (+ = right, one line = 0.5 mm).",
+        "",
+    ]
+    number = 1
+    label_no = 0
+    for points in SIZES:
+        height = row_height(points)
+        queue = list(CHARS)
+        while queue:
+            label_no += 1
+            elements: list[dict[str, object]] = [border()]
+            y = BOTTOM + MIDDLE_REACH
+            first = number
+            while queue and y - MIDDLE_REACH + height <= TOP:
+                row_elements, note = row(number, queue.pop(0), points, y)
+                elements.extend(row_elements)
+                notes.append(note)
+                number += 1
+                y += height
+            name = f"f{label_no:02d}-{points}pt-lines-{first}-{number - 1}.json"
+            # A cut label is anonymous in the reader's hand: print its own name on it.
+            elements.append({"type": "text", "x": 1.0, "y": TOP - 1.2, "text": f"f{label_no:02d} {points}pt", "font": 1})
+            label = {"unit": "mm", "width": 100, "height": 55, "elements": elements}
+            (out / name).write_text(json.dumps(label, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+            notes.append(f"  -> {name}")
+    (out / "README.txt").write_text("\n".join(notes) + "\n", encoding="utf-8")
+    print(f"{label_no} labels, {number - 1} lines")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -22,14 +22,20 @@ the error to that character; the line of `M` alone gives the error of the final 
   then 30 pt `M` `0` `5` `,` space `/` `S` `T` `K` `B` `O` `X`.
 - `vline/`: the print shift (below): `v01-font9-vline.json` and the two reprints moved by the
   shift (`v02`, `v03`), the label's `README.txt` and the readings of all three in `readings.txt`.
+- `fill/`: the fill-and-V round (below), 35 labels `f01`-`f35` with 164 rows at 12, 18, 24 and
+  30 pt, the round's `README.txt` (row, size, character, N) and the readings in `readings.txt`.
+- `fill.json`: one record per fill row: label, size, character, N, the reading in lines, the column
+  of the text record and of the middle vertical line (DPL units of 2 dots), and the advance that
+  follows (`advance_dots`, below) with its resolution, 2 dots / N.
 - `lines.json`: one record per line: label, text, size, the column its record was written at
   (`text_column`) and the reference line's column (`line_column`), both in DPL units of 2 dots, the
   reading and its quality, and the ink length that follows: `2 * (line_column - text_column) -
   reading_mm * 203 / 25.4` dots, short readings positive. `characters` says whether every character
   of the line is now measured.
-- `scripts/`: the generators of the labels (`gen_calib`, `gen_chars`, `gen_next`, `gen_vline`), the first
-  per-line calculators (`calc_chars`, `calc_next`), `fit_data` (writes `lines.json`), `fit_widths`
-  (the fit below) and `gen_bearings` (the left and right side bearings from Adobe's `phvb8a.afm`;
+- `scripts/`: the generators of the labels (`gen_calib`, `gen_chars`, `gen_next`, `gen_vline`,
+  `gen_fill`), the first per-line calculators (`calc_chars`, `calc_next`), `fit_data` (writes
+  `lines.json`), `fit_widths` (the fit below), `fit_fill` (writes `fill.json` and the per-size
+  tables) and `gen_bearings` (the left and right side bearings from Adobe's `phvb8a.afm`;
   the right ones are checked on paper, the left ones, which centre a line, are not). They are stored
   as `.py.txt` so the test and type gates leave them alone; copy one to `.py` beside the files it
   reads to run it. The generators and `fit_data` place lines with the stand-in table, so they
@@ -71,9 +77,8 @@ A character advances by `width * em / 1000` dots, the em being `points * 203 / 7
   ink to end 2 dots (70 dots per `M`) or 11 dots (71 per `M`) before the last advance, 0.47 or
   0.66 mm away from the AFM bearing (5.75 dots), while exact advances fit with the AFM bearing as
   it is.
-- Sizes from 14 to 24 pt are unmeasured. datamax-dpl rounds whole dots up to 12 pt and positions
-  above it; the one 18 pt line printed (`Wi1.0M`, holding an unmeasured `i`) is off by 0.00 mm that
-  way and by -0.13 mm the other.
+- 18 and 24 pt, measured in the fill-and-V round (below), follow the 30 pt rule, not the 12 pt one.
+  13 to 17 pt are unmeasured; datamax-dpl rounds whole dots up to 12 pt and positions above it.
 - The ink ends before the last advance by that glyph's right side bearing, rounded to whole dots.
 - A line starts at its record's column plus the print shift (2 dots at 30 pt, none at 12 pt), so
   the fit takes the shift off each 30 pt line before it reads the widths.
@@ -101,6 +106,57 @@ predicted past its 100 mm edge.
 Not measured: the lower case, the other punctuation and every byte above 127. They keep the
 Helvetica-Bold widths, and the lines mixing them are off by up to 5.4 mm (the lower case 5.4 mm too
 wide, `+,-./:;<=>?` 4.25 mm too narrow).
+
+## Fill-and-V round: 18, 24 and 30 pt
+
+Every row of the labels in `fill/` repeats one character N times, as many as fit in 89 mm (N 8 to
+76), and ends in an `M`, right-aligned at x 95 mm. Five vertical lines 0.5 mm apart cross the final
+`M`, the middle one at the predicted middle of the `M`'s ink, where its diagonals meet, as in
+`vline/`. The reading is how many lines the `M` must move to sit on the middle line, `+` to the
+right, so a positive reading means the N characters ran short. One line is 0.5 mm, 4 dots; the
+readings come in half lines. All 41 characters measured before were printed at 12, 18, 24 and
+30 pt, one size per label, from the build of commit 83272f6, which placed 18 and 24 pt from the
+widths above scaled by size. The printed labels carry no name of their own: `gen_fill` prints one
+(`f01 12pt`) since this round, so the stored labels lack it.
+
+`fit_fill` reads both columns from the rendered records, never from x. The N characters reach
+
+    reached = 2 * line_column + 1 - 4 * reading - 2 * text_column - shift - 0.417 * em
+
+dots: a line record is one unit (2 dots) wide, so its middle lies 1 dot right of its column; the
+shift is the print shift above (2 dots at 30 pt, none below); the `M`'s ink middle lies
+(69 + 765) / 2 / 1000 = 0.417 em right of its origin (AFM). Each character advances reached / N, to
+2 dots / N, half a line over N characters: 0.03 to 0.25 dot.
+
+- 12 pt: all 41 rows read 0, and every advance lies within its resolution of the whole-dot width
+  datamax-dpl already uses. Under the model the rows reach 0.74 dot further than those widths on
+  average (-0.11 to +0.89), inside a half line. This round therefore cannot see the 0.17 mm by which
+  the 12 pt line ends of `chars/` and `next/` fall short (residual table below: 39 of 44 positive),
+  and what it shows points the other way, so it gives no support to a width change. The 12 pt widths
+  stay as they are, and that bias stays unexplained.
+- Whole dots do not hold above 12 pt: 23 of 41 advances at 18 pt and 33 of 41 at 24 pt lie within
+  their resolution of a whole number, against 41 of 41 at 12 pt and 3 of 41 at 30 pt. At 18 pt `U`
+  (37.52 dots), `W` (46.56), `P` (32.69) and `Y` (34.20) lie clearly between two. Exact advances
+  with rounded positions, as at 30 pt, hold from 18 pt up.
+- The widths do not scale across sizes: against the build's scaled widths, 28 of 41 characters at
+  18 pt and 29 of 41 at 24 pt read outside their resolution, `/` at 18 pt by 1.07 dots per
+  character (15.95 against 14.88). Each measured size keeps its own table.
+- 30 pt: this round agrees with the widths above on all 21 characters they give at 30 pt (`M`, the
+  digits, `,` `.` `/` space, `S` `T` `K` `B` `O` `X`): 20 read 0 and lie within this round's
+  resolution, and `S` (0.21 dot) within the two rounds' combined resolution (0.26). Those 21 keep
+  the widths above, whose line ends were read to 0.1 mm over 9 to 25 characters, finer than half a
+  line over 8 to 28. The other 20 take this round's value.
+- The `M` rows: 41.99 dots at 18 pt (resolution 0.13; the build had 42.25), 56.80 at 24 pt (0.18;
+  56.33), 70.41 at 30 pt (0.22; 70.42).
+- Label f23 (24 pt `U` `V` `W` `X` `Y`) read `2 0 -4 -1 3`, exactly the readings of label f13 (18 pt
+  `P` `Q` `R` `S` `T`), and its `W` (63.68 dots) fits neither the 18 nor the 30 pt width scaled. Its
+  five rows are left out: those characters take the 24 pt advance interpolated per point between
+  18 and 30 pt (`U` 49.24, `V` 43.94, `W` 62.03, `X` 43.95, `Y` 45.55). That is unverified and only
+  approximate: `A`, measured at all three sizes, lies 1.07 dots off its own interpolation at 24 pt.
+
+datamax-dpl uses the result per printed size: a measured character at 12, 18, 24 or 30 pt takes its
+advance from this record at that size, and at any other size the advance of the nearest measured
+size, scaled by size, which is unverified. The other characters keep the stand-in.
 
 ## Residual of every line
 
