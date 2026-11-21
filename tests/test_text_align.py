@@ -381,6 +381,7 @@ def _reported_move(findings: Iterable[Finding]) -> float | None:
 def test_every_refused_line_moved_by_the_reported_distance_prints() -> None:
     """Over offsets either way, scales and both alignments, the named move always gives a job that prints."""
     still_refused: list[tuple[float, float, str, int, float, float, list[FindingCode]]] = []
+    not_smallest: list[tuple[float, float, str, int, float, float]] = []
     refusals = 0
     for offset, scale, align, chars, step in itertools.product(
         (-3.0, 0.0, 2.0), (1.0, 1.05, 0.95), (TextAlign.RIGHT, TextAlign.CENTER), (1, 4, 8, 13), range(12)
@@ -393,8 +394,14 @@ def test_every_refused_line_moved_by_the_reported_distance_prints() -> None:
         ok, moved = _font_2_line(chars, offset_across=offset, x=x + move, scale_across=scale, align=align)
         if not ok:
             still_refused.append((offset, scale, align.value, chars, x, move, sorted(_codes(moved))))
+        # The named move is the smallest: one 0.1 mm step less still starts left of the edge.
+        short_x = round(x + move - 0.1, 6)
+        _, short = _font_2_line(chars, offset_across=offset, x=short_x, scale_across=scale, align=align)
+        if _reported_move(short) is None:
+            not_smallest.append((offset, scale, align.value, chars, x, move))
     assert refusals > 300, refusals  # the grid must reach the refusal it checks
     assert not still_refused, still_refused[:5]
+    assert not not_smallest, not_smallest[:5]
 
 
 def _line_job(model: str, text: Text, *, offset_across: float, scale_across: float = 1.0) -> tuple[bool, list[Finding]]:
@@ -432,6 +439,7 @@ def test_the_named_move_clears_the_edge_on_a_tenth_millimetre_model(
 def test_every_named_move_clears_the_edge_on_a_tenth_millimetre_model(model: str) -> None:
     """Offsets half a unit off the grid, scales, both alignments: the named move always gives a job that prints."""
     still_refused: list[tuple[float, float, str, int, float, float, list[FindingCode]]] = []
+    not_smallest: list[tuple[float, float, str, int, float, float]] = []
     refusals = 0
     for offset, scale, align, chars, step in itertools.product(
         (-0.25, -3.65, 0.55, 0.13), (1.0, 1.007), (TextAlign.RIGHT, TextAlign.CENTER), (1, 3, 8), range(15)
@@ -445,8 +453,13 @@ def test_every_named_move_clears_the_edge_on_a_tenth_millimetre_model(model: str
         ok, findings = _line_job(model, moved, offset_across=offset, scale_across=scale)
         if not ok:
             still_refused.append((offset, scale, align.value, chars, text.x, move, sorted(_codes(findings))))
+        # The named move is the smallest: one 0.1 mm step less still starts left of the edge.
+        short = text.model_copy(update={"x": round(text.x + move - 0.1, 6)})
+        if _reported_move(_line_job(model, short, offset_across=offset, scale_across=scale)[1]) is None:
+            not_smallest.append((offset, scale, align.value, chars, text.x, move))
     assert refusals > 150, refusals  # the grid must reach the refusals it checks
     assert not still_refused, still_refused[:5]
+    assert not not_smallest, not_smallest[:5]
 
 
 @pytest.mark.os_agnostic

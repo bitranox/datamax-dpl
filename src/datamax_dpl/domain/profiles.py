@@ -350,7 +350,10 @@ class Font9PrintShift:
     def at(self, points: int) -> int:
         """Return the shift at a printed size: its own, else the nearest measured size's (the smaller of two).
 
-        An unmeasured size's shift is unverified (:meth:`measured`).
+        An unmeasured size's shift is unverified (:meth:`measured`). Which way a tie goes is a guess
+        nothing measured and no test pins: on the Allegro 2 no printed size lies halfway between two
+        measured ones (21 pt prints at 18 and 27 pt at 24 before this is asked), so the choice is never
+        reached there. A model whose printed sizes do tie needs its own measurement.
         """
         if points in self.dots:
             return self.dots[points]

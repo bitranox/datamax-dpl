@@ -116,6 +116,17 @@ def test_a_turned_font_9_field_is_not_moved() -> None:
 
 
 @pytest.mark.os_agnostic
+@pytest.mark.parametrize("points", [None, 30])
+def test_a_font_9_field_in_a_downloaded_font_is_not_moved(points: int | None) -> None:
+    # The shift was measured for the resident font 9 only; a font_id names another font.
+    reference = Text(x=50, y=10, text="REF", font=2)
+    line = Text(x=50, y=20, text="5 STK", font=FONT_9, points=points, font_id="100")
+    assert font9_print_shift_dots(line, get_profile(_MODEL)) == 0
+    records = _records(_MODEL, reference, line)
+    assert records[b"5 STK"][1] == records[b"REF"][1]
+
+
+@pytest.mark.os_agnostic
 @pytest.mark.parametrize("align", list(TextAlign))
 def test_the_preview_and_the_checks_place_font_9_where_it_prints(align: TextAlign) -> None:
     # The record lies one unit (2 dots) further left at 30 pt; the printer puts the glyphs 2 dots right of it.
@@ -187,6 +198,7 @@ def _named_move(findings: list[Finding]) -> float | None:
 def test_every_named_move_of_a_font_9_line_gives_a_job_that_prints() -> None:
     """Offsets either way, scales and every alignment, with the shift: the named move always clears."""
     still_refused: list[tuple[object, ...]] = []
+    not_smallest: list[tuple[object, ...]] = []
     refusals = 0
     for offset, scale, align, points, chars, step in itertools.product(
         (-3.0, 0.0, 2.0), (1.0, 1.05, 0.95), list(TextAlign), (12, 30), (1, 4), range(10)
@@ -202,5 +214,10 @@ def test_every_named_move_of_a_font_9_line_gives_a_job_that_prints() -> None:
             still_refused.append(
                 (offset, scale, align.value, points, chars, text.x, move, sorted(f.code for f in findings))
             )
+        # The named move is the smallest: one 0.1 mm step less is still refused for the edge.
+        short = text.model_copy(update={"x": round(text.x + move - 0.1, 6)})
+        if _named_move(_job(short, offset_across=offset, scale_across=scale)[1]) is None:
+            not_smallest.append((offset, scale, align.value, points, chars, text.x, move))
     assert refusals > 150, refusals  # the grid must reach the refusals it checks
     assert not still_refused, still_refused[:5]
+    assert not not_smallest, not_smallest[:5]

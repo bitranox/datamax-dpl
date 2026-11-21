@@ -217,7 +217,10 @@ FONT_9_RIGHT_BEARINGS: Mapping[int, int] = FrozenMapping(_HELVETICA_BOLD_RIGHT_B
 #: From the same AFM file as the right bearings; unlike those, not checked on paper.
 FONT_9_LEFT_BEARINGS: Mapping[int, int] = FrozenMapping(_HELVETICA_BOLD_LEFT_BEARINGS)
 #: Largest font 9 point size whose characters each advance by whole dots; larger sizes round the
-#: position each character reaches instead (module docstring).
+#: position each character reaches instead (module docstring). Only 12 pt (whole dots) and 30 pt
+#: (positions) were measured, so the paper puts this bound anywhere from 12 to 29: 14 to 24 pt are
+#: unmeasured, and the one 18 pt line (holding an unmeasured "i") fits the position rule only
+#: slightly better. 12 is the smallest bound the record allows; no test pins it.
 WHOLE_DOT_MAX_POINTS = 12
 #: Measured advances in dots that differ from a byte's width rounded, by (dpi, printed points).
 FONT_9_BITMAP_ADVANCES: Mapping[tuple[int, int], Mapping[int, int]] = FrozenMapping(
