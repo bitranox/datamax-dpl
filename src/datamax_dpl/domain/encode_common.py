@@ -15,7 +15,12 @@ from .units import MM_PER_INCH, Axis, DplUnit, to_dpl
 if TYPE_CHECKING:
     from .render_context import RenderContext
 
+#: How far past the label's 0 edge, in the label's own unit, a position may land and still be taken
+#: as on it: the float noise of moving it by the offset. A millionth of the unit: a nanometre on a
+#: mm label, a millionth of an inch on an inch label, a millionth of a dot on a dots label.
 _TOLERANCE = 1e-6
+#: How many steps of the precision a message states one unit of the label holds.
+_STEPS_PER_UNIT = {Unit.DOTS: 1, Unit.MM: 100, Unit.INCH: 100}
 
 
 def last_column(ctx: RenderContext) -> int:
@@ -105,7 +110,7 @@ def _shifted(value: float, axis: Axis, *, index: int, ctx: RenderContext) -> flo
     row, so placing it there prints exactly what the uncorrected label printed.
     """
     shifted = ctx.shifted(value, axis=axis)
-    # Below a micrometre is float noise from the subtraction, not a field off the label.
+    # Within _TOLERANCE of the edge is float noise from the subtraction, not a field off the label.
     if shifted < -_TOLERANCE:
         report_past_edge(shifted, axis, index=index, ctx=ctx)
     return max(shifted, 0.0)
@@ -153,23 +158,26 @@ def report_past_edge(shifted: float, axis: Axis, *, index: int, ctx: RenderConte
 
 
 def _readable(distance: float, unit: Unit) -> str:
-    """Return ``distance`` rounded up to the precision a label in ``unit`` is written in.
+    """Return the smallest move, at the precision a label in ``unit`` is written in, that clears ``distance``.
 
-    Up, not to the nearest: the message names how far the field lies past the edge, and moving it by
-    a distance rounded down (10 dots for 10.47) would leave it past the edge still. The millimetre
-    offset converted to dots or inches carries float noise (0.25 mm is 1.998 Allegro 2 dots, and
-    0.3 mm can be 0.30000000000000004), so the distance is cut to a millionth of the step first,
-    which a message should not show either.
+    That is the smallest multiple of the step (a dot, or a hundredth of a mm or an inch) that brings
+    a field ``distance`` past the edge back within :data:`_TOLERANCE` of it, the rule the refusal
+    itself applies: a distance rounded down (10 dots for 10.47) would leave the field past the edge
+    still, and one rounded up past the tolerance would name a step more than it needs. The same
+    tolerance absorbs the float noise the millimetre offset carries in dots or inches (0.25 mm is
+    1.998 Allegro 2 dots, and 0.3 mm can be 0.30000000000000004).
 
     Example:
         >>> _readable(1.99803, Unit.DOTS), _readable(0.00984252, Unit.INCH), _readable(0.5, Unit.MM)
         ('2', '0.01', '0.5')
         >>> _readable(10.47, Unit.DOTS), _readable(0.473, Unit.MM), _readable(0.30000000000000004, Unit.MM)
         ('11', '0.48', '0.3')
+        >>> _readable(0.3000005, Unit.MM), _readable(0.30000102, Unit.MM), _readable(10.0000005, Unit.DOTS)
+        ('0.3', '0.31', '10')
     """
-    if unit == Unit.DOTS:
-        return str(math.ceil(round(distance, 6)))
-    return f"{math.ceil(round(distance * 100, 6)) / 100:g}"
+    per_unit = _STEPS_PER_UNIT[unit]
+    steps = math.ceil((distance - _TOLERANCE) * per_unit)
+    return str(steps) if per_unit == 1 else f"{steps / per_unit:g}"
 
 
 def check_field_length(length: int, *, limit: int = MAX_FIELD_DATA, index: int, ctx: RenderContext) -> None:

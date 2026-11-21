@@ -451,6 +451,10 @@ class _PastEdge:
         # 0.30004 mm past is named 0.31, which a guard cutting to a tenth of the step would drop.
         _PastEdge(Unit.DOTS, 1.771, 10.0, RenderOptions(model="dmx-600", offset_across=-1.0), 1.0, TextAlign.LEFT),
         _PastEdge(Unit.MM, 5.0, 0.69996, RenderOptions(model="allegro", offset_along=-1.0), 0.01, TextAlign.LEFT),
+        # A fraction of a step inside the refusal's tolerance (a millionth of the unit) needs no step
+        # of its own: 0.0100000787 in past is named 0.01, and 0.3000005 mm past 0.3, as both moves print.
+        _PastEdge(Unit.INCH, 0.02937, 1.0, RenderOptions(model="allegro", offset_across=-1.0), 0.01, TextAlign.LEFT),
+        _PastEdge(Unit.MM, 5.0, 0.6999995, RenderOptions(model="allegro", offset_along=-1.0), 0.01, TextAlign.LEFT),
         # An aligned line on the label but left of the printhead's first dot: the move is searched
         # through x's own conversion, and must be the smallest at 0.01 mm too, not at 0.1 mm.
         _PastEdge(Unit.MM, 7.3, 10.0, RenderOptions(model="allegro", offset_across=-9.5), 0.01, TextAlign.RIGHT),

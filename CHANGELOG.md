@@ -125,8 +125,10 @@ All notable changes to this project are documented here. The format follows
   up to the label unit's precision instead of to the nearest: a field 10.47 dots past was reported
   10 dots past, and moved by those 10 it was refused again as "0 dots past the label edge". Moving
   the field by the distance named now clears the edge, and it is the smallest distance that does
-  at that precision: for an aligned line left of the printhead's first dot on an mm label, the
-  distance is searched in 0.01 mm, as the message states it, not in 0.1 mm.
+  at that precision, by the refusal's own rule: a field left within a millionth of the label's unit
+  of the edge counts as on it, so 0.3000005 mm past is named 0.3 mm, not 0.31. For an aligned line
+  left of the printhead's first dot on an mm label, the distance is searched in 0.01 mm, as the
+  message states it, not in 0.1 mm.
 
 ## [0.11.0] - 2026-11-20
 
