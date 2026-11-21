@@ -132,11 +132,25 @@ shift is the print shift above (2 dots at 30 pt, none below); the `M`'s ink midd
 2 dots / N, half a line over N characters: 0.03 to 0.25 dot.
 
 - 12 pt: all 41 rows read 0, and every advance lies within its resolution of the whole-dot width
-  datamax-dpl already uses. Under the model the rows reach 0.74 dot further than those widths on
-  average (-0.11 to +0.89), inside a half line. This round therefore cannot see the 0.17 mm by which
-  the 12 pt line ends of `chars/` and `next/` fall short (residual table below: 39 of 44 positive),
-  and what it shows points the other way, so it gives no support to a width change. The 12 pt widths
-  stay as they are, and that bias stays unexplained.
+  datamax-dpl already uses. Under the model the rows reach 0.75 dot further than those widths on
+  average (-0.11 to +0.89), but that is where the lines were drawn, not how the printer prints:
+  every 12 pt row has its middle line at column 374, a record covering dots 748 and 749, so its
+  middle, 749, lies 1.58 dots right of the 747.42 `gen_fill` aimed at (1 dot because it placed the
+  record's start there, 0.58 from rounding to a unit), and rounding each right-aligned text record
+  to a whole unit put the model's `M` middle 0.69 to 1.69 dots left of that aim. A reading of 0 in half
+  lines places the `M`'s V within a dot of the middle line, so the round sees no offset under a dot
+  either way. The line geometry holds: at 30 pt the 21 characters both rounds measured give, from
+  this round's rows against the line-end widths (read to the border line's left edge), +0.15 dot
+  per row on average (-2.36 to +1.54), no constant near a dot, so a line record's middle lies 1 dot
+  right of its column, as the model has it. Where the printer starts a font 9 line against its
+  record is known only to the V-line round's resolution (the print shift above, about a dot): every
+  round reads text against line records. What this round cannot see is the 0.17 mm by which the
+  12 pt line ends of `chars/` and `next/` fall short (residual table below: 39 of 44 positive).
+  That shortfall is about the same on every line (1.4 dots on average, growing by 0.01 dot per
+  character over 10 to 78 characters), and 42 of the 44 lines end in `M`: it fits a 12 pt `M` whose
+  ink ends about a dot further before its advance than the AFM bearing scaled to 12 pt (2.3 dots)
+  as well as a constant per line; no round measured the 12 pt `M`'s ink end apart, and this round
+  reads the `M`'s middle, not its end. The 12 pt widths stay as they are.
 - Whole dots do not hold above 12 pt: 23 of 41 advances at 18 pt and 33 of 41 at 24 pt lie within
   their resolution of a whole number, against 41 of 41 at 12 pt and 3 of 41 at 30 pt. At 18 pt `U`
   (37.52 dots), `W` (46.56), `P` (32.69) and `Y` (34.20) lie clearly between two. Exact advances
