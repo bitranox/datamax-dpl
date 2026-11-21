@@ -377,6 +377,11 @@ def _reported_move(findings: Iterable[Finding]) -> float | None:
     return None
 
 
+def _move_step(findings: Iterable[Finding]) -> float:
+    """The step a named move of an mm label takes: 0.1 mm for ``text_past_left_edge``, else 0.01 mm."""
+    return 0.1 if FindingCode.TEXT_PAST_LEFT_EDGE in _codes(findings) else 0.01
+
+
 @pytest.mark.os_agnostic
 def test_every_refused_line_moved_by_the_reported_distance_prints() -> None:
     """Over offsets either way, scales and both alignments, the named move always gives a job that prints."""
@@ -387,15 +392,16 @@ def test_every_refused_line_moved_by_the_reported_distance_prints() -> None:
         (-3.0, 0.0, 2.0), (1.0, 1.05, 0.95), (TextAlign.RIGHT, TextAlign.CENTER), (1, 4, 8, 13), range(12)
     ):
         x = step * 0.53
-        move = _reported_move(_font_2_line(chars, offset_across=offset, x=x, scale_across=scale, align=align)[1])
+        refused = _font_2_line(chars, offset_across=offset, x=x, scale_across=scale, align=align)[1]
+        move = _reported_move(refused)
         if move is None:
             continue
         refusals += 1
         ok, moved = _font_2_line(chars, offset_across=offset, x=x + move, scale_across=scale, align=align)
         if not ok:
             still_refused.append((offset, scale, align.value, chars, x, move, sorted(_codes(moved))))
-        # The named move is the smallest: one 0.1 mm step less still starts left of the edge.
-        short_x = round(x + move - 0.1, 6)
+        # The named move is the smallest: one step of it less still starts left of the edge.
+        short_x = round(x + move - _move_step(refused), 6)
         _, short = _font_2_line(chars, offset_across=offset, x=short_x, scale_across=scale, align=align)
         if _reported_move(short) is None:
             not_smallest.append((offset, scale, align.value, chars, x, move))
@@ -445,7 +451,8 @@ def test_every_named_move_clears_the_edge_on_a_tenth_millimetre_model(model: str
         (-0.25, -3.65, 0.55, 0.13), (1.0, 1.007), (TextAlign.RIGHT, TextAlign.CENTER), (1, 3, 8), range(15)
     ):
         text = Text(x=step * 0.37, y=10, text="A" * chars, font=2, align=align)
-        move = _reported_move(_line_job(model, text, offset_across=offset, scale_across=scale)[1])
+        refused = _line_job(model, text, offset_across=offset, scale_across=scale)[1]
+        move = _reported_move(refused)
         if move is None:
             continue
         refusals += 1
@@ -453,8 +460,8 @@ def test_every_named_move_clears_the_edge_on_a_tenth_millimetre_model(model: str
         ok, findings = _line_job(model, moved, offset_across=offset, scale_across=scale)
         if not ok:
             still_refused.append((offset, scale, align.value, chars, text.x, move, sorted(_codes(findings))))
-        # The named move is the smallest: one 0.1 mm step less still starts left of the edge.
-        short = text.model_copy(update={"x": round(text.x + move - 0.1, 6)})
+        # The named move is the smallest: one step of it less still starts left of the edge.
+        short = text.model_copy(update={"x": round(text.x + move - _move_step(refused), 6)})
         if _reported_move(_line_job(model, short, offset_across=offset, scale_across=scale)[1]) is None:
             not_smallest.append((offset, scale, align.value, chars, text.x, move))
     assert refusals > 150, refusals  # the grid must reach the refusals it checks
@@ -491,13 +498,14 @@ def test_an_aligned_line_past_four_digit_columns_is_written_at_the_cap() -> None
 def test_a_line_whose_x_and_start_are_both_left_of_the_printhead_gets_one_offset_finding() -> None:
     # x 2.5 mm is 2 units left of the printhead; one character (5 units) starts 7 units (1.75 mm)
     # left of it and 5 units right of the label's edge: one finding, for where the line starts. It
-    # names the move that clears: x 4.2 mm (1.2 mm after the offset, 4.72 units) is written 5.
+    # names the smallest move that clears, in the 0.01 mm the message states: x 4.13 mm is written
+    # at column 5, where the line starts on the first dot; x 4.12 mm still at 4.
     _, findings = _font_2_line(1, offset_across=-3.0, x=2.5)
     edges = _edge_messages(findings)
     assert len(edges) == 1, edges
     [(code, message)] = edges
     assert code is FindingCode.OFFSET_PAST_LABEL_EDGE
-    assert "moves this field 1.7 mm past the label edge" in message
+    assert "moves this field 1.63 mm past the label edge" in message
 
 
 @pytest.mark.os_agnostic

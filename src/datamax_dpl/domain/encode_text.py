@@ -32,8 +32,8 @@ _MAX_POINTS = 72
 #: The step a move named in mm takes: the tenth of a millimetre the message states.
 _MOVE_STEP_MM = 0.1
 #: The step a move named in the label's own unit takes: the precision a message in it states
-#: (encode_common._readable).
-_STEP = {Unit.MM: 0.1, Unit.INCH: 0.01, Unit.DOTS: 1.0}
+#: (encode_common._readable), so the distance named is the smallest that message can state.
+_STEP = {Unit.MM: 0.01, Unit.INCH: 0.01, Unit.DOTS: 1.0}
 
 
 def _size_code(points: int, ctx: RenderContext) -> str | None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pytest
@@ -18,6 +19,7 @@ from datamax_dpl.domain.enums import (
     PrinterStop,
     Rotation,
     Severity,
+    TextAlign,
     Unit,
 )
 from datamax_dpl.domain.errors import LabelRejectedError
@@ -421,29 +423,45 @@ def _past_edge(result: RenderResult) -> float | None:
     return None
 
 
+@dataclass(frozen=True)
+class _PastEdge:
+    """A field the offset moves past the label edge, and the precision its distance is named in."""
+
+    unit: Unit
+    x: float
+    y: float
+    options: RenderOptions
+    precision: float
+    align: TextAlign
+
+
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize(
-    ("unit", "x", "y", "options", "precision"),
+    "case",
     [
         # 10.47 dots past: the nearest whole dot, 10, left the moved field 0.47 dots past.
-        (Unit.DOTS, 1.5276, 10.0, RenderOptions(model="dmx-600", offset_across=-1.0), 1.0),
-        (Unit.MM, 5.0, 0.527, RenderOptions(model="allegro", offset_along=-1.0), 0.01),
-        (Unit.INCH, 0.0267, 1.0, RenderOptions(model="allegro", offset_across=-1.0), 0.01),
+        _PastEdge(Unit.DOTS, 1.5276, 10.0, RenderOptions(model="dmx-600", offset_across=-1.0), 1.0, TextAlign.LEFT),
+        _PastEdge(Unit.MM, 5.0, 0.527, RenderOptions(model="allegro", offset_along=-1.0), 0.01, TextAlign.LEFT),
+        _PastEdge(Unit.INCH, 0.0267, 1.0, RenderOptions(model="allegro", offset_across=-1.0), 0.01, TextAlign.LEFT),
         # Float noise must not add a step: 0.7 - 1.0 is -0.30000000000000004, and -3.81 mm at 300 dpi
         # is -45.00000000000001 dots, which are 0.3 mm and 45 dots past.
-        (Unit.MM, 5.0, 0.7, RenderOptions(model="allegro", offset_along=-1.0), 0.01),
-        (Unit.DOTS, 0.0, 10.0, RenderOptions(model="dmx-600", offset_across=-3.81), 1.0),
+        _PastEdge(Unit.MM, 5.0, 0.7, RenderOptions(model="allegro", offset_along=-1.0), 0.01, TextAlign.LEFT),
+        _PastEdge(Unit.DOTS, 0.0, 10.0, RenderOptions(model="dmx-600", offset_across=-3.81), 1.0, TextAlign.LEFT),
         # A true fraction far below one step must still add it: 10.04 dots past is named 11, and
         # 0.30004 mm past is named 0.31, which a guard cutting to a tenth of the step would drop.
-        (Unit.DOTS, 1.771, 10.0, RenderOptions(model="dmx-600", offset_across=-1.0), 1.0),
-        (Unit.MM, 5.0, 0.69996, RenderOptions(model="allegro", offset_along=-1.0), 0.01),
+        _PastEdge(Unit.DOTS, 1.771, 10.0, RenderOptions(model="dmx-600", offset_across=-1.0), 1.0, TextAlign.LEFT),
+        _PastEdge(Unit.MM, 5.0, 0.69996, RenderOptions(model="allegro", offset_along=-1.0), 0.01, TextAlign.LEFT),
+        # An aligned line on the label but left of the printhead's first dot: the move is searched
+        # through x's own conversion, and must be the smallest at 0.01 mm too, not at 0.1 mm.
+        _PastEdge(Unit.MM, 7.3, 10.0, RenderOptions(model="allegro", offset_across=-9.5), 0.01, TextAlign.RIGHT),
+        _PastEdge(Unit.MM, 7.3, 10.0, RenderOptions(model="allegro", offset_across=-9.5), 0.01, TextAlign.CENTER),
     ],
 )
-def test_moving_a_field_by_the_distance_past_the_edge_clears_it(
-    unit: Unit, x: float, y: float, options: RenderOptions, precision: float
-) -> None:
+def test_moving_a_field_by_the_distance_past_the_edge_clears_it(case: _PastEdge) -> None:
+    unit, x, y, options, precision, align = case.unit, case.x, case.y, case.options, case.precision, case.align
+
     def past(dx: float, dy: float) -> float | None:
-        element = Text(x=round(x + dx, 9), y=round(y + dy, 9), text="5", font=9, points=30)
+        element = Text(x=round(x + dx, 9), y=round(y + dy, 9), text="5", font=9, points=30, align=align)
         return _past_edge(build_job(Label(unit=unit, width=1000, height=600, elements=[element]), options))
 
     across = options.offset_across is not None

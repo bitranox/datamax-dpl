@@ -204,7 +204,8 @@ def test_every_named_move_of_a_font_9_line_gives_a_job_that_prints() -> None:
         (-3.0, 0.0, 2.0), (1.0, 1.05, 0.95), list(TextAlign), (12, 30), (1, 4), range(10)
     ):
         text = Text(x=round(step * 0.29, 6), y=10, text="M" * chars, font=FONT_9, points=points, align=align)
-        move = _named_move(_job(text, offset_across=offset, scale_across=scale)[1])
+        refused = _job(text, offset_across=offset, scale_across=scale)[1]
+        move = _named_move(refused)
         if move is None:
             continue
         refusals += 1
@@ -214,8 +215,10 @@ def test_every_named_move_of_a_font_9_line_gives_a_job_that_prints() -> None:
             still_refused.append(
                 (offset, scale, align.value, points, chars, text.x, move, sorted(f.code for f in findings))
             )
-        # The named move is the smallest: one 0.1 mm step less is still refused for the edge.
-        short = text.model_copy(update={"x": round(text.x + move - 0.1, 6)})
+        # The named move is the smallest: one step of it less (0.1 mm for text_past_left_edge, the
+        # 0.01 mm a distance past the edge is stated in otherwise) is still refused for the edge.
+        move_step = 0.1 if any(f.code is FindingCode.TEXT_PAST_LEFT_EDGE for f in refused) else 0.01
+        short = text.model_copy(update={"x": round(text.x + move - move_step, 6)})
         if _named_move(_job(short, offset_across=offset, scale_across=scale)[1]) is None:
             not_smallest.append((offset, scale, align.value, points, chars, text.x, move))
     assert refusals > 150, refusals  # the grid must reach the refusals it checks
