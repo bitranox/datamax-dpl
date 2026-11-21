@@ -100,16 +100,35 @@ def _report_line_start(element: Text, *, start: int, index: int, ctx: RenderCont
     """Record an aligned line starting at column ``start`` if that is left of the label's edge or the printhead's."""
     edge = label_edge_column(ctx)
     if start < edge:
-        # Rounded up to the tenth shown, so moving x right by the distance named puts the line on the label.
-        past_mm = math.ceil(round(_x_move_mm(edge - start, ctx) * 10, 6)) / 10
         ctx.findings.refuse(
-            FindingCode.TEXT_PAST_LEFT_EDGE,
-            f"the {element.align.value}-aligned line would start about {past_mm:.1f} mm left of "
-            "the label's left edge; move x right by that or shorten the text",
-            element=index,
+            FindingCode.TEXT_PAST_LEFT_EDGE, _past_edge_message(element, start=start, edge=edge, ctx=ctx), element=index
         )
     elif start < 0:
         report_past_edge(_label_length(start, ctx), Axis.ACROSS, index=index, ctx=ctx)
+
+
+def _past_edge_message(element: Text, *, start: int, edge: int, ctx: RenderContext) -> str:
+    """Say how far a line starting at column ``start`` lies left of the label, and how far ``x`` must move.
+
+    The move goes to the later of the label's edge and the printhead's first column: with a negative
+    offset across the edge lies left of that column, and a line moved only onto the label would
+    still be refused (``offset_past_label_edge``).
+    """
+    line = (
+        f"the {element.align.value}-aligned line would start about {_mm_up(edge - start, ctx)} mm left of "
+        "the label's left edge"
+    )
+    if edge >= 0:
+        return f"{line}; move x right by that or shorten the text"
+    return (
+        f"{line}, which the across offset of {ctx.offset_mm(Axis.ACROSS):g} mm puts left of the printhead's "
+        f"first dot; move x right by about {_mm_up(-start, ctx)} mm or shorten the text"
+    )
+
+
+def _mm_up(units: int, ctx: RenderContext) -> str:
+    """Return the move of ``x`` by ``units`` in mm, rounded up to the tenth shown so moving by it is enough."""
+    return f"{math.ceil(round(_x_move_mm(units, ctx) * 10, 6)) / 10:.1f}"
 
 
 def _x_move_mm(units: int, ctx: RenderContext) -> float:

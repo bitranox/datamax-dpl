@@ -8,6 +8,7 @@ the manual gives; font 9 by a Helvetica-Bold stand-in for CG Triumvirate Bold (`
 from __future__ import annotations
 
 import io
+import itertools
 import re
 from typing import TYPE_CHECKING
 
@@ -22,7 +23,7 @@ from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, Rotation, Text
 from datamax_dpl.domain.label import FONT_9, Counter, Label, Line, Text
 from datamax_dpl.domain.preview import canvas_for, field_area, letter_spans
 from datamax_dpl.domain.profiles import get_profile
-from datamax_dpl.domain.render import build_job, render
+from datamax_dpl.domain.render import RenderResult, build_job, render
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.text_metrics import FONT_9_ADVANCES, char_advances, text_extent
 
@@ -226,15 +227,21 @@ def test_a_right_aligned_line_at_the_label_edge_does_not_pass_it(font: int) -> N
         assert FindingCode.ELEMENT_PAST_LABEL_EDGE not in _codes(result.findings), (font, policy)
 
 
-def _font_2_line(
-    chars: int, *, offset_across: float, x: float = 10, scale_across: float = 1.0
-) -> tuple[bool, list[Finding]]:
+def _font_2_job(
+    chars: int, *, offset_across: float, x: float = 10, scale_across: float = 1.0, align: TextAlign = TextAlign.RIGHT
+) -> RenderResult:
     # Font 2 at 203 dpi: 12 dots per character less a 2-dot gap; x 10 mm is 40 units of 2 dots.
-    text = Text(x=x, y=10, text="A" * chars, font=2, align=TextAlign.RIGHT)
-    result = build_job(
+    text = Text(x=x, y=10, text="A" * chars, font=2, align=align)
+    return build_job(
         Label(width=100, height=55, elements=[text]),
         RenderOptions(model=_MODEL, offset_across=offset_across, scale_across=scale_across),
     )
+
+
+def _font_2_line(
+    chars: int, *, offset_across: float, x: float = 10, scale_across: float = 1.0, align: TextAlign = TextAlign.RIGHT
+) -> tuple[bool, list[Finding]]:
+    result = _font_2_job(chars, offset_across=offset_across, x=x, scale_across=scale_across, align=align)
     return result.ok, list(result.findings)
 
 
@@ -309,11 +316,57 @@ def test_moving_x_right_by_the_reported_distance_puts_the_line_on_the_label(
     x: float, chars: int, offset_across: float, scale_across: float
 ) -> None:
     _, findings = _font_2_line(chars, offset_across=offset_across, x=x, scale_across=scale_across)
-    refusal = next(f for f in findings if f.code is FindingCode.TEXT_PAST_LEFT_EDGE)
-    past = re.search(r"about (\d+\.\d) mm", refusal.message)
-    assert past is not None
-    _, moved = _font_2_line(chars, offset_across=offset_across, x=x + float(past.group(1)), scale_across=scale_across)
-    assert FindingCode.TEXT_PAST_LEFT_EDGE not in _codes(moved)
+    move = _reported_move(findings)
+    assert move is not None
+    ok, moved = _font_2_line(chars, offset_across=offset_across, x=x + move, scale_across=scale_across)
+    assert ok, moved
+
+
+def _reported_move(findings: Iterable[Finding]) -> float | None:
+    """The distance a text_past_left_edge refusal tells x to move, or None without one."""
+    refusal = next((f for f in findings if f.code is FindingCode.TEXT_PAST_LEFT_EDGE), None)
+    if refusal is None:
+        return None
+    named = re.search(r"move x right by about (\d+\.\d) mm", refusal.message)
+    past = named or re.search(
+        r"about (\d+\.\d) mm left of the label's left edge; move x right by that", refusal.message
+    )
+    assert past is not None, refusal.message
+    return float(past.group(1))
+
+
+@pytest.mark.os_agnostic
+def test_every_refused_line_moved_by_the_reported_distance_prints() -> None:
+    """Over offsets either way, scales and both alignments, the named move always gives a job that prints."""
+    still_refused: list[tuple[float, float, str, int, float, float, list[FindingCode]]] = []
+    refusals = 0
+    for offset, scale, align, chars, step in itertools.product(
+        (-3.0, 0.0, 2.0), (1.0, 1.05, 0.95), (TextAlign.RIGHT, TextAlign.CENTER), (1, 4, 8, 13), range(12)
+    ):
+        x = step * 0.53
+        move = _reported_move(_font_2_line(chars, offset_across=offset, x=x, scale_across=scale, align=align)[1])
+        if move is None:
+            continue
+        refusals += 1
+        ok, moved = _font_2_line(chars, offset_across=offset, x=x + move, scale_across=scale, align=align)
+        if not ok:
+            still_refused.append((offset, scale, align.value, chars, x, move, sorted(_codes(moved))))
+    assert refusals > 300, refusals  # the grid must reach the refusal it checks
+    assert not still_refused, still_refused[:5]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("offset_across", "column"), [(2.0, b"0008"), (-3.0, b"0000"), (0.0, b"0000")])
+def test_a_refused_line_is_written_at_the_label_edge_or_the_printheads_first_column(
+    offset_across: float, column: bytes
+) -> None:
+    # Right-aligned "AAAA" (23 units) at x 1 mm starts left of the label whatever the offset. Its
+    # record goes to the later of the label's edge (8 units in with offset 2 mm, 12 out with -3 mm)
+    # and the printhead's first column, so the job still renders for the refusal.
+    result = _font_2_job(4, offset_across=offset_across, x=1.0)
+    assert not result.ok
+    [record] = [record for record in result.data.split(b"\r") if record.endswith(b"AAAA")]
+    assert record[11:15] == column
 
 
 @pytest.mark.os_agnostic
