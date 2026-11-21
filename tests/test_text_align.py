@@ -99,15 +99,18 @@ _SHIFT_30_PT = 2
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize(("text", "points"), [("MMM", 30), ("IIII", 30), ("1", 30), ("ABC", 12)])
-def test_a_centred_font_9_line_puts_the_middle_of_its_ink_at_x(text: str, points: int) -> None:
+@pytest.mark.parametrize(
+    ("text", "points", "printed"), [("MMM", 30, 30), ("IIII", 30, 30), ("1", 30, 30), ("ABC", 12, 12), ("1", 21, 18)]
+)
+def test_a_centred_font_9_line_puts_the_middle_of_its_ink_at_x(text: str, points: int, printed: int) -> None:
     # Ink runs from the first glyph's left side bearing to the last glyph's ink end (text_extent).
     # Centred on the origin-to-ink-end span instead, MMM's ink middle sat 3.4 dots right of x, IIII's
     # 3.2 and 1's 2.4; ABC at 12 pt (0.3 dots of bearing to halve) sat 0.8 dots right either way.
+    # 21 pt prints at 18 (font_size_substituted): the bearing is taken at the printed size's em.
     line = Text(x=40, y=10, text=text, font=FONT_9, points=points, align=TextAlign.CENTER)
     x_column = _column(Text(x=40, y=10, text="X", font=2))
-    em = points * 203 / 72
-    shift = _SHIFT_30_PT if points == 30 else 0
+    em = printed * 203 / 72
+    shift = _SHIFT_30_PT if printed == 30 else 0
     ink_start = _column(line) * _DOTS_PER_UNIT + shift + _AFM_LEFT_BEARING[text[0]] * em / 1000
     ink_end = _column(line) * _DOTS_PER_UNIT + shift + text_extent(line, get_profile(_MODEL))
     # Half a unit (one dot) from rounding the move to whole units.
