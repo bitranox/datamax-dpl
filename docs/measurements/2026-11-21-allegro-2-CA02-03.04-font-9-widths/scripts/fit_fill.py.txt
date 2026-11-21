@@ -1,7 +1,8 @@
 """Implied font 9 advances from the fill-and-V round (Allegro 2, 2026-11-21 16:39-17:10).
 
-Run with the build the labels were printed from (83272f6) first on PYTHONPATH:
-    PYTHONPATH=<83272f6 checkout>/src python fit_fill.py FILL_DIR [--json OUT]
+Copy it and fit_widths.py.txt as .py beside ../lines.json and run it with the build the labels were
+printed from (83272f6) first on PYTHONPATH:
+    PYTHONPATH=<83272f6 checkout>/src python fit_fill.py FILL_DIR [--json OUT] [--tables OUT]
 
 Each row is char * N + "M", right-aligned at x 95 mm, with five vertical lines 0.5 mm apart through the
 final M. A line record starts at its column and is one unit (2 dots) wide, so its middle is
@@ -70,7 +71,8 @@ def columns(fill: Path) -> list[tuple[str, int, int]]:
 
 
 #: The 30 pt advances the line-end record (../lines.json, read to 0.1 mm over 9 to 24 characters)
-#: already measured, finer than this round's half line over 8 to 28: they keep their value.
+#: already measured, finer than this round's half line over 8 to 28: they keep the value fit_widths
+#: fits to those lines, unrounded.
 LINE_END_30_PT = set("M0123456789,./ STKBOX")
 #: Label f23 (24 pt U V W X Y) read "2 0 -4 -1 3", the very readings of label f13 (18 pt P Q R S T),
 #: and W at 24 pt then fits neither 18 nor 30 pt: its five rows are left out, and those characters
@@ -78,31 +80,36 @@ LINE_END_30_PT = set("M0123456789,./ STKBOX")
 UNSUPPORTED_24_PT = set("UVWXY")
 
 
-def tables(out: list[dict[str, object]]) -> dict[int, dict[int, float]]:
-    """Per printed size, the advance in dots of each byte the round measured."""
-    from datamax_dpl.domain.label import Text  # the printed build's tables, for 12 pt and the line-end 30 pt
-    from datamax_dpl.domain.profiles import get_profile
-    from datamax_dpl.domain.text_metrics import FONT_9_ADVANCES, char_advances
+def tables(fill: dict[tuple[int, str], float]) -> dict[int, dict[int, float]]:
+    """Per printed size, the advance in dots of each byte the round measured, to a millionth of a dot.
 
-    profile = get_profile("allegro-2")
-    fill = {(int(row["points"]), str(row["char"])): float(row["advance_dots"]) for row in out}  # type: ignore[arg-type]
+    ``fill`` holds this round's unrounded advance per (size, character). 12 pt and the line-end
+    30 pt advances come from the line-end fit (fit_widths.fit over ../lines.json): at 12 pt each
+    character's fitted width at that em, which a character measured at 12 pt only has as its whole
+    dots and "/" has as its width, not the 11 dots its 12 pt line gave (the model keeps that apart,
+    for 203 dpi at 12 pt only). Nothing is rounded before the last step, which keeps 6 decimals.
+    """
+    from fit_widths import fit  # beside this script, beside ../lines.json
+
+    widths, _ = fit()
     chars = sorted({char for _, char in fill})
     byte = {char: char.encode("cp850")[0] for char in chars}
-    result: dict[int, dict[int, float]] = {12: {}, 18: {}, 24: {}, 30: {}}
+    exact: dict[int, dict[int, float]] = {12: {}, 18: {}, 24: {}, 30: {}}
     for char in chars:
-        result[12][byte[char]] = char_advances(Text(x=0, y=0, text=char, font=9, points=12), profile)[0]
-        result[18][byte[char]] = round(fill[18, char], 2)
-        if char in LINE_END_30_PT:
-            result[30][byte[char]] = round(FONT_9_ADVANCES[byte[char]] * 30 * 203 / 72 / 1000, 2)
-        else:
-            result[30][byte[char]] = round(fill[30, char], 2)
+        exact[12][byte[char]] = widths[byte[char]] * em(12) / 1000
+        exact[18][byte[char]] = fill[18, char]
+        exact[30][byte[char]] = widths[byte[char]] * em(30) / 1000 if char in LINE_END_30_PT else fill[30, char]
     for char in chars:
         if char in UNSUPPORTED_24_PT:
-            per_point = (result[18][byte[char]] / 18 + result[30][byte[char]] / 30) / 2
-            result[24][byte[char]] = round(per_point * 24, 2)
+            per_point = (exact[18][byte[char]] / 18 + exact[30][byte[char]] / 30) / 2
+            exact[24][byte[char]] = per_point * 24
         else:
-            result[24][byte[char]] = round(fill[24, char], 2)
-    return result
+            exact[24][byte[char]] = fill[24, char]
+    return {points: {code: round(value, 6) for code, value in row.items()} for points, row in exact.items()}
+
+
+def em(points: int) -> float:
+    return points * 203 / 72
 
 
 def main() -> int:
@@ -110,12 +117,13 @@ def main() -> int:
     table, values, cols = rows(fill), readings(fill), columns(fill)
     assert len(table) == len(values) == len(cols) == 164, (len(table), len(values), len(cols))
     out = []
+    fill: dict[tuple[int, str], float] = {}
     for (number, points, char, count), reading, (label, text_column, line_column) in zip(table, values, cols):
-        em = points * 203 / 72
         reached = (
             line_column * DOTS_PER_UNIT + 1 - DOTS_PER_LINE * reading
-            - text_column * DOTS_PER_UNIT - SHIFT.get(points, 0) - M_INK_MIDDLE * em
+            - text_column * DOTS_PER_UNIT - SHIFT.get(points, 0) - M_INK_MIDDLE * em(points)
         )
+        fill[points, char] = reached / count
         out.append({
             "line": number, "label": label, "points": points, "char": char, "count": count, "reading": reading,
             "text_column": text_column, "line_column": line_column, "reached_dots": round(reached, 3),
@@ -126,7 +134,7 @@ def main() -> int:
               "reached {reached_dots:8.2f} advance {advance_dots:7.3f} +/- {resolution_dots:.3f}".format(**row))
     if "--tables" in sys.argv:
         Path(sys.argv[sys.argv.index("--tables") + 1]).write_text(
-            json.dumps(tables(out), indent=1, sort_keys=True) + "\n", encoding="utf-8"
+            json.dumps(tables(fill), indent=1, sort_keys=True) + "\n", encoding="utf-8"
         )
     if "--json" in sys.argv:
         Path(sys.argv[sys.argv.index("--json") + 1]).write_text(json.dumps(out, indent=1) + "\n", encoding="utf-8")

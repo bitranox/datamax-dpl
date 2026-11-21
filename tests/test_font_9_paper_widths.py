@@ -176,12 +176,24 @@ def test_the_11_dot_slash_holds_at_203_dpi_and_12_pt_only(model: str, points: in
     assert char_advances(Text(x=0, y=0, text="/", font=FONT_9, points=points), get_profile(model)) == (dots,)
 
 
+#: The characters whose 30 pt advance the line-end lines give, finer than the fill round's.
+_LINE_END_30_PT = "M0123456789,./ STKBOX"
+
+
+def _line_end_width_30_pt(char: str) -> float:
+    """A line-end character's 30 pt width: its own line's, the digits the mean of 0 and 5, the period the comma's."""
+    if char.isdigit():
+        return (_PAPER_30_PT["0"] + _PAPER_30_PT["5"]) / 2
+    return _PAPER_30_PT["," if char == "." else char]
+
+
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize(("char", "dots"), sorted(_PAPER_30_PT.items()), ids=sorted(_PAPER_30_PT))
-def test_a_measured_character_is_its_paper_width_at_30_pt_within_a_tenth_of_a_dot(char: str, dots: float) -> None:
-    # The digits share the mean of 0 and 5, which read 0.13 dots apart; every other width matches
-    # its line to 0.003 dots.
-    assert FONT_9_PRINTED_ADVANCES[30][char.encode("cp850")[0]] == pytest.approx(dots, abs=0.1)
+@pytest.mark.parametrize("char", _LINE_END_30_PT)
+def test_a_line_end_character_keeps_its_paper_width_at_30_pt_unrounded(char: str) -> None:
+    # The table keeps a millionth of a dot. Rounded to 0.01 dot (M 70.42 for 70.4169), right-aligned
+    # lines of 13 S or 13 K at x 95 mm moved by a column. The digits 0 and 5 read 0.13 dots apart.
+    expected = _line_end_width_30_pt(char)
+    assert FONT_9_PRINTED_ADVANCES[30][char.encode("cp850")[0]] == pytest.approx(expected, abs=1e-6)
 
 
 @pytest.mark.os_agnostic
@@ -252,3 +264,27 @@ def test_a_fill_row_gives_the_advance_datamax_dpl_prints_within_its_resolution(r
     # printed ones, rounded as the printer rounds, so they compare with the paper as they are.
     printed = char_advances(Text(x=0, y=0, text=row.char * row.count, font=FONT_9, points=row.points), _PROFILE)
     assert sum(printed) / row.count == pytest.approx(row.reached_dots() / row.count, abs=_HALF_V_LINE / row.count)
+
+
+#: The fill rows whose own advance the table holds: 18 and 24 pt but the repeated label, and 30 pt
+#: but the line-end characters; 12 pt advances come from the line-end fit's widths instead.
+_FILL_IN_TABLE = [
+    row
+    for row in _FILL
+    if row.label != _REPEATED_LABEL
+    and (row.points in {18, 24} or (row.points == 30 and row.char not in _LINE_END_30_PT))
+]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("row", _FILL_IN_TABLE, ids=[row.name for row in _FILL_IN_TABLE])
+def test_a_fill_row_s_advance_is_in_the_table_unrounded(row: _FillRow) -> None:
+    # Rounded to 0.01 dot after fill.json's 0.0001, I at 18 pt (681.837 dots over 49) shipped 13.91
+    # where its advance, 13.91504, rounds to 13.92; the table now keeps a millionth of a dot.
+    advance = FONT_9_PRINTED_ADVANCES[row.points][row.char.encode("cp850")[0]]
+    assert advance == pytest.approx(row.reached_dots() / row.count, abs=1e-6)
+
+
+@pytest.mark.os_agnostic
+def test_the_table_takes_its_own_advance_from_every_fill_row_but_the_excluded_ones() -> None:
+    assert len(_FILL_IN_TABLE) == 41 + 36 + 20

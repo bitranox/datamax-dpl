@@ -159,7 +159,11 @@ shift is the print shift above (2 dots at 30 pt, none below); the `M`'s ink midd
 
 datamax-dpl uses the result per printed size: a measured character at 12, 18, 24 or 30 pt takes its
 advance from this record at that size, and at any other size the advance of the nearest measured
-size, scaled by size, which is unverified. The other characters keep the stand-in.
+size, scaled by size, which is unverified. The other characters keep the stand-in. `fit_fill
+--tables` writes the four tables as datamax-dpl holds them: each advance as its fit gives it (the
+line-end fit of `fit_widths` for 12 pt and the 21 line-end characters at 30 pt, this round's rows
+for the rest), rounded only at the end, to a millionth of a dot. Rounding to 0.01 dot would move
+right-aligned lines that sit near a column boundary (13 `S` or 13 `K` at 30 pt, x 95 mm).
 
 ## Residual of every line
 
