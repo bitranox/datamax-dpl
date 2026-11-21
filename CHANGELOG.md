@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.12.0] - 2026-11-20
+## [0.12.0] - 2026-11-21
 
 ### Added
 
@@ -115,18 +115,25 @@ All notable changes to this project are documented here. The format follows
   field where it prints; the label's left edge is judged by where the ink starts, the printhead by
   the record. A centred or right-aligned line whose record would start left of the printhead's
   first dot is refused (`text_past_left_edge`, naming the move of `x`). A left-aligned field at 30 pt
-  or more with `x` below about 0.1251 mm (one dot) (0.1189 mm at `scale_across` 0.95, 0.1314 mm at 1.05; no
-  `offset_across`), whose record would need column -1, is written at column 0 without a finding,
-  as before: it prints up to 0.25 mm right of `x` and nothing says so. That one case is a
-  deliberate exception to the rule that every fallback is reported. The profile carries
-  it as `PrinterProfile.font9_print_shift` (`Font9PrintShift`, exported).
+  or more with `x` below about 0.1251 mm, one dot (0.1189 mm at `scale_across` 0.95, 0.1314 mm at
+  1.05; no `offset_across`), whose record would need column -1, is written at column 0 without a
+  finding, as before: it prints up to 0.25 mm right of `x` and nothing says so. That one case is a
+  deliberate exception to the rule that every fallback is reported. The profile carries it as
+  `PrinterProfile.font9_print_shift` (`Font9PrintShift`, exported), which refuses an empty shift
+  table and any key or value that is not an int (`ValueError`).
+- Each text field is measured once per rendered label and reused by the encoder, the label-edge
+  and overlap checks and the preview: a batch of right-aligned and centred font 9 labels takes
+  about a third less CPU time than with a measurement per use (bytes unchanged).
 - The PNG preview letters font 9 and scalable text one character at a time, each at its estimated
   advance, so a proportional line no longer squeezes into a box of equal cells.
 - Skill: the preview and `validate` work from estimated text ends, so only paper decides whether
   a line fits; the test print takes the options production sends, with the allegro-2 cutter bytes
   (no `--cutter`: no `<STX>V`, stop `f263`; `--cutter no`: `<STX>V0`, `f263`; `--cutter yes`:
   `<STX>V1`, `f302`); how to keep a QR Code the same printed size as its data grows (one label
-  file per `module_dots`, with the level-M version bands).
+  file per `module_dots`, with the level-M version bands). A new section, "Checking where font 9
+  text ends, on paper", gives the measuring method: fill rows read against a lone `M`, V-lines
+  read via XOR, the per-character error, offset against scale, and the correction loop on the
+  position grid (one DPL unit, 0.25 mm on an Allegro 2).
 
 ### Fixed
 
