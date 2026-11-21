@@ -455,6 +455,16 @@ class _PastEdge:
         # of its own: 0.0100000787 in past is named 0.01, and 0.3000005 mm past 0.3, as both moves print.
         _PastEdge(Unit.INCH, 0.02937, 1.0, RenderOptions(model="allegro", offset_across=-1.0), 0.01, TextAlign.LEFT),
         _PastEdge(Unit.MM, 5.0, 0.6999995, RenderOptions(model="allegro", offset_along=-1.0), 0.01, TextAlign.LEFT),
+        # Just past the tolerance it takes the step: 2e-6 of a step beyond it (10.000003 dots, 0.30000102
+        # mm and 0.01000102 in past) is named 11 dots, 0.31 mm and 0.02 in. Any cut of the distance to
+        # five decimals of the step or fewer drops that fraction and names a move that is refused.
+        _PastEdge(
+            Unit.DOTS, 1.811020622, 10.0, RenderOptions(model="dmx-600", offset_across=-1.0), 1.0, TextAlign.LEFT
+        ),
+        _PastEdge(Unit.MM, 5.0, 0.69999898, RenderOptions(model="allegro", offset_along=-1.0), 0.01, TextAlign.LEFT),
+        _PastEdge(
+            Unit.INCH, 0.029369059, 1.0, RenderOptions(model="allegro", offset_across=-1.0), 0.01, TextAlign.LEFT
+        ),
         # An aligned line on the label but left of the printhead's first dot: the move is searched
         # through x's own conversion, and must be the smallest at 0.01 mm too, not at 0.1 mm.
         _PastEdge(Unit.MM, 7.3, 10.0, RenderOptions(model="allegro", offset_across=-9.5), 0.01, TextAlign.RIGHT),
