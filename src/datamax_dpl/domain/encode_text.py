@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from .charset import CAPITALS_ONLY_FONTS, EncodedText, encode_for_bitmapped_font, encode_for_symbol_set
 from .encode_common import (
+    STEPS_PER_UNIT,
     attribute_lines,
     attribute_reset,
     check_field_length,
@@ -31,9 +32,6 @@ _MIN_POINTS = 4
 _MAX_POINTS = 72
 #: The step a move named in mm takes: the tenth of a millimetre the message states.
 _MOVE_STEP_MM = 0.1
-#: The step a move named in the label's own unit takes: the precision a message in it states
-#: (encode_common.report_past_edge), so the distance named is the smallest that message can state.
-_STEP = {Unit.MM: 0.01, Unit.INCH: 0.01, Unit.DOTS: 1.0}
 
 
 def _size_code(points: int, ctx: RenderContext) -> str | None:
@@ -118,7 +116,8 @@ def _report_line_start(element: Text, *, back: int, index: int, ctx: RenderConte
         message = _past_edge_message(element, back=back, edge=edge, on_label=on_label, ctx=ctx)
         ctx.findings.refuse(FindingCode.TEXT_PAST_LEFT_EDGE, message, element=index)
     elif start < 0 and edge < 0:
-        move = _clearing_move(element.x, back=back, target=0, step=_STEP[ctx.unit], ctx=ctx)
+        # One step of the precision report_past_edge states, so the move named is the smallest it can state.
+        move = _clearing_move(element.x, back=back, target=0, step=1 / STEPS_PER_UNIT[ctx.unit], ctx=ctx)
         report_past_edge(move, Axis.ACROSS, index=index, ctx=ctx)
     elif start < 0 and element.align is not TextAlign.LEFT:
         message = _past_printhead_message(element, back=back, printed=printed, ctx=ctx)

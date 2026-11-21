@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
 from .enums import Attribute, CounterSign, FindingCode, Unit
+from .frozen_mapping import FrozenMapping
 from .label import MAX_FIELD_DATA, Counter
 from .profiles import Feature
 from .records import line
@@ -13,14 +14,17 @@ from .render_context import ImageEdge
 from .units import MM_PER_INCH, Axis, DplUnit, to_dpl
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from .render_context import RenderContext
 
 #: How far past the label's 0 edge, in the label's own unit, a position may land and still be taken
 #: as on it: the float noise of moving it by the offset. A millionth of the unit: a nanometre on a
 #: mm label, a millionth of an inch on an inch label, a millionth of a dot on a dots label.
 _TOLERANCE = 1e-6
-#: How many steps of the precision a message states one unit of the label holds.
-_STEPS_PER_UNIT = {Unit.DOTS: 1, Unit.MM: 100, Unit.INCH: 100}
+#: How many steps of the precision a message states one unit of the label holds: a hundredth of a
+#: millimetre or an inch, a whole dot. A move named in the label's own unit is a whole number of them.
+STEPS_PER_UNIT: Final[Mapping[Unit, int]] = FrozenMapping({Unit.DOTS: 1, Unit.MM: 100, Unit.INCH: 100})
 
 
 def last_column(ctx: RenderContext) -> int:
@@ -137,7 +141,7 @@ def _clearing_offset_move(value: float, axis: Axis, *, ctx: RenderContext) -> fl
         >>> [_clearing_offset_move(y, Axis.ALONG, ctx=ctx) for y in (0.527, 0.7, 0.959999, 0.6999995)]
         [0.48, 0.3, 0.05, 0.3]
     """
-    per_unit = _STEPS_PER_UNIT[ctx.unit]
+    per_unit = STEPS_PER_UNIT[ctx.unit]
     estimate = math.ceil((-ctx.shifted(value, axis=axis) - _TOLERANCE) * per_unit)
     steps = max(estimate - 2, 0)
     while ctx.shifted(round(value + steps / per_unit, 9), axis=axis) < -_TOLERANCE:
@@ -243,6 +247,7 @@ def counter_lines(counter: Counter | None) -> list[bytes]:
 
 
 __all__ = [
+    "STEPS_PER_UNIT",
     "attribute_lines",
     "attribute_reset",
     "check_field_length",
