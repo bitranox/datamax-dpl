@@ -11,14 +11,16 @@ from .encode_common import (
     check_field_length,
     column_of,
     counter_lines,
+    report_past_edge,
     row_of,
 )
-from .enums import FindingCode
+from .enums import FindingCode, Unit
 from .label import FONT_9, ScalableText, Text
+from .placeholders import placeholders_in
 from .profiles import OLD_SERIES_POINTS, Feature
 from .records import Header, line
-from .text_metrics import align_shift_units, font9_points
-from .units import MM_PER_INCH
+from .text_metrics import align_shift_units, font9_points, label_edge_column
+from .units import MM_PER_INCH, Axis
 
 if TYPE_CHECKING:
     from .render_context import RenderContext
@@ -69,21 +71,44 @@ def _text_column(element: Text, *, index: int, ctx: RenderContext) -> int:
 
     ``x`` itself is checked against the printable width (``outside_print_width``), so a centred or
     right-aligned line whose middle or end is past it is refused like a field starting there. A
-    line that would start left of the label's 0 edge is refused (``text_past_left_edge``) and
-    written at column 0, so the job still renders for the findings.
+    line that would start left of the label's left edge is refused (``text_past_left_edge``); one
+    on the label but left of the printhead's first column, where a negative offset across puts the
+    label's edge, is reported as a left-aligned field the offset moves there. Either is written at
+    :func:`~.text_metrics.text_column`, so the job still renders for the findings. A field still
+    holding a placeholder in a label rendered without data is not refused: it prints its template,
+    and each record is measured once filled.
     """
     column = column_of(element.x, index=index, ctx=ctx)
-    shift = align_shift_units(element, ctx)
-    if shift <= column:
-        return column - shift
-    mm_per_unit = ctx.dots_per_unit / ctx.profile.dpi * MM_PER_INCH
-    ctx.findings.refuse(
-        FindingCode.TEXT_PAST_LEFT_EDGE,
-        f"the {element.align.value}-aligned line would start about {(shift - column) * mm_per_unit:.1f} mm left of "
-        "the label's left edge; move x right by that or shorten the text",
-        element=index,
-    )
-    return 0
+    start = column - align_shift_units(element, ctx)
+    edge = label_edge_column(ctx)
+    if start >= max(edge, 0):
+        return start
+    if not (ctx.template and placeholders_in(element.text)):
+        _report_line_past_edge(element, start=start, edge=edge, index=index, ctx=ctx)
+    return max(edge, 0)
+
+
+def _report_line_past_edge(element: Text, *, start: int, edge: int, index: int, ctx: RenderContext) -> None:
+    """Record an aligned line that starts at column ``start``, left of the label's edge or the printhead's."""
+    if start < edge:
+        past_mm = ctx.printed_dots(edge - start) / ctx.profile.dpi * MM_PER_INCH
+        ctx.findings.refuse(
+            FindingCode.TEXT_PAST_LEFT_EDGE,
+            f"the {element.align.value}-aligned line would start about {past_mm:.1f} mm left of "
+            "the label's left edge; move x right by that or shorten the text",
+            element=index,
+        )
+        return
+    report_past_edge(_label_length(start, ctx), Axis.ACROSS, index=index, ctx=ctx)
+
+
+def _label_length(units: int, ctx: RenderContext) -> float:
+    """Return ``units`` of this job as a length in the label's unit, at the dots they print."""
+    dots = ctx.printed_dots(units)
+    if ctx.unit is Unit.DOTS:
+        return float(dots)
+    inches = dots / ctx.profile.dpi
+    return inches * MM_PER_INCH if ctx.unit is Unit.MM else inches
 
 
 def encode_text(element: Text, *, index: int, ctx: RenderContext) -> list[bytes]:

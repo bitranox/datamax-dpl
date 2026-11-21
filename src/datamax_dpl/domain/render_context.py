@@ -681,6 +681,9 @@ class RenderContext:
         held_images: The image names the printer is known to hold in ``image_module``; a label
             no clear precedes leaves out the download of each one (see :attr:`sent_downloads`).
         held_image_severity: Severity of the findings about those names.
+        template: The label's placeholders are unfilled (it is rendered without data), so a text
+            field holding one prints its template, braces and all: its width says nothing about
+            a record's, and an aligned field is not refused for it.
         qr_symbols: The symbol of each QR Code this render encoded, by what makes it (see
             :meth:`qr_symbol`); filled as the render goes and gone with it.
     """
@@ -714,6 +717,7 @@ class RenderContext:
     emulated_groups: list[tuple[int, ...]] = field(default_factory=list[tuple[int, ...]])
     held_images: HeldImages = field(default_factory=HeldImages)
     held_image_severity: Severity = Severity.WARNING
+    template: bool = False
     module_refused: bool = field(default=False, init=False)
     qr_symbols: dict[tuple[str, QrError, bool, bool], Bitmap] = field(
         default_factory=dict[tuple[str, "QrError", bool, bool], Bitmap], init=False, repr=False, compare=False

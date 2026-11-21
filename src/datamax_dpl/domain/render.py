@@ -454,6 +454,7 @@ def _context(label: Label, options: RenderOptions, *, halve: bool, held: HeldIma
         halve_images=halve,
         held_images=held,
         held_image_severity=options.held_image_severity,
+        template=not label.filled and bool(label_placeholders(label)),
     )
     _report_model_defaults(label, probe, provenance=calibration.provenance, from_model=from_model, formats=formats)
     if label.unit is Unit.MM and probe.supports(Feature.FORMAT_METRIC):

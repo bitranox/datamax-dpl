@@ -27,10 +27,12 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from .charset import FONT_BYTES, encode_for_bitmapped_font
+from .charset import encode_for_bitmapped_font
+from .encode_common import position_units
 from .enums import TextAlign
 from .frozen_mapping import FrozenMapping
 from .label import FONT_9, Text
+from .units import Axis
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -49,9 +51,6 @@ _DEFAULT_POINTS = 10
 #: Share of the em one character of a font 9 field takes when its font is unknown (a ``font_id``
 #: names a downloaded or cartridge font, whose widths nothing here knows).
 _UNKNOWN_FONT_ADVANCE = 0.6
-#: Advance of a character Helvetica-Bold has no glyph for (a box-drawing or Greek character of code
-#: page 437), in thousandths of the em: a digit's width, the font's most common advance.
-FONT_9_FALLBACK_ADVANCE = 556
 
 
 @dataclass(frozen=True)
@@ -95,10 +94,9 @@ CELLS: Mapping[int, FontCells] = MappingProxyType(
     }
 )
 
-# Generated from phvb8a.afm: each code page 437 byte font 9 prints, decoded to its character, named
-# by the Adobe Glyph List, and that glyph's WX. The bytes Helvetica-Bold has no glyph for are left
-# out and take FONT_9_FALLBACK_ADVANCE: 158, 169, 181-184, 189, 190, 198, 199, 208-216, 222, 224,
-# 226-229, 231-237, 243, 247 and 249.
+# Generated from phvb8a.afm: each code page 850 byte font 9 prints (:data:`~.charset.FONT_CODECS`),
+# decoded to its character, named by the Adobe Glyph List, and that glyph's WX. Helvetica-Bold has a
+# glyph for every one of them.
 # fmt: off
 _HELVETICA_BOLD: dict[int, int] = {
     32: 278, 33: 333, 34: 474, 35: 556, 36: 556, 37: 889, 38: 722, 39: 238,
@@ -116,17 +114,20 @@ _HELVETICA_BOLD: dict[int, int] = {
     129: 611, 130: 556, 131: 556, 132: 556, 133: 556, 134: 556, 135: 556, 136: 556,
     137: 556, 138: 556, 139: 278, 140: 278, 141: 278, 142: 722, 143: 722, 144: 667,
     145: 889, 146: 1000, 147: 611, 148: 611, 149: 611, 150: 611, 151: 611, 152: 556,
-    153: 778, 154: 722, 155: 556, 156: 556, 157: 556, 159: 556, 160: 556, 161: 278,
-    162: 611, 163: 611, 164: 611, 165: 722, 166: 370, 167: 365, 168: 611, 171: 834,
-    172: 834, 173: 333, 225: 611, 230: 611, 241: 584, 246: 584, 248: 400, 250: 278,
+    153: 778, 154: 722, 155: 611, 156: 556, 157: 778, 158: 584, 159: 556, 160: 556,
+    161: 278, 162: 611, 163: 611, 164: 611, 165: 722, 166: 370, 167: 365, 168: 611,
+    169: 737, 171: 834, 172: 834, 173: 333, 181: 722, 182: 722, 183: 722, 184: 737,
+    189: 556, 190: 556, 198: 556, 199: 722, 208: 611, 209: 722, 210: 667, 211: 667,
+    212: 667, 213: 278, 214: 278, 215: 278, 216: 278, 222: 278, 224: 778, 225: 611,
+    226: 778, 227: 778, 228: 611, 229: 778, 230: 611, 231: 611, 232: 667, 233: 722,
+    234: 722, 235: 722, 236: 556, 237: 667, 241: 584, 243: 834, 246: 584, 247: 333,
+    248: 400, 249: 333, 250: 278,
 }
 # fmt: on
 
 #: Advance width of each byte font 9 prints, in thousandths of the em (:data:`EM_UNITS`): the
 #: Helvetica-Bold stand-in for CG Triumvirate Bold described in the module docstring.
-FONT_9_ADVANCES: Mapping[int, int] = FrozenMapping(
-    {byte: _HELVETICA_BOLD.get(byte, FONT_9_FALLBACK_ADVANCE) for byte in sorted(FONT_BYTES[FONT_9])}
-)
+FONT_9_ADVANCES: Mapping[int, int] = FrozenMapping(_HELVETICA_BOLD)
 
 
 def font9_points(points: int, profile: PrinterProfile) -> int:
@@ -210,9 +211,11 @@ def align_shift_units(element: Text, ctx: RenderContext) -> int:
     """Return how many DPL units a field's record column lies left of ``x``: 0 for left-aligned text.
 
     Right-aligned text moves back by its whole :func:`text_extent`, centred text by half of it,
-    each converted at the job's dots per unit and rounded to the nearest unit, so the line ends
-    (or is centred) within half a unit of the dot ``x`` prints at. The encoder, the preview and
-    the overlap and edge checks all place an aligned field by this one number.
+    each converted at the job's dots per unit and rounded to the nearest unit. The line ends (or
+    is centred) within about one unit of the dot ``x`` prints at: half a unit from rounding the
+    shift, plus the rounding of units to whole dots (up to 2 dots measured on a DMX 430, whose
+    unit is 2.9 dots). The encoder, the preview and the overlap and edge checks all place an
+    aligned field by this one number (:func:`text_column`).
 
     Args:
         element: The text field, after its placeholders are filled.
@@ -228,16 +231,45 @@ def align_shift_units(element: Text, ctx: RenderContext) -> int:
     return round(share / ctx.dots_per_unit)
 
 
+def label_edge_column(ctx: RenderContext) -> int:
+    """Return the column the label's left edge lies at, in the job's DPL units.
+
+    0 without an offset across; a positive offset moves the label right of the printhead's first
+    column, a negative one left of it, where no record can be written.
+    """
+    return ctx.dpl_units(ctx.shifted(0.0, axis=Axis.ACROSS), axis=Axis.ACROSS)
+
+
+def text_column(element: Text, ctx: RenderContext) -> int:
+    """Return the column a text field's record is written at, recording nothing.
+
+    ``x``'s column (:func:`~.encode_common.position_units`) moved back by
+    :func:`align_shift_units`, kept on the label and on the printhead: a line that would start
+    left of either starts at the later of the two, where the encoder writes it after refusing it.
+
+    Example:
+        >>> from datamax_dpl.domain.label import Label
+        >>> from datamax_dpl.domain.render import job_context
+        >>> from datamax_dpl.domain.render_context import RenderOptions
+        >>> line = Text(x=10, y=0, text="ABC", font=2, align=TextAlign.RIGHT)
+        >>> text_column(line, job_context(Label(elements=[line]), RenderOptions(model="allegro-2")))
+        23
+    """
+    column = position_units(element.x, axis=Axis.ACROSS, ctx=ctx) - align_shift_units(element, ctx)
+    return max(column, label_edge_column(ctx), 0)
+
+
 __all__ = [
     "CELLS",
     "EM_UNITS",
     "FONT_9_ADVANCES",
-    "FONT_9_FALLBACK_ADVANCE",
     "CharCell",
     "FontCells",
     "align_shift_units",
     "char_advances",
     "font9_em_dots",
     "font9_points",
+    "label_edge_column",
+    "text_column",
     "text_extent",
 ]

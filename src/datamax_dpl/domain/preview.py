@@ -56,7 +56,7 @@ from typing import TYPE_CHECKING, Final, NamedTuple
 from ._invariants import require_same_keys
 from .encode_common import position_units
 from .encode_graphics import qr_symbol_position
-from .enums import Attribute, CombineMode, FillPattern, Rotation, Unit
+from .enums import Attribute, CombineMode, FillPattern, Rotation, TextAlign, Unit
 from .errors import PreviewTooLongError
 from .geometry import DotPoint, Rect, Size, Span
 from .image_budget import HALVING_FACTOR, halve, magnify
@@ -65,7 +65,7 @@ from .profiles import Feature, get_profile
 from .qr import QrDataTooLongError, element_symbol
 from .raster import Bitmap
 from .render_context import RenderOptions
-from .text_metrics import CELLS, align_shift_units, char_advances, font9_em_dots
+from .text_metrics import CELLS, char_advances, font9_em_dots, text_column, text_extent
 from .units import Axis, to_inches
 
 if TYPE_CHECKING:
@@ -398,26 +398,26 @@ def _barcode_size(element: Barcode, canvas: Canvas) -> Size:
 def field_area(element: Text | ScalableText | Barcode, canvas: Canvas) -> FieldArea:
     """Return the reference point, upright size and rotation of a text field's line or a barcode.
 
-    A text field's line is as long as its characters' advances (:func:`~.text_metrics.char_advances`).
-    A centred or right-aligned one starts where its record is written: moved back from ``x`` by
-    :func:`~.text_metrics.align_shift_units`, as the encoder moves it.
+    A text field's line runs from its first character to its last (:func:`~.text_metrics.text_extent`:
+    the blank gap after the last character of fonts 0-8 prints no dot and is not part of it). A
+    centred or right-aligned one starts where its record is written
+    (:func:`~.text_metrics.text_column`), that many printed dots before ``x``: lettering is never
+    scaled, so neither is the distance it is moved back, and the line ends at ``x`` under any
+    ``scale_across`` as it does on paper.
     """
     x, y = canvas.point(element.x, element.y)
     if isinstance(element, Barcode):
         size = _barcode_size(element, canvas)
         return FieldArea(x=x, y=y, length=size.width, height=size.height, rotation=element.rotation)
     text = _as_text(element) if isinstance(element, ScalableText) else element
-    geometry = canvas.geometry
-    shift = align_shift_units(text, geometry.ctx)
-    if shift:
-        column = position_units(text.x, axis=Axis.ACROSS, ctx=geometry.ctx) - shift
-        x = geometry.at_units(column, axis=Axis.ACROSS)
-    profile = geometry.ctx.profile
+    ctx = canvas.geometry.ctx
+    if text.align is not TextAlign.LEFT:
+        x -= ctx.printed_dots(position_units(text.x, axis=Axis.ACROSS, ctx=ctx) - text_column(text, ctx))
     return FieldArea(
         x=x,
         y=y,
-        length=sum(char_advances(text, profile)),
-        height=_cell_height(text, profile),
+        length=text_extent(text, ctx.profile),
+        height=_cell_height(text, ctx.profile),
         rotation=text.rotation,
     )
 

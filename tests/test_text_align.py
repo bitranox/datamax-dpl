@@ -16,8 +16,9 @@ from pydantic import ValidationError
 
 from datamax_dpl import render_batch
 from datamax_dpl.adapters.preview import render_preview_png
-from datamax_dpl.domain.charset import FONT_BYTES
-from datamax_dpl.domain.enums import FindingCode, Rotation, TextAlign
+from datamax_dpl.domain.charset import FONT_BYTES, encode_for_bitmapped_font
+from datamax_dpl.domain.decoder import explain
+from datamax_dpl.domain.enums import FallbackPolicy, FindingCode, Rotation, TextAlign
 from datamax_dpl.domain.label import FONT_9, Counter, Label, Line, Text
 from datamax_dpl.domain.preview import canvas_for, field_area, letter_spans
 from datamax_dpl.domain.profiles import get_profile
@@ -207,3 +208,103 @@ def test_the_lettered_preview_prints_the_last_letter_of_a_font_9_line() -> None:
             if grey.getpixel((x, y)) < _DARK_BELOW
         ]
     assert dark, "the Y of NORTHWAY is lettered"
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("font", range(9))
+def test_a_right_aligned_line_at_the_label_edge_does_not_pass_it(font: int) -> None:
+    """The blank gap after the last character of fonts 0-8 prints no dot, so it is not the line."""
+    for policy in (FallbackPolicy.DEGRADE, FallbackPolicy.STRICT):
+        text = Text(x=100, y=10, text="12345", font=font, align=TextAlign.RIGHT)
+        label = Label(width=100, height=55, elements=[text])
+        result = render(label, RenderOptions(model=_MODEL, policy=policy))
+        assert FindingCode.ELEMENT_PAST_LABEL_EDGE not in _codes(result.findings), (font, policy)
+
+
+def _font_2_line(chars: int, *, offset_across: float) -> tuple[bool, list[Finding]]:
+    # Font 2 at 203 dpi: 12 dots per character less a 2-dot gap; x 10 mm is 40 units of 2 dots.
+    text = Text(x=10, y=10, text="A" * chars, font=2, align=TextAlign.RIGHT)
+    result = build_job(
+        Label(width=100, height=55, elements=[text]), RenderOptions(model=_MODEL, offset_across=offset_across)
+    )
+    return result.ok, list(result.findings)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("offset_across", [3.0, -3.0])
+def test_the_left_edge_refusal_measures_from_the_labels_edge_not_the_printheads(offset_across: float) -> None:
+    # Eight characters span 94 dots (47 units): the line starts 7 units (1.75 mm) left of the label
+    # whichever way the printer's offset moves the label on the printhead.
+    ok, findings = _font_2_line(8, offset_across=offset_across)
+    assert not ok
+    refusal = next(f for f in findings if f.code is FindingCode.TEXT_PAST_LEFT_EDGE)
+    assert "about 1.8 mm left of the label's left edge" in refusal.message
+
+
+@pytest.mark.os_agnostic
+def test_a_line_on_the_label_but_left_of_the_printhead_is_refused_like_a_left_field() -> None:
+    # Six characters span 70 dots (35 units): with offset_across -3 mm the line starts 7 units left of
+    # the printhead's first column but 5 units right of the label's edge, as a left-aligned field
+    # moved there by the offset would: the offset is refused, not the alignment.
+    ok, findings = _font_2_line(6, offset_across=-3.0)
+    assert not ok
+    codes = _codes(findings)
+    assert FindingCode.TEXT_PAST_LEFT_EDGE not in codes
+    assert FindingCode.OFFSET_PAST_LABEL_EDGE in codes
+
+
+@pytest.mark.os_agnostic
+def test_an_unfilled_template_is_not_refused_for_the_width_of_its_braces() -> None:
+    """Without data the field prints its template; only filled records are measured for the edge."""
+    text = Text(x=40, y=10, text="{qty} STK", font=FONT_9, points=30, align=TextAlign.RIGHT)
+    label = Label(width=100, height=55, elements=[text])
+    template = render(label, RenderOptions(model=_MODEL))
+    codes = _codes(template.findings)
+    assert FindingCode.PLACEHOLDERS_UNFILLED in codes
+    assert FindingCode.TEXT_PAST_LEFT_EDGE not in codes
+    assert template.ok
+    batch = render_batch(label, [{"qty": "5"}, {"qty": "12345,5"}], RenderOptions(model=_MODEL))
+    assert batch.results[0].ok
+    assert FindingCode.TEXT_PAST_LEFT_EDGE in _codes(batch.results[1].findings)
+
+
+@pytest.mark.os_agnostic
+def test_the_preview_ends_an_aligned_line_at_x_under_a_scale_across() -> None:
+    element = Text(x=95, y=10, text="12345,5 STK", font=FONT_9, points=30, align=TextAlign.RIGHT)
+    label = Label(width=100, height=55, elements=[element])
+    canvas = canvas_for(label, get_profile(_MODEL), options=RenderOptions(model=_MODEL, scale_across=1.05))
+    area = field_area(element, canvas)
+    anchor = canvas.point(element.x, element.y).x
+    assert abs(area.x + area.length - anchor) <= _DOTS_PER_UNIT
+
+
+@pytest.mark.os_agnostic
+def test_font_9_prints_code_page_850() -> None:
+    """The manual's font 9 set is code page 850: its accented capitals, never 437's box drawing."""
+    cent, a_acute, copyright_sign, times = chr(0xA2), chr(0xC1), chr(0xA9), chr(0xD7)
+    encoded = encode_for_bitmapped_font(cent + a_acute + copyright_sign + times, font=FONT_9)
+    assert encoded.data == bytes([0xBD, 0xB5, 0xB8, 0x9E])
+    assert encoded.unmappable == ()
+    # A box-drawing character of code page 437 is outside font 9.
+    assert encode_for_bitmapped_font(chr(0x2502), font=FONT_9).unmappable == (chr(0x2502),)
+    # Fonts 1 and 2 stay code page 437, where the cent sign is byte 155.
+    assert encode_for_bitmapped_font(cent, font=1).data == bytes([155])
+
+
+@pytest.mark.os_agnostic
+def test_every_font_9_character_has_its_own_stand_in_width() -> None:
+    # Code page 850 has a Helvetica-Bold glyph for every byte of the set: no fallback width.
+    assert FONT_9_ADVANCES[0xB5] == 722  # A acute, as wide as A
+    assert FONT_9_ADVANCES[0xBD] == 556  # cent
+    assert FONT_9_ADVANCES[0xB8] == 737  # copyright
+
+
+@pytest.mark.os_agnostic
+def test_a_font_9_record_reads_back_in_code_page_850() -> None:
+    text = Text(x=5, y=10, text="Ch. " + chr(0xC1) + chr(0xA2), font=FONT_9, points=12)
+    result = render(Label(width=100, height=55, elements=[text]), RenderOptions(model=_MODEL))
+    assert result.ok
+    rebuilt = explain(result.data).label
+    assert rebuilt is not None
+    texts = [element.text for element in rebuilt.elements if isinstance(element, Text)]
+    assert texts == [text.text]

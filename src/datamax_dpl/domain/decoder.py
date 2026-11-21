@@ -14,6 +14,7 @@ from typing import TypedDict
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from ._invariants import require_update_fields
+from .charset import BITMAPPED_CODEC, FONT_CODECS
 from .enums import CommandKind, CounterSign, FillPattern, Rotation, SpeedCode, Unit
 from .label import Barcode, Box, Circle, Counter, Cut, Element, Image, Label, Line, Point, Polygon, ScalableText, Text
 from .profiles import OLD_SERIES_POINTS
@@ -447,7 +448,7 @@ def _text(text: str, state: _State) -> Element:
     if font == _FONT_9 and head.size[0] in _SCALABLE_SIZE_PREFIXES:
         points = int(text[16:19])
         return ScalableText(text=text[23:], font_id=head.size, height_points=points, x=x, y=y, rotation=head.rotation)
-    data = text[15:].encode("latin-1").decode("cp437")
+    data = text[15:].encode("latin-1").decode(FONT_CODECS.get(font, BITMAPPED_CODEC))
     size = _font9_size(head.size) if font == _FONT_9 else _NO_FONT9_SIZE
     return Text(
         text=data,

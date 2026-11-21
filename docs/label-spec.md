@@ -151,7 +151,7 @@ the preview's reading of the figure is unverified until a test print.
 
 | Key                 | Type                      | Default | Meaning                                                                              |
 |---------------------|---------------------------|---------|--------------------------------------------------------------------------------------|
-| `x`, `y`            | number >= 0               | -       | Lower-left corner.                                                                   |
+| `x`, `y`            | number >= 0               | -       | Lower-left corner; with `align`, `x` is the line's centre or right end instead.      |
 | `rotation`          | 0, 90, 180, 270           | 0       | Rotation in degrees.                                                                 |
 | `text`              | string, 1-255 chars       | -       | The text; may contain `{name}` placeholders.                                         |
 | `font`              | integer 0-9               | 2       | Fonts 0-8 are fixed bitmapped fonts; 9 is CG Triumvirate in point sizes.             |
@@ -164,9 +164,10 @@ the preview's reading of the figure is unverified until a test print.
 | `align`             | `left`, `center`, `right` | `left`  | Where `x` sits on the printed line: its left end, its centre or its right end.       |
 
 Font 9 needs `points` or `font_id`; the other fonts take neither. Fonts 3 to 6 print capitals
-only, font 7 is OCR-A and font 8 OCR-B. Characters above ASCII follow code page 437 in fonts 1, 2
-and 9 (German umlauts and sharp s included); fonts 3 to 6 print capital umlauts and sharp s; a
-character a font cannot print becomes `?` with a warning.
+only, font 7 is OCR-A and font 8 OCR-B. Characters above ASCII follow code page 437 in fonts 1 and
+2 and code page 850 in font 9 (German umlauts and sharp s included in all three; font 9 adds the
+accented capitals such as `Á` and signs such as `©`); fonts 3 to 6 print capital umlauts and sharp
+s; a character a font cannot print becomes `?` with a warning.
 
 #### Alignment and text widths
 
@@ -175,12 +176,18 @@ encoder moves the field back from `x` by the width the line prints, so the line 
 `"center"` by half of it. The width is worked out per record, after `{name}` placeholders are
 filled, so `{"text": "{qty} STK", "align": "right"}` ends at the same `x` whatever the quantity.
 It is rounded to whole DPL units (on an Allegro 2, 1/100 in, 2 dots). A line that would start left
-of the label is refused (`text_past_left_edge`); `x` itself is checked against the printable width
-like any field's start (`outside_print_width`).
+of the label's left edge is refused (`text_past_left_edge`, the distance measured from that edge
+wherever `offset_across` puts it on the printhead); one on the label but left of the printhead's
+first dot, where a negative `offset_across` puts the label's edge, is reported like a left-aligned
+field that offset moves there (`offset_past_label_edge`). A label rendered without `--data` prints
+each placeholder field as its template, braces and all, and is not refused for that template's
+width: only filled records are measured. `x` itself is checked against the printable width like
+any field's start (`outside_print_width`).
 
 - Fonts 0-8 are measured by their character cells (dpl-reference.md, section 6): exact. The gap
   after the last character prints nothing and is left out, so the last character's cell ends at
-  `x`.
+  `x`; the preview, the label edge check and the overlap checks end the line there too, aligned or
+  not.
 - Font 9 is the resident CG Triumvirate Bold (manual, printed page 174). The manual gives no
   widths, so each character is measured by Helvetica-Bold's published advance width at the point
   size the model prints, the point size taken as the em. That is a stand-in, not the printer's

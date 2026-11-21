@@ -101,9 +101,9 @@ def test_fonts_one_and_two_stop_at_168_plus_three_extras(font: int) -> None:
 
 @pytest.mark.os_agnostic
 def test_font_nine_has_its_documented_gaps() -> None:
-    """Font 9 prints byte 169 but not 170 or 180."""
-    printable = bytes([169]).decode("cp437")
-    gaps = bytes([170, 180]).decode("cp437")
+    """Font 9 prints byte 169 but not 170 or 180, positions in code page 850."""
+    printable = bytes([169]).decode("cp850")
+    gaps = bytes([170, 180]).decode("cp850")
     assert encode_for_bitmapped_font(printable, font=9).unmappable == ()
     assert encode_for_bitmapped_font(gaps, font=9).unmappable == tuple(gaps)
 

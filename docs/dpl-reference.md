@@ -256,9 +256,13 @@ character widths are not in the manual; `src/datamax_dpl/domain/text_metrics.py`
 Helvetica-Bold stand-in (unverified on paper) that text alignment, the preview and the label edge
 check measure a font 9 line with.
 
-Character codes above 127 follow code page 437 for fonts 1, 2 and 9 (ä 132, ö 148, ü 129, Ä 142, Ö
-153, Ü 154, ß 225); fonts 3-6 print capitals only, so a lower-case letter prints as its capital (an
-umlaut too), and above 127 they have codes 128, 142-144, 146, 153, 154, 156, 157, 165, 168 and 225,
+Character codes above 127 follow code page 437 for fonts 1 and 2 and code page 850 for font 9 (ä
+132, ö 148, ü 129, Ä 142, Ö 153, Ü 154, ß 225 in all three). The manual lists font 9's codes only by
+number, and they fit code page 850 alone: 181-184, 189, 190, 198, 199, 208-216, 222 and 224-237 are
+its accented capitals and signs (Á Â À ©, ¢ ¥, ã Ã, ð Ð Ê Ë È ı Í Î Ï, Ì, Ó ß Ô Ò õ Õ µ þ Þ Ú Û Ù ý
+Ý), and the set leaves out exactly code page 850's box-drawing positions, where code page 437 has
+box drawing and Greek letters. Read from the manual's list, unverified on paper. Fonts 3-6 print
+capitals only, so a lower-case letter prints as its capital (an umlaut too), and above 127 they have codes 128, 142-144, 146, 153, 154, 156, 157, 165, 168 and 225,
 Ä Ö Ü and ß among them. Scalable fonts use the symbol set chosen with `ySxx` (for example `PM` code
 page 850, `W1` Windows Latin 1, `E1` ISO 8859-1).
 

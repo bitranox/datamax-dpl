@@ -19,9 +19,27 @@ All notable changes to this project are documented here. The format follows
   (the printer changes its width), no `font_id` (widths unknown) and, in font 9, no
   `width_multiplier`: each is refused when the label is read (exit 2).
 - The new error finding `text_past_left_edge` refuses a centred or right-aligned line that would
-  start left of the label, naming how far; nothing is sent (exit 1).
+  start left of the label's left edge, naming how far from that edge wherever `offset_across` puts
+  it on the printhead; nothing is sent (exit 1). A line on the label but left of the printhead's
+  first dot (a negative `offset_across`) is reported as a left-aligned field moved there by the
+  offset would be (`offset_past_label_edge`, or `model_offset_clamped` for a model default). A
+  label rendered without `--data` is not refused for the width of a placeholder field's template
+  (`{qty}` with its braces): only filled records are measured.
 
 ### Changed
+
+- Font 9 now encodes code page 850 instead of code page 437 (BEHAVIOUR CHANGE). The manual's list
+  of font 9's codes fits code page 850 alone: above 127 it holds that page's accented capitals and
+  signs and leaves out exactly its box-drawing positions, where code page 437 has box drawing and
+  Greek letters CG Triumvirate has no glyph for. So `Á`, `Ó`, `Ú`, `©`, `®`, `×` and the other
+  accented capitals now print in font 9 instead of being refused as `?`, and `¢` and `¥` are sent
+  as their code page 850 bytes (the code page 437 bytes sent before are `ø` and `Ø` there). Umlauts
+  and `ß` have the same bytes in both. `explain` reads font 9 records back in code page 850 too. Read
+  from the manual's list, to be confirmed by a test print. Fonts 0-8 keep code page 437.
+- The label-edge check (`element_past_label_edge`) and the overlap checks end a fonts 0-8 line at
+  its last character, without the blank gap after it, aligned or not: a field whose last character
+  ends at the label's right edge no longer warns (under `--policy strict`, no longer refuses) for
+  that gap (up to 0.6 mm at 203 dpi, more with a `width_multiplier`).
 
 - Font 9 is measured per character: the manual names it CG Triumvirate Bold but lists no widths,
   so datamax-dpl uses the Helvetica-Bold widths (Adobe Core14 AFM) at the point size the model

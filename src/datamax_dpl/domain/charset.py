@@ -1,9 +1,10 @@
 """Turn text into the bytes a printer font prints, and name the characters it cannot print.
 
-The bitmapped fonts 0-9 hold fixed subsets of code page 437 (``docs/dpl-reference.md``
-section 6); scalable fonts print through the symbol set chosen with ``ySxx``. Every character a
-font cannot print is replaced by ``?`` and listed once in :attr:`EncodedText.unmappable`, so a
-caller can warn instead of letting the printer print a wrong glyph.
+The bitmapped fonts 0-8 hold fixed subsets of code page 437 and font 9 a subset of code page 850
+(``docs/dpl-reference.md`` section 6); scalable fonts print through the symbol set chosen with
+``ySxx``. Every character a font cannot print is replaced by ``?`` and listed once in
+:attr:`EncodedText.unmappable`, so a caller can warn instead of letting the printer print a wrong
+glyph.
 """
 
 from __future__ import annotations
@@ -18,8 +19,14 @@ from .frozen_mapping import FrozenMapping
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-#: Bitmapped fonts index code page 437; the byte values below are positions in it.
+#: Bitmapped fonts 0-8 index code page 437; the byte values below are positions in it.
 BITMAPPED_CODEC = "cp437"
+#: Font 9 indexes code page 850 instead. The manual lists only byte values ("Valid Human-Readable
+#: Font ASCII Characters"), and they fit 850 alone: above 127 the set holds 850's accented capitals
+#: and signs (181-184 are A acute, A circumflex, A grave, copyright) and leaves out exactly 850's
+#: box-drawing positions, where 437 would put box drawing and Greek letters CG Triumvirate has no
+#: glyph for. Read from the manual's set, unverified on paper.
+FONT_CODECS: Mapping[int, str] = FrozenMapping({9: "cp850"})
 #: Symbol set used when a scalable-font record names none.
 DEFAULT_SYMBOL_SET = "PC"
 REPLACEMENT_BYTE = ord("?")
@@ -53,7 +60,7 @@ _FONT_9_SET = (
     | _span(246, 250)
 )
 
-#: Font number to the code page 437 byte values it can print.
+#: Font number to the byte values it can print: positions in its code page (:data:`FONT_CODECS`).
 FONT_BYTES: Mapping[int, frozenset[int]] = FrozenMapping(
     {
         0: _span(32, 127),
@@ -114,8 +121,8 @@ class EncodedText(BaseModel, frozen=True, extra="forbid", ser_json_bytes="base64
 def encode_for_bitmapped_font(text: str, *, font: int) -> EncodedText:
     """Encode ``text`` for bitmapped font 0-9 (9 is CG Triumvirate).
 
-    Fonts 3-6 print capitals only: a lower-case letter is printed as its capital when the font
-    has that capital.
+    Fonts 0-8 take code page 437, font 9 code page 850 (:data:`FONT_CODECS`). Fonts 3-6 print
+    capitals only: a lower-case letter is printed as its capital when the font has that capital.
 
     Args:
         text: The text to print.
@@ -137,7 +144,12 @@ def encode_for_bitmapped_font(text: str, *, font: int) -> EncodedText:
     if allowed is None:
         msg = f"bitmapped font must be 0-9, got {font}"
         raise ValueError(msg)
-    byte_for = partial(_bitmapped_byte, allowed=allowed, capitals_only=font in CAPITALS_ONLY_FONTS)
+    byte_for = partial(
+        _bitmapped_byte,
+        allowed=allowed,
+        capitals_only=font in CAPITALS_ONLY_FONTS,
+        codec=FONT_CODECS.get(font, BITMAPPED_CODEC),
+    )
     return _encode(text, byte_for)
 
 
@@ -191,21 +203,23 @@ def _codec_byte(ch: str, *, codec: str) -> int | None:
     return encoded[0] if len(encoded) == 1 else None
 
 
-def _bitmapped_byte(ch: str, *, allowed: frozenset[int], capitals_only: bool) -> int | None:
-    value = _codec_byte(ch, codec=BITMAPPED_CODEC)
+def _bitmapped_byte(ch: str, *, allowed: frozenset[int], capitals_only: bool, codec: str) -> int | None:
+    value = _codec_byte(ch, codec=codec)
     if value is not None and value in allowed:
         return value
     upper = ch.upper()
     if not capitals_only or len(upper) != 1 or upper == ch:
         return None
-    capital = _codec_byte(upper, codec=BITMAPPED_CODEC)
+    capital = _codec_byte(upper, codec=codec)
     return capital if capital is not None and capital in allowed else None
 
 
 __all__ = [
+    "BITMAPPED_CODEC",
     "CAPITALS_ONLY_FONTS",
     "DEFAULT_SYMBOL_SET",
     "FONT_BYTES",
+    "FONT_CODECS",
     "SYMBOL_SET_CODECS",
     "EncodedText",
     "encode_for_bitmapped_font",

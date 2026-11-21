@@ -99,7 +99,7 @@ def _shifted(value: float, axis: Axis, *, index: int, ctx: RenderContext) -> flo
     shifted = ctx.shifted(value, axis=axis)
     # Below a micrometre is float noise from the subtraction, not a field off the label.
     if shifted < -_TOLERANCE:
-        _report_past_edge(shifted, axis, index=index, ctx=ctx)
+        report_past_edge(shifted, axis, index=index, ctx=ctx)
     return max(shifted, 0.0)
 
 
@@ -122,7 +122,7 @@ def position_units(value: float, *, axis: Axis, ctx: RenderContext) -> int:
     return ctx.dpl_units(max(ctx.shifted(value, axis=axis), 0.0), axis=axis)
 
 
-def _report_past_edge(shifted: float, axis: Axis, *, index: int, ctx: RenderContext) -> None:
+def report_past_edge(shifted: float, axis: Axis, *, index: int, ctx: RenderContext) -> None:
     """Record a field the offset moves past the label's 0 edge: refused, or clamped for a model default."""
     offset = ctx.offset_mm(axis)
     past = f"{_readable(-shifted, ctx.unit)} {ctx.unit.value} past the label edge"
@@ -217,5 +217,6 @@ __all__ = [
     "image_edge",
     "last_column",
     "position_units",
+    "report_past_edge",
     "row_of",
 ]
