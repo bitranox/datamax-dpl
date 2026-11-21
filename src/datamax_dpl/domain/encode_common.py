@@ -112,8 +112,37 @@ def _shifted(value: float, axis: Axis, *, index: int, ctx: RenderContext) -> flo
     shifted = ctx.shifted(value, axis=axis)
     # Within _TOLERANCE of the edge is float noise from the subtraction, not a field off the label.
     if shifted < -_TOLERANCE:
-        report_past_edge(shifted, axis, index=index, ctx=ctx)
+        report_past_edge(_clearing_offset_move(value, axis, ctx=ctx), axis, index=index, ctx=ctx)
     return max(shifted, 0.0)
+
+
+def _clearing_offset_move(value: float, axis: Axis, *, ctx: RenderContext) -> float:
+    """Return the smallest move of ``value``, in the steps a message states, that keeps the field on the label.
+
+    The step is a dot, or a hundredth of a mm or an inch. Each candidate is tried as :func:`_shifted`
+    itself will judge the moved field: the number a reader types (``value`` plus the move, rounded
+    to nine decimals), moved by the offset again, and compared with :data:`_TOLERANCE`. Deciding
+    on the distance alone would not do: at a field just past the tolerance, the float of the
+    distance and the float of the re-shifted moved field fall on different sides of it, so the
+    named move would either still be refused or be one step more than needed. The search starts two
+    steps below the step count the distance gives, which is off by at most one, and the moved field
+    only moves further on with each step, so the search ends.
+
+    Example:
+        >>> from datamax_dpl.domain.label import Label, Text
+        >>> from datamax_dpl.domain.render import job_context
+        >>> from datamax_dpl.domain.render_context import RenderOptions
+        >>> label = Label(elements=[Text(x=0, y=0, text="x")])
+        >>> ctx = job_context(label, RenderOptions(model="allegro", offset_along=-1.0))
+        >>> [_clearing_offset_move(y, Axis.ALONG, ctx=ctx) for y in (0.527, 0.7, 0.959999, 0.6999995)]
+        [0.48, 0.3, 0.05, 0.3]
+    """
+    per_unit = _STEPS_PER_UNIT[ctx.unit]
+    estimate = math.ceil((-ctx.shifted(value, axis=axis) - _TOLERANCE) * per_unit)
+    steps = max(estimate - 2, 0)
+    while ctx.shifted(round(value + steps / per_unit, 9), axis=axis) < -_TOLERANCE:
+        steps += 1
+    return round(steps / per_unit, 9)
 
 
 def position_units(value: float, *, axis: Axis, ctx: RenderContext) -> int:
@@ -135,10 +164,14 @@ def position_units(value: float, *, axis: Axis, ctx: RenderContext) -> int:
     return ctx.dpl_units(max(ctx.shifted(value, axis=axis), 0.0), axis=axis)
 
 
-def report_past_edge(shifted: float, axis: Axis, *, index: int, ctx: RenderContext) -> None:
-    """Record a field the offset moves past the label's 0 edge: refused, or clamped for a model default."""
+def report_past_edge(move: float, axis: Axis, *, index: int, ctx: RenderContext) -> None:
+    """Record a field the offset moves past the label's 0 edge: refused, or clamped for a model default.
+
+    The message names how far past it lies as ``move``, the smallest move at the label unit's
+    precision that clears it, which the caller found through the conversion the field takes.
+    """
     offset = ctx.offset_mm(axis)
-    distance = _readable(-shifted, ctx.unit)
+    distance = f"{move:g}"
     unit = "dot" if ctx.unit is Unit.DOTS and distance == "1" else ctx.unit.value
     past = f"{distance} {unit} past the label edge"
     if axis in ctx.model_offset_axes:
@@ -157,29 +190,6 @@ def report_past_edge(shifted: float, axis: Axis, *, index: int, ctx: RenderConte
             f"the printer's {axis.value} offset of {offset:g} mm moves this field {past}",
             element=index,
         )
-
-
-def _readable(distance: float, unit: Unit) -> str:
-    """Return the smallest move, at the precision a label in ``unit`` is written in, that clears ``distance``.
-
-    That is the smallest multiple of the step (a dot, or a hundredth of a mm or an inch) that brings
-    a field ``distance`` past the edge back within :data:`_TOLERANCE` of it, the rule the refusal
-    itself applies: a distance rounded down (10 dots for 10.47) would leave the field past the edge
-    still, and one rounded up past the tolerance would name a step more than it needs. The same
-    tolerance absorbs the float noise the millimetre offset carries in dots or inches (0.25 mm is
-    1.998 Allegro 2 dots, and 0.3 mm can be 0.30000000000000004).
-
-    Example:
-        >>> _readable(1.99803, Unit.DOTS), _readable(0.00984252, Unit.INCH), _readable(0.5, Unit.MM)
-        ('2', '0.01', '0.5')
-        >>> _readable(10.47, Unit.DOTS), _readable(0.473, Unit.MM), _readable(0.30000000000000004, Unit.MM)
-        ('11', '0.48', '0.3')
-        >>> _readable(0.3000005, Unit.MM), _readable(0.30000102, Unit.MM), _readable(10.0000005, Unit.DOTS)
-        ('0.3', '0.31', '10')
-    """
-    per_unit = _STEPS_PER_UNIT[unit]
-    steps = math.ceil((distance - _TOLERANCE) * per_unit)
-    return str(steps) if per_unit == 1 else f"{steps / per_unit:g}"
 
 
 def check_field_length(length: int, *, limit: int = MAX_FIELD_DATA, index: int, ctx: RenderContext) -> None:

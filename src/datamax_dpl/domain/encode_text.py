@@ -32,7 +32,7 @@ _MAX_POINTS = 72
 #: The step a move named in mm takes: the tenth of a millimetre the message states.
 _MOVE_STEP_MM = 0.1
 #: The step a move named in the label's own unit takes: the precision a message in it states
-#: (encode_common._readable), so the distance named is the smallest that message can state.
+#: (encode_common.report_past_edge), so the distance named is the smallest that message can state.
 _STEP = {Unit.MM: 0.01, Unit.INCH: 0.01, Unit.DOTS: 1.0}
 
 
@@ -117,7 +117,7 @@ def _report_line_start(element: Text, *, back: int, index: int, ctx: RenderConte
         ctx.findings.refuse(FindingCode.TEXT_PAST_LEFT_EDGE, message, element=index)
     elif start < 0 and edge < 0:
         move = _clearing_move(element.x, back=back, target=0, step=_STEP[ctx.unit], ctx=ctx)
-        report_past_edge(-move, Axis.ACROSS, index=index, ctx=ctx)
+        report_past_edge(move, Axis.ACROSS, index=index, ctx=ctx)
     elif start < 0:
         message = _past_printhead_message(element, back=back, printed=printed, ctx=ctx)
         ctx.findings.refuse(FindingCode.TEXT_PAST_LEFT_EDGE, message, element=index)

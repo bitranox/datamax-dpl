@@ -458,8 +458,8 @@ _PAST_EDGE_CASES = [
     _PastEdge("in-inside-tolerance", Unit.INCH, 0.02937, 1.0, _ALLEGRO_LEFT_1, 0.01),
     _PastEdge("mm-inside-tolerance", Unit.MM, 5.0, 0.6999995, _ALLEGRO_DOWN_1, 0.01),
     # Just past the tolerance it takes the step: 2e-6 of a step beyond it (10.000003 dots, 0.30000102
-    # mm and 0.01000102 in past) is named 11 dots, 0.31 mm and 0.02 in. Any cut of the distance to
-    # five decimals of the step or fewer drops that fraction and names a move that is refused.
+    # mm and 0.01000102 in past) is named 11 dots, 0.31 mm and 0.02 in. Judged to five decimals of
+    # the step or fewer, that fraction is lost and the move named is refused.
     _PastEdge("dots-just-past-tolerance", Unit.DOTS, 1.811020622, 10.0, _DMX_600_LEFT_1, 1.0),
     _PastEdge("mm-just-past-tolerance", Unit.MM, 5.0, 0.69999898, _ALLEGRO_DOWN_1, 0.01),
     _PastEdge("in-just-past-tolerance", Unit.INCH, 0.029369059, 1.0, _ALLEGRO_LEFT_1, 0.01),
@@ -479,6 +479,10 @@ _PAST_EDGE_CASES = [
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("case", _PAST_EDGE_CASES, ids=[case.name for case in _PAST_EDGE_CASES])
 def test_moving_a_field_by_the_distance_past_the_edge_clears_it(case: _PastEdge) -> None:
+    _assert_the_named_move_is_the_smallest_that_clears(case)
+
+
+def _assert_the_named_move_is_the_smallest_that_clears(case: _PastEdge) -> None:
     unit, x, y, options, precision, align = case.unit, case.x, case.y, case.options, case.precision, case.align
 
     def past(dx: float, dy: float) -> float | None:
@@ -493,6 +497,26 @@ def test_moving_a_field_by_the_distance_past_the_edge_clears_it(case: _PastEdge)
     # And it is the smallest such distance at the message's precision.
     short = (distance - precision, 0.0) if across else (0.0, distance - precision)
     assert past(*short) is not None
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("hundredths", range(1, 60))
+@pytest.mark.parametrize(
+    ("name", "options", "edge"),
+    [
+        ("allegro-along", _ALLEGRO_DOWN_1, 1.0),
+        ("dmx-600-across", RenderOptions(model="dmx-600", offset_across=-2.0), 2.0),
+    ],
+)
+def test_a_field_a_millionth_short_of_a_step_is_named_the_move_that_clears_it(
+    name: str, options: RenderOptions, edge: float, hundredths: int
+) -> None:
+    # A field 1e-6 mm further past than a whole number of steps sits exactly on the tolerance once
+    # moved by them, where the distance's float and the moved field's float can disagree: the move
+    # named is the one the refusal then accepts, and one step less is still refused.
+    position = edge - hundredths / 100 - 1e-6
+    x, y = (position, 10.0) if options.offset_across is not None else (5.0, position)
+    _assert_the_named_move_is_the_smallest_that_clears(_PastEdge(name, Unit.MM, x, y, options, 0.01))
 
 
 @pytest.mark.os_agnostic
