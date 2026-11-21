@@ -1526,12 +1526,16 @@
   "points": 24,
   "char": "U",
   "count": 13,
-  "reading": 2.0,
+  "reading": 2.5,
   "text_column": 30,
   "line_column": 368,
-  "reached_dots": 640.783,
-  "advance_dots": 49.291,
-  "resolution_dots": 0.1538
+  "reached_dots": 638.783,
+  "advance_dots": 49.1372,
+  "resolution_dots": 0.1538,
+  "readings": [
+   2.0,
+   3.0
+  ]
  },
  {
   "line": 119,
@@ -1544,7 +1548,11 @@
   "line_column": 368,
   "reached_dots": 660.783,
   "advance_dots": 44.0522,
-  "resolution_dots": 0.1333
+  "resolution_dots": 0.1333,
+  "readings": [
+   0.0,
+   0.0
+  ]
  },
  {
   "line": 120,
@@ -1552,12 +1560,16 @@
   "points": 24,
   "char": "W",
   "count": 10,
-  "reading": -4.0,
+  "reading": -3.5,
   "text_column": 44,
   "line_column": 368,
-  "reached_dots": 636.783,
-  "advance_dots": 63.6783,
-  "resolution_dots": 0.2
+  "reached_dots": 634.783,
+  "advance_dots": 63.4783,
+  "resolution_dots": 0.2,
+  "readings": [
+   -4.0,
+   -3.0
+  ]
  },
  {
   "line": 121,
@@ -1570,7 +1582,11 @@
   "line_column": 368,
   "reached_dots": 660.783,
   "advance_dots": 44.0522,
-  "resolution_dots": 0.1333
+  "resolution_dots": 0.1333,
+  "readings": [
+   -1.0,
+   -1.0
+  ]
  },
  {
   "line": 122,
@@ -1578,12 +1594,16 @@
   "points": 24,
   "char": "Y",
   "count": 14,
-  "reading": 3.0,
+  "reading": 3.5,
   "text_column": 32,
   "line_column": 368,
-  "reached_dots": 632.783,
-  "advance_dots": 45.1988,
-  "resolution_dots": 0.1429
+  "reached_dots": 630.783,
+  "advance_dots": 45.0559,
+  "resolution_dots": 0.1429,
+  "readings": [
+   3.0,
+   4.0
+  ]
  },
  {
   "line": 123,

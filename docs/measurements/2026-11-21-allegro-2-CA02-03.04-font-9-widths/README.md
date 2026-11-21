@@ -24,9 +24,10 @@ the error to that character; the line of `M` alone gives the error of the final 
   shift (`v02`, `v03`), the label's `README.txt` and the readings of all three in `readings.txt`.
 - `fill/`: the fill-and-V round (below), 35 labels `f01`-`f35` with 164 rows at 12, 18, 24 and
   30 pt, the round's `README.txt` (row, size, character, N) and the readings in `readings.txt`.
-- `fill.json`: one record per fill row: label, size, character, N, the reading in lines, the column
-  of the text record and of the middle vertical line (DPL units of 2 dots), and the advance that
-  follows (`advance_dots`, below) with its resolution, 2 dots / N.
+- `fill.json`: one record per fill row: label, size, character, N, the reading in lines (for label
+  f23, printed and read twice, the mean, with both in `readings`), the column of the text record
+  and of the middle vertical line (DPL units of 2 dots), and the advance that follows
+  (`advance_dots`, below) with its resolution, 2 dots / N.
 - `lines.json`: one record per line: label, text, size, the column its record was written at
   (`text_column`) and the reference line's column (`line_column`), both in DPL units of 2 dots, the
   reading and its quality, and the ink length that follows: `2 * (line_column - text_column) -
@@ -151,13 +152,12 @@ shift is the print shift above (2 dots at 30 pt, none below); the `M`'s ink midd
   ink ends about a dot further before its advance than the AFM bearing scaled to 12 pt (2.3 dots)
   as well as a constant per line; no round measured the 12 pt `M`'s ink end apart, and this round
   reads the `M`'s middle, not its end. The 12 pt widths stay as they are.
-- Whole dots do not hold above 12 pt: 23 of 41 advances at 18 pt and 31 of 36 at 24 pt (label f23
-  left out, below) lie within their resolution of a whole number, against 41 of 41 at 12 pt and 3
-  of 41 at 30 pt. At 18 pt `U`
+- Whole dots do not hold above 12 pt: 23 of 41 advances at 18 pt and 35 of 41 at 24 pt lie within
+  their resolution of a whole number, against 41 of 41 at 12 pt and 3 of 41 at 30 pt. At 18 pt `U`
   (37.52 dots), `W` (46.56), `P` (32.69) and `Y` (34.20) lie clearly between two. Exact advances
   with rounded positions, as at 30 pt, hold from 18 pt up.
 - The widths do not scale across sizes: against the build's scaled widths, 28 of 41 characters at
-  18 pt and 25 of 36 at 24 pt (without label f23) read outside their resolution, `/` at 18 pt by 1.07 dots per
+  18 pt and 29 of 41 at 24 pt read outside their resolution, `/` at 18 pt by 1.07 dots per
   character (15.95 against 14.88). Each measured size keeps its own table.
 - 30 pt: this round agrees with the widths above on all 21 characters they give at 30 pt (`M`, the
   digits, `,` `.` `/` space, `S` `T` `K` `B` `O` `X`): 20 read 0 and lie within this round's
@@ -166,11 +166,13 @@ shift is the print shift above (2 dots at 30 pt, none below); the `M`'s ink midd
   line over 8 to 28. The other 20 take this round's value.
 - The `M` rows: 41.99 dots at 18 pt (resolution 0.13; the build had 42.25), 56.80 at 24 pt (0.18;
   56.33), 70.41 at 30 pt (0.22; 70.42).
-- Label f23 (24 pt `U` `V` `W` `X` `Y`) read `2 0 -4 -1 3`, exactly the readings of label f13 (18 pt
-  `P` `Q` `R` `S` `T`), and its `W` (63.68 dots) fits neither the 18 nor the 30 pt width scaled. Its
-  five rows are left out: those characters take the 24 pt advance interpolated per point between
-  18 and 30 pt (`U` 49.24, `V` 43.94, `W` 62.03, `X` 43.95, `Y` 45.55). That is unverified and only
-  approximate: `A`, measured at all three sizes, lies 1.07 dots off its own interpolation at 24 pt.
+- Label f23 (24 pt `U` `V` `W` `X` `Y`) first read `2 0 -4 -1 3`, the very readings of label f13
+  (18 pt `P` `Q` `R` `S` `T`). It was reprinted from the same stored job and the same build and read
+  again (`f23-recheck` in `fill/readings.txt`): `3 0 -3 -1 4`. The two prints agree within one line
+  on every row, as readings repeat elsewhere, so the first reading was no copy, and each row takes
+  the mean of the two (`readings` in `fill.json`): the advance is linear in the reading, so that is
+  the mean of the two advances. `U` 49.14 dots, `V` 44.05, `W` 63.48, `X` 44.05, `Y` 45.06. `W` is
+  1.4 dots wider than its 18 or 30 pt width scaled to 24 pt (62.08, 61.97), both prints agreeing.
 
 datamax-dpl uses the result per printed size: a measured character at 12, 18, 24 or 30 pt takes its
 advance from this record at that size, and at any other size the advance of the nearest measured

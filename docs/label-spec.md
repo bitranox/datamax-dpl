@@ -205,8 +205,7 @@ records are measured. `x` itself is checked against the printable width like any
   widths. The capitals, the digits, `,` `-` `.` `/` and the space are measured on paper (Allegro
   2, firmware CA02 03.04, at 12, 18, 24 and 30 pt, one table per size;
   `docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths`): a right-aligned line of them
-  ends within about 0.35 mm of `x` there. `U` `V` `W` `X` `Y` at 24 pt are interpolated between
-  18 and 30 pt, unverified. Every other character takes Helvetica-Bold's published
+  ends within about 0.35 mm of `x` there. Every other character takes Helvetica-Bold's published
   width, a stand-in that is unverified: the lower-case alphabet printed about 9% narrower and
   `+,-./:;<=>?` about 22% wider than it predicts, so a line holding them can end millimetres from
   `x`. Another printed size (6, 8, 10, 14, 36, 48 pt) takes the nearest measured size's widths

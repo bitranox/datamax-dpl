@@ -214,6 +214,8 @@ class _FillRow(BaseModel):
     reading: float
     text_column: int
     line_column: int
+    #: Each reading of a label printed and read more than once; ``reading`` is then their mean.
+    readings: tuple[float, ...] = ()
 
     @property
     def name(self) -> str:
@@ -240,18 +242,16 @@ _DOTS_PER_V_LINE = 4
 _HALF_V_LINE = _DOTS_PER_V_LINE / 2
 #: M's ink middle right of its origin in the AFM: (llx 69 + urx 765) / 2, thousandths of the em.
 _M_INK_MIDDLE = (69 + 765) / 2
-#: Label f23 read the very readings of label f13 and is left out (the record's README).
-_REPEATED_LABEL = "fill/f23-24pt-lines-118-122.json"
 _FILL = TypeAdapter(list[_FillRow]).validate_json((_RECORD_DIR / "fill.json").read_bytes())
 #: At 30 pt the characters the line-end round measured keep its finer widths, checked above.
-_FILL_CHECKED = [
-    row for row in _FILL if row.label != _REPEATED_LABEL and not (row.points == 30 and row.char in _PAPER_30_PT)
-]
+_FILL_CHECKED = [row for row in _FILL if not (row.points == 30 and row.char in _PAPER_30_PT)]
+#: The label printed and read twice: 24 pt U V W X Y, lines 118 to 122.
+_READ_TWICE = "fill/f23-24pt-lines-118-122.json"
 
 
 @pytest.mark.os_agnostic
-def test_the_fill_round_holds_every_row_and_checks_all_but_the_repeated_label_and_the_line_end_characters() -> None:
-    assert (len(_FILL), len(_FILL_CHECKED)) == (164, 147)
+def test_the_fill_round_holds_every_row_and_checks_all_but_the_line_end_characters() -> None:
+    assert (len(_FILL), len(_FILL_CHECKED)) == (164, 152)
     assert {(row.points, row.char) for row in _FILL} == {
         (points, chr(byte)) for points in (12, 18, 24, 30) for byte in FONT_9_MEASURED
     }
@@ -266,13 +266,10 @@ def test_a_fill_row_gives_the_advance_datamax_dpl_prints_within_its_resolution(r
     assert sum(printed) / row.count == pytest.approx(row.reached_dots() / row.count, abs=_HALF_V_LINE / row.count)
 
 
-#: The fill rows whose own advance the table holds: 18 and 24 pt but the repeated label, and 30 pt
-#: but the line-end characters; 12 pt advances come from the line-end fit's widths instead.
+#: The fill rows whose own advance the table holds: 18 and 24 pt, and 30 pt but the line-end
+#: characters; 12 pt advances come from the line-end fit's widths instead.
 _FILL_IN_TABLE = [
-    row
-    for row in _FILL
-    if row.label != _REPEATED_LABEL
-    and (row.points in {18, 24} or (row.points == 30 and row.char not in _LINE_END_30_PT))
+    row for row in _FILL if row.points in {18, 24} or (row.points == 30 and row.char not in _LINE_END_30_PT)
 ]
 
 
@@ -286,5 +283,19 @@ def test_a_fill_row_s_advance_is_in_the_table_unrounded(row: _FillRow) -> None:
 
 
 @pytest.mark.os_agnostic
-def test_the_table_takes_its_own_advance_from_every_fill_row_but_the_excluded_ones() -> None:
-    assert len(_FILL_IN_TABLE) == 41 + 36 + 20
+def test_the_table_takes_its_own_advance_from_every_18_and_24_pt_row_and_the_other_30_pt_ones() -> None:
+    assert len(_FILL_IN_TABLE) == 41 + 41 + 20
+
+
+@pytest.mark.os_agnostic
+def test_the_label_read_twice_agrees_within_a_line_and_takes_the_mean() -> None:
+    # Label f23 was reprinted from its stored job and read again; the two prints agree within one
+    # line on every row, as single readings repeat elsewhere, so each row takes their mean.
+    twice = [row for row in _FILL if row.readings]
+    assert [(row.label, row.line, row.char) for row in twice] == [
+        (_READ_TWICE, line, char) for line, char in zip(range(118, 123), "UVWXY", strict=True)
+    ]
+    for row in twice:
+        first, second = row.readings
+        assert abs(first - second) <= 1, row.name
+        assert row.reading == (first + second) / 2, row.name

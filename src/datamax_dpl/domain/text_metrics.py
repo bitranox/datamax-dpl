@@ -148,12 +148,12 @@ _HELVETICA_BOLD: dict[int, int] = {
 # "/" keeps that scaled width here, and the 11 dots its 12 pt line gave are kept apart
 # (_BITMAP_ADVANCES_203_12). 30 pt: the line-end lines for M, the digits, "," "." "/" space and
 # S T K B O X (read to 0.1 mm over 9 to 25 characters), the fill-and-V round for the rest. 18 and
-# 24 pt: the fill-and-V round (an advance to 2 dots / N over N = 10 to 49 characters), except
-# U V W X Y at 24 pt, whose label repeats another label's readings: they take the per-point mean of
-# their 18 and 30 pt advances, unverified. The ten digits share one advance and the period the
-# comma's at 12 and 30 pt, as in the design; the fill round printed each and found the same at
-# every size. Lines of the 30 pt line-end round were read with the print shift
-# (profiles.Font9PrintShift: 2 dots at 30 pt) taken out; the fill round reads it out too.
+# 24 pt: the fill-and-V round (an advance to 2 dots / N over N = 10 to 49 characters); the label of
+# U V W X Y at 24 pt was printed and read twice, and takes the mean of its two readings. The ten
+# digits share one advance and the period the comma's at 12 and 30 pt, as in the design; the fill
+# round printed each and found the same at every size. Lines of the 30 pt line-end round were read
+# with the print shift (profiles.Font9PrintShift: 2 dots at 30 pt) taken out; the fill round reads
+# it out too.
 # fmt: off
 _PRINTED_ADVANCES_203: dict[int, dict[int, float]] = {
     12: {
@@ -177,7 +177,7 @@ _PRINTED_ADVANCES_203: dict[int, dict[int, float]] = {
         57: 36.932389, 65: 44.913071, 66: 44.913071, 67: 48.060231, 68: 48.060231, 69: 44.0522, 70: 40.798938,
         71: 52.06525, 72: 49.137154, 73: 18.02175, 74: 33.935947, 75: 44.0522, 76: 37.928412, 77: 56.798455,
         78: 49.291, 79: 51.898583, 80: 44.0522, 81: 52.06525, 82: 48.060231, 83: 44.0522, 84: 41.048938,
-        85: 49.242375, 86: 43.942287, 87: 62.026307, 88: 43.955264, 89: 45.55508, 90: 40.798938,
+        85: 49.137154, 86: 44.0522, 87: 63.4783, 88: 44.0522, 89: 45.055929, 90: 40.798938,
     },
     30: {
         32: 24.804961, 44: 24.804961, 45: 24.86915, 46: 24.804961, 47: 24.804961, 48: 45.679476, 49: 45.679476,

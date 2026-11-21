@@ -72,9 +72,7 @@ All notable changes to this project are documented here. The format follows
   The capitals, the digits, `,` `-` `.` `/` and the space take widths measured on paper on an
   Allegro 2 (firmware CA02 03.04, 2026-11-21), at 12, 18, 24 and 30 pt, one table of advances per
   printed size, since the widths do not scale from one size to another
-  (`docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths`). `U` `V` `W` `X` `Y` at 24 pt
-  are interpolated between 18 and 30 pt, unverified (their label repeated another label's
-  readings). Any other printed size (6, 8, 10, 14, 36 and 48 pt) takes the nearest measured size's
+  (`docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths`). Any other printed size (6, 8, 10, 14, 36 and 48 pt) takes the nearest measured size's
   advances scaled by size, and another resolution scaled by its dpi, both unverified. Every other
   character keeps the Helvetica-Bold width (Adobe Core14 AFM), marked unverified
   (`FONT_9_MEASURED` names the measured bytes). Up to 12 pt each character advances by its own
@@ -88,8 +86,9 @@ All notable changes to this project are documented here. The format follows
   off by up to 1.07 dots per character (`/` at 18 pt from 30 pt), more than a millimetre over ten
   characters. Every measured line end lies within 0.35 mm of where it printed (the largest
   residual 0.32 mm). The 18 and 24 pt rows of the fill round, and its 30 pt rows of the 20
-  characters the line ends did not measure, give those advances themselves; the five rows of the
-  24 pt label that repeated another label's readings are left out. Its 30 pt rows of the 21
+  characters the line ends did not measure, give those advances themselves; the 24 pt label of
+  `U` `V` `W` `X` `Y` was printed and read twice, within a line of itself on every row, and takes
+  the mean of the two readings. Its 30 pt rows of the 21
   line-end characters lie within the half line they were read to of the line-end widths, but for
   `S` (read half a line short, 2.4 dots off over 11 characters: 0.21 dot per character, within the
   two rounds' combined resolution of 0.26). Placed by the stand-in, a right-aligned line
