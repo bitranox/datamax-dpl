@@ -94,9 +94,9 @@ All notable changes to this project are documented here. The format follows
   to their width before rounding, so they can move by one unit either way. Turned fields, other
   models and `generic`/`permissive` are unchanged. The preview and the edge and overlap checks
   place the field where it prints; the label's left edge is judged by where the ink starts, the
-  printhead by the record, so a 30 pt field with `x` below 0.13 mm (no `offset_across`) is now
-  refused (`text_past_left_edge`, naming the move of `x`): its record would start left of the
-  first dot. The profile carries it as `PrinterProfile.font9_print_shift` (`Font9PrintShift`,
+  printhead by the record, so a left-aligned field at 30 pt or more with `x` of 0.125 mm or less
+  (no `offset_across`) is now refused (`text_past_left_edge`, naming the move of `x`): its record
+  goes 2 dots left of `x`, left of the printhead's first dot. The profile carries it as `PrinterProfile.font9_print_shift` (`Font9PrintShift`,
   exported).
 - The PNG preview letters font 9 and scalable text one character at a time, each at its estimated
   advance, so a proportional line no longer squeezes into a box of equal cells.

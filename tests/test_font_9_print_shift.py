@@ -134,11 +134,30 @@ def test_a_left_font_9_field_at_the_label_edge_whose_record_cannot_go_further_le
     assert not ok
     messages = [f.message for f in findings if f.code is FindingCode.TEXT_PAST_LEFT_EDGE]
     assert messages == [
-        "the Allegro 2 prints font 9 at 30 pt 2 dots right of its record, which would start left of the "
-        "printhead's first dot; move x right by 0.2 mm"
+        "the Allegro 2 prints font 9 at 30 pt 2 dots right of its record, so its record goes 2 dots left of x, "
+        "left of the printhead's first dot; move x right by 0.2 mm"
     ]
     # 0.2 mm is 0.79 units, which rounds to the one unit the record needs.
     assert _job(Text(x=0.2, y=10, text="5 STK", font=FONT_9, points=30))[0]
+
+
+@pytest.mark.os_agnostic
+def test_a_centred_font_9_line_whose_record_cannot_go_further_left_says_where_the_line_starts() -> None:
+    ok, findings = _job(Text(x=1.3, y=10, text=".", font=FONT_9, points=30, align=TextAlign.CENTER))
+    assert not ok
+    (message,) = [f.message for f in findings if f.code is FindingCode.TEXT_PAST_LEFT_EDGE]
+    assert "so its record goes 2 dots left of where the center-aligned line starts, left of the printhead's" in message
+    assert message.endswith(" or shorten the text")
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("points", [30, 36, 48])
+@pytest.mark.parametrize(("x", "refused"), [(0.125, True), (0.126, False)])
+def test_the_left_edge_threshold_for_a_shifted_font_9_field_is_0_125_mm(points: int, x: float, refused: bool) -> None:
+    # The docs name it: x of 0.125 mm or less leaves no column for the record at 30 pt and up.
+    ok, findings = _job(Text(x=x, y=10, text="5", font=FONT_9, points=points))
+    assert ok is not refused
+    assert any(f.code is FindingCode.TEXT_PAST_LEFT_EDGE for f in findings) is refused
 
 
 @pytest.mark.os_agnostic

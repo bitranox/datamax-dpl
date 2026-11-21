@@ -164,10 +164,13 @@ def _past_printhead_message(element: Text, *, back: int, printed: int, ctx: Rend
     step = _label_length_of_mm(_MOVE_STEP_MM, ctx)
     move = _mm(_clearing_move(element.x, back=back, target=0, step=step, ctx=ctx), ctx)
     points = font9_points(element.points or _MIN_POINTS, ctx.profile)
-    shorten = "" if element.align is TextAlign.LEFT else " or shorten the text"
+    left = element.align is TextAlign.LEFT
+    # The record moves left of where the line starts, which is x itself only for a left-aligned line.
+    start = "x" if left else f"where the {element.align.value}-aligned line starts"
+    shorten = "" if left else " or shorten the text"
     return (
-        f"the {ctx.profile.name} prints font 9 at {points} pt {printed} dots right of its record, which would "
-        f"start left of the printhead's first dot; move x right by {move} mm{shorten}"
+        f"the {ctx.profile.name} prints font 9 at {points} pt {printed} dots right of its record, so its record "
+        f"goes {printed} dots left of {start}, left of the printhead's first dot; move x right by {move} mm{shorten}"
     )
 
 
