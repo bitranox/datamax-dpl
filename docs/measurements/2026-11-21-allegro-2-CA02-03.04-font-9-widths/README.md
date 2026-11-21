@@ -20,17 +20,43 @@ the error to that character; the line of `M` alone gives the error of the final 
 - `chars/`: lines 1-41, 12 pt, at 95 mm: `M`, the digits, `,` `.` `/` `-` space, `A`-`Z`.
 - `next/`: lines 42-58, at 85 mm (so an overrun stays on the label): 12 pt `M` `,` `.` `/` space,
   then 30 pt `M` `0` `5` `,` space `/` `S` `T` `K` `B` `O` `X`.
+- `vline/`: the print shift (below): `v01-font9-vline.json` and the two reprints moved by the
+  shift (`v02`, `v03`), the label's `README.txt` and the readings of all three in `readings.txt`.
 - `lines.json`: one record per line: label, text, size, the column its record was written at
   (`text_column`) and the reference line's column (`line_column`), both in DPL units of 2 dots, the
   reading and its quality, and the ink length that follows: `2 * (line_column - text_column) -
   reading_mm * 203 / 25.4` dots, short readings positive. `characters` says whether every character
   of the line is now measured.
-- `scripts/`: the generators of the labels (`gen_calib`, `gen_chars`, `gen_next`), the first
+- `scripts/`: the generators of the labels (`gen_calib`, `gen_chars`, `gen_next`, `gen_vline`), the first
   per-line calculators (`calc_chars`, `calc_next`), `fit_data` (writes `lines.json`), `fit_widths`
   (the fit below) and `gen_rsb` (the right side bearings from Adobe's `phvb8a.afm`). They are stored
   as `.py.txt` so the test and type gates leave them alone; copy one to `.py` beside the files it
   reads to run it. The generators and `fit_data` place lines with the stand-in table, so they
   reproduce the printed labels and columns only with a datamax-dpl that still has it.
+
+## Print shift
+
+A line's end cannot tell the widths from a constant offset of where the printer starts the line,
+so that offset was measured apart, on the same printer and day, with the V-line label in `vline/`:
+a lone right-aligned `M` per size (30, 24, 18 and 12 pt) at x 50 and x 95, and five vertical lines
+0.5 mm apart around the predicted middle of the `M`, where its diagonals meet. The printer prints
+dots shared by text and a line white, so the line shows where it crosses the ink. The reading is
+how far the `M` must move to put its V on the middle line, in lines of 0.5 mm, `+` to the right.
+The label was reprinted with each `M` moved left in the label by a trial shift until every reading
+was zero:
+
+| Round | Shift in the label (dots)  | Readings, lines 1-8 (30, 24, 18, 12 pt at x 50 and x 95) |
+|-------|----------------------------|----------------------------------------------------------|
+| 1     | none                       | -1 -1 -0.5 -0.5 -0.25 -0.25 -0.5 -0.5                    |
+| 2     | 30: 4, 24: 2, 18: 0, 12: 2 | 1 1 1 1 0 0 1 1                                          |
+| 3     | 30: 2                      | 0.5 0 0 0 0 0 0 0                                        |
+
+Result: font 9 prints 2 dots right of where its record starts at 30 pt, and at its record at 24,
+18 and 12 pt. Fields move in units of 2 dots, so line 1's half line (half a unit) cannot be taken
+out while line 2 reads 0; the same line read -0.5 and 0 in two rounds at 24 and 12 pt, so one
+reading varies by about half a line. The same shift at x 50 and x 95 makes it an offset, not a
+scale. datamax-dpl holds it as the `allegro-2` profile's `font9_print_shift` and writes every
+upright font 9 field that much further left.
 
 ## Model
 
@@ -40,13 +66,16 @@ A character advances by `width * em / 1000` dots, the em being `points * 203 / 7
   file (68/1000 em, 2.3 dots), every 12 pt line of one character gives an advance within 0.05 dot of
   a whole number.
 - At 30 pt the exact advances accumulate and only the position each character reaches is rounded.
-  Whole-dot advances do not fit there: the `M` line would need 71 dots per `M` and its ink to end 9
-  dots before the last advance, 0.4 mm away from the AFM bearing (5.75 dots), while exact advances
-  fit with the AFM bearing as it is.
+  Whole-dot advances do not fit there: with the print shift taken off, the `M` line would need its
+  ink to end 2 dots (70 dots per `M`) or 11 dots (71 per `M`) before the last advance, 0.47 or
+  0.66 mm away from the AFM bearing (5.75 dots), while exact advances fit with the AFM bearing as
+  it is.
 - Sizes from 14 to 24 pt are unmeasured. datamax-dpl rounds whole dots up to 12 pt and positions
   above it; the one 18 pt line printed (`Wi1.0M`, holding an unmeasured `i`) is off by 0.00 mm that
   way and by -0.13 mm the other.
 - The ink ends before the last advance by that glyph's right side bearing, rounded to whole dots.
+- A line starts at its record's column plus the print shift (2 dots at 30 pt, none at 12 pt), so
+  the fit takes the shift off each 30 pt line before it reads the widths.
 - `/` is the one measured character whose 12 pt bitmap rounds against its design width: it
   advances 11 dots at 12 pt (line 45, `O7.5`), while at 30 pt it is exactly as wide as `,` and the
   space (lines 50-52, `O2` each), which gives 10 dots at 12 pt. datamax-dpl keeps 11 dots as a
@@ -54,7 +83,7 @@ A character advances by `width * em / 1000` dots, the em being `points * 203 / 7
 
 Widths: a character measured at 30 pt takes its 30 pt width; one measured only at 12 pt the middle
 of the widths that round to its 12 pt advance, which leaves +/- 15/1000 em open at other sizes. The
-ten digits share one width (the mean of `0` and `5` at 30 pt: 541.8), as the design does and as all
+ten digits share one width (the mean of `0` and `5` at 30 pt: 540.1), as the design does and as all
 ten measured at 12 pt (18 dots); the period takes the comma's width (the same in the design, and
 10 dots each at 12 pt).
 
@@ -74,8 +103,8 @@ wide, `+,-./:;<=>?` 4.25 mm too narrow).
 
 ## Residual of every line
 
-Predicted minus measured end of the line, in mm: positive when the prediction runs longer than the
-print.
+Predicted minus measured end of the line, in mm, the print shift included: positive when the
+prediction runs longer than the print.
 
 | Line         | Size  | Text              | Reading | Residual (mm)                              | Characters                         |
 |--------------|-------|-------------------|---------|--------------------------------------------|------------------------------------|
@@ -94,8 +123,8 @@ print.
 | calib 03, 3  | 12 pt | `ÚÛÙýÝ±¾÷¸°¨·`    | O3?     | -3.38                                      | some unmeasured, reading uncertain |
 | calib 04, 1  | 8 pt  | `Wi1.0M`          | S0.5    | +0.12                                      | some unmeasured                    |
 | calib 04, 2  | 18 pt | `Wi1.0M`          | S0.5    | -0.00                                      | some unmeasured                    |
-| calib 04, 3  | 30 pt | `Wi1.0M`          | S1.8    | +0.55                                      | some unmeasured                    |
-| calib 04, 4  | 48 pt | `Wi1.0M`          | S2.8    | +0.80                                      | some unmeasured                    |
+| calib 04, 3  | 30 pt | `Wi1.0M`          | S1.8    | +0.80                                      | some unmeasured                    |
+| calib 04, 4  | 48 pt | `Wi1.0M`          | S2.8    | +0.92                                      | some unmeasured                    |
 | 1            | 12 pt | `MMM...MM`        | S0.2    | -0.05                                      | measured                           |
 | 2            | 12 pt | `000...0M`        | S5      | +0.25                                      | measured                           |
 | 3            | 12 pt | `111...1M`        | S5      | +0.25                                      | measured                           |

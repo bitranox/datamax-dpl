@@ -25,8 +25,8 @@ advance by that glyph's right side bearing (:data:`FONT_9_RIGHT_BEARINGS`, from 
 an M ends 68 thousandths of the em before its advance, on paper as in the AFM. One measured bitmap
 rounds against its design width: ``/`` at 12 pt advances 11 dots where its 30 pt width gives 10
 (:data:`FONT_9_BITMAP_ADVANCES`). The Allegro 2 starts a font 9 line 2 dots right of its record at
-30 pt (:class:`~.profiles.Font9PrintShift`, measured apart): :func:`units_left_of_x` writes the
-record that much further left.
+30 pt (:class:`~.profiles.Font9PrintShift`, measured apart): the 30 pt lines were read with it taken
+out, and :func:`units_left_of_x` writes the record that much further left.
 
 Text alignment (:class:`~.enums.TextAlign`) moves a field's reference point back by these widths:
 DPL places a field at its lower-left corner and has no justification of its own.
@@ -140,17 +140,19 @@ _HELVETICA_BOLD: dict[int, int] = {
 # Measured on paper on an Allegro 2
 # (docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths): design widths in thousandths
 # of the em that reproduce the 12 pt and the 30 pt lines under the rounding rules in the module
-# docstring. A character measured at 30 pt takes its 30 pt width; one measured at 12 pt only takes
+# docstring, the 30 pt lines with the printer's font 9 shift (profiles.Font9PrintShift: 2 dots at
+# 30 pt) taken out, since a line's end cannot tell that shift from the widths. A character measured
+# at 30 pt takes its 30 pt width; one measured at 12 pt only takes
 # the middle of the widths that round to its 12 pt advance (+/- 15 at other sizes). The ten digits
 # share the mean of the two measured at 30 pt (one width in the design, 18 dots each at 12 pt), the
 # period the comma's width (equal in the design, 10 dots each at 12 pt).
 # fmt: off
 _MEASURED: dict[int, float] = {
-    32: 294.1, 44: 294.1, 45: 295.6, 46: 294.1, 47: 294.1, 48: 541.8, 49: 541.8, 50: 541.8,
-    51: 541.8, 52: 541.8, 53: 541.8, 54: 541.8, 55: 541.8, 56: 541.8, 57: 541.8, 65: 679.8,
-    66: 671.5, 67: 709.4, 68: 709.4, 69: 650.2, 70: 591.1, 71: 768.5, 72: 738.9, 73: 266.0,
-    74: 502.5, 75: 649.4, 76: 561.6, 77: 835.1, 78: 738.9, 79: 764.2, 80: 650.2, 81: 768.5,
-    82: 709.4, 83: 649.2, 84: 600.5, 85: 738.9, 86: 650.2, 87: 916.3, 88: 649.2, 89: 679.8,
+    32: 293.3, 44: 293.3, 45: 295.6, 46: 293.3, 47: 293.3, 48: 540.1, 49: 540.1, 50: 540.1,
+    51: 540.1, 52: 540.1, 53: 540.1, 54: 540.1, 55: 540.1, 56: 540.1, 57: 540.1, 65: 679.8,
+    66: 669.1, 67: 709.4, 68: 709.4, 69: 650.2, 70: 591.1, 71: 768.5, 72: 738.9, 73: 266.0,
+    74: 502.5, 75: 647.1, 76: 561.6, 77: 832.5, 78: 738.9, 79: 761.6, 80: 650.2, 81: 768.5,
+    82: 709.4, 83: 647.1, 84: 598.6, 85: 738.9, 86: 650.2, 87: 916.3, 88: 647.1, 89: 679.8,
     90: 591.1,
 }
 # fmt: on

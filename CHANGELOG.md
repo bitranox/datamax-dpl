@@ -11,7 +11,9 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - A `text` field takes `"align": "right"` or `"center"` (default `"left"`, the placement so far):
-  `x` is then the END or the middle of the printed line. DPL has no justification, so datamax-dpl
+  `x` is then the END or the middle of the printed line: of its ink, so a font 9 line ends its last
+  glyph's ink at `x`, its right side bearing before its advance, since the ink is what a reader
+  lines up with the rest of the label. DPL has no justification, so datamax-dpl
   measures the line and moves the field back by that width, per record after `{name}` is filled,
   rounded to the job's DPL unit (2 dots on an `allegro-2`). The preview and the label checks place
   the field the same way. `TextAlign` is exported. Fonts 0-8 are measured exactly by their cells;
@@ -68,7 +70,9 @@ All notable changes to this project are documented here. The format follows
   measured bytes). Up to 12 pt each character advances by its own width rounded to whole dots,
   above it only the position each reaches is rounded (sizes from 14 to 24 pt are unmeasured), and
   a line ends at its last glyph's ink, its right side bearing (AFM) before its advance; `/` at
-  12 pt advances 11 dots, one more than its width gives. Every measured line ends within 0.35 mm
+  12 pt advances 11 dots, one more than its width gives. The 30 pt widths are fitted with the
+  Allegro 2's font 9 print shift (below) taken out, since a line's end cannot tell it from the
+  widths: `M` is 70.4 dots wide at 30 pt and 28 at 12 pt. Every measured line ends within 0.35 mm
   of where it printed (the largest residual 0.32 mm); placed by the stand-in, a right-aligned line
   of 36 digits at 12 pt ended 5 mm short of `x` and lines of `,` `.` `/` and spaces ran off the
   label. A first test with the stand-in found the lower-case alphabet about 9% narrower than it

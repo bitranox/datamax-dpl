@@ -7,7 +7,9 @@ Model: a character's advance is its width * em / 1000 dots (em = points * 203 / 
 WHOLE_DOT_MAX_POINTS each advance is rounded to whole dots; above it the exact advances accumulate
 and only the position each character reaches is rounded. A measured bitmap advance that rounds
 against its width overrides it. The ink ends before the last advance by that glyph's right side
-bearing (Helvetica-Bold AFM bounding box), rounded to whole dots.
+bearing (Helvetica-Bold AFM bounding box), rounded to whole dots. The Allegro 2 prints font 9 a few
+dots right of its record (SHIFT_DOTS, measured apart with the V-line label in ../vline/): each line's
+ink is taken from where the record starts, so that shift comes off it before the fit.
 
 Fitting: M at 30 pt from the line of M alone, given M's bearing (68/1000 em); every other character
 measured at 30 pt from its line (N characters then an M); a character measured only at 12 pt takes
@@ -30,6 +32,18 @@ DOTS_PER_MM = 203 / 25.4
 ROWS = json.loads((HERE / "lines.json").read_text(encoding="utf-8"))
 WHOLE_MAX = int(sys.argv[1]) if len(sys.argv) > 1 else 12
 M = 77
+#: Dots the Allegro 2 prints font 9 right of its record, per measured size (../vline/readings.txt);
+#: an unmeasured size takes the nearest measured size's, the smaller of two equally near.
+SHIFT_DOTS = {12: 0, 18: 0, 24: 0, 30: 2}
+
+
+def shift(points: int) -> int:
+    return SHIFT_DOTS[min(SHIFT_DOTS, key=lambda size: (abs(size - points), size))]
+
+
+for row in ROWS:
+    if row["ink_extent_dots"] is not None:
+        row["ink_extent_dots"] -= shift(row["points"])
 
 
 def em(points: int) -> float:

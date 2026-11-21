@@ -3,8 +3,10 @@
 The record (``docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths``) holds each line
 printed on 2026-11-21: its text and size, the column its record was written at, the column of the
 printed reference line it was aligned to, and the gap the user read between them. A line's
-predicted end is its record column plus :func:`~datamax_dpl.domain.text_metrics.text_extent`; its
-measured end is the reference line less the reading.
+predicted end is its record column plus the dots the Allegro 2 prints font 9 right of its record
+(:func:`~datamax_dpl.domain.text_metrics.font9_print_shift_dots`, measured apart with the V-line
+label) plus :func:`~datamax_dpl.domain.text_metrics.text_extent`; its measured end is the reference
+line less the reading.
 """
 
 from __future__ import annotations
@@ -17,7 +19,15 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from datamax_dpl.domain.label import FONT_9, Text
 from datamax_dpl.domain.profiles import get_profile
-from datamax_dpl.domain.text_metrics import FONT_9_MEASURED, text_extent
+from datamax_dpl.domain.text_metrics import (
+    EM_UNITS,
+    FONT_9_ADVANCES,
+    FONT_9_MEASURED,
+    char_advances,
+    font9_em_dots,
+    font9_print_shift_dots,
+    text_extent,
+)
 
 _RECORD = Path(__file__).parents[1] / "docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths/lines.json"
 _PROFILE = get_profile("allegro-2")
@@ -49,8 +59,9 @@ class _PaperLine(BaseModel):
         return f"{self.label}:{self.points}pt:{self.text[:1]!r}{len(self.text)}"
 
     def predicted_end_mm(self) -> float:
-        extent = text_extent(Text(x=0, y=0, text=self.text, font=FONT_9, points=self.points), _PROFILE)
-        return (self.text_column * _DOTS_PER_UNIT + extent) / _DOTS_PER_MM
+        printed = Text(x=0, y=0, text=self.text, font=FONT_9, points=self.points)
+        shift = font9_print_shift_dots(printed, _PROFILE)
+        return (self.text_column * _DOTS_PER_UNIT + shift + text_extent(printed, _PROFILE)) / _DOTS_PER_MM
 
     def measured_end_mm(self) -> float:
         """The reference line less the reading: S (short) positive, O (over) negative."""
@@ -85,3 +96,52 @@ def test_a_line_that_ran_off_the_label_is_predicted_past_its_edge(line: _PaperLi
 def test_the_measured_bytes_are_the_characters_of_the_measured_lines() -> None:
     printed = {byte for line in _LINES if line.characters == "measured" for byte in line.text.encode("cp850")}
     assert printed == FONT_9_MEASURED
+
+
+#: Widths read off the paper per character (lines of one character then an M, the M's own error
+#: taken out), in dots: whole dots at 12 pt, to about 0.15 dot at 30 pt.
+_PAPER_12_PT = {
+    **dict.fromkeys("0123456789", 18),
+    "M": 28,
+    **dict.fromkeys("AB", 23),
+    **dict.fromkeys("CDR", 24),
+    **dict.fromkeys("EPSVXK", 22),
+    **dict.fromkeys("FTZ", 20),
+    **dict.fromkeys("GOQ", 26),
+    **dict.fromkeys("HNU", 25),
+    "I": 9,
+    "J": 17,
+    "L": 19,
+    "W": 31,
+    "Y": 23,
+    "-": 10,
+    **dict.fromkeys(",. ", 10),
+    "/": 11,
+}
+_PAPER_30_PT = {
+    "M": 70.0,
+    "0": 45.47,
+    "5": 45.33,
+    ",": 24.67,
+    " ": 24.67,
+    "/": 24.67,
+    "S": 54.40,
+    "T": 50.33,
+    "K": 54.25,
+    "B": 56.12,
+    "O": 64.00,
+    "X": 54.40,
+}
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("char", "dots"), sorted(_PAPER_12_PT.items()))
+def test_a_measured_character_advances_its_paper_width_at_12_pt(char: str, dots: int) -> None:
+    assert char_advances(Text(x=0, y=0, text=char, font=FONT_9, points=12), _PROFILE) == (dots,)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(("char", "dots"), sorted(_PAPER_30_PT.items()))
+def test_a_measured_character_is_its_paper_width_at_30_pt_within_half_a_dot(char: str, dots: float) -> None:
+    width = FONT_9_ADVANCES[char.encode("cp850")[0]] * font9_em_dots(30, _PROFILE) / EM_UNITS
+    assert width == pytest.approx(dots, abs=0.5)
