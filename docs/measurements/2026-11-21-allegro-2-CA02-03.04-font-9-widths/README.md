@@ -29,7 +29,8 @@ the error to that character; the line of `M` alone gives the error of the final 
   of the line is now measured.
 - `scripts/`: the generators of the labels (`gen_calib`, `gen_chars`, `gen_next`, `gen_vline`), the first
   per-line calculators (`calc_chars`, `calc_next`), `fit_data` (writes `lines.json`), `fit_widths`
-  (the fit below) and `gen_rsb` (the right side bearings from Adobe's `phvb8a.afm`). They are stored
+  (the fit below) and `gen_bearings` (the left and right side bearings from Adobe's `phvb8a.afm`;
+  the right ones are checked on paper, the left ones, which centre a line, are not). They are stored
   as `.py.txt` so the test and type gates leave them alone; copy one to `.py` beside the files it
   reads to run it. The generators and `fit_data` place lines with the stand-in table, so they
   reproduce the printed labels and columns only with a datamax-dpl that still has it.

@@ -11,15 +11,17 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - A `text` field takes `"align": "right"` or `"center"` (default `"left"`, the placement so far):
-  `x` is then the END or the middle of the printed line: of its ink, so a font 9 line ends its last
-  glyph's ink at `x`, its right side bearing before its advance, since the ink is what a reader
-  lines up with the rest of the label. DPL has no justification, so datamax-dpl
-  measures the line and moves the field back by that width, per record after `{name}` is filled,
-  rounded to the job's DPL unit (2 dots on an `allegro-2`). The preview and the label checks place
-  the field the same way. `TextAlign` is exported. Fonts 0-8 are measured exactly by their cells;
-  font 9 by a stand-in width table (below). An aligned field must be upright and take no `counter`
-  (the printer changes its width), no `font_id` (widths unknown) and, in font 9, no
-  `width_multiplier`: each is refused when the label is read (exit 2).
+  `x` is then the END or the middle of the printed line's ink, since the ink is what a reader lines
+  up with the rest of the label. A font 9 line ends its last glyph's ink at `x`, its right side
+  bearing before its advance; a centred one is centred from its first glyph's left side bearing to
+  that ink end (both from Adobe's Helvetica-Bold AFM; the left bearing is unverified on paper).
+  Fonts 0-8 end, or are centred, on their cells without the gap after the last. DPL has no
+  justification, so datamax-dpl measures the line and moves the field back by that width, per
+  record after `{name}` is filled, rounded to the job's DPL unit (2 dots on an `allegro-2`). The
+  preview and the label checks place the field the same way. `TextAlign` is exported. Fonts 0-8 are
+  measured exactly by their cells; font 9 by its measured widths (below). An aligned field must be
+  upright and take no `counter` (the printer changes its width), no `font_id` (widths unknown) and,
+  in font 9, no `width_multiplier`: each is refused when the label is read (exit 2).
 - The new error finding `text_past_left_edge` refuses a centred or right-aligned line that would
   start left of the label's left edge, measured from that edge wherever `offset_across` puts it on
   the printhead and from where `x` itself lies, even left of the printhead; nothing is sent (exit

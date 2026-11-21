@@ -206,7 +206,9 @@ records are measured. `x` itself is checked against the printable width like any
   `+,-./:;<=>?` about 22% wider than it predicts, so a line holding them can end millimetres from
   `x`. Sizes from 14 to 24 pt and other models are unmeasured. A font 9 line ends at its last
   glyph's ink, and in the preview, the label edge check (`element_past_label_edge`) and the
-  overlap checks it is as long as these widths say, aligned or not.
+  overlap checks it is as long as these widths say, aligned or not. A centred font 9 line is
+  centred on its ink, which starts at the first glyph's left side bearing (Adobe's Helvetica-Bold
+  AFM, unverified on paper): an `M` at 30 pt starts its ink 6 dots right of its origin.
 - An Allegro 2 prints font 9 a few dots right of the column its record names: 2 dots (one DPL
   unit, 0.25 mm) at 30 pt and none at 12, 18 and 24 pt, measured with a lone `M` per size against a
   line at its predicted middle (`docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths/vline`).

@@ -76,7 +76,9 @@ def test_an_aligned_font_9_record_moves_back_by_its_width_and_the_shift(points: 
     reference = Text(x=50, y=10, text="REF", font=2)
     line = Text(x=50, y=20, text="12 STK", font=FONT_9, points=points, align=align)
     extent = text_extent(line, get_profile(_MODEL))
-    share = extent if align is TextAlign.RIGHT else extent / 2
+    # Centred on its ink: from "1"'s left side bearing (69 thousandths of the em, AFM) to the ink end.
+    lead = 69 * points * 203 / 72 / 1000
+    share = extent if align is TextAlign.RIGHT else (extent + lead) / 2
     records = _records(_MODEL, reference, line)
     assert records[b"12 STK"][1] == records[b"REF"][1] - round((share + _MEASURED_SHIFT[points]) / _DOTS_PER_UNIT)
 
@@ -143,7 +145,7 @@ def test_a_left_font_9_field_at_the_label_edge_whose_record_cannot_go_further_le
 
 @pytest.mark.os_agnostic
 def test_a_centred_font_9_line_whose_record_cannot_go_further_left_says_where_the_line_starts() -> None:
-    ok, findings = _job(Text(x=1.3, y=10, text=".", font=FONT_9, points=30, align=TextAlign.CENTER))
+    ok, findings = _job(Text(x=1.55, y=10, text=".", font=FONT_9, points=30, align=TextAlign.CENTER))
     assert not ok
     (message,) = [f.message for f in findings if f.code is FindingCode.TEXT_PAST_LEFT_EDGE]
     assert "so its record goes 2 dots left of where the center-aligned line starts, left of the printhead's" in message

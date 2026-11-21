@@ -181,6 +181,31 @@ _HELVETICA_BOLD_RIGHT_BEARINGS: dict[int, int] = {
 }
 # fmt: on
 
+# Generated from phvb8a.afm with the right bearings above: the left edge of the glyph's bounding box
+# (llx), how far right of its origin a glyph's ink starts (negative: left of it). The space has no
+# ink and starts a line at its origin.
+# fmt: off
+_HELVETICA_BOLD_LEFT_BEARINGS: dict[int, int] = {
+    32: 0, 33: 90, 34: 98, 35: 18, 36: 30, 37: 28, 38: 54, 39: 70, 40: 35, 41: 19, 42: 27, 43: 40,
+    44: 64, 45: 27, 46: 64, 47: -33, 48: 32, 49: 69, 50: 26, 51: 27, 52: 27, 53: 27, 54: 31, 55: 25,
+    56: 32, 57: 30, 58: 92, 59: 92, 60: 38, 61: 40, 62: 38, 63: 60, 64: 118, 65: 20, 66: 76, 67: 44,
+    68: 76, 69: 76, 70: 76, 71: 44, 72: 71, 73: 64, 74: 22, 75: 87, 76: 76, 77: 69, 78: 69, 79: 44,
+    80: 76, 81: 44, 82: 76, 83: 39, 84: 14, 85: 72, 86: 19, 87: 16, 88: 14, 89: 15, 90: 25, 91: 63,
+    92: -33, 93: 24, 94: 62, 95: 0, 96: -23, 97: 29, 98: 61, 99: 34, 100: 34, 101: 23, 102: 10,
+    103: 40, 104: 65, 105: 69, 106: 3, 107: 69, 108: 69, 109: 64, 110: 65, 111: 34, 112: 62,
+    113: 34, 114: 64, 115: 30, 116: 10, 117: 66, 118: 13, 119: 10, 120: 15, 121: 10, 122: 20,
+    123: 48, 124: 84, 125: 24, 126: 61, 128: 44, 129: 66, 130: 23, 131: 29, 132: 29, 133: 29,
+    134: 29, 135: 34, 136: 23, 137: 23, 138: 23, 139: -21, 140: -37, 141: -50, 142: 20, 143: 20,
+    144: 76, 145: 29, 146: 5, 147: 34, 148: 34, 149: 34, 150: 66, 151: 66, 152: 10, 153: 44,
+    154: 72, 155: 22, 156: 28, 157: 33, 158: 40, 159: -10, 160: 29, 161: 69, 162: 34, 163: 66,
+    164: 65, 165: 69, 166: 22, 167: 6, 168: 55, 169: -11, 171: 26, 172: 26, 173: 90, 181: 20,
+    182: 20, 183: 20, 184: -11, 189: 34, 190: -9, 198: 29, 199: 20, 208: 34, 209: -5, 210: 76,
+    211: 76, 212: 76, 213: 69, 214: 64, 215: -37, 216: -21, 222: -50, 224: 44, 225: 69, 226: 44,
+    227: 44, 228: 34, 229: 44, 230: 66, 231: 62, 232: 76, 233: 72, 234: 72, 235: 72, 236: 10,
+    237: 15, 241: 40, 243: 16, 246: 40, 247: 6, 248: 57, 249: 6, 250: 58,
+}
+# fmt: on
+
 #: Advance width of each byte font 9 prints, in thousandths of the em (:data:`EM_UNITS`): the
 #: paper-measured width for a byte in :data:`FONT_9_MEASURED`, else the Helvetica-Bold stand-in.
 FONT_9_ADVANCES: Mapping[int, float] = FrozenMapping({**_HELVETICA_BOLD, **_MEASURED})
@@ -188,6 +213,9 @@ FONT_9_ADVANCES: Mapping[int, float] = FrozenMapping({**_HELVETICA_BOLD, **_MEAS
 FONT_9_MEASURED: frozenset[int] = frozenset(_MEASURED)
 #: How far a glyph's ink ends before its advance, in thousandths of the em (negative: past it).
 FONT_9_RIGHT_BEARINGS: Mapping[int, int] = FrozenMapping(_HELVETICA_BOLD_RIGHT_BEARINGS)
+#: How far right of its origin a glyph's ink starts, in thousandths of the em (negative: left of it).
+#: From the same AFM file as the right bearings; unlike those, not checked on paper.
+FONT_9_LEFT_BEARINGS: Mapping[int, int] = FrozenMapping(_HELVETICA_BOLD_LEFT_BEARINGS)
 #: Largest font 9 point size whose characters each advance by whole dots; larger sizes round the
 #: position each character reaches instead (module docstring).
 WHOLE_DOT_MAX_POINTS = 12
@@ -310,14 +338,17 @@ def font9_print_shift_dots(element: Text, profile: PrinterProfile) -> int:
 def units_left_of_x(element: Text, ctx: RenderContext) -> int:
     """Return how many DPL units left of ``x``'s column a field's record is written: 0 for most left-aligned text.
 
-    Right-aligned text moves back by its whole :func:`text_extent`, centred text by half of it, and
-    font 9 also by the dots the model prints it right of its record (:func:`font9_print_shift_dots`),
-    so its glyphs land where ``x`` says. The sum is converted at the job's dots per unit and rounded
-    to the nearest unit once. The line ends (or is centred, or starts) within about one unit of the
-    dot ``x`` prints at: half a unit from rounding, plus the rounding of units to whole dots (up to 2
-    dots measured on a DMX 430 in inch format, whose 1/100 in unit is 2.9 dots; in metric format its
-    1/10 mm unit is 1.14 dots). The encoder, the preview and the overlap and edge checks all place a
-    field by this one number (:func:`text_column`).
+    Right-aligned text moves back by its whole :func:`text_extent`, which ends at the last glyph's
+    ink. Centred text moves back by half of the ink's span: in font 9 that span starts at the first
+    glyph's left side bearing (:data:`FONT_9_LEFT_BEARINGS`), so half of that bearing is added to
+    half the extent; fonts 0-8 are centred by their cells. Font 9 also moves back by the dots the
+    model prints it right of its record (:func:`font9_print_shift_dots`), so its glyphs land where
+    ``x`` says. The sum is converted at the job's dots per unit and rounded to the nearest unit once.
+    The line's ink ends (or is centred, or starts) within about one unit of the dot ``x`` prints at:
+    half a unit from rounding, plus the rounding of units to whole dots (up to 2 dots measured on a
+    DMX 430 in inch format, whose 1/100 in unit is 2.9 dots; in metric format its 1/10 mm unit is
+    1.14 dots). The encoder, the preview and the overlap and edge checks all place a field by this
+    one number (:func:`text_column`).
 
     Args:
         element: The text field, after its placeholders are filled.
@@ -327,10 +358,33 @@ def units_left_of_x(element: Text, ctx: RenderContext) -> int:
         The units to subtract from the column ``x`` is written at.
     """
     share = 0.0
-    if element.align is not TextAlign.LEFT:
-        extent = text_extent(element, ctx.profile)
-        share = extent if element.align is TextAlign.RIGHT else extent / 2
+    if element.align is TextAlign.RIGHT:
+        share = text_extent(element, ctx.profile)
+    elif element.align is TextAlign.CENTER:
+        share = (text_extent(element, ctx.profile) + font9_left_bearing_dots(element, ctx.profile)) / 2
     return round((share + font9_print_shift_dots(element, ctx.profile)) / ctx.dots_per_unit)
+
+
+def font9_left_bearing_dots(element: Text, profile: PrinterProfile) -> float:
+    """Return how many dots right of its origin the first glyph of a font 9 line starts its ink: 0 otherwise.
+
+    The first glyph's left side bearing (:data:`FONT_9_LEFT_BEARINGS`) at the printed size, unrounded,
+    so a centred line adds it to its extent before the one rounding to units. Fonts 0-8, a
+    downloaded font (``font_id``) and an empty line keep 0, as does a leading space, whose line starts
+    at its origin just as a trailing space ends one at its advance.
+
+    Example:
+        >>> from datamax_dpl.domain.profiles import get_profile
+        >>> round(font9_left_bearing_dots(Text(x=0, y=0, text="MMM", font=9, points=30), get_profile("allegro-2")), 2)
+        5.84
+        >>> font9_left_bearing_dots(Text(x=0, y=0, text="MMM", font=2), get_profile("allegro-2"))
+        0.0
+    """
+    if element.font != FONT_9 or element.font_id is not None or not element.text:
+        return 0.0
+    first = encode_for_bitmapped_font(element.text[0], font=FONT_9).data[0]
+    em = font9_em_dots(element.points or _DEFAULT_POINTS, profile)
+    return FONT_9_LEFT_BEARINGS[first] * em / EM_UNITS
 
 
 def label_edge_column(ctx: RenderContext) -> int:
@@ -366,6 +420,7 @@ __all__ = [
     "EM_UNITS",
     "FONT_9_ADVANCES",
     "FONT_9_BITMAP_ADVANCES",
+    "FONT_9_LEFT_BEARINGS",
     "FONT_9_MEASURED",
     "FONT_9_RIGHT_BEARINGS",
     "WHOLE_DOT_MAX_POINTS",
@@ -373,6 +428,7 @@ __all__ = [
     "FontCells",
     "char_advances",
     "font9_em_dots",
+    "font9_left_bearing_dots",
     "font9_points",
     "font9_print_shift_dots",
     "label_edge_column",
