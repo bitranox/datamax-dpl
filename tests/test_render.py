@@ -433,6 +433,10 @@ def _past_edge(result: RenderResult) -> float | None:
         # is -45.00000000000001 dots, which are 0.3 mm and 45 dots past.
         (Unit.MM, 5.0, 0.7, RenderOptions(model="allegro", offset_along=-1.0), 0.01),
         (Unit.DOTS, 0.0, 10.0, RenderOptions(model="dmx-600", offset_across=-3.81), 1.0),
+        # A true fraction far below one step must still add it: 10.04 dots past is named 11, and
+        # 0.30004 mm past is named 0.31, which a guard cutting to a tenth of the step would drop.
+        (Unit.DOTS, 1.771, 10.0, RenderOptions(model="dmx-600", offset_across=-1.0), 1.0),
+        (Unit.MM, 5.0, 0.69996, RenderOptions(model="allegro", offset_along=-1.0), 0.01),
     ],
 )
 def test_moving_a_field_by_the_distance_past_the_edge_clears_it(
