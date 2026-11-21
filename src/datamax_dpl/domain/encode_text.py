@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 from .charset import CAPITALS_ONLY_FONTS, EncodedText, encode_for_bitmapped_font, encode_for_symbol_set
@@ -9,6 +10,7 @@ from .encode_common import (
     attribute_lines,
     attribute_reset,
     check_field_length,
+    checked_column,
     column_of,
     counter_lines,
     report_past_edge,
@@ -19,7 +21,7 @@ from .label import FONT_9, ScalableText, Text
 from .placeholders import placeholders_in
 from .profiles import OLD_SERIES_POINTS, Feature
 from .records import Header, line
-from .text_metrics import align_shift_units, font9_points, label_edge_column
+from .text_metrics import align_shift_units, font9_points, label_edge_column, text_column
 from .units import MM_PER_INCH, Axis
 
 if TYPE_CHECKING:
@@ -70,36 +72,55 @@ def _text_column(element: Text, *, index: int, ctx: RenderContext) -> int:
     """Return the record column of a text field: ``x``'s, moved back by its alignment.
 
     ``x`` itself is checked against the printable width (``outside_print_width``), so a centred or
-    right-aligned line whose middle or end is past it is refused like a field starting there. A
-    line that would start left of the label's left edge is refused (``text_past_left_edge``); one
-    on the label but left of the printhead's first column, where a negative offset across puts the
-    label's edge, is reported as a left-aligned field the offset moves there. Either is written at
+    right-aligned line whose middle or end is past it is refused like a field starting there. Where
+    the line starts is measured from ``x`` as the offset moves it, before anything keeps it on the
+    printhead, so one finding gives the true distance: a line that would start left of the label's
+    left edge is refused (``text_past_left_edge``); one on the label but left of the printhead's
+    first column, where a negative offset across puts the label's edge, is reported as a
+    left-aligned field the offset moves there. Either is written at
     :func:`~.text_metrics.text_column`, so the job still renders for the findings. A field still
-    holding a placeholder in a label rendered without data is not refused: it prints its template,
-    and each record is measured once filled.
+    holding a placeholder in a label rendered without data is checked at ``x`` only: it prints its
+    template, and each record is measured once filled.
     """
-    column = column_of(element.x, index=index, ctx=ctx)
-    start = column - align_shift_units(element, ctx)
+    shift = align_shift_units(element, ctx)
+    if not shift or (ctx.template and placeholders_in(element.text)):
+        # x is where the line starts, or its width is not known yet: x itself is checked.
+        column = column_of(element.x, index=index, ctx=ctx)
+    else:
+        shifted = ctx.shifted(element.x, axis=Axis.ACROSS)
+        column = checked_column(max(shifted, 0.0), index=index, ctx=ctx)
+        start = ctx.dpl_units(shifted, axis=Axis.ACROSS) - shift
+        _report_line_start(element, start=start, index=index, ctx=ctx)
+    # text_column places the line as the preview and the overlap and edge checks do; min() keeps a
+    # column past four digits at the cap the check above refused and returned.
+    return min(text_column(element, ctx), column)
+
+
+def _report_line_start(element: Text, *, start: int, index: int, ctx: RenderContext) -> None:
+    """Record an aligned line starting at column ``start`` if that is left of the label's edge or the printhead's."""
     edge = label_edge_column(ctx)
-    if start >= max(edge, 0):
-        return start
-    if not (ctx.template and placeholders_in(element.text)):
-        _report_line_past_edge(element, start=start, edge=edge, index=index, ctx=ctx)
-    return max(edge, 0)
-
-
-def _report_line_past_edge(element: Text, *, start: int, edge: int, index: int, ctx: RenderContext) -> None:
-    """Record an aligned line that starts at column ``start``, left of the label's edge or the printhead's."""
     if start < edge:
-        past_mm = ctx.printed_dots(edge - start) / ctx.profile.dpi * MM_PER_INCH
+        # Rounded up to the tenth shown, so moving x right by the distance named puts the line on the label.
+        past_mm = math.ceil(round(_x_move_mm(edge - start, ctx) * 10, 6)) / 10
         ctx.findings.refuse(
             FindingCode.TEXT_PAST_LEFT_EDGE,
             f"the {element.align.value}-aligned line would start about {past_mm:.1f} mm left of "
             "the label's left edge; move x right by that or shorten the text",
             element=index,
         )
-        return
-    report_past_edge(_label_length(start, ctx), Axis.ACROSS, index=index, ctx=ctx)
+    elif start < 0:
+        report_past_edge(_label_length(start, ctx), Axis.ACROSS, index=index, ctx=ctx)
+
+
+def _x_move_mm(units: int, ctx: RenderContext) -> float:
+    """Return how many mm ``x`` must move to move its column by ``units``, the inverse of its conversion.
+
+    Not the dots the units print: a unit is rounded to whole dots on paper, and a scale across
+    stretches what ``x`` asks for, so a distance in printed dots falls short of the move needed.
+    """
+    mm = units * ctx.dots_per_unit / ctx.profile.dpi * MM_PER_INCH
+    # A label in dots asks for printed dots, which no scale changes (units._printed_inches).
+    return mm if ctx.unit is Unit.DOTS else mm * ctx.across.scale
 
 
 def _label_length(units: int, ctx: RenderContext) -> float:

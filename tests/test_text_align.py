@@ -213,19 +213,27 @@ def test_the_lettered_preview_prints_the_last_letter_of_a_font_9_line() -> None:
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("font", range(9))
 def test_a_right_aligned_line_at_the_label_edge_does_not_pass_it(font: int) -> None:
-    """The blank gap after the last character of fonts 0-8 prints no dot, so it is not the line."""
+    """The blank gap after the last character of fonts 0-8 prints no dot, so it is not the line.
+
+    Width multiplier 4 widens every gap past the edge check's tolerance (one unit plus one dot, 3
+    Allegro 2 dots): at 1, the 1- and 2-dot gaps of fonts 0-3 hide inside it and the check would
+    pass with the gap counted as line.
+    """
     for policy in (FallbackPolicy.DEGRADE, FallbackPolicy.STRICT):
-        text = Text(x=100, y=10, text="12345", font=font, align=TextAlign.RIGHT)
+        text = Text(x=100, y=10, text="12345", font=font, align=TextAlign.RIGHT, width_multiplier=4)
         label = Label(width=100, height=55, elements=[text])
         result = render(label, RenderOptions(model=_MODEL, policy=policy))
         assert FindingCode.ELEMENT_PAST_LABEL_EDGE not in _codes(result.findings), (font, policy)
 
 
-def _font_2_line(chars: int, *, offset_across: float) -> tuple[bool, list[Finding]]:
+def _font_2_line(
+    chars: int, *, offset_across: float, x: float = 10, scale_across: float = 1.0
+) -> tuple[bool, list[Finding]]:
     # Font 2 at 203 dpi: 12 dots per character less a 2-dot gap; x 10 mm is 40 units of 2 dots.
-    text = Text(x=10, y=10, text="A" * chars, font=2, align=TextAlign.RIGHT)
+    text = Text(x=x, y=10, text="A" * chars, font=2, align=TextAlign.RIGHT)
     result = build_job(
-        Label(width=100, height=55, elements=[text]), RenderOptions(model=_MODEL, offset_across=offset_across)
+        Label(width=100, height=55, elements=[text]),
+        RenderOptions(model=_MODEL, offset_across=offset_across, scale_across=scale_across),
     )
     return result.ok, list(result.findings)
 
@@ -251,6 +259,73 @@ def test_a_line_on_the_label_but_left_of_the_printhead_is_refused_like_a_left_fi
     codes = _codes(findings)
     assert FindingCode.TEXT_PAST_LEFT_EDGE not in codes
     assert FindingCode.OFFSET_PAST_LABEL_EDGE in codes
+
+
+_EDGE_CODES = {FindingCode.TEXT_PAST_LEFT_EDGE, FindingCode.OFFSET_PAST_LABEL_EDGE}
+
+
+def _edge_messages(findings: Iterable[Finding]) -> list[tuple[FindingCode, str]]:
+    return [(finding.code, finding.message) for finding in findings if finding.code in _EDGE_CODES]
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("x", "chars", "past"),
+    [
+        # x 1 mm with offset -3 mm is 8 units left of the printhead; four characters (23 units)
+        # start 31 units left of it, 19 units (4.75 mm) left of the label's edge at -12.
+        (1.0, 4, "about 4.8 mm"),
+        # One character (5 units) from x 1 mm starts 13 units left: 1 unit (0.25 mm) past the edge.
+        (1.0, 1, "about 0.3 mm"),
+        # x 2.5 mm is 2 units left of the printhead; two characters (11 units) start 1 unit past the edge.
+        (2.5, 2, "about 0.3 mm"),
+    ],
+)
+def test_a_line_whose_x_is_left_of_the_printhead_is_measured_from_its_true_start(
+    x: float, chars: int, past: str
+) -> None:
+    ok, findings = _font_2_line(chars, offset_across=-3.0, x=x)
+    assert not ok
+    edges = _edge_messages(findings)
+    assert len(edges) == 1, edges
+    [(code, message)] = edges
+    assert code is FindingCode.TEXT_PAST_LEFT_EDGE
+    assert f"{past} left of the label's left edge" in message
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("x", "chars", "offset_across", "scale_across"),
+    [
+        (1.0, 4, -3.0, 1.0),
+        (1.0, 1, -3.0, 1.0),
+        (2.5, 2, -3.0, 1.0),
+        (10.0, 8, -3.0, 1.0),
+        # A scale across stretches what x asks for: the printed dots of the overhang fall short of the move.
+        (0.148, 2, 0.0, 1.05),
+    ],
+)
+def test_moving_x_right_by_the_reported_distance_puts_the_line_on_the_label(
+    x: float, chars: int, offset_across: float, scale_across: float
+) -> None:
+    _, findings = _font_2_line(chars, offset_across=offset_across, x=x, scale_across=scale_across)
+    refusal = next(f for f in findings if f.code is FindingCode.TEXT_PAST_LEFT_EDGE)
+    past = re.search(r"about (\d+\.\d) mm", refusal.message)
+    assert past is not None
+    _, moved = _font_2_line(chars, offset_across=offset_across, x=x + float(past.group(1)), scale_across=scale_across)
+    assert FindingCode.TEXT_PAST_LEFT_EDGE not in _codes(moved)
+
+
+@pytest.mark.os_agnostic
+def test_a_line_whose_x_and_start_are_both_left_of_the_printhead_gets_one_offset_finding() -> None:
+    # x 2.5 mm is 2 units left of the printhead; one character (5 units) starts 7 units (1.75 mm)
+    # left of it and 5 units right of the label's edge: one finding, for where the line starts.
+    _, findings = _font_2_line(1, offset_across=-3.0, x=2.5)
+    edges = _edge_messages(findings)
+    assert len(edges) == 1, edges
+    [(code, message)] = edges
+    assert code is FindingCode.OFFSET_PAST_LABEL_EDGE
+    assert "moves this field 1.75 mm past the label edge" in message
 
 
 @pytest.mark.os_agnostic

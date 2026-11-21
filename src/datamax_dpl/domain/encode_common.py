@@ -24,9 +24,16 @@ def last_column(ctx: RenderContext) -> int:
 
 def column_of(x: float, *, index: int, ctx: RenderContext) -> int:
     """Convert ``x``, moved by the printer's offset, to a DPL column, refusing it past the printable width."""
-    column = ctx.distance(
-        _shifted(x, Axis.ACROSS, index=index, ctx=ctx), axis=Axis.ACROSS, element=index, what="column"
-    )
+    return checked_column(_shifted(x, Axis.ACROSS, index=index, ctx=ctx), index=index, ctx=ctx)
+
+
+def checked_column(shifted: float, *, index: int, ctx: RenderContext) -> int:
+    """Convert a position already moved by the offset and kept on the label to a DPL column.
+
+    Refuses a column past four digits (``distance_too_large``) or past the printable width
+    (``outside_print_width``); a position left of the label's 0 edge is the caller's to report.
+    """
+    column = ctx.distance(shifted, axis=Axis.ACROSS, element=index, what="column")
     limit = last_column(ctx)
     if column > limit:
         unit = "1/100 in" if ctx.dpl_unit is DplUnit.INCH_HUNDREDTHS else "1/10 mm"
@@ -212,6 +219,7 @@ __all__ = [
     "attribute_reset",
     "check_field_length",
     "check_graphic_edge",
+    "checked_column",
     "column_of",
     "counter_lines",
     "image_edge",
