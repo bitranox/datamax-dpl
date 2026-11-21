@@ -223,8 +223,8 @@ records are measured. `x` itself is checked against the printable width like any
   measured and are written at `x`. The preview and the edge and overlap checks place the field
   where it prints. The label's left edge is judged by where the ink starts, the printhead by the
   record: a field whose ink is on the label but whose record would start left of the printhead's
-  first dot (left-aligned at 30 pt or more, `x` of 0.125 mm or less with no `offset_across`) is
-  refused (`text_past_left_edge`) with the move of `x` that clears it.
+  first dot (left-aligned at 30 pt or more, `x` of 0.125 mm or less with no `offset_across` and
+  no `scale_across`) is refused (`text_past_left_edge`) with the move of `x` that clears it.
 - An aligned field must be upright (rotation 0) and take no `counter` (the printer changes the
   number, and so the width, from label to label), no `font_id` (a downloaded font's widths are not
   known) and, in font 9, no `width_multiplier`; each is refused when the label is read.
