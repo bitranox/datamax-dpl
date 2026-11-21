@@ -127,9 +127,11 @@ All notable changes to this project are documented here. The format follows
   10 dots past, and moved by those 10 it was refused again as "0 dots past the label edge". Moving
   the field by the distance named now clears the edge, and it is the smallest distance that does
   at that precision, by the refusal's own rule: a field left within a millionth of the label's unit
-  of the edge counts as on it, so 0.3000005 mm past is named 0.3 mm, not 0.31. For an aligned line
-  left of the printhead's first dot on an mm label, the distance is searched in 0.01 mm, as the
-  message states it, not in 0.1 mm.
+  of the edge counts as on it, so 0.3000005 mm past is named 0.3 mm, not 0.31. For a line whose
+  record starts left of the printhead's first dot on an mm label, the distance is searched in
+  0.01 mm, as the message states it, not in 0.1 mm: an aligned line, and on an Allegro 2 also a
+  left-aligned font 9 field at 30 pt or more, whose print shift puts its record left of `x` (a
+  36 pt `W` at x 3.618 mm with `offset_across` -5.52 is named 2.03 mm past).
 
 ## [0.11.0] - 2026-11-20
 

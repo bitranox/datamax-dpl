@@ -469,6 +469,10 @@ _PAST_EDGE_CASES = [
     # through x's own conversion, and must be the smallest at 0.01 mm too, not at 0.1 mm.
     _PastEdge("mm-right-aligned-printhead", Unit.MM, 7.3, 10.0, _ALLEGRO_LEFT_9_5, 0.01, TextAlign.RIGHT),
     _PastEdge("mm-centred-printhead", Unit.MM, 7.3, 10.0, _ALLEGRO_LEFT_9_5, 0.01, TextAlign.CENTER),
+    # So is a left-aligned font 9 field whose print shift puts its record left of x (allegro-2, 30 pt).
+    _PastEdge(
+        "mm-left-shifted-printhead", Unit.MM, 3.618, 10.0, RenderOptions(model="allegro-2", offset_across=-5.52), 0.01
+    ),
 ]
 
 
