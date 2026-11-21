@@ -99,7 +99,7 @@ def test_the_measured_bytes_are_the_characters_of_the_measured_lines() -> None:
 
 
 #: Widths read off the paper per character (lines of one character then an M, the M's own error
-#: taken out), in dots: whole dots at 12 pt, to about 0.15 dot at 30 pt.
+#: taken out), in whole dots at 12 pt.
 _PAPER_12_PT = {
     **dict.fromkeys("0123456789", 18),
     "M": 28,
@@ -118,20 +118,38 @@ _PAPER_12_PT = {
     **dict.fromkeys(",. ", 10),
     "/": 11,
 }
-_PAPER_30_PT = {
-    "M": 70.0,
-    "0": 45.47,
-    "5": 45.33,
-    ",": 24.67,
-    " ": 24.67,
-    "/": 24.67,
-    "S": 54.40,
-    "T": 50.33,
-    "K": 54.25,
-    "B": 56.12,
-    "O": 64.00,
-    "X": 54.40,
-}
+#: Dots the Allegro 2 prints font 9 at 30 pt right of its record, measured apart (the V-line label).
+_SHIFT_30_PT = 2
+#: M's right side bearing in Adobe's Helvetica-Bold AFM (WX 833, bbox right 765), thousandths of the em.
+_M_RIGHT_BEARING = 68
+
+
+def _paper_widths_30_pt() -> dict[str, float]:
+    """Each character's 30 pt width read off its line in the record, in exact dots.
+
+    The line of M alone gives M: its ink span from the record, less the print shift, plus M's right
+    side bearing, over the count. A line of one character then an M gives that character the same
+    way with M's advance taken out. No rounding is modelled, so a width can differ from the table by
+    the half dot the reached positions round away, spread over the line.
+    """
+    em = font9_em_dots(30, _PROFILE)
+    bearing = _M_RIGHT_BEARING * em / EM_UNITS
+    lines = [line for line in _CHECKED if line.points == 30]
+
+    def ink(line: _PaperLine) -> float:
+        return line.measured_end_mm() * _DOTS_PER_MM - line.text_column * _DOTS_PER_UNIT - _SHIFT_30_PT
+
+    (only_m,) = [line for line in lines if set(line.text) == {"M"}]
+    m_width = (ink(only_m) + bearing) / len(only_m.text)
+    widths = {"M": m_width}
+    for line in lines:
+        if line is not only_m:
+            assert line.text[-1] == "M" and len(set(line.text[:-1])) == 1, line.text
+            widths[line.text[0]] = (ink(line) + bearing - m_width) / (len(line.text) - 1)
+    return widths
+
+
+_PAPER_30_PT = _paper_widths_30_pt()
 
 
 @pytest.mark.os_agnostic
@@ -141,7 +159,14 @@ def test_a_measured_character_advances_its_paper_width_at_12_pt(char: str, dots:
 
 
 @pytest.mark.os_agnostic
-@pytest.mark.parametrize(("char", "dots"), sorted(_PAPER_30_PT.items()))
-def test_a_measured_character_is_its_paper_width_at_30_pt_within_half_a_dot(char: str, dots: float) -> None:
+@pytest.mark.parametrize(("char", "dots"), sorted(_PAPER_30_PT.items()), ids=sorted(_PAPER_30_PT))
+def test_a_measured_character_is_its_paper_width_at_30_pt_within_a_tenth_of_a_dot(char: str, dots: float) -> None:
+    # The digits share the mean of 0 and 5, which read 0.13 dots apart; every other width matches
+    # its line to 0.003 dots.
     width = FONT_9_ADVANCES[char.encode("cp850")[0]] * font9_em_dots(30, _PROFILE) / EM_UNITS
-    assert width == pytest.approx(dots, abs=0.5)
+    assert width == pytest.approx(dots, abs=0.1)
+
+
+@pytest.mark.os_agnostic
+def test_the_30_pt_paper_widths_cover_every_character_measured_at_30_pt() -> None:
+    assert sorted(_PAPER_30_PT) == sorted("M05, /STKBOX")
