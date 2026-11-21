@@ -138,7 +138,9 @@ def position_units(value: float, *, axis: Axis, ctx: RenderContext) -> int:
 def report_past_edge(shifted: float, axis: Axis, *, index: int, ctx: RenderContext) -> None:
     """Record a field the offset moves past the label's 0 edge: refused, or clamped for a model default."""
     offset = ctx.offset_mm(axis)
-    past = f"{_readable(-shifted, ctx.unit)} {ctx.unit.value} past the label edge"
+    distance = _readable(-shifted, ctx.unit)
+    unit = "dot" if ctx.unit is Unit.DOTS and distance == "1" else ctx.unit.value
+    past = f"{distance} {unit} past the label edge"
     if axis in ctx.model_offset_axes:
         ctx.findings.deviate(
             FindingCode.MODEL_OFFSET_CLAMPED,
