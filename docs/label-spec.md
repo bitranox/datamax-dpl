@@ -192,6 +192,10 @@ field as its template, braces and all, and is not refused for that template's wi
 records are measured. `x` itself is checked against the printable width like any field's start
 (`outside_print_width`).
 
+- The line is placed as written, spaces included. A space has no ink, so a trailing space ends the
+  line at its advance and a leading one starts it at its origin: right-aligned `"ABC "` ends the
+  space at `x` and `C`'s ink about 1.4 mm left of it (font 9 at 12 pt; 3.5 mm at 30 pt). Leave
+  the space out to end the ink at `x`.
 - Fonts 0-8 are measured by their character cells (dpl-reference.md, section 6): exact, and
   confirmed on paper (Allegro 2: right-aligned lines in each font ended on their mark). The gap
   after the last character prints nothing and is left out, so the last character's cell ends at
