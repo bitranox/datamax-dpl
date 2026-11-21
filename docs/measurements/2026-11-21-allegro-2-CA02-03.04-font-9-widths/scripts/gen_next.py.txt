@@ -1,0 +1,77 @@
+"""Build the follow-up font 9 calibration labels (user's choice "4 + 30 pt check", 2026-11-21).
+
+Label n01: comma, period, slash and space at 12 pt with short lines (they ran off the label in the
+first per-character set), plus an M reference line. Labels n02-n04: 30 pt lines for the characters
+quantity and BOX use. Every line repeats one character and ends with an M, right-aligned at 85 mm
+against a printed reference line there, so an overrun of up to 15 mm stays on the label. Each line's
+number sits in font 1 on its own small line above it. Numbering continues from the first set (42 on).
+
+Run with the datamax-dpl branch venv: python gen_next.py OUT_DIR
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+from gen_calib import CONTENT_TOP, LINE, RULER_LOW, TOP, extent_mm
+
+RIGHT = 85.0
+LEFT_LIMIT = 4.0
+SETS = [
+    # (points, first y, pitch, number rise, lines per label, target width mm, characters)
+    (12, 1.0, 6.0, 3.7, 8, 40.0, ["M", ",", ".", "/", " "]),
+    (30, 2.5, 11.5, 8.4, 4, RIGHT - LEFT_LIMIT, ["M", "0", "5", ",", " ", "/", "S", "T", "K", "B", "O", "X"]),
+]
+
+
+def frame() -> list[dict[str, object]]:
+    elements: list[dict[str, object]] = [
+        {"type": "line", "x": RIGHT, "y": 0.5, "x2": RIGHT, "y2": CONTENT_TOP, "thickness": LINE}
+    ]
+    for mm in range(5, 96):
+        low = RULER_LOW if mm % 5 == 0 else TOP - 2.0
+        elements.append({"type": "line", "x": mm, "y": low, "x2": mm, "y2": TOP - 0.5, "thickness": LINE})
+    return elements
+
+
+def line_text(char: str, points: int, room: float) -> tuple[str, int, float]:
+    count = 1
+    while extent_mm(char * (count + 1) + "M", font=9, points=points) <= room:
+        count += 1
+    text = char * count + "M"
+    return text, count, extent_mm(text, font=9, points=points)
+
+
+def main() -> int:
+    out = Path(sys.argv[1])
+    out.mkdir(parents=True, exist_ok=True)
+    notes = [
+        "Font 9 follow-up calibration, Allegro 2, 100 x 55 mm; every line right-aligned at 85 mm.",
+        "Report per line number: S<mm> (short of the 85 mm line) or O<mm> (over it).",
+        "",
+    ]
+    number = 42
+    label_no = 0
+    for points, first_y, pitch, rise, per_label, target, chars in SETS:
+        for start in range(0, len(chars), per_label):
+            label_no += 1
+            elements = frame()
+            for offset, char in enumerate(chars[start : start + per_label]):
+                y = first_y + offset * pitch
+                text, count, width = line_text(char, points, min(target, RIGHT - LEFT_LIMIT))
+                elements.append({"type": "text", "x": RIGHT, "y": y, "text": text, "font": 9, "points": points, "align": "right"})
+                elements.append({"type": "text", "x": LEFT_LIMIT, "y": y + rise, "text": str(number), "font": 1})
+                notes.append(f"line {number:2d}  {points} pt  char {char!r} (byte {ord(char)})  N={count}  predicted width {width:.2f} mm")
+                number += 1
+            name = f"n{label_no:02d}-font9-{points}pt.json"
+            label = {"unit": "mm", "width": 100, "height": 55, "elements": elements}
+            (out / name).write_text(json.dumps(label, ensure_ascii=False, indent=1), encoding="utf-8")
+            notes.append(f"  -> {name}")
+    (out / "README.txt").write_text("\n".join(notes) + "\n", encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

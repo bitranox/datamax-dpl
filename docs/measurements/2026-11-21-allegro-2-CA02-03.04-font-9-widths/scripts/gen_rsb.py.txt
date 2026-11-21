@@ -1,0 +1,17 @@
+"""Right side bearing (WX - bbox right) of each byte font 9 prints, from phvb8a.afm, plus a WX cross-check.
+
+Usage: python gen_rsb.py phvb8a.afm '<datamax-dpl stand-in widths as JSON>' (needs fontTools for the
+Adobe Glyph List). Its output is datamax-dpl's _HELVETICA_BOLD_RIGHT_BEARINGS.
+"""
+import json, re, sys
+from fontTools.agl import UV2AGL
+afm = open(sys.argv[1], encoding="latin-1").read()
+glyphs = {m.group(2): (int(m.group(1)), int(m.group(5))) for m in re.finditer(r"WX (\d+) ; N (\S+) ; B (-?\d+) (-?\d+) (-?\d+) (-?\d+)", afm)}
+expected = json.loads(sys.argv[2])
+rsb = {}
+for byte, wx in expected.items():
+    name = UV2AGL[ord(bytes([int(byte)]).decode("cp850"))]
+    gwx, urx = glyphs[name]
+    assert gwx == wx, (byte, name, gwx, wx)
+    rsb[int(byte)] = gwx - urx if urx else 0  # space: no ink, its advance counts like a cell
+print(json.dumps(rsb))

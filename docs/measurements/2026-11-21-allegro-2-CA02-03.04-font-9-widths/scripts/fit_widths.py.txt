@@ -1,0 +1,111 @@
+"""Fit font 9 design widths to the paper lines in ../lines.json and print each line's residual in mm.
+
+Copy to fit_widths.py beside lines.json and run it with datamax-dpl installed:
+python fit_widths.py [WHOLE_DOT_MAX_POINTS]  (default 12)
+
+Model: a character's advance is its width * em / 1000 dots (em = points * 203 / 72). Up to
+WHOLE_DOT_MAX_POINTS each advance is rounded to whole dots; above it the exact advances accumulate
+and only the position each character reaches is rounded. A measured bitmap advance that rounds
+against its width overrides it. The ink ends before the last advance by that glyph's right side
+bearing (Helvetica-Bold AFM bounding box), rounded to whole dots.
+
+Fitting: M at 30 pt from the line of M alone, given M's bearing (68/1000 em); every other character
+measured at 30 pt from its line (N characters then an M); a character measured only at 12 pt takes
+the middle of the widths that round to its whole-dot advance there. Digits share the mean of the
+two measured at 30 pt (0 and 5), the period takes the comma's width. A 12 pt advance its 30 pt width
+does not round to becomes a 12 pt override. Characters never measured keep the stand-in width.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+from datamax_dpl.domain.text_metrics import _HELVETICA_BOLD as STAND_IN  # Helvetica-Bold widths
+from datamax_dpl.domain.text_metrics import FONT_9_RIGHT_BEARINGS
+
+HERE = Path(__file__).parent
+DOTS_PER_MM = 203 / 25.4
+ROWS = json.loads((HERE / "lines.json").read_text(encoding="utf-8"))
+WHOLE_MAX = int(sys.argv[1]) if len(sys.argv) > 1 else 12
+M = 77
+
+
+def em(points: int) -> float:
+    return points * 203 / 72
+
+
+def byte(char: str) -> int:
+    return char.encode("cp850")[0]
+
+
+def bearing(code: int, points: int) -> float:
+    return FONT_9_RIGHT_BEARINGS[code] * em(points) / 1000
+
+
+def single_lines(points: int) -> dict[str, dict]:
+    """Lines of one repeated character ending in M, by that character."""
+    return {
+        r["text"][0]: r
+        for r in ROWS
+        if r["points"] == points and r["quality"] == "ok" and len(set(r["text"][:-1])) == 1
+        and r["text"][-1] == "M" and set(r["text"]) != {"M"}
+    }
+
+
+def fit() -> tuple[dict[int, float], dict[int, dict[int, int]]]:
+    e12, e30 = em(12), em(30)
+    m30 = next(r for r in ROWS if r["points"] == 30 and set(r["text"]) == {"M"})
+    m_advance = (m30["ink_extent_dots"] + bearing(M, 30)) / len(m30["text"])
+    widths = {M: m_advance * 1000 / e30}
+    at_30 = {c: (r["ink_extent_dots"] - m_advance + bearing(M, 30)) / (len(r["text"]) - 1) for c, r in single_lines(30).items()}
+    overrides: dict[int, dict[int, int]] = {12: {}}
+    m12 = round(widths[M] * e12 / 1000)
+    for c, r in single_lines(12).items():
+        k12 = round((r["ink_extent_dots"] - m12 + bearing(M, 12)) / (len(r["text"]) - 1))
+        if c in at_30:
+            width = at_30[c] * 1000 / e30
+            if round(width * e12 / 1000) != k12:
+                overrides[12][byte(c)] = k12
+        else:
+            width = k12 * 1000 / e12
+        widths[byte(c)] = width
+    digit = sum(widths[byte(d)] for d in "05") / 2
+    for d in "0123456789":
+        widths[byte(d)] = digit
+    widths[byte(".")] = widths[byte(",")]
+    return widths, overrides
+
+
+def advances(text: str, points: int, widths: dict[int, float], overrides: dict[int, dict[int, int]], stand_in: dict[int, float]) -> list[int]:
+    exact = [widths.get(byte(c), stand_in[byte(c)]) * em(points) / 1000 for c in text]
+    over = overrides.get(points, {})
+    if points <= WHOLE_MAX:
+        return [over.get(byte(c), round(a)) for c, a in zip(text, exact)]
+    out, position, previous = [], 0.0, 0
+    for c, a in zip(text, exact):
+        position += over.get(byte(c), a)
+        out.append(round(position) - previous)
+        previous = round(position)
+    return out
+
+
+def main() -> int:
+    widths, overrides = fit()
+    for r in ROWS:
+        points, text = r["points"], r["text"]
+        extent = sum(advances(text, points, widths, overrides, STAND_IN)) - round(bearing(byte(text[-1]), points))
+        end_mm = (2 * r["text_column"] + extent) / DOTS_PER_MM
+        if r["ink_extent_dots"] is None:
+            print(f"{points:2d} pt {text[:14]!r:18} {r['reading']:6} predicted end {end_mm:6.2f} mm (ran off the 100 mm label)")
+            continue
+        residual = (extent - r["ink_extent_dots"]) / DOTS_PER_MM
+        print(f"{points:2d} pt {text[:14]!r:18} {r['reading']:6} residual {residual:+5.2f} mm  {r['characters']} {r['quality']}")
+    print("widths", json.dumps({k: round(v, 1) for k, v in sorted(widths.items())}))
+    print("12 pt overrides", overrides[12])
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,3 @@
+02 lowest line first: S5.5 S1.8 S1.2 0? O4.5 O1.5 S1 S1.5 S0.2 S1
+03 lowest line first: S2.8 S1 O3?
+04 lowest line first: S0.5 S0.5 S1.8 S2.8

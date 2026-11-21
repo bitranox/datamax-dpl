@@ -1,0 +1,194 @@
+"""Build the Allegro 2 font calibration labels (100 x 55 mm) and their README.
+
+Run with the datamax-dpl branch venv: python gen_calib.py OUT_DIR
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+from datamax_dpl.domain.charset import FONT_BYTES
+from datamax_dpl.domain.label import Text
+from datamax_dpl.domain.profiles import get_profile
+from datamax_dpl.domain.text_metrics import CELLS, text_extent
+
+PROFILE = get_profile("allegro-2")
+DOTS_PER_MM = PROFILE.dpi / 25.4
+RIGHT = 95.0
+TOP = 55.0
+RULER_LOW = 52.0  # the ruler's long ticks reach down to here; content stays below 51
+CONTENT_TOP = 51.0
+LINE = 0.25
+
+
+def frame() -> list[dict[str, object]]:
+    """The vertical line at x 95 and the 1 mm tick ruler along the top edge."""
+    elements: list[dict[str, object]] = [
+        {"type": "line", "x": RIGHT, "y": 0.5, "x2": RIGHT, "y2": CONTENT_TOP, "thickness": LINE}
+    ]
+    for mm in range(5, 96):
+        low = RULER_LOW if mm % 5 == 0 else TOP - 2.0
+        elements.append({"type": "line", "x": mm, "y": low, "x2": mm, "y2": TOP - 0.5, "thickness": LINE})
+    return elements
+
+
+def label(elements: list[dict[str, object]]) -> dict[str, object]:
+    return {"unit": "mm", "width": 100, "height": 55, "elements": frame() + elements}
+
+
+def extent_mm(text: str, *, font: int, points: int | None = None) -> float:
+    element = Text(x=0, y=0, text=text, font=font, points=points)
+    return text_extent(element, PROFILE) / DOTS_PER_MM
+
+
+def font_label() -> tuple[dict[str, object], list[str]]:
+    """Fonts 0-8, one right-aligned line each, bottom up, with a font tag at the left."""
+    samples = {0: "Wi1.0Mm", 1: "Wi1.0Mm", 2: "Wi1.0Mm", 7: "Wi1.0Mm", 8: "ZC10NE8"}
+    elements: list[dict[str, object]] = []
+    notes: list[str] = []
+    y = 1.0
+    for font in range(9):
+        text = samples.get(font, "WI1.0MM")
+        height = CELLS[font].dpi_203.height / DOTS_PER_MM
+        elements.append({"type": "text", "x": RIGHT, "y": y, "text": text, "font": font, "align": "right"})
+        elements.append({"type": "text", "x": 3, "y": y, "text": f"f{font}", "font": 2})
+        notes.append(
+            f"  y {y:4.1f}  font {font}: {text!r} right-aligned at 95, predicted width "
+            f"{extent_mm(text, font=font):.2f} mm (exact cells); tag 'f{font}' at x 3 in font 2"
+        )
+        y += max(height, CELLS[2].dpi_203.height / DOTS_PER_MM) + 1.2
+    return label(elements), notes
+
+
+def font9_groups() -> list[tuple[str, str]]:
+    chars = [bytes([b]).decode("cp850") for b in sorted(FONT_BYTES[9])]
+    lower = [c for c in chars if "a" <= c <= "z"]
+    upper = [c for c in chars if "A" <= c <= "Z"]
+    digits = [c for c in chars if "0" <= c <= "9"]
+    ascii_rest = [c for c in chars if ord(c) < 128 and c not in lower + upper + digits]
+    high = [c for c in chars if ord(c) >= 128]
+    groups = [("lower case", "".join(lower)), ("upper case", "".join(upper)), ("digits", "".join(digits))]
+    for n, start in enumerate(range(0, len(ascii_rest), 11), 1):
+        groups.append((f"punctuation {n}", "".join(ascii_rest[start : start + 11])))
+    for n, start in enumerate(range(0, len(high), 12), 1):
+        groups.append((f"high bytes {n}", "".join(high[start : start + 12])))
+    covered = "".join(text for _, text in groups)
+    assert sorted(covered) == sorted(chars) and len(covered) == len(chars), "every font 9 character once"
+    return groups
+
+
+def font9_labels() -> list[tuple[dict[str, object], list[str]]]:
+    groups = font9_groups()
+    pages: list[tuple[dict[str, object], list[str]]] = []
+    per_page = 10
+    for first in range(0, len(groups), per_page):
+        elements: list[dict[str, object]] = []
+        notes: list[str] = []
+        for row, (name, text) in enumerate(groups[first : first + per_page]):
+            y = 1.0 + row * 5.0
+            elements.append(
+                {"type": "text", "x": RIGHT, "y": y, "text": text, "font": 9, "points": 12, "align": "right"}
+            )
+            codes = " ".join(str(b) for b in text.encode("cp850"))
+            notes.append(
+                f"  y {y:4.1f}  font 9 12 pt, {name}: {text!r} right-aligned at 95, predicted width "
+                f"{extent_mm(text, font=9, points=12):.2f} mm; bytes {codes}"
+            )
+        pages.append((label(elements), notes))
+    return pages
+
+
+def scale_label() -> tuple[dict[str, object], list[str]]:
+    sample = "Wi1.0M"
+    elements: list[dict[str, object]] = []
+    notes: list[str] = []
+    y = 1.0
+    for points in (8, 18, 30, 48):
+        elements.append(
+            {"type": "text", "x": RIGHT, "y": y, "text": sample, "font": 9, "points": points, "align": "right"}
+        )
+        notes.append(
+            f"  y {y:4.1f}  font 9 {points} pt: {sample!r} right-aligned at 95, predicted width "
+            f"{extent_mm(sample, font=9, points=points):.2f} mm"
+        )
+        y += points * 25.4 / 72 + 2.0
+    return label(elements), notes
+
+
+def codepage_label() -> tuple[dict[str, object], list[str]]:
+    differing = [b for b in sorted(FONT_BYTES[9]) if bytes([b]).decode("cp437") != bytes([b]).decode("cp850")]
+    elements: list[dict[str, object]] = []
+    notes: list[str] = []
+    for row, start in enumerate(range(0, len(differing), 13)):
+        part = differing[start : start + 13]
+        text = "".join(bytes([b]).decode("cp850") for b in part)
+        y = 40.0 - row * 8.0
+        elements.append({"type": "text", "x": 3, "y": y, "text": text, "font": 9, "points": 12})
+        numbers = " ".join(str(b) for b in part)
+        elements.append({"type": "text", "x": 3, "y": y - 3.0, "text": numbers, "font": 1})
+        shown = ", ".join(
+            f"{b}={bytes([b]).decode('cp850')} (437: {bytes([b]).decode('cp437')})" for b in part
+        )
+        notes.append(f"  y {y:4.1f}  font 9 12 pt left-aligned at x 3: {text!r}; {shown}")
+        notes.append(f"  y {y - 3.0:4.1f}  font 1 under it: the same bytes as numbers, in order: {numbers}")
+    return label(elements), notes
+
+
+def main() -> None:
+    out = Path(sys.argv[1])
+    assert len(sys.argv) == 3, 'usage: gen_calib.py OUT_DIR WORKTREE'
+    out.mkdir(parents=True, exist_ok=True)
+    pages: list[tuple[str, str, dict[str, object], list[str]]] = []
+    fonts, notes = font_label()
+    pages.append(("01-fonts-0-8.json", "Fonts 0-8: fixed cells", fonts, notes))
+    for n, (page, page_notes) in enumerate(font9_labels(), 2):
+        pages.append((f"{n:02d}-font9-characters-{n - 1}.json", "Font 9 characters, 12 pt", page, page_notes))
+    number = len(pages) + 1
+    scale, notes = scale_label()
+    pages.append((f"{number:02d}-font9-scale.json", "Font 9 scale: one sample at four sizes", scale, notes))
+    codepage, notes = codepage_label()
+    pages.append((f"{number + 1:02d}-font9-codepage.json", "Font 9 code page 437 vs 850 bytes", codepage, notes))
+    for name, _, page, _ in pages:
+        (out / name).write_text(json.dumps(page, indent=1, ensure_ascii=True) + "\n", encoding="utf-8")
+    print("\n".join(name for name, _, _, _ in pages))
+    readme = [
+        "Allegro 2 font calibration labels, 100 x 55 mm, datamax-dpl branch feat/text-align (0.12.0).",
+        "",
+        "Print in this order with the branch build (font 9 code page 850 needs it), one at a time,",
+        "waiting for the printer to be idle between jobs:",
+        "  datamax-dpl print FILE --model allegro-2 --cutter yes --printer tcp://PRINTER:9100",
+        "",
+        "Every label carries:",
+        "  - a thin vertical line at x 95 mm (from y 0.5 to 51 mm), the right edge every right-aligned",
+        "    line should end at;",
+        "  - a tick ruler along the top edge, one tick per mm from x 5 to x 95, a longer tick every",
+        "    5 mm (5, 10, ... 95), so a phone photo can be measured in mm.",
+        "",
+        "How to read a right-aligned line: measure the gap between its last ink and the line at 95.",
+        "Ink touching or crossing the line means the printed text is wider than predicted; a gap",
+        "larger than a letter's side bearing (about 0.1-0.3 mm) means it is narrower. The 'predicted",
+        "width' is what datamax-dpl measured, so (predicted - real start-to-end) is the summed error",
+        "of that line's characters. Dots the text and the line share print WHITE (the Allegro 2",
+        "XORs overlapping fields), so a letter touching the line shows a break in it.",
+        "Fonts 0-8 are fixed cells per the manual: their lines should end exactly at 95.",
+        "Font 9 widths are a Helvetica-Bold stand-in: these lines measure how far it is off.",
+        "",
+    ]
+    for name, title, _, page_notes in pages:
+        readme.append(f"{name}: {title}")
+        readme.extend(page_notes)
+        readme.append("")
+    readme.append(
+        "The code page label prints font 9's bytes that differ between code page 437 and 850 as"
+    )
+    readme.append(
+        "their code page 850 characters: accented letters on paper confirm 850; box-drawing or Greek"
+    )
+    readme.append("glyphs, or blanks, would mean the printer's font 9 is not 850 at those bytes.")
+    (out / "README.txt").write_text("\n".join(readme) + "\n", encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()

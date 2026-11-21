@@ -1,0 +1,31 @@
+import re, sys
+from gen_chars import CHARS, line_text, POINTS
+from gen_calib import PROFILE, DOTS_PER_MM
+from datamax_dpl.domain.label import Text
+from datamax_dpl.domain.text_metrics import char_advances, font9_em_dots
+read = {}
+for ln in open("chars/readings.txt"):
+    n, v = ln.split()[:2]
+    read[int(n)] = v
+def mm(v):
+    if v == "O?": return None
+    sign = 1 if v[0] == "S" else -1
+    return sign * float(v[1:])
+em = font9_em_dots(POINTS, PROFILE)
+mtext, mN, _ = line_text("M")
+m_err = mm(read[1]) / (mN + 1)   # predicted minus real, per M, in mm
+m_adv = char_advances(Text(x=0, y=0, text="M", font=9, points=POINTS), PROFILE)[0]
+print(f"em {em:.2f} dots; M pred {m_adv} dots, err/char {m_err*DOTS_PER_MM:.3f} dots")
+for i, c in enumerate(CHARS, 1):
+    text, n, _ = line_text(c)
+    pred = char_advances(Text(x=0, y=0, text=c, font=9, points=POINTS), PROFILE)[0]
+    r = mm(read[i])
+    if r is None:
+        print(f"{i:2d} {c!r:5} N={n:2d} pred {pred:3d} dots  real ?  (over the edge: real > pred + {(95-(95-0))}...)  reading O?")
+        continue
+    if i == 1:
+        err = m_err
+    else:
+        err = (r - m_err) / n
+    real = pred - err * DOTS_PER_MM
+    print(f"{i:2d} {c!r:5} N={n:2d} reading {read[i]:6} pred {pred:3d} dots  real {real:6.2f} dots  = {real/em*1000:6.1f}/1000 em (pred {pred/em*1000:6.1f})")

@@ -1,0 +1,67 @@
+"""Build the per-character font 9 calibration labels for the Allegro 2 (100 x 55 mm).
+
+Each line repeats ONE character across the label and ends with an "M", right-aligned at 95 mm, so
+the gap (or overrun) at the line is N times that character's width error plus the M's error.
+Line 1 is all M's and gives the M's own error. Each line has its number on a small line of its own above it.
+
+Run with the datamax-dpl branch venv: python gen_chars.py OUT_DIR
+"""
+
+from __future__ import annotations
+
+import json
+import string
+import sys
+from pathlib import Path
+
+from gen_calib import RIGHT, extent_mm, label
+
+POINTS = 12
+FIRST_Y = 1.0
+PITCH = 6.0
+LINES_PER_LABEL = 8
+LEFT_LIMIT = 4.0
+NUMBER_RISE = 3.7  # the line number (font 1, 1.6 mm high) sits on its own line above the measured line
+CHARS = ["M", *string.digits, ",", ".", "/", "-", " ", *(c for c in string.ascii_uppercase if c != "M")]
+
+
+def line_text(char: str) -> tuple[str, int, float]:
+    """The longest char*N + 'M' that fits between LEFT_LIMIT and RIGHT; returns text, N, width."""
+    room = RIGHT - LEFT_LIMIT
+    count = 1
+    while extent_mm(char * (count + 1) + "M", font=9, points=POINTS) <= room:
+        count += 1
+    text = char * count + "M"
+    return text, count, extent_mm(text, font=9, points=POINTS)
+
+
+def main() -> int:
+    out = Path(sys.argv[1])
+    out.mkdir(parents=True, exist_ok=True)
+    notes = [
+        "Font 9 per-character calibration, 12 pt, Allegro 2, 100 x 55 mm.",
+        "Each numbered line = one character repeated N times, then 'M', right-aligned at 95 mm.",
+        "Report per line number: S<mm> (ends short of the 95 mm line) or O<mm> (runs over it).",
+        "error per char (mm) = (reading - M error) / N, where S is positive, O negative;",
+        "line 1 (all M) gives the M error: its reading / (N + 1).",
+        "",
+    ]
+    for start in range(0, len(CHARS), LINES_PER_LABEL):
+        chunk = CHARS[start : start + LINES_PER_LABEL]
+        elements: list[dict[str, object]] = []
+        for offset, char in enumerate(chunk):
+            number = start + offset + 1
+            y = FIRST_Y + offset * PITCH
+            text, count, width = line_text(char)
+            elements.append({"type": "text", "x": RIGHT, "y": y, "text": text, "font": 9, "points": POINTS, "align": "right"})
+            elements.append({"type": "text", "x": LEFT_LIMIT, "y": y + NUMBER_RISE, "text": str(number), "font": 1})
+            notes.append(f"line {number:2d}  char {char!r} (byte {ord(char)})  N={count}  predicted width {width:.2f} mm  start x {RIGHT - width:.2f}")
+        name = f"c{start // LINES_PER_LABEL + 1:02d}-font9-chars.json"
+        (out / name).write_text(json.dumps(label(elements), ensure_ascii=False, indent=1), encoding="utf-8")
+        notes.append(f"  -> {name}")
+    (out / "README.txt").write_text("\n".join(notes) + "\n", encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

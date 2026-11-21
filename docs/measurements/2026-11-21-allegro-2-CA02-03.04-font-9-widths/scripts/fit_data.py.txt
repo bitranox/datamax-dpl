@@ -1,0 +1,93 @@
+"""Collect every paper-measured font 9 line: text, size, as-printed record column, reading, true ink extent.
+
+Writes ../lines.json. Copy to fit_data.py beside lines.json and run it with a datamax-dpl whose
+font 9 table is still the Helvetica-Bold stand-in for every byte (0.12.0 before the measured
+widths): the record columns are where that table placed the printed lines.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+from pathlib import Path
+
+from datamax_dpl.domain.label import Label
+from datamax_dpl.domain.render import build_job
+from datamax_dpl.domain.render_context import RenderOptions
+
+HERE = Path(__file__).parent
+DOTS_PER_MM = 203 / 25.4
+TEXT = re.compile(rb"^19[1-9A-O][1-9A-O](\d{3}|A\d\d)(\d{4})(\d{4})(.*)$")
+LINE = re.compile(rb"^1X11000(\d{4})(\d{4})L001\d{3}$")
+
+# label file -> readings of its font 9 lines, lowest line (smallest y) first
+CALIB = {
+    "calib/02-font9-characters-1.json": "S5.5 S1.8 S1.2 0? O4.5 O1.5 S1 S1.5 S0.2 S1".split(),
+    "calib/03-font9-characters-2.json": "S2.8 S1 O3?".split(),
+    "calib/04-font9-scale.json": "S0.5 S0.5 S1.8 S2.8".split(),
+}
+
+
+def numbered(readings: Path) -> dict[int, str]:
+    return {int(ln.split()[0]): ln.split()[1] for ln in readings.read_text().splitlines() if ln.strip()}
+
+
+def jobs() -> list[tuple[str, str, list[str]]]:
+    out = [(name, name, reads) for name, reads in CALIB.items()]
+    chars, nxt = numbered(HERE / "chars/readings.txt"), numbered(HERE / "next/readings.txt")
+    number = 1
+    for name in sorted((HERE / "chars").glob("c0*.json")):
+        count = sum(1 for e in json.loads(name.read_text())["elements"] if e.get("font") == 9)
+        out.append((f"chars/{name.name}", f"chars/{name.name}", [chars[number + i] for i in range(count)]))
+        number += count
+    number = 42
+    for name in sorted((HERE / "next").glob("n0*.json")):
+        count = sum(1 for e in json.loads(name.read_text())["elements"] if e.get("font") == 9)
+        out.append((f"next/{name.name}", f"next/{name.name}", [nxt[number + i] for i in range(count)]))
+        number += count
+    return out
+
+
+def reading_mm(value: str) -> tuple[float | None, str]:
+    """Signed gap in mm (short positive) and a quality tag: ok, uncertain, off_label."""
+    if value == "O?":
+        return None, "off_label"
+    tag = "uncertain" if "?" in value else "ok"
+    value = value.rstrip("?")
+    if value == "0":
+        return 0.0, tag
+    return (1 if value[0] == "S" else -1) * float(value[1:]), tag
+
+
+def main() -> int:
+    rows = []
+    for name, _, readings in jobs():
+        label = Label.model_validate(json.loads((HERE / name).read_text(encoding="utf-8")))
+        result = build_job(label, RenderOptions(model="allegro-2"))
+        records = result.data.split(b"\r")
+        line_cols = [int(m.group(2)) for m in (LINE.match(r) for r in records) if m]
+        texts = [m for m in (TEXT.match(r) for r in records) if m]
+        in_order = [e for e in label.elements if getattr(e, "font", None) == 9]
+        assert len(texts) == len(in_order) == len(readings), (name, len(texts), len(in_order), len(readings))
+        for e, m in zip(in_order, texts, strict=True):
+            assert m.group(4).decode("cp850") == e.text, (name, e.text)
+        paired = sorted(zip(in_order, texts, strict=True), key=lambda pair: pair[0].y)
+        for (element, m), value in zip(paired, readings, strict=True):
+            right_col = round(element.x / 25.4 * 101.5)
+            ref = [c for c in line_cols if abs(c - right_col) <= 1]
+            assert ref, (name, element.x, line_cols)
+            r, tag = reading_mm(value)
+            column = int(m.group(3))
+            true = None if r is None else 2 * (ref[0] - column) - r * DOTS_PER_MM
+            rows.append(
+                {"label": name, "text": element.text, "points": element.points, "right_mm": element.x,
+                 "line_column": ref[0], "text_column": column, "reading": value, "quality": tag,
+                 "ink_extent_dots": true}
+            )
+    json.dump(rows, sys.stdout, ensure_ascii=False, indent=1)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
