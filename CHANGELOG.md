@@ -55,12 +55,19 @@ All notable changes to this project are documented here. The format follows
 - The calibration label after a printer reset and a plain `feed` centre their text by the same
   measure, without the gap after the last character, so the text moves up to one DPL unit right
   (`allegro-2`, 100 mm, "CAL": column 0191 becomes 0192).
-- Font 9 is measured per character: the manual names it CG Triumvirate Bold but lists no widths,
-  so datamax-dpl uses the Helvetica-Bold widths (Adobe Core14 AFM) at the point size the model
-  prints, marked unverified. The first paper test (Allegro 2, 2026-11-21) found them off by
-  character group, from the lower-case alphabet printing about 9% narrower than the table predicts
-  to `+,-./:;<=>?` printing about 22% wider, and a four-size sample about 5% narrower at 8, 30 and
-  48 pt; a per-character measurement follows, and the table is unchanged until then. The preview,
+- Font 9 is measured per character: the manual names it CG Triumvirate Bold but lists no widths.
+  The capitals, the digits, `,` `-` `.` `/` and the space take widths measured on paper on an
+  Allegro 2 (firmware CA02 03.04, 2026-11-21), at 12 and 30 pt
+  (`docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths`); every other character keeps
+  the Helvetica-Bold width (Adobe Core14 AFM), marked unverified (`FONT_9_MEASURED` names the
+  measured bytes). Up to 12 pt each character advances by its own width rounded to whole dots,
+  above it only the position each reaches is rounded (sizes from 14 to 24 pt are unmeasured), and
+  a line ends at its last glyph's ink, its right side bearing (AFM) before its advance; `/` at
+  12 pt advances 11 dots, one more than its width gives. Every measured line ends within 0.35 mm
+  of where it printed (the largest residual 0.32 mm); placed by the stand-in, a right-aligned line
+  of 36 digits at 12 pt ended 5 mm short of `x` and lines of `,` `.` `/` and spaces ran off the
+  label. A first test with the stand-in found the lower-case alphabet about 9% narrower than it
+  predicts and `+,-./:;<=>?` about 22% wider; those characters are still unmeasured. The preview,
   the label-edge check (`element_past_label_edge`) and the overlap check now use these widths
   instead of a flat 0.6 em per character, and the preview sizes font 9 at the printed point size
   (after `font_size_substituted`) instead of the requested one. Findings for font 9 text change

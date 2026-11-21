@@ -192,9 +192,10 @@ class Text(_Placed):
     ``align`` says where ``x`` sits on the printed line: its left end (the default), its centre or
     its right end. The encoder moves the field back by the width the line prints, worked out per
     record after placeholders are filled (:mod:`~datamax_dpl.domain.text_metrics`: exact for fonts
-    0-8, a Helvetica-Bold stand-in for font 9). An aligned field must be upright and take no
-    counter, no ``font_id`` and, in font 9, no ``width_multiplier``: the width of a turned,
-    counting, downloaded-font or widened font 9 line is not known here.
+    0-8; for font 9 measured on paper, or a Helvetica-Bold stand-in for characters not measured).
+    An aligned field must be upright and take no counter, no ``font_id`` and, in font 9, no
+    ``width_multiplier``: the width of a turned, counting, downloaded-font or widened font 9 line
+    is not known here.
 
     Example:
         >>> Text(x=5, y=10, text="Hello").font

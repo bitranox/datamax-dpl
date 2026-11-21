@@ -252,12 +252,15 @@ repeat record; its decoder still reads them.
 
 Font 9 is CG Triumvirate Bold: the manual's table "Font 9 Bitmapped Resident fonts specifications"
 names it for both the `000`-`010` and the `A04`-`A72` sizes (printed page 174, PDF page 184). Its
-character widths are not in the manual; `src/datamax_dpl/domain/text_metrics.py` holds a
-Helvetica-Bold stand-in that text alignment, the preview and the label edge check measure a font 9
-line with. It is unverified: a first paper test (Allegro 2, 2026-11-21) found it off by character
-group, from the lower-case alphabet printing about 9% narrower than predicted to `+,-./:;<=>?`
-about 22% wider, and one sample about 5% narrower at 8, 30 and 48 pt. Right-aligned lines in fonts
-0-8, measured by their cells, ended exactly on their mark in the same test.
+character widths are not in the manual. `src/datamax_dpl/domain/text_metrics.py` holds the widths
+text alignment, the preview and the label edge check measure a font 9 line with: for the capitals,
+the digits, `,` `-` `.` `/` and the space, widths measured on paper on an Allegro 2 (firmware CA02
+03.04, 2026-11-21, at 12 and 30 pt; `docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths`),
+which put every measured line within 0.35 mm of where it printed; for every other character a
+Helvetica-Bold stand-in, unverified, which the same tests found about 9% too wide for the
+lower-case alphabet and about 22% too narrow for `+,-./:;<=>?`. On that printer each character
+advances by whole dots at 12 pt, while at 30 pt only the position each reaches is rounded.
+Right-aligned lines in fonts 0-8, measured by their cells, ended exactly on their mark.
 
 Character codes above 127 follow code page 437 for fonts 1 and 2 and code page 850 for font 9 (ä
 132, ö 148, ü 129, Ä 142, Ö 153, Ü 154, ß 225 in all three). The manual lists font 9's codes only by

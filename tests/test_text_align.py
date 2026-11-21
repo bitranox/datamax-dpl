@@ -2,7 +2,8 @@
 
 DPL places a field at its lower-left corner, so ``align`` is the encoder's arithmetic: the record's
 column is ``x``'s minus the line's width in DPL units. Fonts 0-8 are measured by their cells, which
-the manual gives; font 9 by a Helvetica-Bold stand-in for CG Triumvirate Bold (``text_metrics``).
+the manual gives; font 9 by widths measured on paper, or a Helvetica-Bold stand-in for the
+characters not measured (``text_metrics``).
 """
 
 from __future__ import annotations
@@ -83,10 +84,11 @@ def test_a_width_multiplier_of_fonts_0_to_8_widens_the_shift_with_the_cells() ->
 
 @pytest.mark.os_agnostic
 def test_font_9_moves_back_by_each_letters_own_width() -> None:
-    # 8 pt at 203 dpi is an em of 22.56 dots: i advances 278/1000 em (6 dots), W 944/1000 (21 dots).
+    # 8 pt at 203 dpi is an em of 22.56 dots: i advances 278/1000 em (6 dots) and its ink ends
+    # 69/1000 em (2 dots) before its advance; W advances 916.3/1000 (21 dots), its ink 0 dots short.
     narrow = Text(x=95, y=10, text="iiiiiiii", font=FONT_9, points=8)
     wide = Text(x=95, y=10, text="WWWWWWWW", font=FONT_9, points=8)
-    assert _column(narrow) - _column(narrow.model_copy(update={"align": TextAlign.RIGHT})) == 48 // _DOTS_PER_UNIT
+    assert _column(narrow) - _column(narrow.model_copy(update={"align": TextAlign.RIGHT})) == (48 - 2) // _DOTS_PER_UNIT
     assert _column(wide) - _column(wide.model_copy(update={"align": TextAlign.RIGHT})) == 168 // _DOTS_PER_UNIT
 
 
@@ -111,8 +113,10 @@ def test_alignment_is_worked_out_per_record_after_the_placeholders_are_filled() 
     short = _columns(batch.results[0].data)[b"5 STK"]
     long = _columns(batch.results[1].data)[b"12345,5 STK"]
     profile = get_profile(_MODEL)
-    extra = text_extent(Text(x=0, y=0, text="12345,", font=FONT_9, points=30), profile)
-    assert short - long == pytest.approx(extra / _DOTS_PER_UNIT, abs=1)
+    widths = [
+        text_extent(Text(x=0, y=0, text=text, font=FONT_9, points=30), profile) for text in ("5 STK", "12345,5 STK")
+    ]
+    assert short - long == pytest.approx((widths[1] - widths[0]) / _DOTS_PER_UNIT, abs=1)
 
 
 @pytest.mark.os_agnostic

@@ -56,10 +56,11 @@ are in [exit-codes-timeouts-and-retries.md](references/exit-codes-timeouts-and-r
    records exactly; text is grey cells, or Pillow's font (not the printer's) with the `preview`
    extra (`uvx --from "datamax-dpl[preview]" datamax-dpl`, Python 3.11+). A label longer than
    `[preview] max_length_mm` (2000) is refused. The preview cuts each text where datamax-dpl
-   ESTIMATES the line ends (font 9 by a Helvetica-Bold stand-in for the printer's widths, unverified
-   on paper; fonts 0-8 by their exact cells), and `validate` judges `element_past_label_edge` by
-   the same estimate: a preview cut is not evidence of overflow, and a clean validate is not proof
-   the text fits. Only paper decides.
+   ESTIMATES the line ends (font 9 by widths measured on an Allegro 2 for capitals, digits,
+   `,-./` and space, by an unverified Helvetica-Bold stand-in for the rest; fonts 0-8 by their
+   exact cells), and `validate` judges `element_past_label_edge` by the same estimate: a preview
+   cut is not evidence of overflow, and a clean validate is not proof the text fits. Only paper
+   decides.
 4. Print ONE label first, with the options production sends (`--cutter`, `--set`, `--option`): a
    data file with the header and one row,
    `datamax-dpl print label.json --data one.csv --model MODEL --printer tcp://HOST:9100`. The

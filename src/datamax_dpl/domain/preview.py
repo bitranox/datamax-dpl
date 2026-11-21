@@ -243,14 +243,15 @@ def letter_spans(element: Text | ScalableText, canvas: Canvas) -> tuple[Span, ..
 
     Each starts where the advances before it end (:func:`~.text_metrics.char_advances`) and is as
     long as its cell: the cell's width in fonts 0-8, which leaves the gap after it blank, and the
-    whole advance in font 9, whose cells touch. A scalable text field is measured as the font 9
+    whole advance in font 9, whose cells touch, except that the last one ends where the line's ink
+    does (:func:`~.text_metrics.text_extent`). A scalable text field is measured as the font 9
     field the preview draws for it.
 
     Example:
         >>> label = Label(elements=[Text(x=0, y=0, text="Wi", font=9, points=8)])
         >>> canvas = canvas_for(label, get_profile("allegro-2"))
         >>> letter_spans(label.elements[0], canvas)
-        (Span(start=0, length=21), Span(start=21, length=6))
+        (Span(start=0, length=21), Span(start=21, length=4))
     """
     text = _as_text(element) if isinstance(element, ScalableText) else element
     profile = canvas.geometry.ctx.profile
@@ -260,6 +261,8 @@ def letter_spans(element: Text | ScalableText, canvas: Canvas) -> tuple[Span, ..
     for advance in char_advances(text, profile):
         spans.append(Span(start=start, length=advance if ink is None else ink))
         start += advance
+    if ink is None and spans:
+        spans[-1] = Span(start=spans[-1].start, length=text_extent(text, profile) - spans[-1].start)
     return tuple(spans)
 
 

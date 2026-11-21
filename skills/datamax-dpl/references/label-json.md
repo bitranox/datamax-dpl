@@ -8,10 +8,12 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
   capitals only. Font 9 needs `points`. Umlauts work in fonts 1, 2 and 9, capital umlauts and
   sharp s also in 3-6; the euro sign in none.
 - Font 9 is CG Triumvirate Bold, proportional: `W` is about three times as wide as `i`. Its widths
-  are not in the manual, so it is measured with Helvetica-Bold's widths at the point size the
-  model prints (the nearest one after `font_size_substituted`). A first paper test (Allegro 2)
-  found whole lines 9% narrower to 22% wider than predicted, by character group, so a
-  right-aligned font 9 line can end millimetres from `x`: check it on paper. Fonts 0-8 are
+  are not in the manual. The capitals, the digits, `,` `-` `.` `/` and the space are measured on
+  paper (Allegro 2, at 12 and 30 pt): a right-aligned line of them ends within about 0.35 mm of
+  `x` there. Other characters (lower case, other punctuation, umlauts) take Helvetica-Bold's
+  widths, unverified: lines of them printed 9% narrower to 22% wider than predicted, so check such
+  a line on paper, as any font 9 line at 14-24 pt or on another model. Widths are taken at the
+  point size the model prints (the nearest one after `font_size_substituted`). Fonts 0-8 are
   measured exactly by their cells (confirmed on paper).
 - `"align": "right"` puts a `text` field's line END at `x` (`"center"` its middle; `"left"` is the
   default): DPL has no justification, so the field is moved back by the measured width, per record
@@ -25,8 +27,9 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
   Refused: a line that would start left of the label (`text_past_left_edge`, exit 1), and an
   aligned field that is rotated or has a `counter`, a `font_id`, or in font 9 a `width_multiplier`
   (the label JSON is invalid: every command reading it exits 2); a left-aligned field takes all
-  of them. Font 9 alignment is only as good as the stand-in widths: print one label and check how
-  far each line ends from `x` before relying on it to the dot.
+  of them. Font 9 alignment is as good as the widths behind it: measured capitals and digits end
+  within about 0.35 mm of `x` on an Allegro 2, other characters may not; print one label and check
+  how far each line ends from `x` before relying on it to the dot.
 
 ## QR Codes
 

@@ -194,13 +194,15 @@ checked against the printable width like any field's start (`outside_print_width
   `x`; the preview, the label edge check and the overlap checks end the line there too, aligned or
   not.
 - Font 9 is the resident CG Triumvirate Bold (manual, printed page 174). The manual gives no
-  widths, so each character is measured by Helvetica-Bold's published advance width at the point
-  size the model prints, the point size taken as the em. That is a stand-in, not the printer's
-  own bitmap widths, and unverified: the first test print (Allegro 2) found whole lines from about
-  9% narrower (the lower-case alphabet) to 22% wider (`+,-./:;<=>?`) than predicted, so a
-  right-aligned font 9 line can end millimetres from `x` until a per-character measurement replaces
-  the table. A font 9 line in the preview, the label edge check (`element_past_label_edge`) and the
-  overlap checks is as long as these widths say, aligned or not.
+  widths. The capitals, the digits, `,` `-` `.` `/` and the space are measured on paper (Allegro
+  2, firmware CA02 03.04, at 12 and 30 pt;
+  `docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths`): a right-aligned line of them
+  ends within about 0.35 mm of `x` there. Every other character takes Helvetica-Bold's published
+  width, a stand-in that is unverified: the lower-case alphabet printed about 9% narrower and
+  `+,-./:;<=>?` about 22% wider than it predicts, so a line holding them can end millimetres from
+  `x`. Sizes from 14 to 24 pt and other models are unmeasured. A font 9 line ends at its last
+  glyph's ink, and in the preview, the label edge check (`element_past_label_edge`) and the
+  overlap checks it is as long as these widths say, aligned or not.
 - An aligned field must be upright (rotation 0) and take no `counter` (the printer changes the
   number, and so the width, from label to label), no `font_id` (a downloaded font's widths are not
   known) and, in font 9, no `width_multiplier`; each is refused when the label is read.

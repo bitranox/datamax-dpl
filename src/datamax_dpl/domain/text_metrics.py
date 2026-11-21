@@ -8,14 +8,23 @@ Font 9 is the resident CG Triumvirate Bold, a proportional face: the manual's ta
 Bitmapped Resident fonts specifications" names it for both size numberings (printed page 174, PDF
 page 184), and its note on font 9 says "each character will take up a different amount of space
 when printed. For example, the letter W will be larger than the letter I" (printed page 119, PDF
-page 129). The manual publishes no widths. :data:`FONT_9_ADVANCES` holds the advance widths of
-Adobe's Helvetica-Bold instead (the Core 14 AFM file, version 001.007, as matplotlib ships it),
-since CG Triumvirate is Agfa's Helvetica design. That is a stand-in, unverified until paper: the
-widths of the printer's own bitmaps may differ, and the point size is taken as the em
-(``points * dpi / 72`` dots). The table is the one place to change when a paper calibration
-measures the real widths. Before it, every font 9 character was estimated at 0.6 of the em, which
-an Allegro 2 proved too narrow: "NORTHWAY" at 8 pt and "ABCDEF00123" at 30 pt printed whole where
-the preview cut their last letter (2026-11-20).
+page 129). The manual publishes no widths. The widths here were measured on paper on an Allegro 2
+(203 dpi, firmware CA02 03.04, 2026-11-21) for the capitals, the digits, ``,`` ``-`` ``.`` ``/``
+and the space, at 12 and 30 pt
+(``docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths``). Every other character
+keeps the advance width of Adobe's Helvetica-Bold (the Core 14 AFM file, version 001.007, as
+matplotlib ships it), since CG Triumvirate is Agfa's Helvetica design: a stand-in, unverified on
+paper (:data:`FONT_9_MEASURED` names the measured bytes). The point size is the em
+(``points * dpi / 72`` dots).
+
+How the printer rounds, fitted to those lines: up to 12 pt (:data:`WHOLE_DOT_MAX_POINTS`) each
+character advances by its own width rounded to whole dots; at 30 pt the characters advance by
+their exact widths and only the position each reaches is rounded. Sizes in between are unmeasured;
+the one 18 pt line printed fits the second rule slightly better. A line's ink ends before its last
+advance by that glyph's right side bearing (:data:`FONT_9_RIGHT_BEARINGS`, from the same AFM file):
+an M ends 68 thousandths of the em before its advance, on paper as in the AFM. One measured bitmap
+rounds against its design width: ``/`` at 12 pt advances 11 dots where its 30 pt width gives 10
+(:data:`FONT_9_BITMAP_ADVANCES`).
 
 Text alignment (:class:`~.enums.TextAlign`) moves a field's reference point back by these widths:
 DPL places a field at its lower-left corner and has no justification of its own.
@@ -24,6 +33,7 @@ DPL places a field at its lower-left corner and has no justification of its own.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import accumulate, pairwise
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
@@ -125,9 +135,62 @@ _HELVETICA_BOLD: dict[int, int] = {
 }
 # fmt: on
 
+# Measured on paper on an Allegro 2
+# (docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths): design widths in thousandths
+# of the em that reproduce the 12 pt and the 30 pt lines under the rounding rules in the module
+# docstring. A character measured at 30 pt takes its 30 pt width; one measured at 12 pt only takes
+# the middle of the widths that round to its 12 pt advance (+/- 15 at other sizes). The ten digits
+# share the mean of the two measured at 30 pt (one width in the design, 18 dots each at 12 pt), the
+# period the comma's width (equal in the design, 10 dots each at 12 pt).
+# fmt: off
+_MEASURED: dict[int, float] = {
+    32: 294.1, 44: 294.1, 45: 295.6, 46: 294.1, 47: 294.1, 48: 541.8, 49: 541.8, 50: 541.8,
+    51: 541.8, 52: 541.8, 53: 541.8, 54: 541.8, 55: 541.8, 56: 541.8, 57: 541.8, 65: 679.8,
+    66: 671.5, 67: 709.4, 68: 709.4, 69: 650.2, 70: 591.1, 71: 768.5, 72: 738.9, 73: 266.0,
+    74: 502.5, 75: 649.4, 76: 561.6, 77: 835.1, 78: 738.9, 79: 764.2, 80: 650.2, 81: 768.5,
+    82: 709.4, 83: 649.2, 84: 600.5, 85: 738.9, 86: 650.2, 87: 916.3, 88: 649.2, 89: 679.8,
+    90: 591.1,
+}
+# fmt: on
+
+# Generated from phvb8a.afm: WX minus the right edge of the glyph's bounding box, for every byte in
+# _HELVETICA_BOLD. The space has no ink; it ends a line at its advance, as a cell of fonts 0-8 does.
+# fmt: off
+_HELVETICA_BOLD_RIGHT_BEARINGS: dict[int, int] = {
+    32: 0, 33: 89, 34: 98, 35: 18, 36: 33, 37: 28, 38: 21, 39: 70, 40: 19, 41: 35, 42: 27, 43: 40,
+    44: 64, 45: 27, 46: 64, 47: -33, 48: 32, 49: 178, 50: 45, 51: 40, 52: 30, 53: 40, 54: 36,
+    55: 28, 56: 32, 57: 34, 58: 91, 59: 91, 60: 38, 61: 40, 62: 38, 63: 55, 64: 119, 65: 20, 66: 53,
+    67: 38, 68: 37, 69: 46, 70: 24, 71: 65, 72: 71, 73: 64, 74: 72, 75: 0, 76: 28, 77: 68, 78: 68,
+    79: 44, 80: 40, 81: 41, 82: 45, 83: 38, 84: 13, 85: 71, 86: 19, 87: 15, 88: 14, 89: 14, 90: 25,
+    91: 24, 92: -33, 93: 63, 94: 62, 95: 0, 96: 108, 97: 29, 98: 33, 99: 32, 100: 60, 101: 28,
+    102: 15, 103: 58, 104: 65, 105: 69, 106: 69, 107: -6, 108: 69, 109: 63, 110: 65, 111: 33,
+    112: 33, 113: 59, 114: 16, 115: 37, 116: 24, 117: 66, 118: 13, 119: 9, 120: 15, 121: 17,
+    122: 20, 123: 24, 124: 84, 125: 48, 126: 61, 128: 38, 129: 66, 130: 28, 131: 29, 132: 29,
+    133: 29, 134: 29, 135: 32, 136: 28, 137: 28, 138: 28, 139: -22, 140: -38, 141: 69, 142: 20,
+    143: 20, 144: 46, 145: 31, 146: 46, 147: 33, 148: 33, 149: 33, 150: 66, 151: 66, 152: 17,
+    153: 44, 154: 71, 155: 22, 156: 15, 157: 34, 158: 39, 159: 40, 160: 29, 161: -51, 162: 33,
+    163: 66, 164: 65, 165: 68, 166: 23, 167: 5, 168: 60, 169: -11, 171: 40, 172: 68, 173: 89,
+    181: 20, 182: 20, 183: 20, 184: -12, 189: 32, 190: -9, 198: 29, 199: 20, 208: 33, 209: 37,
+    210: 46, 211: 46, 212: 46, 213: 69, 214: -51, 215: -38, 216: -22, 222: 64, 224: 44, 225: 32,
+    226: 44, 227: 44, 228: 33, 229: 44, 230: 66, 231: 33, 232: 40, 233: 71, 234: 71, 235: 71,
+    236: 17, 237: 14, 241: 40, 243: 35, 246: 40, 247: 88, 248: 57, 249: 6, 250: 58,
+}
+# fmt: on
+
 #: Advance width of each byte font 9 prints, in thousandths of the em (:data:`EM_UNITS`): the
-#: Helvetica-Bold stand-in for CG Triumvirate Bold described in the module docstring.
-FONT_9_ADVANCES: Mapping[int, int] = FrozenMapping(_HELVETICA_BOLD)
+#: paper-measured width for a byte in :data:`FONT_9_MEASURED`, else the Helvetica-Bold stand-in.
+FONT_9_ADVANCES: Mapping[int, float] = FrozenMapping({**_HELVETICA_BOLD, **_MEASURED})
+#: The bytes whose font 9 width was measured on paper; every other width is the unverified stand-in.
+FONT_9_MEASURED: frozenset[int] = frozenset(_MEASURED)
+#: How far a glyph's ink ends before its advance, in thousandths of the em (negative: past it).
+FONT_9_RIGHT_BEARINGS: Mapping[int, int] = FrozenMapping(_HELVETICA_BOLD_RIGHT_BEARINGS)
+#: Largest font 9 point size whose characters each advance by whole dots; larger sizes round the
+#: position each character reaches instead (module docstring).
+WHOLE_DOT_MAX_POINTS = 12
+#: Measured advances in dots that differ from a byte's width rounded, by (dpi, printed points).
+FONT_9_BITMAP_ADVANCES: Mapping[tuple[int, int], Mapping[int, int]] = FrozenMapping(
+    {(203, 12): FrozenMapping({47: 11})}
+)
 
 
 def font9_points(points: int, profile: PrinterProfile) -> int:
@@ -164,8 +227,8 @@ def char_advances(element: Text, profile: PrinterProfile) -> tuple[int, ...]:
 
     A character a font cannot print counts as the ``?`` the encoder sends for it. Fonts 0-8 advance
     by their cell and its gap, times ``width_multiplier``; font 9 by :data:`FONT_9_ADVANCES` at the
-    printed point size, each rounded to whole dots as a bitmap glyph is. A font 9 field with a
-    ``font_id`` keeps the rough estimate of 0.6 em per character.
+    printed point size, rounded as the module docstring says. A font 9 field with a ``font_id``
+    keeps the rough estimate of 0.6 em per character.
 
     Args:
         element: The text field.
@@ -182,29 +245,43 @@ def char_advances(element: Text, profile: PrinterProfile) -> tuple[int, ...]:
     if element.font != FONT_9:
         cell = CELLS[element.font].at(profile.dpi)
         return ((cell.width + cell.gap) * element.width_multiplier,) * len(element.text)
-    em = font9_em_dots(element.points or _DEFAULT_POINTS, profile)
+    points = font9_points(element.points or _DEFAULT_POINTS, profile)
+    em = font9_em_dots(points, profile)
     if element.font_id is not None:
         return (round(em * _UNKNOWN_FONT_ADVANCE),) * len(element.text)
     data = encode_for_bitmapped_font(element.text, font=FONT_9).data
-    return tuple(round(FONT_9_ADVANCES[byte] * em / EM_UNITS) for byte in data)
+    bitmap = FONT_9_BITMAP_ADVANCES.get((round(profile.dpi), points), {})
+    exact = [bitmap.get(byte, FONT_9_ADVANCES[byte] * em / EM_UNITS) for byte in data]
+    if points <= WHOLE_DOT_MAX_POINTS:
+        return tuple(round(advance) for advance in exact)
+    reached = [0, *(round(position) for position in accumulate(exact))]
+    return tuple(end - start for start, end in pairwise(reached))
 
 
 def text_extent(element: Text, profile: PrinterProfile) -> int:
     """Return how many dots the printed line of ``element`` spans, from its first character to its last.
 
-    The sum of the advances, less the gap after the last character of fonts 0-8, which prints no
-    dot. A font 9 advance holds its glyph's own side bearings, which the stand-in table cannot
-    separate.
+    The sum of the advances, less what follows the last character's ink: the gap after a cell of
+    fonts 0-8, the right side bearing (:data:`FONT_9_RIGHT_BEARINGS`) of a font 9 glyph, rounded
+    to whole dots.
 
     Example:
         >>> from datamax_dpl.domain.profiles import get_profile
         >>> text_extent(Text(x=0, y=0, text="ABC", font=2), get_profile("allegro-2"))
         34
+        >>> text_extent(Text(x=0, y=0, text="MM", font=9, points=12), get_profile("allegro-2"))
+        54
     """
     total = sum(char_advances(element, profile))
-    if element.font == FONT_9 or not element.text:
+    if not element.text:
         return total
-    return total - CELLS[element.font].at(profile.dpi).gap * element.width_multiplier
+    if element.font != FONT_9:
+        return total - CELLS[element.font].at(profile.dpi).gap * element.width_multiplier
+    if element.font_id is not None:
+        return total
+    last = encode_for_bitmapped_font(element.text[-1], font=FONT_9).data[0]
+    em = font9_em_dots(element.points or _DEFAULT_POINTS, profile)
+    return total - round(FONT_9_RIGHT_BEARINGS[last] * em / EM_UNITS)
 
 
 def align_shift_units(element: Text, ctx: RenderContext) -> int:
@@ -264,6 +341,10 @@ __all__ = [
     "CELLS",
     "EM_UNITS",
     "FONT_9_ADVANCES",
+    "FONT_9_BITMAP_ADVANCES",
+    "FONT_9_MEASURED",
+    "FONT_9_RIGHT_BEARINGS",
+    "WHOLE_DOT_MAX_POINTS",
     "CharCell",
     "FontCells",
     "align_shift_units",
