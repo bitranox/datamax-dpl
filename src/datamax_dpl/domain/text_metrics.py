@@ -324,7 +324,7 @@ def _font9_exact_advances(data: bytes, points: int, *, em: float, dpi: float) ->
     measured = font9_measured_points(points)
     scale = em / (measured * MEASURED_DPI / _POINTS_PER_INCH)
     table = FONT_9_PRINTED_ADVANCES[measured]
-    bitmap = _BITMAP_ADVANCES_203_12 if (round(dpi), points) == (MEASURED_DPI, 12) else {}
+    bitmap: Mapping[int, int] = _BITMAP_ADVANCES_203_12 if (round(dpi), points) == (MEASURED_DPI, 12) else {}
     return [
         bitmap.get(byte, table[byte] * scale) if byte in table else FONT_9_STAND_IN_ADVANCES[byte] * em / EM_UNITS
         for byte in data
