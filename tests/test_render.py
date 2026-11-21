@@ -457,6 +457,11 @@ _PAST_EDGE_CASES = [
     # of its own: 0.0100000787 in past is named 0.01, and 0.3000005 mm past 0.3, as both moves print.
     _PastEdge("in-inside-tolerance", Unit.INCH, 0.02937, 1.0, _ALLEGRO_LEFT_1, 0.01),
     _PastEdge("mm-inside-tolerance", Unit.MM, 5.0, 0.6999995, _ALLEGRO_DOWN_1, 0.01),
+    # Near the tolerance's own edge, 0.9 of it past after the move, the step is still not needed: a
+    # rule that took only half the tolerance would name one step more in each unit.
+    _PastEdge("dots-0.9-tolerance", Unit.DOTS, 1.811022722, 10.0, _DMX_600_LEFT_1, 1.0),
+    _PastEdge("mm-0.9-tolerance", Unit.MM, 5.0, 0.6999991, _ALLEGRO_DOWN_1, 0.01),
+    _PastEdge("in-0.9-tolerance", Unit.INCH, 0.029369179, 1.0, _ALLEGRO_LEFT_1, 0.01),
     # Just past the tolerance it takes the step: 2e-6 of a step beyond it (10.000003 dots, 0.30000102
     # mm and 0.01000102 in past) is named 11 dots, 0.31 mm and 0.02 in. Judged to five decimals of
     # the step or fewer, that fraction is lost and the move named is refused.
