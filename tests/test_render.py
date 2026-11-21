@@ -411,6 +411,47 @@ def test_a_field_the_offset_pushes_past_the_label_edge_is_refused() -> None:
     assert "0.5 mm past the label edge" in error.message
 
 
+def _past_edge(result: RenderResult) -> float | None:
+    """The distance an offset refusal says the field lies past the label edge, or None without one."""
+    for finding in result.errors:
+        if finding.code is FindingCode.OFFSET_PAST_LABEL_EDGE:
+            past = re.search(r"moves this field (\d+(?:\.\d+)?) (?:mm|in|dots) past the label edge", finding.message)
+            assert past is not None, finding.message
+            return float(past.group(1))
+    return None
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("unit", "x", "y", "options", "precision"),
+    [
+        # 10.47 dots past: the nearest whole dot, 10, left the moved field 0.47 dots past.
+        (Unit.DOTS, 1.5276, 10.0, RenderOptions(model="dmx-600", offset_across=-1.0), 1.0),
+        (Unit.MM, 5.0, 0.527, RenderOptions(model="allegro", offset_along=-1.0), 0.01),
+        (Unit.INCH, 0.0267, 1.0, RenderOptions(model="allegro", offset_across=-1.0), 0.01),
+        # Float noise must not add a step: 0.7 - 1.0 is -0.30000000000000004, and -3.81 mm at 300 dpi
+        # is -45.00000000000001 dots, which are 0.3 mm and 45 dots past.
+        (Unit.MM, 5.0, 0.7, RenderOptions(model="allegro", offset_along=-1.0), 0.01),
+        (Unit.DOTS, 0.0, 10.0, RenderOptions(model="dmx-600", offset_across=-3.81), 1.0),
+    ],
+)
+def test_moving_a_field_by_the_distance_past_the_edge_clears_it(
+    unit: Unit, x: float, y: float, options: RenderOptions, precision: float
+) -> None:
+    def past(dx: float, dy: float) -> float | None:
+        element = Text(x=round(x + dx, 9), y=round(y + dy, 9), text="5", font=9, points=30)
+        return _past_edge(build_job(Label(unit=unit, width=1000, height=600, elements=[element]), options))
+
+    across = options.offset_across is not None
+    distance = past(0.0, 0.0)
+    assert distance is not None
+    moved = (distance, 0.0) if across else (0.0, distance)
+    assert past(*moved) is None
+    # And it is the smallest such distance at the message's precision.
+    short = (distance - precision, 0.0) if across else (0.0, distance - precision)
+    assert past(*short) is not None
+
+
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize("offset", [-10.01, 10.01])
 def test_an_offset_over_ten_millimetres_is_refused(offset: float) -> None:

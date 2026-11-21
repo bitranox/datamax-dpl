@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Literal
 
 from .enums import Attribute, CounterSign, FindingCode, Unit
@@ -152,16 +153,23 @@ def report_past_edge(shifted: float, axis: Axis, *, index: int, ctx: RenderConte
 
 
 def _readable(distance: float, unit: Unit) -> str:
-    """Return ``distance`` at the precision a label in ``unit`` is written in.
+    """Return ``distance`` rounded up to the precision a label in ``unit`` is written in.
 
-    The millimetre offset converted to dots or inches carries float noise (0.25 mm is 1.998 Allegro 2
-    dots), which a message should not show.
+    Up, not to the nearest: the message names how far the field lies past the edge, and moving it by
+    a distance rounded down (10 dots for 10.47) would leave it past the edge still. The millimetre
+    offset converted to dots or inches carries float noise (0.25 mm is 1.998 Allegro 2 dots, and
+    0.3 mm can be 0.30000000000000004), so the distance is cut to a millionth of the step first,
+    which a message should not show either.
 
     Example:
         >>> _readable(1.99803, Unit.DOTS), _readable(0.00984252, Unit.INCH), _readable(0.5, Unit.MM)
         ('2', '0.01', '0.5')
+        >>> _readable(10.47, Unit.DOTS), _readable(0.473, Unit.MM), _readable(0.30000000000000004, Unit.MM)
+        ('11', '0.48', '0.3')
     """
-    return str(round(distance)) if unit == Unit.DOTS else f"{round(distance, 2):g}"
+    if unit == Unit.DOTS:
+        return str(math.ceil(round(distance, 6)))
+    return f"{math.ceil(round(distance * 100, 6)) / 100:g}"
 
 
 def check_field_length(length: int, *, limit: int = MAX_FIELD_DATA, index: int, ctx: RenderContext) -> None:

@@ -106,6 +106,13 @@ All notable changes to this project are documented here. The format follows
   `<STX>V1`, `f302`); how to keep a QR Code the same printed size as its data grows (one label
   file per `module_dots`, with the level-M version bands).
 
+### Fixed
+
+- `offset_past_label_edge` and `model_offset_clamped` name the distance past the label edge rounded
+  up to the label unit's precision instead of to the nearest: a field 10.47 dots past was reported
+  10 dots past, and moved by those 10 it was refused again as "0 dots past the label edge". Moving
+  the field by the distance named now clears the edge.
+
 ## [0.11.0] - 2026-11-20
 
 ### Added
