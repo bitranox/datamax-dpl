@@ -139,7 +139,7 @@ code.
 - `cli/job_spool.py` - keeping a batch's records on disk as the check pass rendered them, so the send reads them back instead of rendering again (`FileJobSpool`, a `JobSpool`).
 - `cli/interrupt.py` - noting a Ctrl-C before it is raised, so a pass over the records finds one a C extension swallowed.
 - `cli/gone_reader.py` - telling a reader of the output that went away from a failure that needs saying.
-- `cli/settings.py` - `[printer]` and `[preview]` settings with command-line overrides.
+- `cli/settings.py` - `[printer]`, `[printers.<name>]` and `[preview]` settings with command-line overrides.
 - `cli/runner.py` - runs a command body, maps outcomes to output and exit codes.
 - `cli/envelope.py` - the JSON envelope and the command names it carries (`CommandName`).
 - `cli/payloads.py` - per-command JSON payloads.

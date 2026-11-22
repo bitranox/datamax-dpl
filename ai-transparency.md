@@ -14,7 +14,7 @@ general reasoning is in [ai-stance.md](ai-stance.md).
 - The shape of the solution: a JSON label model in millimetres with DPL's bottom-up coordinates;
   one profile per model from the 1998 DPL manual, with `generic` and `permissive` beside them;
   a documented fallback per missing feature and a policy to choose between degrading and
-  refusing; JSON envelopes and three exit codes for machine callers; tcp, serial, device file,
+  refusing; JSON envelopes and meaningful exit codes (0 done, 1 refused, 2 could not run) for machine callers; tcp, serial, device file,
   file and stdout transports; a preview to check output without guessing.
 - The layering (domain, application, adapters, composition, enforced by import-linter), strict
   typing, the test rules (real sockets and pseudo-terminals instead of patched internals), and the
@@ -40,7 +40,8 @@ to 3.15: Ruff, Pyright in strict mode, import-linter, Bandit, pip-audit and Pyte
 including the doctests in the source.
 
 What has been checked on paper: one real printer, an Allegro 2 (text, lines, boxes, images,
-rotation, four barcode types, label lengths). What has NOT been checked: every other model, halved
+rotation, four barcode types, QR Codes, label lengths, overlapping fields (XOR), cutter and stop
+positions, continuous media, font 9 widths and alignment). What has NOT been checked: every other model, halved
 images, merged fields and which stop setting wins. Everything else the code writes follows the
 manual and passes the tests against simulated printers. The README says so too, and this page
 changes when that does.

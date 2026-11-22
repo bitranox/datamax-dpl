@@ -69,7 +69,8 @@ catch both.
 The element types are the classes `Text`, `ScalableText`, `Barcode`, `Qr`, `Line`, `Box`, `Circle`,
 `Polygon` and `Image`, with `Cut`, `Counter`, `Pdf417Options` and `DataMatrixOptions` for their
 settings. `timeout` is in seconds. A printer that refuses, is unreachable or stops answering raises
-`TransportError` from `open_printer` or `send` (a timeout is its subclass): catch that.
+`TransportError` from `open_printer` or `send` (a timeout is its subclass `PrinterTimeoutError`):
+catch that.
 `open_printer(uri, timeout=10, tuning=TransportTuning(...))` takes the `[printer]` keys
 `send_chunk_bytes`, `refused_connect_wait`, `refused_connect_retry_interval`,
 `link_bytes_per_second` (960) and `link_drain_margin` (0.25) as fields of the same names; with the
@@ -91,3 +92,62 @@ lists what that picture
 approximates (`preview_text_approximated` when Pillow is missing);
 `explain(data)` reads DPL bytes back (`.commands`, `.label`, `.problems`). Every name on this page
 imports from `datamax_dpl`.
+
+## The types you pass, match and catch
+
+Every enum below also accepts its JSON value (`"right"`, `"strict"`, `90`); a strict type checker
+wants the member.
+
+- Label and elements: `Label.unit` is a `Unit` (`MM`, `INCH`, `DOTS`). `print_speed`, `slew_speed`
+  and `backup_speed` (on `Label` and `RenderOptions`, plus `RenderOptions.feed_rate`) are a
+  `SpeedCode`, the DPL letter as value and the speed in inches per second in the name
+  (`SpeedCode.IPS_4_0` is `"G"`). `media` (on both) is a `MediaSensor` (`GAP`, `REFLECTIVE`,
+  `CONTINUOUS`); `stop_position` takes a length or `PrinterStop.PRINTER` (the `"printer"` word), as
+  do the three `RenderOptions` `*_stop_position_mm`. `attribute` (on `Label`, `Text` and
+  `ScalableText`) is an `Attribute` (`XOR` 1, `TRANSPARENT` 2, `OPAQUE` 3, `INVERSE` 5).
+  `Text.align` is a `TextAlign` (`LEFT`, `CENTER`, `RIGHT`); `rotation` on `Text`, `ScalableText`
+  and `Barcode` a `Rotation` (`DEG_0`, `DEG_90`, `DEG_180`, `DEG_270`); `Barcode.symbology` a
+  `Symbology` (values are the JSON names, `Symbology.CODE128` is `"code128"`); `Qr.error` a
+  `QrError` (`L`, `M`, `Q`, `H`); `fill` on `Box`, `Circle` and `Polygon` a `FillPattern` (the DPL
+  pattern number: `NONE` 0, `SOLID` 1, shades and patterns up to `GRID` 11).
+- `RenderOptions`: `policy` is a `FallbackPolicy` (`DEGRADE`, `STRICT`); `options` a set of
+  `HardwareOption` (`DATAMATRIX`, the CLI's `--option datamatrix`); `image_module` an `ImageModule`
+  (`A`-`E`); `send_settings` a set of `PrinterSetting` (`MEDIA`, `STOP`, `START_OF_PRINT`,
+  `MAX_LABEL_LENGTH`, `FEED_RATE`, `SOFTWARE_SWITCHES`, as the `[printer] send_settings` key);
+  `held_image_severity` a `Severity`.
+- Results: a `Finding`'s `code` is a `FindingCode` whose values are the codes `capabilities.md`
+  lists (`FindingCode.IMAGE_HALVED` is `"image_halved"`; match with
+  `finding.code is FindingCode.IMAGE_HALVED`), its `severity` a `Severity` (`INFO`, `WARNING`,
+  `ERROR`). `RenderResult.dpl_unit` and `BatchReport.dpl_unit` are a `DplUnit` (`INCH_HUNDREDTHS`,
+  value `"inch"`, or `MM_TENTHS`, `"metric"`). Each of `explain(data).commands` is a
+  `DecodedCommand` (`kind`, `raw`, `meaning`), `kind` a `CommandKind` (`IMMEDIATE`, `SYSTEM`,
+  `DOWNLOAD`, `FORMAT`, `RECORD`, `COUNTER`, `END`, `UNKNOWN`).
+- Profiles: `get_profile(model)` raises `UnknownModelError` (a `DatamaxDplError` and a
+  `LookupError`) for an id with no profile, as `render`, `build_job` and the batch functions do for
+  such a `RenderOptions.model`. A profile's `features` maps every `Feature` (22, such as
+  `Feature.PDF417` or `Feature.CIRCLE_POLYGON`) to a `Support` (`available`, `min_firmware`,
+  `option` a `HardwareOption`, `source` a `Source`: `MANUAL` or `MEASURED`; `available` says the
+  model has it at all, `min_firmware` and `option` what it further needs, as `capabilities` shows);
+  `family` is a `ModelFamily`, `image_module` and `ram_modules` hold `ImageModule`s, and
+  `calibration` holds the shipped scales, offsets and stops: `.value(CalibrationKey.SCALE_ALONG)`
+  reads one, and `CalibrationKey.scale(axis)` / `CalibrationKey.offset(axis)` pick the key for an
+  `Axis` (`ACROSS`, `ALONG`).
+- Calibration labels: `calibration_labels(width=, height=, title=, along_length=None, options=None)`
+  (`options` a `RenderOptions`) returns the two labels `calibrate print` prints as `.across` and
+  `.along`, plain `Label`s in mm to render or print (`along_length` is the along bar in mm, at most
+  200; `None` gives the longest whole 10 mm one format holds for `options`, 200 without them);
+  `across_label(...)` and `along_label(...)` build one each, and `across_frame_width(width)` is the
+  frame width to measure (the width less `ACROSS_INSET_MM`, 2 mm, on each side: 96 mm on a 100 mm
+  label). A size out of range or a title that does not fit raises `ValueError`.
+- Errors: `TransportError` catches every channel failure; its subclasses tell them apart:
+  `PrinterTimeoutError` (no answer, or not finished, within the timeout), `AnswerNotEndedError` (a
+  `PrinterTimeoutError`: an answer was still arriving when the wait ended, so asking again would
+  start a second answer behind it), `PrinterProtocolError` (an answer the DPL manual does not
+  describe for that request) and `UnsupportedOperationError` (the channel cannot do it, such as
+  `query` on a `file:`, stdout or device printer).
+- `pillow_available()` says whether the `preview` extra is installed: without it
+  `render_preview_png` draws text as grey cells and `preview_findings` reports
+  `preview_text_approximated`. `get_config(profile=None, start_dir=None, dotenv_path=None)` returns
+  the merged layered configuration the CLI reads (lib_layered_config's `Config`, with `.as_dict()`
+  and `.get(key, default=...)`); nothing else in the library reads it: `RenderOptions` and
+  `open_printer` take only what you pass.

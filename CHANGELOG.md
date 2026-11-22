@@ -134,7 +134,7 @@ All notable changes to this project are documented here. The format follows
   The capitals, the digits, `,` `-` `.` `/` and the space take widths measured on paper on an
   Allegro 2 (firmware CA02 03.04, 2026-11-21), at 12, 18, 24 and 30 pt, one table of advances per
   printed size, since the widths do not scale from one size to another
-  (`docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths`). Any other printed size (6, 8, 10, 14, 36 and 48 pt) takes the nearest measured size's
+  (`docs/measurements/2026-11-21-allegro-2-CA02-03.04-font-9-widths`). Any other printed size (6, 8, 10, 14, 36 and 48 pt on the Allegro 2; 4, 5 and 72 pt where a model offers them) takes the nearest measured size's
   advances scaled by size, and another resolution scaled by its dpi, both unverified. Every other
   character keeps the Helvetica-Bold width (Adobe Core14 AFM), marked unverified
   (`datamax_dpl.domain.text_metrics.FONT_9_MEASURED` names the measured bytes). Up to 12 pt each character advances by its own
@@ -185,7 +185,7 @@ All notable changes to this project are documented here. The format follows
   table and any key or value that is not an int (`ValueError`).
 - Each text field is measured once per rendered label and reused by the encoder, the label-edge
   and overlap checks and the preview: a batch of right-aligned and centred font 9 labels takes
-  about a third less CPU time than with a measurement per use (bytes unchanged).
+  about two fifths less CPU time than with a measurement per use (bytes unchanged).
 - The PNG preview letters font 9 and scalable text one character at a time, each at its estimated
   advance, so a proportional line no longer squeezes into a box of equal cells.
 - Skill: the preview and `validate` work from estimated text ends, so only paper decides whether

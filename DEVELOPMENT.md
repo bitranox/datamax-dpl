@@ -23,7 +23,8 @@ The targets used day to day:
 - `make testintegration` (aliases `testi`, `ti`) -- the integration tests only.
 - `make bump-patch` / `bump-minor` / `bump-major` -- bump the version in `pyproject.toml`, turn
   the `[Unreleased]` section of `CHANGELOG.md` into the new version, and rewrite
-  `src/datamax_dpl/__init__conf__.py` to match.
+  `src/datamax_dpl/__init__conf__.py`, the `.claude-plugin/plugin.json` version and the committed
+  `uv.lock` to match.
 - `make push` -- run the tests, commit and push. Give the commit message with `MSG="..."` (it
   reaches bmk as `BMK_COMMIT_MESSAGE` and survives punctuation, newlines and `$`); without one,
   bmk prompts.
@@ -38,9 +39,9 @@ The targets used day to day:
 | CI                     | All tests EXCEPT those marked `local_only` (`-m "not local_only"`) |
 | `pytest tests/`        | ALL tests (no marker filter)                                       |
 
-No test needs a real printer yet. The transports are tested against real sockets on 127.0.0.1 and
+No test needs a real printer. The transports are tested against real sockets on 127.0.0.1 and
 pseudo-terminals, the CLI against the in-memory `RecordingPrinter` from
-`datamax_dpl.adapters.memory`. A future test that talks to real hardware carries both
+`datamax_dpl.adapters.memory`. A test that talks to real hardware carries both
 `@pytest.mark.integration` (so `make test` skips it and `make testintegration` runs it) and
 `@pytest.mark.local_only` (so CI skips it), and reads the printer from the `[printer]` section, for
 example from a `.env` in the project root (copy `.env.example`):

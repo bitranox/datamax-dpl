@@ -146,7 +146,7 @@ also has the `backup_speed` feature.
 
 ## Finding codes
 
-Every code a render or `preview` can report, in alphabetical order. The severity column is the
+Every code `validate`, `render`, `preview` or `print` can report, in alphabetical order. The severity column is the
 default: under `--policy strict` a "warning, error under strict" finding becomes an error. The codes
 are stable; `tests/test_capabilities_doc.py` keeps this table in step with `FindingCode`.
 

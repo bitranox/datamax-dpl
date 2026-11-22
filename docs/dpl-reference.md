@@ -32,8 +32,8 @@ fields in hundredths of an inch (inch mode, the default) or tenths of a millimet
 | ovation-2        | Ovation 2        | 203    | 425 (assumed from width)          | 4.256                                       | 319        | 7000        |
 | titan-6200       | Titan 6200       | 203    | 661                               | 6.62                                        | 399        | 10000       |
 
-Metric max column is the inch value times 2.54 (manual: 410 -> 1041, 640 -> 1625, 860 -> 2184,
-661 -> 1680, 398 -> 1011).
+Metric max column is the inch value times 2.54, rounded: 410 -> 1041, 640 -> 1626, 860 -> 2184,
+661 -> 1679, 398 -> 1011 (the manual prints 1625 and 1680 for 640 and 661).
 
 Two extra profiles exist in code: `generic` (the intersection of every model above: the smallest
 limits and only features every model has) and `permissive` (no model limits, syntax checks only).
@@ -121,6 +121,8 @@ Dwh<CR>                    dot size (D11, D22 ...); sent as D11 when the label s
                            and the model's default is D22
 Hnn<CR> Pa<CR> Sa<CR> pa<CR> Cnnnn<CR> Rnnnn<CR> An<CR> M<CR> ySxx<CR> :nnnn<CR> / cnn<CR> z<CR> ^nn<CR>
 <records>...               one per line, each ending in <CR>
++fnn<CR> -fnn<CR>          after a counting field's record: + / - count digits up / down,
+>fnn<CR> <fnn<CR>          > / < count letters too; f the fill character, nn the step 01-99
 Qnnnn<CR>                  quantity
 E<CR>                      end and print   (X: end without printing, s<mod><name>: store)
 [<STX>o]                   cut the rest of a cut-by batch now
@@ -170,7 +172,9 @@ Graphics (`b` = `X`, `c` = `d` = `1`, `eee` = `000`):
 
 Polygon: `1X11ppprrrrccccP001 0001 rrrrcccc rrrrcccc ...` (spaces only for reading): `ppp` in the
 height slot is the fill pattern, the first point is the header's row/column, the vertices follow,
-the shape closes back to the first point.
+the shape closes back to the first point. datamax-dpl also sends a slanted line as a solid
+four-point polygon around its path, and a box with a fill as a polygon of that fill (a patterned
+one together with its `B`/`b` edge record).
 Circle: `1X11ppprrrrccccC0010001rrrr`: centre at the header's row/column, radius last.
 Fill patterns: 0 none, 1 solid, 2 6%, 3 12%, 4 25%, 5 38%, 6 50%, 7 diamonds, 8 circles,
 9 right diagonal, 10 left diagonal, 11 grid.
@@ -190,8 +194,8 @@ is refused (`image_module_unknown`) until `image_module` names the module fitted
 `permissive` use A. Only module A has been seen on a printer (an Allegro 2).
 
 Clearing: `<STX>q<m>` (Clear Module, p.35) removes every file in module `m`, images, formats and
-fonts alike, and each clear wears a flash module. datamax-dpl sends it before the downloads and
-again after the label (`[printer] clear_graphics_before` and `clear_graphics_after`, both on by
+fonts alike, and each clear wears a flash module. datamax-dpl sends it before the label's downloads
+(before the format when it has none) and again after the label (`[printer] clear_graphics_before` and `clear_graphics_after`, both on by
 default), and only to the model's built-in RAM module. The plain Prodigy has no `<STX>q`; it sends
 `<STX>R<name><CR>` (p.36) for each name the label downloads, before that download and after the
 label.

@@ -487,7 +487,9 @@ class FeedPayload(BaseModel):
 
 
 _FEED_HELP = (
-    "Feed one label (<STX>F), an installed cutter turned off first so the label is not cut. "
+    "Feed one label (<STX>F), an installed cutter turned off first (<STX>V0) so the label is not cut; "
+    "where no <STX>V can be built ([printer] model unset, cutter neither yes nor no, or label_present "
+    "unset on a model that needs it) the form feed goes alone. "
     "With --media, first leave continuous mode (<STX>c0000), select that "
     "sensor and send the configured stop position, as a label's job would: after labels printed on "
     "continuous media this brings the stock back to the tear-off position."

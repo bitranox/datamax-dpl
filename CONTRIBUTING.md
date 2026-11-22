@@ -19,7 +19,7 @@ change needs a fact that is not there, add it to that file with its source (a ma
 a test print on a named model and firmware). Do not paste text from the manual; it is copyrighted.
 
 Test prints are welcome. A report that says "model X, firmware Y, this label, this photo" is the
-kind of evidence the project lacks most right now.
+kind of evidence the project lacks most.
 
 ## 3. Commits and pushes
 
@@ -33,8 +33,10 @@ kind of evidence the project lacks most right now.
 ## 4. Coding standards
 
 - Keep the layers: `domain` (pure label model, profiles, encoders) imports nothing from
-  `application` or `adapters`; adapters (CLI, transports, configuration) may import both.
-  import-linter enforces this.
+  `application`, `adapters` or `composition`; `application` imports only `domain`; adapters (CLI,
+  transports, configuration, preview) may import both, and transports, preview and the in-memory
+  adapters do not import each other; `composition` wires them together. import-linter enforces
+  this.
 - Small, single-purpose functions; pyright in strict mode with zero errors; Google-style
   docstrings; an `__all__` in every module.
 - Keep runtime dependencies few. Pillow stays in the optional `preview` extra. The preview's font

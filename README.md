@@ -27,7 +27,7 @@ itself (versions 1 to 40, error levels L, M, Q and H) and sends it as a download
 prints on all 18 models; the Prodigy and Prodigy Plus need `image_module` set first. On an
 Allegro 2 a phone read the printed codes fine up to version 20 at 4 dots per module.
 
-**Custom fonts on demand.** Text prints in the printers' own fonts today. Your own fonts can be
+**Custom fonts on demand.** Text prints in the printers' own fonts. Your own fonts can be
 added on demand, for example drawn as graphics the same way as QR codes. If you are interested,
 contact us by opening an issue at <https://github.com/bitranox/datamax-dpl/issues>.
 
@@ -36,7 +36,8 @@ and meaningful exit codes, so scripts and LLM agents can drive it.
 
 **Status:** built from the manual and tested against simulated printers; one real printer, an
 Allegro 2, has been checked on paper (text, lines, boxes, images, rotation, four barcode types,
-lengths). Other models are still unverified on hardware.
+QR Codes, lengths, overlapping fields (XOR), cutter and stop positions, continuous media, font 9 widths
+and alignment). Other models are still unverified on hardware.
 
 ## Install
 
@@ -60,14 +61,15 @@ character the font cannot print, capitals in fonts 3 to 6), and a field crossing
 combines with the letters' dots, as the printer does: a line through text on an Allegro 2 (which
 XORs) shows gaps only under the strokes. The lettering is an approximation in the preview's own
 font, Liberation Sans Bold (shipped with the package, so umlauts and every other code page 437 and
-850 character draw on any machine), not the printer's. Font 9 is lettered one character at a time
+850 character draw on any machine), not the printer's. Font 9 and scalable text (measured as the
+font 9 field the preview draws for it) are lettered one character at a time
 where the printer's advance widths put each letter, each glyph narrowed if needed to the ink the
 printer's glyph has (a '1' is a narrow stem there), so the line ends where the printed line is
 estimated to end; those widths are measured on paper for the capitals, the digits, `,` `-` `.` `/`
 and the space (Allegro 2, at 12, 18, 24 and 30 pt; other sizes scaled from the nearest,
 unverified) and a Helvetica-Bold stand-in, unverified, for every other character (see
-[Alignment and text widths](docs/label-spec.md#alignment-and-text-widths)). Fonts 0-8 are lettered
-as one string, which may be cut at the end of the field, so the gaps near the end can differ from
+[Alignment and text widths](docs/label-spec.md#alignment-and-text-widths)). Fonts 0-8, a downloaded
+font (`font_id`) and a barcode's data are lettered as one string, which may be cut at the end of the field, so the gaps near the end can differ from
 the paper. Without the extra the text combines as whole cells, and `preview` says so with the
 `preview_text_approximated` finding:
 
@@ -162,10 +164,11 @@ costs one more read before them (about 35 minutes per 1000), and a label whose i
 already holds costs that read alone. To send
 bytes open a transport with `open_printer(uri, timeout=10)` and call `send(data)` on it. `explain(data)`
 reads DPL bytes back, as the command `datamax-dpl explain job.dpl` does: it explains every command
-and rebuilds the label as JSON only from a job with exactly one label format. A job with more (any
-`--data` job) gets the problem "N label formats: only a stream with exactly one is rebuilt as a
+and rebuilds the label as JSON only from a job with exactly one label format. A job with more (a
+`--data` job of more than one record) gets the problem "N label formats: only a stream with exactly one is rebuilt as a
 label", and the command exits 1. Scalable text is read back through the symbol set the job selects
-(its `ySxx` line, `PC` when it has none), and the rebuilt label carries that set. All of these are
+(its `ySxx` line, `PC` when it has none), and the rebuilt label carries the set the job selected
+(no `symbol_set` when it has no `ySxx` line, which means `PC`). All of these are
 imported from `datamax_dpl`.
 
 The rest of the commands have library forms too, imported from `datamax_dpl` as well:
@@ -209,11 +212,14 @@ Everything the package raises on purpose derives from `DatamaxDplError`, also im
 `datamax_dpl`, so `except DatamaxDplError` catches it all. Below it, `TransportError` covers what a
 printer channel does (a timeout, a refused connection, a bad answer), `ConfigurationError` a bad URI
 or setting, and `LabelRejectedError` a refused label. `UnknownModelError` and `MissingFieldError`
-are `LookupError`s too, `QrDataTooLongError` and `PreviewTooLongError` `ValueError`s too. Three
+are `LookupError`s too, `QrDataTooLongError`, `PreviewTooLongError` and `BatchTooLargeError` `ValueError`s too. Three
 things stay outside the base: pydantic's `ValidationError` for a label or options document that does
 not validate, `lib_layered_config.ConfigError` from `get_config` for a configuration file it cannot
 read, and a plain `ValueError` for an argument out of range (a timeout, a calibration size), as each
-function's `Raises` section says.
+function's `Raises` section says. `render` and `build_job` also raise a plain `ValueError` for
+scalable text in a `symbol_set` no exact code page is known for (anything but `E1`, `E2`, `E5`, `PC`,
+`PE`, `PM`, `PV`, `US`, `W1`, `WE`, `WG`, `WR`, `WT`) on a model with scalable fonts; the commands
+exit 2 for it.
 
 ## The label format
 
@@ -452,7 +458,7 @@ configuration that still sets the calibration keys explicitly are in [CONFIG.md]
 
 ## Long labels on continuous media
 
-One format reaches only so far along the feed (on the Allegro 2, 1648 dot rows, about 200 mm;
+One format reaches only so far along the feed (on the Allegro 2, 1648 dot rows, about 201 mm;
 `format_past_max_length` refuses a label past it). A longer label prints as several labels, each
 one segment of it, back to back on continuous media. Measured on one Allegro 2 (firmware CA02
 03.04): on continuous media the printer prints a label's content and then feeds the `<STX>c`
@@ -481,8 +487,8 @@ each label, not the label's length. The measurements are in
    `<STX>r`), the cutter off (`<STX>V0`, where a label's job would send `<STX>V`), the configured stop
    position (the Allegro 2 default `<STX>f263`) and one feed. On the Allegro 2 this
    left the stock at the tear-off position in both prints. A model that cannot choose its sensor or
-   has no stop command gets the same findings a label's job gives (the Prodigy: only `<STX>c0000`
-   and the feed). Without that feed the next gap label's job sets the sensor itself, but the stock
+   has no stop command gets the same findings a label's job gives (the Prodigy: only `<STX>n`,
+   `<STX>c0000` and the feed). Without that feed the next gap label's job sets the sensor itself, but the stock
    stays where the last segment ended until then.
 
 ## JSON output for scripts and LLMs
@@ -536,13 +542,13 @@ parse error goes by its line in the file. When the
 command cannot run at all, the envelope carries `error` (the exception type) and `message`
 instead of `data`.
 
-| Exit code | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0         | Done.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| 1         | Refused: at least one finding is an error. Nothing more was printed or written; a `--data` batch may have printed earlier labels, and the `record` of the finding says where it stopped. `status` also exits 1 when the printer reports a problem (paper out, for example), `explain` when it could not read part of the job or cannot rebuild it as one label (a job with more than one format, such as any `--data` job; every command is still explained), and `detect` when no model fits. |
-| 2         | Could not run: unreadable or invalid label, unknown model, bad configuration, printer not reachable.                                                                                                                                                                                                                                                                                                                                                                                           |
-| 130       | Interrupted (Ctrl-C, or Ctrl-Break on Windows). For a command that sends, part of a job may already have been sent. On Windows a Ctrl-C during a wait on a silent socket takes effect only when that wait ends, up to its timeout.                                                                                                                                                                                                                                                             |
-| 141       | The reader of the output went away (`datamax-dpl schema \| head -1`); nothing more is said.                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Exit code | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+|-----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0         | Done.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 1         | Refused: at least one finding is an error. Nothing more was printed or written; a `--data` batch may have printed earlier labels, and the `record` of the finding says where it stopped. `status` also exits 1 when the printer reports a problem (paper out, for example), `explain` when it could not read part of the job or cannot rebuild it as one label (a job with more than one format, such as a `--data` job of more than one record; every command is still explained), and `detect` when no model fits. |
+| 2         | Could not run: unreadable or invalid label, unknown model, bad configuration, printer not reachable.                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 130       | Interrupted (Ctrl-C, or Ctrl-Break on Windows). For a command that sends, part of a job may already have been sent. On Windows a Ctrl-C during a wait on a silent socket takes effect only when that wait ends, up to its timeout.                                                                                                                                                                                                                                                                                   |
+| 141       | The reader of the output went away (`datamax-dpl schema \| head -1`); nothing more is said.                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 `info` and the config commands answer in the same envelopes (`config`: the dict `config --format
 json` prints; `config-deploy` and `config-generate-examples`: the written paths under `paths`) and

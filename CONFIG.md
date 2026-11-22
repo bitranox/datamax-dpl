@@ -7,7 +7,7 @@ This project uses [`lib_layered_config`](https://github.com/bitranox/lib_layered
 - **Layered merging**: Configuration is assembled from multiple files and sources, with later layers overriding earlier ones
 - **Cross-platform paths**: Follows XDG conventions on Linux, standard locations on macOS and Windows
 - **Profile support**: Named profiles allow environment-specific configurations (e.g., `production`, `staging`, `test`)
-- **TOML format**: All configuration files use TOML syntax
+- **TOML format**: Configuration files are TOML; a file in a `config.d/` directory may also be JSON, or YAML once PyYAML is installed (see File Locations)
 - **Runtime overrides**: Values can be overridden via environment variables or CLI flags without modifying files
 
 ---
@@ -16,15 +16,15 @@ This project uses [`lib_layered_config`](https://github.com/bitranox/lib_layered
 
 Configuration is loaded and merged in the following order (lowest to highest precedence):
 
-| Priority | Layer        | Description                                     |
-|:--------:|--------------|-------------------------------------------------|
-| 1        | **defaults** | Bundled with the package (`defaultconfig.toml`) |
-| 2        | **app**      | System-wide settings for all machines           |
-| 3        | **host**     | Machine-specific overrides                      |
-| 4        | **user**     | User's personal settings                        |
-| 5        | **.env**     | First `.env` found upward, else per-user `.env` |
-| 6        | **env vars** | Environment variables                           |
-| 7        | **CLI**      | Command-line `--set` flags (highest priority)   |
+| Priority | Layer        | Description                                                                   |
+|:--------:|--------------|-------------------------------------------------------------------------------|
+| 1        | **defaults** | Bundled with the package (`defaultconfig.toml` plus `defaultconfig.d/*.toml`) |
+| 2        | **app**      | System-wide settings for all machines                                         |
+| 3        | **host**     | Machine-specific overrides                                                    |
+| 4        | **user**     | User's personal settings                                                      |
+| 5        | **.env**     | First `.env` found upward, else per-user `.env`                               |
+| 6        | **env vars** | Environment variables                                                         |
+| 7        | **CLI**      | Command-line `--set` flags (highest priority)                                 |
 
 **Merge behavior**: Each layer only needs to specify values it wants to override. Unspecified values inherit from lower layers.
 
@@ -42,9 +42,12 @@ Configuration is loaded and merged in the following order (lowest to highest pre
 | user     | `~/.config/{slug}/config.toml`          | `~/Library/Application Support/{vendor}/{app}/config.toml`          | `%APPDATA%\{vendor}\{app}\config.toml`                |
 | .env     | `~/.config/{slug}/.env` (fallback)      | `~/Library/Application Support/{vendor}/{app}/.env` (fallback)      | `%APPDATA%\{vendor}\{app}\.env` (fallback)            |
 
-Every layer reads `config.toml` first and then the files in the `config.d/` directory next to it
-(for the host layer: `hosts/{hostname}.d/`), in lexical order; a `config.d/` file may be TOML, YAML
-or JSON. On Linux the app and host layers are read from `/etc/xdg/{slug}/` and then from
+Every layer reads `config.toml` first and then the files in the `config.d/` directory next to it,
+in lexical order; `config.d/` is read even when `config.toml` is missing. The host layer reads
+`hosts/{hostname}.toml` and then `hosts/{hostname}.d/`, but only when `hosts/{hostname}.toml`
+exists. A `config.d/` file may be TOML or JSON, or YAML when PyYAML is installed
+(`pip install 'lib_layered_config[yaml]'`); without it a `.yaml` or `.yml` file is refused, naming
+that extra. On Linux the app and host layers are read from `/etc/xdg/{slug}/` and then from
 `/etc/{slug}/`, and `$XDG_CONFIG_HOME` replaces `~/.config` when it is set. The `.env` row is a
 fallback: it is read only when no `.env` is found in the working directory or one of its parents.
 
@@ -384,14 +387,15 @@ datamax-dpl --profile production --set lib_log_rich.console_level=DEBUG config
 
 #### Supported Value Types
 
-| Type        | Example                                                       |
-|-------------|---------------------------------------------------------------|
-| String      | `--set section.key=value`                                     |
-| Integer     | `--set section.timeout=30`                                    |
-| Float       | `--set section.ratio=0.5`                                     |
-| Boolean     | `--set section.enabled=true` or `--set section.enabled=false` |
-| JSON Array  | `--set section.hosts='["a.com", "b.com"]'`                    |
-| JSON Object | `--set section.metadata='{"key": "value"}'`                   |
+| Type        | Example                                                        |
+|-------------|----------------------------------------------------------------|
+| String      | `--set section.key=value`                                      |
+| Integer     | `--set section.timeout=30`                                     |
+| Float       | `--set section.ratio=0.5`                                      |
+| Boolean     | `--set section.enabled=true` or `--set section.enabled=false`  |
+| JSON Array  | `--set section.hosts='["a.com", "b.com"]'`                     |
+| JSON Object | `--set section.metadata='{"key": "value"}'`                    |
+| Null        | `--set section.key=null` (unsets the key; its default applies) |
 
 ---
 
@@ -486,7 +490,7 @@ delivers `1.50` as text. The same holds for `[printers.<name>]` and `[preview]`.
 | `max_batch_job_bytes`            | integer, > 0, at most 1099511627776              | `67108864`                           | `DATAMAX_DPL___PRINTER__MAX_BATCH_JOB_BYTES`            | Most bytes the jobs of one `--data` batch of `render` with no `-o` may come to, the one command that holds the whole job because its answer is the job; past it the command stops with exit 2 (`BatchTooLargeError`) naming this key and `-o FILE`, without rendering the rest. It bounds the job, not the memory: see [Batches and memory](#batches-and-memory). 100000 records of a one-field label come to 6-7 MB. `render -o`, `validate` and `print` hold no job and do not read it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `max_reported_findings`          | integer, > 0, at most 100000000                  | `1000`                               | `DATAMAX_DPL___PRINTER__MAX_REPORTED_FINDINGS`          | How many findings a `--data` batch's answer keeps in full. Past that it keeps the first of each code, so a warning that comes late is not lost to the infos before it, and the first error; what it keeps is bounded by the codes that exist. The answer counts all of them, per code and in total, says so when it cuts, and human mode then prints the counts per code. Any error refuses the job whether or not its text was kept.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `max_reported_downloads`         | integer, > 0, at most 100000000                  | `1000`                               | `DATAMAX_DPL___PRINTER__MAX_REPORTED_DOWNLOADS`         | How many downloaded image names a `--data` batch's answer lists. The answer counts all of them and says so when it cuts.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `send_chunk_bytes`               | integer, > 0, at most 65536                      | `1024`                               | `DATAMAX_DPL___PRINTER__SEND_CHUNK_BYTES`               | Largest piece of a job handed to one write over tcp or serial. `timeout` bounds each piece, not the whole job, so it means the printer took no data for that long: at the about 1390 bytes/s of a print server feeding a 9600 baud printer, 1024 bytes take under a second. A larger piece needs a `timeout` long enough to send it. At most 65536: Windows takes one send of any size whole while its socket buffer is not full, so a larger piece comes back sent from a printer that reads nothing and the timeout never fires.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `send_chunk_bytes`               | integer, > 0, at most 65536                      | `1024`                               | `DATAMAX_DPL___PRINTER__SEND_CHUNK_BYTES`               | Largest piece of a job handed to one write over tcp, serial, `device:` or `file:` (`-` writes the job in one go). `timeout` bounds each piece, not the whole job (on `device:` and `file:` on POSIX only), so it means the printer took no data for that long: at the about 1390 bytes/s of a print server feeding a 9600 baud printer, 1024 bytes take under a second. A larger piece needs a `timeout` long enough to send it. At most 65536: Windows takes one send of any size whole while its socket buffer is not full, so a larger piece comes back sent from a printer that reads nothing and the timeout never fires.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `refused_connect_wait`           | float, > 0, at most 2147483                      | `3.0`                                | `DATAMAX_DPL___PRINTER__REFUSED_CONNECT_WAIT`           | Seconds one opening of a tcp connection keeps retrying a refused connect before it reports the refusal, never longer than `timeout`. A print server that just closed a job's connection refuses the next one for a moment (0.1-2 s measured on a SerComm PS301). Other connect errors (unknown host, unreachable, timeout) are not retried; a host that keeps refusing is reported after this plus one connect (on Windows a refusal itself takes about 2 s).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `refused_connect_retry_interval` | float, > 0, at most 2147483                      | `0.25`                               | `DATAMAX_DPL___PRINTER__REFUSED_CONNECT_RETRY_INTERVAL` | Seconds one opening of a tcp connection pauses before it tries a refused connect again within `refused_connect_wait`; no connect starts once the next would fall past that wait.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `link_bytes_per_second`          | float, >= 0, at most 125000000                   | `960.0`                              | `DATAMAX_DPL___PRINTER__LINK_BYTES_PER_SECOND`          | How fast the link behind a tcp connection carries a job to the printer. A print server feeding a serial printer takes the whole job at once and passes it on at the line's speed, and a new connection opened before it has finished loses its data until the print server restarts (measured on a SerComm PS301: a 1361-byte job then a status query 0.5 s later 3 of 3, 3 s later 0 of 3). So a tcp close waits until the bytes written since the printer last answered on that connection have had this speed to reach it, plus `link_drain_margin`; while it waits, another client's connect is refused rather than lost. 960 is 9600 baud 8N1; set the printer's own line speed, or 0 to close at once (a printer with its own network card).                                                                                                                                                                                                                                                                                                             |
@@ -824,6 +828,8 @@ taken from the printer and not acted on, so no calibration label and no finding.
 right after a power cycle then prints its first label with whatever shift the reset left, and
 nothing reports it. The library's `CheckedJob.reset=None` does the same.
 
+### Format length, deployed calibration keys and stop positions
+
 `max_format_rows` ships unset too. The Allegro 2 cuts a long format off; its model limit is 1648
 dot rows, about 201 mm at its default `scale_along`, the lowest row any test format was cut at on
 one Allegro 2. Where the printer cuts depends on the format's content in a way that is not
@@ -955,7 +961,10 @@ DATAMAX_DPL___PRINTER__MODEL=dmx-600 datamax-dpl config --section printer
 
 **Separator reference:**
 - `___` (triple underscore) - separates prefix from section
-- `__` (double underscore) - separates section from key
+- `__` (double underscore) - separates section from key, and each nested level from the next
+  (`PRINTERS__LAGER__SCALE_ALONG`)
+
+In a `.env` file leave out `<PREFIX>___`: see [.env File Support](#env-file-support).
 
 ---
 
@@ -969,6 +978,13 @@ LOG_CONSOLE_LEVEL=DEBUG
 LOG_CONSOLE_FORMAT_PRESET=short
 LOG_ENABLE_GRAYLOG=false
 ```
+
+In a `.env` file a configuration key is written without the prefix, as `SECTION__KEY=value`
+(`PRINTER__URI=tcp://192.0.2.60:9100`, `PRINTERS__LAGER__SCALE_ALONG=0.977`,
+`LIB_LOG_RICH__CONSOLE_LEVEL=DEBUG`). The prefixed names in the tables' Environment variable column
+(`DATAMAX_DPL___PRINTER__URI`) are for the process environment only: in a `.env` such a line lands in
+an unused `[datamax_dpl]` section and changes nothing. `.env.example` lists every key in the `.env`
+form.
 
 By default, the configuration loader reads ONE `.env` as its `.env` layer: the first one from the
 current directory up to the filesystem root (past any `pyproject.toml` or `.git`, so a checkout
@@ -1019,7 +1035,8 @@ prefix:
 # System-wide customization (Linux)
 /etc/xdg/datamax-dpl/config.d/999-myconfig.toml
 
-# Host-specific customization (Linux)
+# Host-specific customization (Linux; read only when hosts/{hostname}.toml exists,
+# which config-deploy --target host writes)
 /etc/xdg/datamax-dpl/hosts/{hostname}.d/999-myconfig.toml
 ```
 

@@ -67,10 +67,12 @@ are in [exit-codes-timeouts-and-retries.md](references/exit-codes-timeouts-and-r
 4. Print ONE label first, with the options production sends (`--cutter`, `--set`, `--option`): a
    data file with the header and one row,
    `datamax-dpl print label.json --data one.csv --model MODEL --printer tcp://HOST:9100`. The
-   cutter option changes the job: an allegro-2 job with no `--cutter` sends no `<STX>V` (the
-   printer keeps its last cutter state) and the tear-off stop `<STX>f263`, `--cutter no` sends
-   `<STX>V0` and `f263`, and only `--cutter yes` sends `<STX>V1` and the cutter stop `f302`; a test
-   print without `--cutter yes` on a printer with a cutter cuts in the wrong place. Scan the
+   cutter option changes the job: for a label without `cut`, an allegro-2 job with no `--cutter`
+   sends no `<STX>V` (the printer keeps its last cutter state) and the tear-off stop `<STX>f263`,
+   `--cutter no` sends `<STX>V0` and `f263`, and only `--cutter yes` sends `<STX>V1` and the cutter
+   stop `f302`; a label with `cut` and no `--cutter` sends `f302` and assumes the cutter
+   (`cutter_assumed`), and `--cutter no` refuses it (`no_cutter`). A test print without
+   `--cutter yes` on a printer with a cutter cuts in the wrong place. Scan the
    barcode and compare the label with the preview yourself: the tool has no camera and never
    inspects the printed label. Then
    print the remaining rows (leave out the one already printed). `--printer` takes
@@ -155,7 +157,7 @@ leaves out.
 | The longest format a model prints (`format_past_max_length`), image memory budget (`image_memory_bytes`, `image_halved`), image module and its clears, the upload check on a two-way `print` (`upload_check_rounds`, `image_upload_refused`), printer reset, image names, `memory`                                                    | [images-and-memory.md](references/images-and-memory.md)                               |
 | `cut` and `cut_every`, the cut after every print (`cut_after_print`), `:nnnn`, cutter on Prodigy, where the label stops or is cut (`stop_position`, `cutter_stop_position`, `joined_stop_position`, `present_distance`), the settings each job sends (`send_settings`, media, `start_of_print_mm`, `<STX>V`, heat)                    | [cutting-stops-and-printer-state.md](references/cutting-stops-and-printer-state.md)   |
 | `explain` a DPL file, `status`/`feed`/`cut`/`pause`/`cancel`/`reset`, `feed --media gap`, a label longer than one format (past about 200 mm on an Allegro 2) printed as segments, `[printers.<name>]`, `calibrate print` / `calibrate set`, `scale_across`/`scale_along`, offsets, checking where font 9 text ends on paper (V-lines) | [printer-controls-and-calibration.md](references/printer-controls-and-calibration.md) |
-| `render_batch`, a large batch one label at a time (`iter_batch`), `check_batch` and spools, `print_checked` and `CheckedJob`, errors to catch, element classes, `render_preview_png`, `explain(data)`                                                                                                                                 | [library.md](references/library.md)                                                   |
+| `render_batch`, a large batch one label at a time (`iter_batch`), `check_batch` and spools, `print_checked` and `CheckedJob`, errors to catch, element classes, `render_preview_png`, `explain(data)`, the enums fields take (`TextAlign`, `Symbology`, `FallbackPolicy`), `FindingCode`, profile `features`, calibration labels      | [library.md](references/library.md)                                                   |
 
 ## Library
 

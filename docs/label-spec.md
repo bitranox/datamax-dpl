@@ -43,31 +43,31 @@ formats reports the info finding `inch_units`. Check placement without paper wit
 
 ## Job settings
 
-| Key                 | Type                                   | Default | Meaning                                                                                                                                                                    |
-|---------------------|----------------------------------------|---------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `unit`              | `mm`, `in`, `dots`                     | `mm`    | Unit of every length in the label.                                                                                                                                         |
-| `width`             | number > 0                             | none    | Label width. Wider than the model's print width gives a warning. The preview uses it as canvas width.                                                                      |
-| `height`            | number > 0                             | none    | Label length in feed direction. Used by the preview and as the length on continuous media.                                                                                 |
-| `quantity`          | integer 1-9999                         | 1       | Number of labels to print (`Qnnnn`).                                                                                                                                       |
-| `elements`          | list, 1 to 2048                        | -       | The fields of the label, described below.                                                                                                                                  |
-| `cut`               | object                                 | none    | Cutting, see below. Needs a cutter; `--cutter no` refuses a label that sets it.                                                                                            |
-| `heat`              | integer 0-30                           | none    | Print head heat (`Hnn`). Above the model's maximum it is lowered to the maximum.                                                                                           |
-| `print_speed`       | letter `A`-`S`                         | none    | Print speed (`Pa`): `A` = 1.0 inch per second, each letter 0.5 more, `S` = 10.0.                                                                                           |
-| `slew_speed`        | letter `A`-`S`                         | none    | Feed speed without printing (`Sa`).                                                                                                                                        |
-| `backup_speed`      | letter `A`-`S`                         | none    | Backfeed speed (`pa`).                                                                                                                                                     |
-| `dot_size`          | object `{"width": 1-2, "height": 1-3}` | none    | Dot size command `Dwh`. Without it the format sends `D11` where the model's default is `D22`.                                                                              |
-| `column_offset`     | number >= 0                            | none    | Shift every field to the right (`Cnnnn`).                                                                                                                                  |
-| `row_offset`        | number >= 0                            | none    | Shift every field up (`Rnnnn`).                                                                                                                                            |
-| `attribute`         | 1, 2, 3, 5                             | none    | How fields combine with what is already printed: 1 XOR, 2 transparent, 3 opaque, 5 inverse (`An`).                                                                         |
-| `mirror`            | boolean                                | false   | Print the label mirrored (`M`).                                                                                                                                            |
-| `symbol_set`        | two characters `A-Z0-9`                | none    | Symbol set of scalable fonts (`ySxx`), for example `PM` (code page 850) or `W1` (Windows Latin 1).                                                                         |
-| `media`             | `gap`, `reflective`, `continuous`      | none    | How the printer finds the next label. `continuous` needs `continuous_length` or `height`.                                                                                  |
-| `continuous_length` | number > 0                             | none    | Length sent as `<STX>c` on continuous media. An Allegro 2 feeds it after the content, so its label pitch is content plus this (measured, see dpl-reference.md section 10). |
-| `stop_position`     | number > 0, or `"printer"`             | none    | Feed this far past the start of print; backed up on the next job (`<STX>f`). `"printer"` sends none.                                                                       |
-| `present_distance`  | number > 0                             | none    | Distance to present a label for removal (`<STX>Kf`).                                                                                                                       |
-| `pause_each_label`  | boolean                                | false   | Pause after each label (`<STX>J`). The setting stays on until the printer is reset.                                                                                        |
-| `count_by`          | integer 1-99                           | none    | Count-by amount (`^nn`) for counters.                                                                                                                                      |
-| `plain_zero`        | boolean                                | false   | Print 0 without the slash in fonts 0-8 and barcodes (`z`).                                                                                                                 |
+| Key                 | Type                                   | Default | Meaning                                                                                                                                                                                                                                                                                                            |
+|---------------------|----------------------------------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `unit`              | `mm`, `in`, `dots`                     | `mm`    | Unit of every length in the label.                                                                                                                                                                                                                                                                                 |
+| `width`             | number > 0                             | none    | Label width. Wider than the model's print width gives a warning. The preview uses it as canvas width.                                                                                                                                                                                                              |
+| `height`            | number > 0                             | none    | Label length in feed direction. Used by the preview and as the length on continuous media.                                                                                                                                                                                                                         |
+| `quantity`          | integer 1-9999                         | 1       | Number of labels to print (`Qnnnn`).                                                                                                                                                                                                                                                                               |
+| `elements`          | list, 1 to 2048                        | -       | The fields of the label, described below.                                                                                                                                                                                                                                                                          |
+| `cut`               | object                                 | none    | Cutting, see below. Needs a cutter; `--cutter no` refuses a label that sets it.                                                                                                                                                                                                                                    |
+| `heat`              | integer 0-30                           | none    | Print head heat (`Hnn`). Above the model's maximum it is lowered to the maximum.                                                                                                                                                                                                                                   |
+| `print_speed`       | letter `A`-`S`                         | none    | Print speed (`Pa`): `A` = 1.0 inch per second, each letter 0.5 more, `S` = 10.0.                                                                                                                                                                                                                                   |
+| `slew_speed`        | letter `A`-`S`                         | none    | Feed speed without printing (`Sa`).                                                                                                                                                                                                                                                                                |
+| `backup_speed`      | letter `A`-`S`                         | none    | Backfeed speed (`pa`).                                                                                                                                                                                                                                                                                             |
+| `dot_size`          | object `{"width": 1-2, "height": 1-3}` | none    | Dot size command `Dwh`. Without it the format sends `D11` where the model's default is `D22`.                                                                                                                                                                                                                      |
+| `column_offset`     | number >= 0                            | none    | Shift every field to the right (`Cnnnn`).                                                                                                                                                                                                                                                                          |
+| `row_offset`        | number >= 0                            | none    | Shift every field up (`Rnnnn`).                                                                                                                                                                                                                                                                                    |
+| `attribute`         | 1, 2, 3, 5                             | none    | How fields combine with what is already printed: 1 XOR, 2 transparent, 3 opaque, 5 inverse (`An`).                                                                                                                                                                                                                 |
+| `mirror`            | boolean                                | false   | Print the label mirrored (`M`).                                                                                                                                                                                                                                                                                    |
+| `symbol_set`        | two characters `A-Z0-9`                | none    | Symbol set of scalable fonts (`ySxx`), for example `PM` (code page 850) or `W1` (Windows Latin 1). Scalable text can be encoded only in `E1`, `E2`, `E5`, `PC`, `PE`, `PM`, `PV`, `US`, `W1`, `WE`, `WG`, `WR` and `WT`; another set with scalable text on a model with scalable fonts stops the command (exit 2). |
+| `media`             | `gap`, `reflective`, `continuous`      | none    | How the printer finds the next label. `continuous` needs `continuous_length` or `height`.                                                                                                                                                                                                                          |
+| `continuous_length` | number > 0                             | none    | Length sent as `<STX>c` on continuous media. An Allegro 2 feeds it after the content, so its label pitch is content plus this (measured, see dpl-reference.md section 10).                                                                                                                                         |
+| `stop_position`     | number > 0, or `"printer"`             | none    | Feed this far past the start of print; backed up on the next job (`<STX>f`). `"printer"` sends none.                                                                                                                                                                                                               |
+| `present_distance`  | number > 0                             | none    | Distance to present a label for removal (`<STX>Kf`).                                                                                                                                                                                                                                                               |
+| `pause_each_label`  | boolean                                | false   | Pause after each label (`<STX>J`). The setting stays on until the printer is reset.                                                                                                                                                                                                                                |
+| `count_by`          | integer 1-99                           | none    | Count-by amount (`^nn`) for counters.                                                                                                                                                                                                                                                                              |
+| `plain_zero`        | boolean                                | false   | Print 0 without the slash in fonts 0-8 and barcodes (`z`).                                                                                                                                                                                                                                                         |
 
 A `stop_position` of `"printer"` sends no `<STX>f`: the printer keeps its own setting, and the
 configured stop and the model's default are not sent either. The one exception is a
@@ -76,7 +76,7 @@ configured stop and the model's default are not sent either. The one exception i
 configured stop positions and the model's default, and what a model without `<STX>f` or `<STX>Kf`
 does with them, is in the README under [Where the label stops](../README.md#where-the-label-stops).
 
-`heat`, `print_speed`, `slew_speed`, `backup_speed`, `column_offset`, `row_offset` and
+`media`, `heat`, `print_speed`, `slew_speed`, `backup_speed`, `column_offset`, `row_offset` and
 `present_distance` each have a `[printer]` key of the same name that sets it for a label that sets
 none, the lengths in mm; the label's own value wins, and an unset key sends nothing. See
 [Label settings for every label](../CONFIG.md#label-settings-for-every-label).
@@ -149,19 +149,19 @@ the preview's reading of the figure is unverified until a test print.
 
 ### `text`: built-in fonts
 
-| Key                 | Type                      | Default | Meaning                                                                              |
-|---------------------|---------------------------|---------|--------------------------------------------------------------------------------------|
-| `x`, `y`            | number >= 0               | -       | Lower-left corner; with `align`, `x` is the line's centre or right end instead.      |
-| `rotation`          | 0, 90, 180, 270           | 0       | Rotation in degrees.                                                                 |
-| `text`              | string, 1-255 chars       | -       | The text; may contain `{name}` placeholders.                                         |
-| `font`              | integer 0-9               | 2       | Fonts 0-8 are fixed bitmapped fonts; 9 is CG Triumvirate in point sizes.             |
-| `points`            | integer 4-72              | none    | Point size for font 9. A size the model lacks is replaced by the nearest one it has. |
-| `font_id`           | three characters          | none    | A downloaded or cartridge font by DPL id (`100`-`999`, `B04` ...); needs `font` 9.   |
-| `width_multiplier`  | integer 1-24              | 1       | Horizontal scale of fonts 0-8.                                                       |
-| `height_multiplier` | integer 1-24              | 1       | Vertical scale of fonts 0-8.                                                         |
-| `attribute`         | 1, 2, 3, 5                | none    | Attribute for this field only.                                                       |
-| `counter`           | object                    | none    | Make the field count from label to label, see below.                                 |
-| `align`             | `left`, `center`, `right` | `left`  | Where `x` sits on the printed line: its left end, its centre or its right end.       |
+| Key                 | Type                      | Default | Meaning                                                                                                                             |
+|---------------------|---------------------------|---------|-------------------------------------------------------------------------------------------------------------------------------------|
+| `x`, `y`            | number >= 0               | -       | Lower-left corner; with `align`, `x` is the line's centre or right end instead.                                                     |
+| `rotation`          | 0, 90, 180, 270           | 0       | Rotation in degrees.                                                                                                                |
+| `text`              | string, 1-255 chars       | -       | The text; may contain `{name}` placeholders.                                                                                        |
+| `font`              | integer 0-9               | 2       | Fonts 0-8 are fixed bitmapped fonts; 9 is CG Triumvirate in point sizes.                                                            |
+| `points`            | integer 4-72              | none    | Point size for font 9. A size the model lacks is replaced by the nearest one it has.                                                |
+| `font_id`           | three characters          | none    | A downloaded or cartridge font by DPL id (`100`-`999`, `B04` ...); needs `font` 9.                                                  |
+| `width_multiplier`  | integer 1-24              | 1       | Horizontal scale of fonts 0-8; also sent with font 9, where its effect on widths is not known (an aligned font 9 field refuses it). |
+| `height_multiplier` | integer 1-24              | 1       | Vertical scale of fonts 0-8; also sent with font 9.                                                                                 |
+| `attribute`         | 1, 2, 3, 5                | none    | Attribute for this field only.                                                                                                      |
+| `counter`           | object                    | none    | Make the field count from label to label, see below.                                                                                |
+| `align`             | `left`, `center`, `right` | `left`  | Where `x` sits on the printed line: its left end, its centre or its right end.                                                      |
 
 Font 9 needs `points` or `font_id`; the other fonts take neither. Fonts 3 to 6 print capitals
 only, font 7 is OCR-A and font 8 OCR-B. Characters above ASCII follow code page 437 in fonts 1 and
@@ -264,17 +264,18 @@ records are measured. `x` itself is checked against the printable width like any
 
 ### `scalable_text`: outline fonts
 
-| Key             | Type                | Default | Meaning                                                                |
-|-----------------|---------------------|---------|------------------------------------------------------------------------|
-| `x`, `y`        | number >= 0         | -       | Lower-left corner.                                                     |
-| `rotation`      | 0, 90, 180, 270     | 0       | Rotation in degrees.                                                   |
-| `text`          | string, 1-255 chars | -       | The text; may contain `{name}` placeholders.                           |
-| `font_id`       | `S` plus two chars  | `S00`   | Scalable font id; `S00` is the resident CG Triumvirate Bold Condensed. |
-| `height_points` | number 4-999        | -       | Character height in points.                                            |
-| `width_points`  | number 4-999        | none    | Character width in points; defaults to the height.                     |
-| `attribute`     | 1, 2, 3, 5          | none    | Attribute for this field only.                                         |
+| Key             | Type                | Default | Meaning                                                                      |
+|-----------------|---------------------|---------|------------------------------------------------------------------------------|
+| `x`, `y`        | number >= 0         | -       | Lower-left corner.                                                           |
+| `rotation`      | 0, 90, 180, 270     | 0       | Rotation in degrees.                                                         |
+| `text`          | string, 1-255 chars | -       | The text; may contain `{name}` placeholders.                                 |
+| `font_id`       | `S` plus two chars  | `S00`   | Scalable font id; `S00` is the resident CG Triumvirate Bold Condensed.       |
+| `height_points` | number 4-999        | -       | Character height in points, rounded to a whole point.                        |
+| `width_points`  | number 4-999        | none    | Character width in points, rounded to a whole point; defaults to the height. |
+| `attribute`     | 1, 2, 3, 5          | none    | Attribute for this field only.                                               |
 
-The characters follow the label's `symbol_set`. On a model without scalable fonts the text is
+The characters follow the label's `symbol_set`, or `PC` (code page 437) when it sets none; the job
+then sends `ySPC`. On a model without scalable fonts the text is
 printed in font 9 at the nearest point size.
 
 ```json
@@ -329,6 +330,10 @@ centred on the path from start to end.
   ]
 }
 ```
+
+A `fill` other than 0 needs circle and polygon support: there the box is sent as a filled polygon
+(with its edge record for a pattern). Elsewhere a solid fill is drawn as a box whose edges meet in
+the middle (info `solid_fill_as_edges`) and a pattern as a downloaded image (`box_rasterized`).
 
 Fill patterns (for `box`, `circle` and `polygon`): 0 none, 1 solid, 2 6 %, 3 12 %, 4 25 %,
 5 38 %, 6 50 %, 7 diamonds, 8 circles, 9 right diagonal, 10 left diagonal, 11 grid.
