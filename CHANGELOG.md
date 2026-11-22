@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `feed --help` no longer claims an installed cutter is always turned off first: the form feed goes
+  alone when no `<STX>V` can be built (model unset, cutter neither yes nor no, or `label_present`
+  unset on a model that needs it).
+- Documentation and skill checked against the code by running their examples. The skill's library
+  reference names the enums, exceptions and functions a caller types (`Rotation`, `TextAlign`,
+  `PrinterTimeoutError`, `calibration_labels`, `pillow_available` and 29 more), and the README,
+  CONFIG, `docs/` and skill are corrected where they disagreed with the code: the cutter bytes per
+  `--cutter` value, `explain` on a one-record `--data` job (rebuilt, exit 0), `.env` keys written
+  without the prefix, `config.d/` files in JSON or YAML, `send_chunk_bytes` on `device:` and
+  `file:` targets, the metric maximum columns as the code rounds them, and the symbol sets scalable
+  text can be encoded in.
+
 ## [0.12.3] - 2026-11-22
 
 ### Fixed
