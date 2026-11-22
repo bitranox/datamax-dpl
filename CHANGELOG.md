@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-11-22
+
 ### Fixed
 
 - The preview letters a font 9 or scalable text line without cutting its last letter: a final `1`
