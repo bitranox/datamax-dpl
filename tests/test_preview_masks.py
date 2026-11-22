@@ -7,10 +7,12 @@ import re
 import subprocess
 import sys
 import textwrap
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 
 import pytest
 
+from datamax_dpl.adapters import preview as preview_adapter
 from datamax_dpl.adapters.preview import render_preview_png
 from datamax_dpl.domain.enums import Rotation, Unit
 from datamax_dpl.domain.errors import PreviewTooLongError
@@ -18,9 +20,6 @@ from datamax_dpl.domain.label import Label, ScalableText, Text
 from datamax_dpl.domain.preview import canvas_for, printed_text
 from datamax_dpl.domain.profiles import Firmware, get_profile
 from datamax_dpl.domain.render_context import RenderOptions
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 _MODEL = "dmx-600"
 #: The widest field a label states: 255 characters at 24 times the size, tens of thousands of dots.
@@ -37,10 +36,10 @@ _DARK_BELOW = 128
 _DARK_BYTE = re.compile(rb"[\x00-\x7f]")
 
 
-def _dark_pixels(label: Label) -> set[tuple[int, int]]:
+def _dark_pixels(label: Label, *, model: str = _MODEL) -> set[tuple[int, int]]:
     """Dark pixels of the lettered preview PNG, its one-dot frame left out, read a whole row at a time."""
     image_module = pytest.importorskip("PIL.Image")
-    with image_module.open(io.BytesIO(render_preview_png(label, get_profile(_MODEL)))) as image:
+    with image_module.open(io.BytesIO(render_preview_png(label, get_profile(model)))) as image:
         grey = image.convert("L")
     width, height = grey.size
     data = grey.tobytes()
@@ -263,26 +262,72 @@ def _font9_text(text: str) -> Label:
     return Label(unit=Unit.DOTS, width=400, height=200, elements=[Text(x=10, y=20, text=text, font=9, points=30)])
 
 
-def _row_extent(pixels: set[tuple[int, int]], y: int) -> tuple[int, int]:
-    """The leftmost and rightmost dark column of row ``y``."""
-    columns = [x for x, row in pixels if row == y]
-    return min(columns), max(columns)
+def _row_runs(pixels: set[tuple[int, int]], y: int) -> list[int]:
+    """The lengths of the runs of dark columns in row ``y``, left to right."""
+    columns = sorted(x for x, row in pixels if row == y)
+    runs: list[int] = []
+    for index, x in enumerate(columns):
+        if index and x == columns[index - 1] + 1:
+            runs[-1] += 1
+        else:
+            runs.append(1)
+    return runs
 
 
 @pytest.mark.os_agnostic
-def test_a_final_one_keeps_its_foot_on_both_sides() -> None:
-    """A '1' ends with its whole foot, not cut flat where the printer's narrower advance ends.
+def test_a_one_is_lettered_as_heavy_as_a_zero() -> None:
+    """The stem of a font 9 '1' is as thick as the strokes of a '0' beside it, as on paper.
 
-    The printer's font 9 '1' advances far less than the lettering font's tabular digit, so a glyph drawn at
-    its own width ran past the field's end and lost the right half of its foot.
+    The printer's '1' is a bare stem, the width of its ink box. A lettering glyph with a foot is wider than that
+    box and is narrowed into it, which thinned its stem to about half the '0' strokes ("BAT001" read with a
+    small '1'); a footless glyph fits the box as it is.
     """
-    pixels = _dark_pixels(_font9_text("1"))
-    bottom = max(y for _, y in pixels)
-    top = min(y for _, y in pixels)
-    foot_left, foot_right = _row_extent(pixels, bottom)
-    stem_left, stem_right = _row_extent(pixels, (top + bottom) // 2)
-    assert foot_right - stem_right >= 2, "the foot has no right half"
-    assert abs((stem_left - foot_left) - (foot_right - stem_right)) <= 1, "the foot is lopsided"
+    label = Label(unit=Unit.DOTS, width=200, height=120, elements=[Text(x=10, y=20, text="10", font=9, points=14)])
+    pixels = _dark_pixels(label, model="allegro-2")
+    rows = [y for _, y in pixels]
+    one, zero_left, zero_right = _row_runs(pixels, (min(rows) + max(rows)) // 2)
+    assert abs(one - zero_left) <= 1, (one, zero_left)
+    assert abs(one - zero_right) <= 1, (one, zero_right)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("font", [2, 9])
+def test_the_accent_of_a_capital_is_lettered_inside_its_field(font: int) -> None:
+    """An A umlaut shows its dots above the A: the baseline sits low enough in the field for a capital's accent."""
+    plain = _dark_pixels(_one_letter("A", font))
+    accented = _dark_pixels(_one_letter("\N{LATIN CAPITAL LETTER A WITH DIAERESIS}", font))
+    assert min(y for _, y in accented) < min(y for _, y in plain) - 1
+
+
+#: Every character code page 437 or 850 (font 9) prints, as Python decodes bytes 32-255; DEL (127) is no glyph.
+_PRINTABLE_CODE_PAGE_CHARACTERS = sorted(
+    {bytes([byte]).decode(code_page) for byte in range(0x20, 0x100) if byte != 0x7F for code_page in ("cp437", "cp850")}
+)
+#: Characters that draw no ink in a font by design: the spaces, and the soft hyphen (shown only at a line break).
+_INKLESS = frozenset({" ", "\N{NO-BREAK SPACE}", "\N{SOFT HYPHEN}"})
+
+
+@pytest.mark.os_agnostic
+def test_the_lettering_font_draws_every_code_page_character() -> None:
+    """Each character of code pages 437 and 850 has a glyph of its own, not the font's missing-glyph shape.
+
+    Pillow draws a character the font lacks as the font's ``.notdef`` glyph, an empty box or nothing at all.
+    """
+    font_module = pytest.importorskip("PIL.ImageFont")
+    shipped = Path(preview_adapter.__file__).resolve().parent / "fonts" / "NimbusSans-Bold.otf"
+    # Pillow looks a missing path up among the system's fonts by its name, so check the shipped file itself.
+    assert shipped.is_file()
+    font = font_module.truetype(str(shipped), 40)
+    missing = font.getmask(chr(0xE000))
+    missing_shape = (missing.size, bytes(missing))
+    drawn = {char: font.getmask(char) for char in _PRINTABLE_CODE_PAGE_CHARACTERS if char not in _INKLESS}
+    lacking = [
+        f"U+{ord(char):04X}"
+        for char, mask in drawn.items()
+        if mask.getbbox() is None or (mask.size, bytes(mask)) == missing_shape
+    ]
+    assert len(drawn) > 200, "the fixture checks the code pages, not a handful of characters"
+    assert lacking == []
 
 
 @pytest.mark.os_agnostic

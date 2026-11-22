@@ -7,9 +7,9 @@ The package is on PyPI; a commit not released yet installs from GitHub.
 
 ## Extras
 
-| Extra     | Adds                          | Needed for                                                                                                                                             |
-|-----------|-------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `preview` | Pillow (Python 3.11 or newer) | Lettered previews: `preview` writes the text into the PNG instead of grey cells, in Liberation Sans Bold (shipped with the package, umlauts included). |
+| Extra     | Adds                          | Needed for                                                                                                                                         |
+|-----------|-------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------|
+| `preview` | Pillow (Python 3.11 or newer) | Lettered previews: `preview` writes the text into the PNG instead of grey cells, in Nimbus Sans Bold (shipped with the package, umlauts included). |
 
 Serial printers work without an extra: pyserial is a regular dependency.
 

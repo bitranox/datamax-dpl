@@ -53,7 +53,7 @@ are in [exit-codes-timeouts-and-retries.md](references/exit-codes-timeouts-and-r
    longest values. There is no automatic text wrapping or shrinking: long text runs off the edge.
    It draws overlapping fields as they print (see "Overlapping fields" in
    [label-json.md](references/label-json.md)), rotation, and line
-   records exactly; text is grey cells, or with the `preview` extra lettered in Liberation Sans
+   records exactly; text is grey cells, or with the `preview` extra lettered in Nimbus Sans
    Bold, which draws umlauts, `ß` and every other code page 437/850 character (not the printer's
    font) (`uvx --from "datamax-dpl[preview]" datamax-dpl`, Python 3.11+). It letters the text as
    it prints: `?` for a character the font cannot print (`characters_unmappable`), capitals in

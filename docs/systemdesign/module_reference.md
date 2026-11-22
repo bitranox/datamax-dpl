@@ -150,7 +150,7 @@ code.
   `TcpTransport` waits before close until a link behind a print server carried the job, timed by a `LinkTimer`.
 - `transport/__init__.py` - `open_printer(uri, timeout=...)`.
 - `preview/__init__.py` - lettered preview with Pillow when the `preview` extra is installed, in the
-  bundled `preview/fonts/LiberationSans-Bold.ttf` (SIL Open Font License 1.1, licence beside it).
+  bundled `preview/fonts/NimbusSans-Bold.otf` (GNU AGPL 3 with a font exception, licence beside it).
 - `config/loader.py`, `config/deploy.py`, `config/display.py`, `config/overrides.py` - layered configuration.
 - `config/sections.py` - the `[printer]`, `[printers.<name>]` and `[preview]` section names (`ConfigSection`).
 - `config/user_edit.py` - writes a printer's values into the user layer (`calibrate set`).

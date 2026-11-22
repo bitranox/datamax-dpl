@@ -112,8 +112,8 @@ include = [
     "src/datamax_dpl/py.typed",
     "src/datamax_dpl/adapters/config/defaultconfig.toml",
     "src/datamax_dpl/adapters/config/defaultconfig.d/*.toml",
-    "src/datamax_dpl/adapters/preview/fonts/LiberationSans-Bold.ttf",
-    "src/datamax_dpl/adapters/preview/fonts/LICENSE-LiberationSans.txt",
+    "src/datamax_dpl/adapters/preview/fonts/NimbusSans-Bold.otf",
+    "src/datamax_dpl/adapters/preview/fonts/LICENSE-NimbusSans.txt",
 ]
 
 # An allowlist, never a denylist: hatchling reads only the root .gitignore, so tracked working
