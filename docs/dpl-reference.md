@@ -32,8 +32,10 @@ fields in hundredths of an inch (inch mode, the default) or tenths of a millimet
 | ovation-2        | Ovation 2        | 203    | 425 (assumed from width)          | 4.256                                       | 319        | 7000        |
 | titan-6200       | Titan 6200       | 203    | 661                               | 6.62                                        | 399        | 10000       |
 
-Metric max column is the inch value times 2.54, rounded: 410 -> 1041, 640 -> 1626, 860 -> 2184,
-661 -> 1679, 398 -> 1011 (the manual prints 1625 and 1680 for 640 and 661).
+Metric max column is the inch value times 2.54, rounded DOWN, so a column in 1/10 mm never lies
+past the width the inch limit names: 398 -> 1010, 410 -> 1041, 425 -> 1079, 640 -> 1625,
+661 -> 1678, 860 -> 2184. The manual prints 1625 for 640, which agrees, and 1680 for 661, two
+units past 661 x 2.54 = 1678.94.
 
 Two extra profiles exist in code: `generic` (the intersection of every model above: the smallest
 limits and only features every model has) and `permissive` (no model limits, syntax checks only).

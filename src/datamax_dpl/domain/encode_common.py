@@ -11,7 +11,7 @@ from .label import MAX_FIELD_DATA, Counter
 from .profiles import Feature
 from .records import line
 from .render_context import ImageEdge
-from .units import MM_PER_INCH, Axis, DplUnit, to_dpl
+from .units import MM_PER_INCH, Axis, DplUnit
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -27,9 +27,32 @@ _TOLERANCE = 1e-6
 STEPS_PER_UNIT: Final[Mapping[Unit, int]] = FrozenMapping({Unit.DOTS: 1, Unit.MM: 100, Unit.INCH: 100})
 
 
+#: Tenths of a millimetre in a hundredth of an inch, as a fraction: 254/100, kept in integers.
+_MM_TENTHS_PER_INCH_HUNDREDTH = (254, 100)
+
+
 def last_column(ctx: RenderContext) -> int:
-    """Return the model's largest column in this job's DPL unit; a field starting past it is refused."""
-    return to_dpl(ctx.profile.max_column / 100, Unit.INCH, target=ctx.dpl_unit, dpi=ctx.profile.dpi).value
+    """Return the model's largest column in this job's DPL unit; a field starting past it is refused.
+
+    The model's limit is given in 1/100 in. In 1/10 mm it is rounded DOWN, never to the nearest
+    unit: a column that rounded up would lie past the printable width the inch limit names
+    (640 -> 1625.6, so 1625; 661 -> 1678.94, so 1678).
+
+    Example:
+        >>> from datamax_dpl.domain.label import Label, Text
+        >>> from datamax_dpl.domain.render import job_context
+        >>> from datamax_dpl.domain.render_context import RenderOptions
+        >>> text = Text(x=1, y=1, text="a")
+        >>> last_column(job_context(Label(unit="mm", elements=[text]), RenderOptions(model="dmx-800")))
+        2184
+        >>> last_column(job_context(Label(unit="in", elements=[text]), RenderOptions(model="dmx-800")))
+        860
+    """
+    max_column = ctx.profile.max_column
+    if ctx.dpl_unit is DplUnit.INCH_HUNDREDTHS:
+        return max_column
+    numerator, denominator = _MM_TENTHS_PER_INCH_HUNDREDTH
+    return max_column * numerator // denominator
 
 
 def column_of(x: float, *, index: int, ctx: RenderContext) -> int:
