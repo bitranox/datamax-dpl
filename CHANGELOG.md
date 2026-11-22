@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-11-22
+
 ### Fixed
 
 - The PNG preview letters umlauts, `ß` and every other accented letter: Pillow's built-in font has
