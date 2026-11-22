@@ -6,6 +6,36 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `render_preview_png` draws a label whose `symbol_set` has no known codec again (`"XX"`, or a real
+  DPL set the tool has no exact table for). 0.12.1 raised `ValueError: no exact codec is known for
+  symbol set ...` for it when Pillow is installed, while 0.12.0 drew it. What such a set prints is
+  unknown, so its scalable text is lettered as typed; rendering the job still refuses the label.
+- `explain` reads scalable text back through the symbol set its job selects (the `ySxx` line), as
+  the encoder wrote it: a scalable `ä` sent through `PC` came back as `\x84`, `€` through `W1` as
+  `\x80`. A job with no `yS` line is read through `PC`, the set the encoder assumes. The rebuilt
+  label carries the selected set as `symbol_set`. A set with no known code page, or a byte its code
+  page does not define, keeps the text byte for byte and is listed in `problems`; so is scalable
+  text read through more than one set, since a label carries only one. A `yS` line whose set is not
+  two capitals or digits is a setting not understood and changes nothing, so the label is still
+  rebuilt.
+
+### Changed
+
+- `domain.preview.printed_text(element, canvas)` takes the canvas the preview draws on
+  (`canvas_for`) instead of `label`, `profile` and `options`. It reads the font fallback and the
+  symbol set from the job context that canvas was built for, the same one the encoder decides
+  with, so the two cannot disagree; an `options` for another model than the profile is refused
+  by `canvas_for` as everywhere else.
+- `domain.charset.printed_by_symbol_set` returns None for a symbol set with no known codec instead
+  of raising `ValueError`; `encode_for_symbol_set` still refuses it. The codec of a bitmapped font
+  is looked up in one place, `domain.charset.bitmapped_codec`, which the encoder, the preview and
+  the `.dpl` decoder use; the `PC` default for a label without a symbol set in one place,
+  `domain.charset.resolved_symbol_set`, which the encoder, the `yS` line of the job, the preview
+  and the decoder use. `domain.charset.decoded_by_symbol_set` reads a symbol set's bytes back
+  through the same table the encoder writes them with.
+
 ## [0.12.1] - 2026-11-22
 
 ### Fixed

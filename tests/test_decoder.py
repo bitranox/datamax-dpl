@@ -8,7 +8,20 @@ import pytest
 
 from datamax_dpl.domain.decoder import MAX_EXPLAINED_COMMANDS, explain, readable
 from datamax_dpl.domain.enums import CommandKind, ImageModule, Rotation, SpeedCode, Unit
-from datamax_dpl.domain.label import Barcode, Box, Circle, Counter, Cut, Image, Label, Line, Point, Polygon, Text
+from datamax_dpl.domain.label import (
+    Barcode,
+    Box,
+    Circle,
+    Counter,
+    Cut,
+    Image,
+    Label,
+    Line,
+    Point,
+    Polygon,
+    ScalableText,
+    Text,
+)
 from datamax_dpl.domain.render import render
 from datamax_dpl.domain.render_context import RenderOptions
 from datamax_dpl.domain.symbology import Symbology
@@ -42,6 +55,100 @@ def test_the_manuals_sample_program_rebuilds_its_label() -> None:
     assert isinstance(barcode, Barcode) and barcode.data == "590PCS" and not barcode.human_readable
     assert (barcode.wide_dots, barcode.narrow_dots, barcode.height) == (6, 2, 1.0)
     assert label.heat == 7
+
+
+#: Code page 437 (PC) has the a umlaut but no A grave or euro; 1252 (W1) has all three.
+_PC_TEXT = (
+    "Gr\N{LATIN SMALL LETTER O WITH DIAERESIS}\N{LATIN SMALL LETTER SHARP S}e \N{LATIN SMALL LETTER A WITH DIAERESIS}"
+)
+_W1_TEXT = "a\N{LATIN CAPITAL LETTER A WITH GRAVE}\N{EURO SIGN}"
+
+
+def _scalable_job(text: str, symbol_set: str | None) -> bytes:
+    label = Label(symbol_set=symbol_set, elements=[ScalableText(x=0.1, y=0.1, text=text, height_points=12)])
+    return render(label, RenderOptions(model="dmx-800")).data
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("symbol_set", "text", "selected"),
+    [(None, _PC_TEXT, "PC"), ("PC", _PC_TEXT, "PC"), ("W1", _W1_TEXT, "W1")],
+    ids=["default", "pc", "w1"],
+)
+def test_scalable_text_is_read_back_through_the_symbol_set_its_job_selects(
+    symbol_set: str | None, text: str, selected: str
+) -> None:
+    result = explain(_scalable_job(text, symbol_set))
+    assert result.problems == ()
+    assert result.label is not None
+    assert result.label.symbol_set == selected
+    (element,) = result.label.elements
+    assert isinstance(element, ScalableText)
+    assert element.text == text
+
+
+@pytest.mark.os_agnostic
+def test_scalable_text_with_no_symbol_set_line_is_read_through_pc_as_the_encoder_assumes() -> None:
+    job = _scalable_job(_PC_TEXT, None)
+    assert job.count(b"ySPC\r") == 1
+    result = explain(job.replace(b"ySPC\r", b""))
+    assert result.label is not None
+    assert result.label.symbol_set is None
+    (element,) = result.label.elements
+    assert isinstance(element, ScalableText)
+    assert element.text == _PC_TEXT
+
+
+@pytest.mark.os_agnostic
+def test_scalable_text_in_a_symbol_set_with_no_known_codec_is_kept_byte_for_byte_and_reported() -> None:
+    job = _scalable_job("a\N{LATIN SMALL LETTER A WITH DIAERESIS}", "PC")
+    assert job.count(b"ySPC\r") == 1
+    result = explain(job.replace(b"ySPC\r", b"ySXX\r"))
+    assert result.label is not None
+    (element,) = result.label.elements
+    assert isinstance(element, ScalableText)
+    assert element.text == "a\x84"
+    assert any("'XX'" in problem for problem in result.problems)
+
+
+@pytest.mark.os_agnostic
+def test_a_byte_its_symbol_set_does_not_define_is_reported_not_crashed_on() -> None:
+    job = _scalable_job("ab", "W1")
+    assert job.count(b"ab\r") == 1
+    result = explain(job.replace(b"ab\r", b"a\x81\r"))
+    assert any("W1" in problem for problem in result.problems)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("line", [b"ySpc", b"yS  ", b"yS-1", b"yS\xe4\xe4", b"yS1", b"ySPCX"])
+def test_a_symbol_set_line_naming_no_valid_set_is_not_understood_and_the_label_still_rebuilt(line: bytes) -> None:
+    job = _scalable_job(_PC_TEXT, None)
+    assert job.count(b"ySPC\r") == 1
+    result = explain(job.replace(b"ySPC\r", line + b"\r"))
+    assert any("setting not understood" in problem for problem in result.problems)
+    assert result.label is not None
+    assert result.label.symbol_set is None
+    (element,) = result.label.elements
+    assert isinstance(element, ScalableText)
+    assert element.text == _PC_TEXT
+
+
+@pytest.mark.os_agnostic
+def test_scalable_text_read_through_two_symbol_sets_is_reported() -> None:
+    # Hand-written: the encoder writes one yS line before every record, so this needs two by hand.
+    job = b"\x02L\rm\r1911S0000010001P012P012Gr\x94\xe1\rySW1\r1911S0000100001P012P012\x80\rE\r"
+    result = explain(job)
+    assert any("PC" in problem and "W1" in problem for problem in result.problems)
+
+
+@pytest.mark.os_agnostic
+def test_a_repeated_symbol_set_line_before_any_scalable_text_is_not_reported() -> None:
+    job = _scalable_job(_W1_TEXT, "W1")
+    assert job.count(b"ySW1\r") == 1
+    result = explain(job.replace(b"ySW1\r", b"ySPC\rySW1\r"))
+    assert result.problems == ()
+    assert result.label is not None
+    assert result.label.symbol_set == "W1"
 
 
 @pytest.mark.os_agnostic

@@ -57,7 +57,7 @@ from ._invariants import require_same_keys
 from .charset import printed_by_bitmapped_font, printed_by_symbol_set
 from .encode_common import position_units
 from .encode_graphics import qr_symbol_position
-from .enums import Attribute, CombineMode, FillPattern, HardwareOption, Rotation, TextAlign, Unit
+from .enums import Attribute, CombineMode, FillPattern, Rotation, TextAlign, Unit
 from .errors import PreviewTooLongError
 from .geometry import DotPoint, Rect, Size, Span
 from .image_budget import HALVING_FACTOR, halve, magnify
@@ -65,7 +65,7 @@ from .label import FONT_9, Barcode, Box, Circle, Element, Image, Label, Line, Po
 from .profiles import Feature, get_profile
 from .qr import QrDataTooLongError, element_symbol
 from .raster import Bitmap
-from .render_context import RenderOptions, supported
+from .render_context import RenderOptions
 from .text_metrics import CELLS, font9_em_dots, font9_field_points, measured, text_column
 from .units import Axis, to_inches
 
@@ -618,27 +618,28 @@ def _as_text(element: ScalableText) -> Text:
     return Text(x=element.x, y=element.y, rotation=element.rotation, text=element.text, font=FONT_9, points=points)
 
 
-def printed_text(
-    element: Text | ScalableText, *, label: Label, profile: PrinterProfile, options: RenderOptions | None = None
-) -> str:
+def printed_text(element: Text | ScalableText, canvas: Canvas) -> str:
     """The characters the printer prints for a text field, by the encoding its record is sent in.
 
-    A text field goes out in its bitmapped font; scalable text in the label's symbol set, or in
-    font 9 on a model without scalable fonts, as the encoder sends it. One character per character
-    of the field's text, so the letter positions of :func:`letter_spans` still apply.
+    Read from the job context the canvas was built for (``canvas.geometry.ctx``), the same one
+    the encoder decides with: a text field goes out in its bitmapped font; scalable text in the
+    label's symbol set, or in font 9 where the model (at that firmware, with those options) has no
+    scalable fonts. One character per character of the field's text, so the letter positions of
+    :func:`letter_spans` still apply. A symbol set without a known codec gives the text as typed:
+    what it prints is unknown, and the encoder refuses such a label.
 
     Example:
         >>> label = Label(elements=[Text(x=0, y=0, text="abc", font=3)])
-        >>> printed_text(label.elements[0], label=label, profile=get_profile("allegro-2"))
+        >>> printed_text(label.elements[0], canvas_for(label, get_profile("allegro-2")))
         'ABC'
     """
     if isinstance(element, Text):
         return printed_by_bitmapped_font(element.text, font=element.font)
-    firmware = None if options is None else options.firmware
-    installed: frozenset[HardwareOption] = frozenset() if options is None else options.options
-    if not supported(profile, Feature.SCALABLE_FONTS, firmware=firmware, options=installed):
+    ctx = canvas.geometry.ctx
+    if not ctx.supports(Feature.SCALABLE_FONTS):
         return printed_by_bitmapped_font(element.text, font=FONT_9)
-    return printed_by_symbol_set(element.text, symbol_set=label.symbol_set)
+    printed = printed_by_symbol_set(element.text, symbol_set=ctx.symbol_set)
+    return element.text if printed is None else printed
 
 
 def draw_element(element: Element, bitmap: Bitmap, canvas: Canvas) -> None:

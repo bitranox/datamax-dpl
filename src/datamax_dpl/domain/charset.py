@@ -151,7 +151,7 @@ def encode_for_bitmapped_font(text: str, *, font: int) -> EncodedText:
         _bitmapped_byte,
         allowed=allowed,
         capitals_only=font in CAPITALS_ONLY_FONTS,
-        codec=FONT_CODECS.get(font, BITMAPPED_CODEC),
+        codec=bitmapped_codec(font),
     )
     return _encode(text, byte_for)
 
@@ -175,13 +175,75 @@ def encode_for_symbol_set(text: str, *, symbol_set: str | None) -> EncodedText:
         >>> encode_for_symbol_set(chr(0x00E4), symbol_set=None).data
         b'\\x84'
     """
-    set_id = DEFAULT_SYMBOL_SET if symbol_set is None else symbol_set
-    codec = SYMBOL_SET_CODECS.get(set_id)
+    codec = _symbol_set_codec(symbol_set)
     if codec is None:
         known = ", ".join(sorted(SYMBOL_SET_CODECS))
-        msg = f"no exact codec is known for symbol set {set_id[:MAX_ECHOED_ID]!r}; known: {known}"
+        msg = (
+            f"no exact codec is known for symbol set {resolved_symbol_set(symbol_set)[:MAX_ECHOED_ID]!r}; "
+            f"known: {known}"
+        )
         raise ValueError(msg)
+    return _encode_symbol_set(text, codec)
+
+
+def resolved_symbol_set(symbol_set: str | None) -> str:
+    """The symbol set scalable text prints through: ``symbol_set``, or ``PC`` when None.
+
+    Example:
+        >>> resolved_symbol_set(None), resolved_symbol_set("W1")
+        ('PC', 'W1')
+    """
+    return DEFAULT_SYMBOL_SET if symbol_set is None else symbol_set
+
+
+def _symbol_set_codec(symbol_set: str | None) -> str | None:
+    """The codec scalable text is encoded in for ``symbol_set`` (None: ``PC``); None when none is known.
+
+    The one place that turns a symbol set into a codec: the encoder and the preview's read-back
+    (:func:`printed_by_symbol_set`) both ask it, so they cannot pick different tables.
+
+    Example:
+        >>> _symbol_set_codec(None), _symbol_set_codec("W1"), _symbol_set_codec("XX")
+        ('cp437', 'cp1252', None)
+    """
+    return SYMBOL_SET_CODECS.get(resolved_symbol_set(symbol_set))
+
+
+def decoded_by_symbol_set(data: bytes, *, symbol_set: str | None) -> str | None:
+    """Read scalable text's bytes back through ``symbol_set`` (None: ``PC``), as the encoder wrote them.
+
+    Returns:
+        The characters; None when no exact codec is known for ``symbol_set``.
+
+    Raises:
+        UnicodeDecodeError: A byte the set's code page does not define (``0x81`` in ``W1``).
+
+    Example:
+        >>> decoded_by_symbol_set(b"a\\x84", symbol_set=None)
+        'a\\xe4'
+        >>> decoded_by_symbol_set(b"a", symbol_set="XX") is None
+        True
+    """
+    codec = _symbol_set_codec(symbol_set)
+    return None if codec is None else data.decode(codec)
+
+
+def _encode_symbol_set(text: str, codec: str) -> EncodedText:
+    """Encode ``text`` byte by byte through ``codec``: what both the encoder and the read-back send."""
     return _encode(text, partial(_codec_byte, codec=codec))
+
+
+def bitmapped_codec(font: int) -> str:
+    """The codec bitmapped font ``font`` is encoded in (:data:`FONT_CODECS`, else code page 437).
+
+    The one place that turns a bitmapped font into a codec: the encoder, the preview's read-back
+    and the decoder of a ``.dpl`` file all ask it.
+
+    Example:
+        >>> bitmapped_codec(2), bitmapped_codec(9)
+        ('cp437', 'cp850')
+    """
+    return FONT_CODECS.get(font, BITMAPPED_CODEC)
 
 
 def printed_by_bitmapped_font(text: str, *, font: int) -> str:
@@ -196,21 +258,26 @@ def printed_by_bitmapped_font(text: str, *, font: int) -> str:
         >>> printed_by_bitmapped_font("a" + chr(0x20AC) + "b", font=2)
         'a?b'
     """
-    return encode_for_bitmapped_font(text, font=font).data.decode(FONT_CODECS.get(font, BITMAPPED_CODEC))
+    return encode_for_bitmapped_font(text, font=font).data.decode(bitmapped_codec(font))
 
 
-def printed_by_symbol_set(text: str, *, symbol_set: str | None) -> str:
+def printed_by_symbol_set(text: str, *, symbol_set: str | None) -> str | None:
     """The characters a scalable font prints for ``text`` through ``symbol_set`` (None: ``PC``).
 
-    Raises:
-        ValueError: No exact codec is known for ``symbol_set``, as :func:`encode_for_symbol_set`.
+    Returns:
+        The encoded bytes read back through the set's codec; None when no exact codec is known for
+        ``symbol_set``, so what it prints is unknown (:func:`encode_for_symbol_set` refuses it).
 
     Example:
         >>> printed_by_symbol_set("a" + chr(0x20AC), symbol_set="PC")
         'a?'
+        >>> printed_by_symbol_set("a", symbol_set="XX") is None
+        True
     """
-    encoded = encode_for_symbol_set(text, symbol_set=symbol_set)
-    return encoded.data.decode(SYMBOL_SET_CODECS[DEFAULT_SYMBOL_SET if symbol_set is None else symbol_set])
+    codec = _symbol_set_codec(symbol_set)
+    if codec is None:
+        return None
+    return _encode_symbol_set(text, codec).data.decode(codec)
 
 
 def _encode(text: str, byte_for: Callable[[str], int | None]) -> EncodedText:
@@ -262,8 +329,11 @@ __all__ = [
     "FONT_CODECS",
     "SYMBOL_SET_CODECS",
     "EncodedText",
+    "bitmapped_codec",
+    "decoded_by_symbol_set",
     "encode_for_bitmapped_font",
     "encode_for_symbol_set",
     "printed_by_bitmapped_font",
     "printed_by_symbol_set",
+    "resolved_symbol_set",
 ]

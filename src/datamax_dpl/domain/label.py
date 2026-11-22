@@ -47,6 +47,9 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
 MAX_FIELD_DATA = 255
+#: A DPL symbol set id (``PC``, ``W1``): two capitals or digits. The label model and the decoder of a
+#: ``yS`` line both check it.
+SYMBOL_SET_PATTERN = r"^[A-Z0-9]{2}$"
 MAX_PDF417_DATA = 3000
 MAX_MULTIPLIER = 24
 MAX_IMAGE_NAME = 8
@@ -566,7 +569,7 @@ class Label(_Frozen):
     row_offset: NonNegative | None = None
     attribute: _Coded[Attribute] | None = None
     mirror: bool = Field(default=False, strict=True)
-    symbol_set: str | None = Field(default=None, pattern=r"^[A-Z0-9]{2}$")
+    symbol_set: str | None = Field(default=None, pattern=SYMBOL_SET_PATTERN)
     media: MediaSensor | None = None
     continuous_length: Positive | None = Field(default=None, description="Label length on continuous media.")
     stop_position: StopPosition | None = Field(
@@ -638,6 +641,7 @@ __all__ = [
     "MAX_QR_DATA",
     "MAX_QUANTITY",
     "MAX_QUIET_ZONE",
+    "SYMBOL_SET_PATTERN",
     "Barcode",
     "Box",
     "Circle",

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Generic, TypeVar
 
-from .charset import DEFAULT_SYMBOL_SET
+from .charset import resolved_symbol_set
 from .enums import FindingCode, MediaSensor, PrinterSetting, PrinterStop, SpeedCode
 from .label import DotSize, ScalableText
 from .profiles import Feature, SpeedRange
@@ -784,19 +784,18 @@ def _symbol_set_line(label: Label, ctx: RenderContext) -> list[bytes]:
     assumed default (``PC``, see :mod:`~datamax_dpl.domain.charset`) states it: a set another
     program left behind would otherwise print other characters for the same bytes.
     """
-    if label.symbol_set is None and ctx.supports(Feature.SCALABLE_FONTS):
-        scalable = any(isinstance(element, ScalableText) for element in label.elements)
-        return [line(f"yS{DEFAULT_SYMBOL_SET}")] if scalable else []
-    if label.symbol_set is None:
+    if not ctx.supports(Feature.SCALABLE_FONTS):
+        if ctx.symbol_set is not None:
+            ctx.findings.deviate(
+                FindingCode.SYMBOL_SET_UNSUPPORTED,
+                f"symbol sets apply to scalable fonts: {ctx.requirement(Feature.SCALABLE_FONTS)}",
+                fallback="ignored",
+            )
         return []
-    if ctx.supports(Feature.SCALABLE_FONTS):
-        return [line(f"yS{label.symbol_set}")]
-    ctx.findings.deviate(
-        FindingCode.SYMBOL_SET_UNSUPPORTED,
-        f"symbol sets apply to scalable fonts: {ctx.requirement(Feature.SCALABLE_FONTS)}",
-        fallback="ignored",
-    )
-    return []
+    if ctx.symbol_set is None and not any(isinstance(element, ScalableText) for element in label.elements):
+        return []
+    # The set the encoder encoded the scalable text for (encode_scalable_text reads the same field).
+    return [line(f"yS{resolved_symbol_set(ctx.symbol_set)}")]
 
 
 def _cut_lines(label: Label, ctx: RenderContext) -> list[bytes]:

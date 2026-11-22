@@ -16,7 +16,8 @@ from datamax_dpl.domain.enums import Rotation, Unit
 from datamax_dpl.domain.errors import PreviewTooLongError
 from datamax_dpl.domain.label import Label, ScalableText, Text
 from datamax_dpl.domain.preview import canvas_for, printed_text
-from datamax_dpl.domain.profiles import get_profile
+from datamax_dpl.domain.profiles import Firmware, get_profile
+from datamax_dpl.domain.render_context import RenderOptions
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -201,19 +202,57 @@ def test_a_text_field_is_lettered_as_the_printer_prints_it_not_as_typed(typed: s
     assert _dark_pixels(_one_letter(typed, font)) == _dark_pixels(_one_letter(printed, font))
 
 
+#: Code page 437 (PC) has neither letter, 850 (font 9) has the A grave, 1252 (W1) has both: each path
+#: the encoder can take letters it differently.
+_A_GRAVE_EURO = "a\N{LATIN CAPITAL LETTER A WITH GRAVE}\N{EURO SIGN}"
+_FONT9_OF_IT = "a\N{LATIN CAPITAL LETTER A WITH GRAVE}?"
+
+
 @pytest.mark.os_agnostic
 @pytest.mark.parametrize(
     ("model", "symbol_set", "printed"),
     [
-        ("dmx-800", None, "a?"),
-        ("dmx-800", "W1", "a\N{EURO SIGN}"),
-        ("allegro-2", "W1", "a?"),
+        ("dmx-800", None, "a??"),
+        ("dmx-800", "W1", _A_GRAVE_EURO),
+        ("allegro-2", "W1", _FONT9_OF_IT),
     ],
 )
 def test_scalable_text_is_lettered_in_the_encoding_its_record_is_sent_in(
     model: str, symbol_set: str | None, printed: str
 ) -> None:
     """Scalable text goes out in the label's symbol set (PC when none); a model without scalable fonts sends font 9."""
-    element = ScalableText(x=0, y=0, text="a\N{EURO SIGN}", height_points=12)
+    element = ScalableText(x=0, y=0, text=_A_GRAVE_EURO, height_points=12)
     label = Label(symbol_set=symbol_set, elements=[element])
-    assert printed_text(element, label=label, profile=get_profile(model)) == printed
+    assert printed_text(element, canvas_for(label, get_profile(model))) == printed
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("firmware", "printed"),
+    [
+        (Firmware(major=2, minor=1), _A_GRAVE_EURO),
+        (Firmware(major=1, minor=0), _FONT9_OF_IT),
+        (None, _FONT9_OF_IT),
+    ],
+)
+def test_scalable_text_is_lettered_by_the_firmware_the_job_is_rendered_for(
+    firmware: Firmware | None, printed: str
+) -> None:
+    """A DMX 600 has scalable fonts from firmware 2.01 on; before that (or unstated) the field goes out in font 9."""
+    element = ScalableText(x=0, y=0, text=_A_GRAVE_EURO, height_points=12)
+    label = Label(symbol_set="W1", elements=[element])
+    canvas = canvas_for(label, get_profile("dmx-600"), options=RenderOptions(model="dmx-600", firmware=firmware))
+    assert printed_text(element, canvas) == printed
+
+
+@pytest.mark.os_agnostic
+def test_a_symbol_set_without_a_known_codec_is_lettered_as_typed_and_the_preview_still_draws() -> None:
+    """No codec is known for set XX, so what prints is unknown: the preview letters the text as typed, as 0.12.0 did.
+
+    The encoder refuses such a label; the preview picture of it is drawn all the same, with or without Pillow.
+    """
+    element = ScalableText(x=1, y=1, text="a\N{EURO SIGN}", height_points=12)
+    label = Label(symbol_set="XX", elements=[element])
+    profile = get_profile("dmx-800")
+    assert printed_text(element, canvas_for(label, profile)) == "a\N{EURO SIGN}"
+    assert render_preview_png(label, profile)[1:4] == b"PNG"

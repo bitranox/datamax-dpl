@@ -5,7 +5,13 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from .charset import CAPITALS_ONLY_FONTS, EncodedText, encode_for_bitmapped_font, encode_for_symbol_set
+from .charset import (
+    CAPITALS_ONLY_FONTS,
+    EncodedText,
+    encode_for_bitmapped_font,
+    encode_for_symbol_set,
+    resolved_symbol_set,
+)
 from .encode_common import (
     STEPS_PER_UNIT,
     attribute_lines,
@@ -284,7 +290,7 @@ def encode_scalable_text(element: ScalableText, *, index: int, ctx: RenderContex
         )
         return encode_text(_as_font9(element), index=index, ctx=ctx)
     encoded = encode_for_symbol_set(element.text, symbol_set=ctx.symbol_set)
-    _report_unmappable(encoded, index=index, ctx=ctx, font=f"symbol set {ctx.symbol_set or 'PC'}")
+    _report_unmappable(encoded, index=index, ctx=ctx, font=f"symbol set {resolved_symbol_set(ctx.symbol_set)}")
     check_field_length(len(encoded.data), index=index, ctx=ctx)
     height = round(element.height_points)
     width = round(element.width_points or element.height_points)

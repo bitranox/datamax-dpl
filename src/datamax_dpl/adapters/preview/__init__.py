@@ -204,10 +204,7 @@ def _masks(pillow: _Pillow, label: Label, profile: PrinterProfile, options: Rend
             continue
         # A text field is lettered as the printer prints it ('?' for a character its font cannot
         # print, a capital in a capitals-only font), never as typed: the preview stands in for paper.
-        if isinstance(element, Barcode):
-            text = element.data
-        else:
-            text = printed_text(element, label=label, profile=profile, options=options)
+        text = element.data if isinstance(element, Barcode) else printed_text(element, canvas)
         mask = _text_mask(pillow, mask_area(element, canvas), text, canvas, spans=_letter_spans(element, canvas))
         if mask is not None:
             masks[index] = mask

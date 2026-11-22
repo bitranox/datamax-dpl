@@ -14,9 +14,24 @@ from typing import TypedDict
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from ._invariants import require_update_fields
-from .charset import BITMAPPED_CODEC, FONT_CODECS
+from .charset import bitmapped_codec, decoded_by_symbol_set, resolved_symbol_set
 from .enums import CommandKind, CounterSign, FillPattern, Rotation, SpeedCode, Unit
-from .label import Barcode, Box, Circle, Counter, Cut, Element, Image, Label, Line, Point, Polygon, ScalableText, Text
+from .label import (
+    SYMBOL_SET_PATTERN,
+    Barcode,
+    Box,
+    Circle,
+    Counter,
+    Cut,
+    Element,
+    Image,
+    Label,
+    Line,
+    Point,
+    Polygon,
+    ScalableText,
+    Text,
+)
 from .profiles import OLD_SERIES_POINTS
 from .records import MAX_IMAGE_MAGNIFICATION, multiplier_value
 from .symbology import SYMBOLOGY_BY_IDENTIFIER
@@ -29,6 +44,9 @@ _PRINTABLE = range(32, 127)
 MAX_EXPLAINED_COMMANDS = 100_000
 #: A record header is 15 characters: a b c d eee ffff gggg.
 _HEADER_LENGTH = 15
+#: A symbol set selection is ``yS`` and the set's two characters (manual p.48).
+_SYMBOL_SET_LINE_LENGTH = 4
+_SYMBOL_SET_ID = re.compile(SYMBOL_SET_PATTERN)
 
 
 #: The first character of a counter line; the encoder's ``counter_lines`` writes the same signs.
@@ -167,6 +185,12 @@ class _State:
     print_speed: SpeedCode | None = None
     slew_speed: SpeedCode | None = None
     cut: Cut | None = None
+    #: The symbol set the latest ``yS`` line selected, or None before any: scalable text after it
+    #: is read through that set's code page, as the encoder wrote it.
+    symbol_set: str | None = None
+    #: The sets scalable text was read through (at most one per set the tool knows a code page for,
+    #: plus PC); a second one is reported, since the rebuilt label carries only one.
+    scalable_sets: set[str] = field(default_factory=set[str])
     #: Why the latest ``:`` (cut by) command is not a valid cut, or None. It is reported with the
     #: label's own validation errors, so a stream with a bad cut gets no label, as before the cut
     #: became a model.
@@ -320,6 +344,17 @@ def _setting(first: str, text: str, state: _State) -> None:
         state.slew_speed = SpeedCode(text[1])
     elif first == ":":
         _cut_setting(int(text[1:5]), state)
+    elif first == "y":
+        _symbol_set_setting(text, state)
+
+
+def _symbol_set_setting(text: str, state: _State) -> None:
+    """Select the symbol set of a ``ySxx`` line; any other shape is a setting not understood."""
+    # The label model refuses an id outside its pattern, so one taken here would lose the whole label.
+    if len(text) != _SYMBOL_SET_LINE_LENGTH or text[1] != "S" or not _SYMBOL_SET_ID.fullmatch(text[2:]):
+        msg = f"not a symbol set selection: {text!r}"
+        raise ValueError(msg)
+    state.symbol_set = text[2:]
 
 
 def _cut_setting(every: int, state: _State) -> None:
@@ -447,8 +482,9 @@ def _text(text: str, state: _State) -> Element:
     x, y = _scale(head.column, state), _scale(head.row, state)
     if font == _FONT_9 and head.size[0] in _SCALABLE_SIZE_PREFIXES:
         points = int(text[16:19])
-        return ScalableText(text=text[23:], font_id=head.size, height_points=points, x=x, y=y, rotation=head.rotation)
-    data = text[15:].encode("latin-1").decode(FONT_CODECS.get(font, BITMAPPED_CODEC))
+        data = _scalable_data(text[23:], state)
+        return ScalableText(text=data, font_id=head.size, height_points=points, x=x, y=y, rotation=head.rotation)
+    data = text[15:].encode("latin-1").decode(bitmapped_codec(font))
     size = _font9_size(head.size) if font == _FONT_9 else _NO_FONT9_SIZE
     return Text(
         text=data,
@@ -461,6 +497,38 @@ def _text(text: str, state: _State) -> Element:
         y=y,
         rotation=head.rotation,
     )
+
+
+def _note_scalable_set(set_id: str, state: _State) -> None:
+    """Record the set a scalable record is read through; report each set past the first."""
+    if set_id in state.scalable_sets:
+        return
+    state.scalable_sets.add(set_id)
+    if len(state.scalable_sets) > 1:
+        sets = ", ".join(sorted(state.scalable_sets))
+        state.problems.append(
+            f"scalable text is read through more than one symbol set ({sets}); a label carries only one"
+        )
+
+
+def _scalable_data(raw: str, state: _State) -> str:
+    """Read a scalable record's data (as Latin-1 text, byte for byte) through the selected symbol set.
+
+    A set with no known codec, or a byte its code page leaves undefined, keeps the data byte for
+    byte and is reported: the characters it prints are unknown, so no guess is made.
+    """
+    data = raw.encode("latin-1")
+    set_id = resolved_symbol_set(state.symbol_set)
+    _note_scalable_set(set_id, state)
+    try:
+        decoded = decoded_by_symbol_set(data, symbol_set=state.symbol_set)
+    except UnicodeDecodeError as exc:
+        state.problems.append(f"scalable text: byte 0x{data[exc.start]:02X} is not in symbol set {set_id}")
+        return raw
+    if decoded is None:
+        state.problems.append(f"scalable text: no codec is known for symbol set {set_id!r}; kept byte for byte")
+        return raw
+    return decoded
 
 
 @dataclass(frozen=True)
@@ -542,6 +610,7 @@ def _rebuild(state: _State) -> Label | None:
             print_speed=state.print_speed,
             slew_speed=state.slew_speed,
             cut=state.cut,
+            symbol_set=state.symbol_set,
         )
     except ValidationError as exc:
         errors = exc.error_count() + cut_errors

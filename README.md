@@ -163,7 +163,9 @@ bytes open a transport with `open_printer(uri, timeout=10)` and call `send(data)
 reads DPL bytes back, as the command `datamax-dpl explain job.dpl` does: it explains every command
 and rebuilds the label as JSON only from a job with exactly one label format. A job with more (any
 `--data` job) gets the problem "N label formats: only a stream with exactly one is rebuilt as a
-label", and the command exits 1. All of these are imported from `datamax_dpl`.
+label", and the command exits 1. Scalable text is read back through the symbol set the job selects
+(its `ySxx` line, `PC` when it has none), and the rebuilt label carries that set. All of these are
+imported from `datamax_dpl`.
 
 The rest of the commands have library forms too, imported from `datamax_dpl` as well:
 
