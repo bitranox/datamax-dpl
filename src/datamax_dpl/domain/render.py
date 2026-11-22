@@ -587,18 +587,28 @@ def _check_symbol_set_codec(label: Label, ctx: RenderContext) -> None:
 
     Without a codec the bytes for the text are unknown, so the field cannot be encoded. A model
     without scalable fonts prints such a field in font 9 and ignores the set, so it is not refused.
+    A label with no scalable text still sends the set (``ySxx``), which the printer keeps for later
+    jobs; the printer may know a set the tool has no codec for, so that is a warning, not a refusal.
     """
     if not ctx.supports(Feature.SCALABLE_FONTS) or has_symbol_set_codec(ctx.symbol_set):
         return
+    symbol_set = resolved_symbol_set(ctx.symbol_set)
     known = ", ".join(sorted(SYMBOL_SET_CODECS))
-    for index, element in enumerate(label.elements):
-        if isinstance(element, ScalableText):
-            ctx.findings.refuse(
-                FindingCode.SYMBOL_SET_NO_CODEC,
-                f"no exact codec is known for symbol set {resolved_symbol_set(ctx.symbol_set)!r}, so the "
-                f"scalable text cannot be encoded; known sets: {known}",
-                element=index,
-            )
+    scalable = [index for index, element in enumerate(label.elements) if isinstance(element, ScalableText)]
+    if not scalable:
+        ctx.findings.warn(
+            FindingCode.SYMBOL_SET_UNCHECKED,
+            f"symbol set {symbol_set!r} is sent as given, but no code page is known for it, so whether "
+            f"{ctx.profile.name} has it is not checked; the printer keeps the set for later jobs; "
+            f"known sets: {known}",
+        )
+    for index in scalable:
+        ctx.findings.refuse(
+            FindingCode.SYMBOL_SET_NO_CODEC,
+            f"no exact codec is known for symbol set {symbol_set!r}, so the "
+            f"scalable text cannot be encoded; known sets: {known}",
+            element=index,
+        )
 
 
 def _field_area(element: Element, ctx: RenderContext) -> DotArea | None:

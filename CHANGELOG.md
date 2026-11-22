@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A `symbol_set` with no known code page, in a label with no scalable text, on a model with
+  scalable fonts is sent as given (`ySxx`) with the warning `symbol_set_unchecked`: the printer keeps
+  the set for later jobs, and whether it has the set is not checked. Before, it went out silently.
+
 ## [0.13.0] - 2026-11-22
 
 ### Removed

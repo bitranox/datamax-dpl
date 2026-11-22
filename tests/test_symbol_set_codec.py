@@ -81,10 +81,42 @@ def test_a_set_with_a_codec_is_not_refused() -> None:
 
 
 @pytest.mark.os_agnostic
-def test_a_set_without_a_codec_and_no_scalable_text_is_not_refused() -> None:
+@pytest.mark.parametrize("policy", list(FallbackPolicy))
+@pytest.mark.parametrize(("model", "firmware"), _SCALABLE)
+def test_a_set_without_a_codec_and_no_scalable_text_is_sent_with_a_warning(
+    model: str, firmware: Firmware | None, policy: FallbackPolicy
+) -> None:
     label = Label(symbol_set="XX", elements=[Text(x=1, y=1, text="a")])
-    result = build_job(label, RenderOptions(model="dmx-800"))
+    result = build_job(label, RenderOptions(model=model, firmware=firmware, policy=policy))
+    assert result.ok is True
+    assert b"ySXX\r" in result.data
     assert FindingCode.SYMBOL_SET_NO_CODEC not in {f.code for f in result.findings}
+    (warning,) = [f for f in result.findings if f.code is FindingCode.SYMBOL_SET_UNCHECKED]
+    assert warning.severity is Severity.WARNING
+    assert warning.element is None
+    assert "'XX'" in warning.message
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("symbol_set", ["W1", "PC"])
+def test_a_set_with_a_codec_and_no_scalable_text_gets_no_warning(symbol_set: str) -> None:
+    label = Label(symbol_set=symbol_set, elements=[Text(x=1, y=1, text="a")])
+    result = build_job(label, RenderOptions(model="dmx-800"))
+    assert FindingCode.SYMBOL_SET_UNCHECKED not in {f.code for f in result.findings}
+
+
+@pytest.mark.os_agnostic
+def test_scalable_text_in_a_set_without_a_codec_is_refused_without_the_warning_too() -> None:
+    result = build_job(_label("XX"), RenderOptions(model="dmx-800"))
+    assert FindingCode.SYMBOL_SET_UNCHECKED not in {f.code for f in result.findings}
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("model", _WITHOUT_SCALABLE)
+def test_a_model_without_scalable_fonts_reports_the_set_unsupported_not_unchecked(model: str) -> None:
+    label = Label(symbol_set="XX", elements=[Text(x=1, y=1, text="a")])
+    codes = {f.code for f in build_job(label, RenderOptions(model=model)).findings}
+    assert FindingCode.SYMBOL_SET_UNCHECKED not in codes
 
 
 @pytest.mark.os_agnostic

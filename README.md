@@ -220,7 +220,8 @@ read, and a plain `ValueError` for an argument out of range (a timeout, a calibr
 function's `Raises` section says. Scalable text in a `symbol_set` no exact code page is known for
 (anything but `E1`, `E2`, `E5`, `PC`, `PE`, `PM`, `PV`, `US`, `W1`, `WE`, `WG`, `WR`, `WT`) on a
 model with scalable fonts is a refused label, not an exception: `build_job` returns the error
-finding `symbol_set_no_codec`, `render` raises `LabelRejectedError`, and the commands exit 1.
+finding `symbol_set_no_codec`, `render` raises `LabelRejectedError`, and the commands exit 1. A label in
+such a set with no scalable text is sent with the set as given and the warning `symbol_set_unchecked`.
 
 ## The label format
 

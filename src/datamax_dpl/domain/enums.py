@@ -394,6 +394,7 @@ class FindingCode(str, Enum):
     STOP_POSITION_UNSUPPORTED = "stop_position_unsupported"
     STOP_POSITIONS_MIXED = "stop_positions_mixed"
     SYMBOL_SET_NO_CODEC = "symbol_set_no_codec"
+    SYMBOL_SET_UNCHECKED = "symbol_set_unchecked"
     SYMBOL_SET_UNSUPPORTED = "symbol_set_unsupported"
     SYMBOLOGY_UNSUPPORTED = "symbology_unsupported"
     TEXT_PAST_LEFT_EDGE = "text_past_left_edge"
