@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-11-22
+
 ### Added
 
 - A `symbol_set` with no known code page, in a label with no scalable text, on a model with
