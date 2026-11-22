@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.4] - 2026-11-22
+
 ### Fixed
 
 - `feed --help` no longer claims an installed cutter is always turned off first: the form feed goes
