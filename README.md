@@ -60,8 +60,8 @@ Python 3.11 or newer) it writes the text into the picture as the printer prints 
 character the font cannot print, capitals in fonts 3 to 6), and a field crossing the text
 combines with the letters' dots, as the printer does: a line through text on an Allegro 2 (which
 XORs) shows gaps only under the strokes. The lettering is an approximation in the preview's own
-font, Liberation Sans Bold (shipped with the package, so umlauts and every other code page 437 and
-850 character draw on any machine), not the printer's. Font 9 and scalable text (measured as the
+font, Nimbus Sans Bold (URW's Helvetica, the design font 9 follows; shipped with the package, so
+umlauts and every other code page 437 and 850 character draw on any machine), not the printer's. Font 9 and scalable text (measured as the
 font 9 field the preview draws for it) are lettered one character at a time
 where the printer's advance widths put each letter, each glyph narrowed if needed to the ink the
 printer's glyph has (a '1' is a narrow stem there), so the line ends where the printed line is
@@ -611,6 +611,6 @@ and [CHANGELOG.md](CHANGELOG.md) the releases. How AI tools were used is describ
 
 ## License
 
-MIT, see [LICENSE](LICENSE). The preview's lettering font, Liberation Sans Bold, ships under the SIL
-Open Font License 1.1
-([LICENSE-LiberationSans.txt](src/datamax_dpl/adapters/preview/fonts/LICENSE-LiberationSans.txt)).
+MIT, see [LICENSE](LICENSE). The preview's lettering font, Nimbus Sans Bold by URW, ships unmodified
+under the GNU AGPL 3 with a font exception
+([LICENSE-NimbusSans.txt](src/datamax_dpl/adapters/preview/fonts/LICENSE-NimbusSans.txt)).

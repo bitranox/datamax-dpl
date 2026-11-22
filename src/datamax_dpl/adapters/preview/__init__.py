@@ -1,10 +1,11 @@
 """Preview PNG with real lettering, when Pillow (the ``preview`` extra) is installed.
 
 The domain preview draws text as grey character cells, which shows placement but not content. With
-Pillow available, each text field and each barcode's data is lettered in Liberation Sans Bold
-(``fonts/``, SIL Open Font License 1.1, see ``fonts/LICENSE-LiberationSans.txt``), so a reader (or
-an LLM looking at the PNG) sees what the label says. It ships with the package rather than coming
-from Pillow or the system: Pillow's built-in font has no umlauts or other accented letters (122 of
+Pillow available, each text field and each barcode's data is lettered in Nimbus Sans Bold, URW's
+Helvetica (``fonts/``, AGPL-3 with a font exception, see ``fonts/LICENSE-NimbusSans.txt``), so a reader
+(or an LLM looking at the PNG) sees what the label says. Font 9 is a Helvetica Bold, so its letters keep
+their shapes, a '1' among them being a bare stem as on paper. The font ships with the package rather than
+coming from Pillow or the system: Pillow's built-in font has no umlauts or other accented letters (122 of
 code page 437's characters drew as the same empty box), and a system font would make the picture
 differ from machine to machine. The lettering goes to the domain as a mask of its glyph pixels
 (``preview_bitmap``'s ``masks``) and is combined with the other fields there, so a line crossing
@@ -60,14 +61,20 @@ if TYPE_CHECKING:
 
 _MIN_FONT_PIXELS = 6
 #: The lettering font, shipped beside this module so every machine draws the same picture.
-_FONT_FILE = Path(__file__).resolve().parent / "fonts" / "LiberationSans-Bold.ttf"
+_FONT_FILE = Path(__file__).resolve().parent / "fonts" / "NimbusSans-Bold.otf"
 #: Fonts kept by pixel size; a label uses a handful of sizes, and the bound keeps a long batch of
 #: varied sizes from holding a font object per size it ever met.
 _FONT_CACHE_SIZES = 32
 #: The narrowest visible character of the lettering font (an apostrophe, 0.238 of its size in
-#: Liberation Sans Bold) advances more than a fifth of its size, so this many dots along the field
+#: Nimbus Sans Bold) advances more than a fifth of its size, so this many dots along the field
 #: hold at most one character per this share of the font size.
 _NARROWEST_LETTER_SHARE = 5
+#: Where a letter's baseline sits below the top of its field: the ascent of a Helvetica-metric TrueType
+#: font (Arial, Liberation Sans: 1854 of 2048 units per em). Nimbus Sans's own ascent is its cap height,
+#: which would put the accent of a capital (an A umlaut, an E acute) above the field, where it is cut off.
+_BASELINE_UNITS, _UNITS_PER_EM = 1854, 2048
+#: FreeType's 26.6 fixed point, in which the baseline is rounded as it rounds a font's ascent.
+_SUBPIXELS = 64
 #: In a mode "1" image a set bit (255) is a glyph pixel; the background and a turn's corners stay 0.
 _INK = 255
 _NONE = 0
@@ -91,7 +98,7 @@ class _ImageModule(Protocol):
 class _Draw(Protocol):
     fontmode: str
 
-    def text(self, xy: tuple[int, int], text: str, fill: int, font: object) -> None: ...
+    def text(self, xy: tuple[int, int], text: str, fill: int, font: object, anchor: str) -> None: ...
 
 
 class _DrawModule(Protocol):
@@ -122,6 +129,19 @@ def _pillow() -> _Pillow | None:
     except ImportError:
         return None
     return _Modules(image, draw, font)
+
+
+def _baseline(size: int) -> int:
+    """The row of a letter's baseline, counted from the top of a field ``size`` pixels high.
+
+    Rounded up to a whole pixel from FreeType's 26.6 fixed point, as FreeType rounds a font's ascent.
+
+    Example:
+        >>> _baseline(39), _baseline(100)
+        (36, 91)
+    """
+    subpixels = (size * _BASELINE_UNITS * _SUBPIXELS + _UNITS_PER_EM // 2) // _UNITS_PER_EM
+    return -(-subpixels // _SUBPIXELS)
 
 
 @lru_cache(maxsize=_FONT_CACHE_SIZES)
@@ -176,19 +196,19 @@ class _Lettering(NamedTuple):
 def _letter_in_span(pillow: _Pillow, upright: _Image, char: str, span: Span, lettering: _Lettering) -> None:
     """Draw one letter's ink inside the printer's ink for it, ``span``, on ``upright``.
 
-    The lettering font's glyphs are not the printer's: Liberation Sans draws a '1' with a foot, while font 9's
-    '1' inks a narrow stem a third of its cell wide (:func:`~datamax_dpl.domain.preview.letter_ink_spans`).
-    Drawn at its own width, such a letter ran over its neighbour and, at the end of a field, lost what ran past
-    the line's end (a '1' with half a foot). So the ink is cut out of a picture of its own, narrowed to the span
-    when wider (never widened) and centred in it, and a letter looks the same wherever it stands in the line.
-    Columns outside ``upright`` are cut there, which is where the canvas ends.
+    The lettering font's glyphs are not the printer's: font 9 inks each letter within the box
+    :func:`~datamax_dpl.domain.preview.letter_ink_spans` gives (a '1' a narrow stem a third of its cell wide),
+    and a lettering glyph can be wider than that box. Drawn at its own width, such a letter ran over its
+    neighbour and, at the end of a field, lost what ran past the line's end. So the ink is cut out of a picture
+    of its own, narrowed to the span when wider (never widened) and centred in it, and a letter looks the same
+    wherever it stands in the line. Columns outside ``upright`` are cut there, which is where the canvas ends.
     """
     room = lettering.size // 2
     _, height = upright.size
     glyph = pillow.image.new("1", (2 * lettering.size + 2 * room, height), _NONE)
     draw = pillow.draw.Draw(glyph)
     draw.fontmode = "1"
-    draw.text((room, lettering.top), char, fill=_INK, font=lettering.font)
+    draw.text((room, lettering.top + _baseline(lettering.size)), char, fill=_INK, font=lettering.font, anchor="ls")
     box = glyph.getbbox()
     if box is None:
         return
@@ -232,7 +252,7 @@ def _text_mask(
     font = _lettering_font(pillow.font, size)
     if spans is None:
         letters = (part.along.start + part.along.length) // max(1, size // _NARROWEST_LETTER_SHARE) + 1
-        draw.text((-part.along.start, -above), text[:letters], fill=_INK, font=font)
+        draw.text((-part.along.start, _baseline(size) - above), text[:letters], fill=_INK, font=font, anchor="ls")
     else:
         end = part.along.start + part.along.length
         lettering = _Lettering(font=font, size=size, top=-above, origin=part.along.start)

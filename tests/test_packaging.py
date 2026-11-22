@@ -55,8 +55,8 @@ REQUIRED_WHEEL_DATA = (
     f"{PACKAGE}/adapters/config/defaultconfig.d/40-layered-config.toml",
     f"{PACKAGE}/adapters/config/defaultconfig.d/50-printer.toml",
     f"{PACKAGE}/adapters/config/defaultconfig.d/90-logging.toml",
-    f"{PACKAGE}/adapters/preview/fonts/LiberationSans-Bold.ttf",
-    f"{PACKAGE}/adapters/preview/fonts/LICENSE-LiberationSans.txt",
+    f"{PACKAGE}/adapters/preview/fonts/NimbusSans-Bold.otf",
+    f"{PACKAGE}/adapters/preview/fonts/LICENSE-NimbusSans.txt",
 )
 
 
