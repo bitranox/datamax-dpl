@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import re
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -328,6 +329,44 @@ def test_the_lettering_font_draws_every_code_page_character() -> None:
     ]
     assert len(drawn) > 200, "the fixture checks the code pages, not a handful of characters"
     assert lacking == []
+
+
+@pytest.mark.os_agnostic
+def test_a_missing_lettering_font_is_an_error_not_a_system_font(tmp_path: Path) -> None:
+    """A package whose font file is gone fails to letter rather than drawing with a system font of that name.
+
+    Given a path that does not exist, Pillow looks the file name up among the installed fonts, so a
+    machine with URW's fonts installed would draw a different file without any error.
+    """
+    pytest.importorskip("PIL.ImageFont")
+    copy = tmp_path / "pkg" / "datamax_dpl"
+    shutil.copytree(Path(preview_adapter.__file__).resolve().parents[2], copy)
+    (copy / "adapters" / "preview" / "fonts" / "NimbusSans-Bold.otf").unlink()
+    script = textwrap.dedent(
+        f"""
+        import sys
+        sys.path.insert(0, {str(copy.parent)!r})
+        import datamax_dpl
+        from datamax_dpl.adapters.preview import render_preview_png
+        from datamax_dpl.domain.enums import Unit
+        from datamax_dpl.domain.label import Label, Text
+        from datamax_dpl.domain.profiles import get_profile
+        print(datamax_dpl.__file__)
+        label = Label(unit=Unit.DOTS, width=200, height=80, elements=[Text(x=5, y=5, text="1", font=9, points=24)])
+        try:
+            render_preview_png(label, get_profile("allegro-2"))
+        except FileNotFoundError:
+            print("FileNotFoundError")
+        else:
+            print("drawn")
+        """
+    )
+    done = subprocess.run(
+        [sys.executable, "-"], input=script, capture_output=True, text=True, encoding="utf-8", check=True, cwd=tmp_path
+    )
+    loaded, outcome = done.stdout.split()
+    assert Path(loaded).is_relative_to(copy), "the copy, not the installed package, must be imported"
+    assert outcome == "FileNotFoundError"
 
 
 @pytest.mark.os_agnostic

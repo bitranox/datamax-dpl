@@ -30,7 +30,7 @@ from __future__ import annotations
 import importlib
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, Protocol, cast
+from typing import TYPE_CHECKING, BinaryIO, NamedTuple, Protocol, cast
 
 from ...domain.enums import FindingCode, Severity
 from ...domain.findings import Finding
@@ -106,7 +106,7 @@ class _DrawModule(Protocol):
 
 
 class _FontModule(Protocol):
-    def truetype(self, font: str, size: int) -> object: ...
+    def truetype(self, font: BinaryIO, size: int) -> object: ...
 
 
 class _Pillow(Protocol):
@@ -144,10 +144,24 @@ def _baseline(size: int) -> int:
     return -(-subpixels // _SUBPIXELS)
 
 
+def _load_font(fonts: _FontModule, path: Path, size: int) -> object:
+    """The font in the file ``path`` at ``size`` pixels.
+
+    The file is opened here and handed to Pillow already open: given a path that does not exist, Pillow
+    looks the file NAME up among the system's installed fonts and silently draws with whatever
+    font of that name it finds, so a missing bundled file would change the picture with no error.
+
+    Raises:
+        FileNotFoundError: ``path`` does not exist.
+    """
+    with path.open("rb") as file:
+        return fonts.truetype(file, size)
+
+
 @lru_cache(maxsize=_FONT_CACHE_SIZES)
 def _lettering_font(fonts: _FontModule, size: int) -> object:
     """The lettering font at ``size`` pixels, loaded once per size."""
-    return fonts.truetype(str(_FONT_FILE), size)
+    return _load_font(fonts, _FONT_FILE, size)
 
 
 def pillow_available() -> bool:

@@ -6,6 +6,36 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Removed
+
+- `QrDataTooLongError`, `InvalidLoggingConfigError`, `BarcodeProblemCode` and `StatusProblem` are no
+  longer importable from `datamax_dpl`, because no exported call raises or returns them (a too-long QR
+  Code is the finding `qr_data_too_long`). Import them from `datamax_dpl.domain.qr`,
+  `datamax_dpl.adapters.logging.setup` and `datamax_dpl.domain.enums`. This is a breaking change.
+
+### Changed
+
+- The bundled preview font is Nimbus Sans Bold (URW's Helvetica), shipped unmodified under the GNU
+  AGPL 3 with the URW font exception (`LICENSE-NimbusSans.txt`), replacing Liberation Sans Bold.
+- A label that sets both `stop_position` and `present_distance` on a model with `<STX>f` but no
+  `<STX>Kf` sends only its own stop: the present distance is not sent (`present_distance_unsupported`,
+  fallback `ignored`, an error under `strict`), where the job sent two `<STX>f`.
+  `"stop_position": "printer"` keeps the printer's stop and sends no `<STX>f` for the present distance.
+
+### Fixed
+
+- The preview letters a font 9 `1` as heavy as the other digits: Liberation's `1` has a foot, and
+  narrowing it to the printer glyph's width thinned its stem to about half; Nimbus Sans's `1` is a bare
+  stem like the printer's. A capital's accent stays inside its field.
+- A missing bundled preview font is an error (`FileNotFoundError`); Pillow drew with a system font of
+  the same file name instead.
+- Scalable text in a `symbol_set` with no known code page, on a model with scalable fonts, is refused
+  with the error finding `symbol_set_no_codec`: `build_job` returns `ok=False`, `render` raises
+  `LabelRejectedError` and the commands exit 1, where they raised a plain `ValueError` and exited 2.
+- The largest column in 1/10 mm is the inch limit times 2.54 rounded down: 1625 for the DMX 600 (was
+  1626), 1678 for the Titan 6200 (was 1679), 1010 for the DMX 430 (was 1011). A field one 1/10 mm past
+  it is refused (`outside_print_width`).
+
 ## [0.12.4] - 2026-11-22
 
 ### Fixed
