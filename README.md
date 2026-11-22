@@ -216,10 +216,10 @@ are `LookupError`s too, `QrDataTooLongError`, `PreviewTooLongError` and `BatchTo
 things stay outside the base: pydantic's `ValidationError` for a label or options document that does
 not validate, `lib_layered_config.ConfigError` from `get_config` for a configuration file it cannot
 read, and a plain `ValueError` for an argument out of range (a timeout, a calibration size), as each
-function's `Raises` section says. `render` and `build_job` also raise a plain `ValueError` for
-scalable text in a `symbol_set` no exact code page is known for (anything but `E1`, `E2`, `E5`, `PC`,
-`PE`, `PM`, `PV`, `US`, `W1`, `WE`, `WG`, `WR`, `WT`) on a model with scalable fonts; the commands
-exit 2 for it.
+function's `Raises` section says. Scalable text in a `symbol_set` no exact code page is known for
+(anything but `E1`, `E2`, `E5`, `PC`, `PE`, `PM`, `PV`, `US`, `W1`, `WE`, `WG`, `WR`, `WT`) on a
+model with scalable fonts is a refused label, not an exception: `build_job` returns the error
+finding `symbol_set_no_codec`, `render` raises `LabelRejectedError`, and the commands exit 1.
 
 ## The label format
 

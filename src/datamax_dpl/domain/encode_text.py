@@ -10,6 +10,7 @@ from .charset import (
     EncodedText,
     encode_for_bitmapped_font,
     encode_for_symbol_set,
+    has_symbol_set_codec,
     resolved_symbol_set,
 )
 from .encode_common import (
@@ -289,6 +290,10 @@ def encode_scalable_text(element: ScalableText, *, index: int, ctx: RenderContex
             element=index,
         )
         return encode_text(_as_font9(element), index=index, ctx=ctx)
+    if not has_symbol_set_codec(ctx.symbol_set):
+        # The render refused this field before encoding (symbol_set_no_codec): without a codec
+        # there are no bytes that print the text, so the refused job holds no record for it.
+        return []
     encoded = encode_for_symbol_set(element.text, symbol_set=ctx.symbol_set)
     _report_unmappable(encoded, index=index, ctx=ctx, font=f"symbol set {resolved_symbol_set(ctx.symbol_set)}")
     check_field_length(len(encoded.data), index=index, ctx=ctx)

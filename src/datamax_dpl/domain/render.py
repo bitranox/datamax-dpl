@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict
 
 from ._invariants import require_update_fields
 from .batch import cuts_after_print_for
+from .charset import SYMBOL_SET_CODECS, has_symbol_set_codec, resolved_symbol_set
 from .encode_barcode import encode_barcode
 from .encode_graphics import encode_box, encode_circle, encode_image, encode_line, encode_polygon, encode_qr
 from .encode_text import encode_scalable_text, encode_text
@@ -581,6 +582,25 @@ def _check_polygon_points(label: Label, ctx: RenderContext, *, limit: int) -> No
         )
 
 
+def _check_symbol_set_codec(label: Label, ctx: RenderContext) -> None:
+    """Refuse each scalable text field whose symbol set has no known codec, under either policy.
+
+    Without a codec the bytes for the text are unknown, so the field cannot be encoded. A model
+    without scalable fonts prints such a field in font 9 and ignores the set, so it is not refused.
+    """
+    if not ctx.supports(Feature.SCALABLE_FONTS) or has_symbol_set_codec(ctx.symbol_set):
+        return
+    known = ", ".join(sorted(SYMBOL_SET_CODECS))
+    for index, element in enumerate(label.elements):
+        if isinstance(element, ScalableText):
+            ctx.findings.refuse(
+                FindingCode.SYMBOL_SET_NO_CODEC,
+                f"no exact codec is known for symbol set {resolved_symbol_set(ctx.symbol_set)!r}, so the "
+                f"scalable text cannot be encoded; known sets: {known}",
+                element=index,
+            )
+
+
 def _field_area(element: Element, ctx: RenderContext) -> DotArea | None:
     """The rectangle a field takes part by in the label checks, or None when it prints nothing."""
     dots = printed_dots(element, ctx)
@@ -810,6 +830,7 @@ def _encode(label: Label, options: RenderOptions, *, halve: bool, held: HeldImag
     _check_label_level(label, ctx)
     _check_qr_dot_size(label, ctx)
     _check_polygon_points(label, ctx, limit=options.max_polygon_points)
+    _check_symbol_set_codec(label, ctx)
     prefix = system_prefix(label, ctx)
     body = _encode_elements(label.elements, ctx, emulate_transparency(label, ctx))
     record_count = _count_records(body)

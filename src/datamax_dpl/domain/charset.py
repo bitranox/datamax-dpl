@@ -209,6 +209,19 @@ def _symbol_set_codec(symbol_set: str | None) -> str | None:
     return SYMBOL_SET_CODECS.get(resolved_symbol_set(symbol_set))
 
 
+def has_symbol_set_codec(symbol_set: str | None) -> bool:
+    """True when scalable text can be encoded for ``symbol_set`` (None: ``PC``).
+
+    The render refuses scalable text whose set has no codec before anything encodes it, so the
+    encoder meets only sets this answers True for.
+
+    Example:
+        >>> has_symbol_set_codec(None), has_symbol_set_codec("W1"), has_symbol_set_codec("XX")
+        (True, True, False)
+    """
+    return _symbol_set_codec(symbol_set) is not None
+
+
 def decoded_by_symbol_set(data: bytes, *, symbol_set: str | None) -> str | None:
     """Read scalable text's bytes back through ``symbol_set`` (None: ``PC``), as the encoder wrote them.
 
@@ -333,6 +346,7 @@ __all__ = [
     "decoded_by_symbol_set",
     "encode_for_bitmapped_font",
     "encode_for_symbol_set",
+    "has_symbol_set_codec",
     "printed_by_bitmapped_font",
     "printed_by_symbol_set",
     "resolved_symbol_set",
