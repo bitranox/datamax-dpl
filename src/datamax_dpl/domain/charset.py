@@ -184,6 +184,35 @@ def encode_for_symbol_set(text: str, *, symbol_set: str | None) -> EncodedText:
     return _encode(text, partial(_codec_byte, codec=codec))
 
 
+def printed_by_bitmapped_font(text: str, *, font: int) -> str:
+    """The characters bitmapped font ``font`` prints for ``text``: the encoded bytes read back.
+
+    A preview letters these, not ``text``, so it shows what the paper shows: a capital where the
+    font has capitals only, ``?`` for each character the font cannot print.
+
+    Example:
+        >>> printed_by_bitmapped_font("abc", font=3)
+        'ABC'
+        >>> printed_by_bitmapped_font("a" + chr(0x20AC) + "b", font=2)
+        'a?b'
+    """
+    return encode_for_bitmapped_font(text, font=font).data.decode(FONT_CODECS.get(font, BITMAPPED_CODEC))
+
+
+def printed_by_symbol_set(text: str, *, symbol_set: str | None) -> str:
+    """The characters a scalable font prints for ``text`` through ``symbol_set`` (None: ``PC``).
+
+    Raises:
+        ValueError: No exact codec is known for ``symbol_set``, as :func:`encode_for_symbol_set`.
+
+    Example:
+        >>> printed_by_symbol_set("a" + chr(0x20AC), symbol_set="PC")
+        'a?'
+    """
+    encoded = encode_for_symbol_set(text, symbol_set=symbol_set)
+    return encoded.data.decode(SYMBOL_SET_CODECS[DEFAULT_SYMBOL_SET if symbol_set is None else symbol_set])
+
+
 def _encode(text: str, byte_for: Callable[[str], int | None]) -> EncodedText:
     data = bytearray()
     unmappable: dict[str, None] = {}
@@ -235,4 +264,6 @@ __all__ = [
     "EncodedText",
     "encode_for_bitmapped_font",
     "encode_for_symbol_set",
+    "printed_by_bitmapped_font",
+    "printed_by_symbol_set",
 ]

@@ -1,11 +1,15 @@
 """Preview PNG with real lettering, when Pillow (the ``preview`` extra) is installed.
 
 The domain preview draws text as grey character cells, which shows placement but not content. With
-Pillow available, each text field and each barcode's data is lettered in Pillow's scalable default
-font, so a reader (or an LLM looking at the PNG) sees what the label says. The lettering goes to
-the domain as a mask of its glyph pixels (``preview_bitmap``'s ``masks``) and is combined with the
-other fields there, so a line crossing text gaps only under the strokes, as on paper. The lettering
-is Pillow's font, not the printer's: shapes differ from a real print. Fonts 0-8 are lettered as one
+Pillow available, each text field and each barcode's data is lettered in Liberation Sans Bold
+(``fonts/``, SIL Open Font License 1.1, see ``fonts/LICENSE-LiberationSans.txt``), so a reader (or
+an LLM looking at the PNG) sees what the label says. It ships with the package rather than coming
+from Pillow or the system: Pillow's built-in font has no umlauts or other accented letters (122 of
+code page 437's characters drew as the same empty box), and a system font would make the picture
+differ from machine to machine. The lettering goes to the domain as a mask of its glyph pixels
+(``preview_bitmap``'s ``masks``) and is combined with the other fields there, so a line crossing
+text gaps only under the strokes, as on paper. The lettering is not the printer's font: shapes
+differ from a real print. Fonts 0-8 are lettered as one
 string, whose widths differ from the printer's cells too; font 9 and scalable text are lettered one
 character at a time, each where the printer's advance puts it (``domain.text_metrics``), so the
 field ends where the printed line is estimated to end. A turned field is
@@ -22,6 +26,8 @@ type check fail on 3.10, where it is not installed.
 from __future__ import annotations
 
 import importlib
+from functools import lru_cache
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
 
 from ...domain.enums import FindingCode, Severity
@@ -38,6 +44,7 @@ from ...domain.preview import (
     letter_spans,
     mask_area,
     preview_bitmap,
+    printed_text,
 )
 from ...domain.raster import Bitmap
 
@@ -51,8 +58,14 @@ if TYPE_CHECKING:
     from ...domain.render_context import RenderOptions
 
 _MIN_FONT_PIXELS = 6
-#: The narrowest letter of Pillow's default font advances about a fifth of its size, so this many
-#: dots along the field hold at most one character per this share of the font size.
+#: The lettering font, shipped beside this module so every machine draws the same picture.
+_FONT_FILE = Path(__file__).resolve().parent / "fonts" / "LiberationSans-Bold.ttf"
+#: Fonts kept by pixel size; a label uses a handful of sizes, and the bound keeps a long batch of
+#: varied sizes from holding a font object per size it ever met.
+_FONT_CACHE_SIZES = 32
+#: The narrowest visible character of the lettering font (an apostrophe, 0.238 of its size in
+#: Liberation Sans Bold) advances more than a fifth of its size, so this many dots along the field
+#: hold at most one character per this share of the font size.
 _NARROWEST_LETTER_SHARE = 5
 #: In a mode "1" image a set bit (255) is a glyph pixel; the background and a turn's corners stay 0.
 _INK = 255
@@ -81,7 +94,7 @@ class _DrawModule(Protocol):
 
 
 class _FontModule(Protocol):
-    def load_default(self, size: float) -> object: ...
+    def truetype(self, font: str, size: int) -> object: ...
 
 
 class _Pillow(Protocol):
@@ -104,6 +117,12 @@ def _pillow() -> _Pillow | None:
     except ImportError:
         return None
     return _Modules(image, draw, font)
+
+
+@lru_cache(maxsize=_FONT_CACHE_SIZES)
+def _lettering_font(fonts: _FontModule, size: int) -> object:
+    """The lettering font at ``size`` pixels, loaded once per size."""
+    return fonts.truetype(str(_FONT_FILE), size)
 
 
 def pillow_available() -> bool:
@@ -145,9 +164,9 @@ def _text_mask(
     field of 255 characters at 24 times the size, nearly all of it past the canvas.
 
     With ``spans`` (one per character, :func:`~datamax_dpl.domain.preview.letter_spans`) each
-    letter is drawn on its own where the printer's advance puts it, not at Pillow's own advance:
-    lettered as one string, Pillow's narrower font ran short of the field, or past it, and the end
-    of a font 9 line read as cut off where the paper printed it whole.
+    letter is drawn on its own where the printer's advance puts it, not at the lettering font's own
+    advance: lettered as one string, a font whose widths differ from the printer's runs short of the
+    field, or past it, and the end of a font 9 line read as cut off where the paper printed it whole.
 
     Returns:
         The glyph pixels, the size of the field's ``mask_box``; None when the field misses the canvas.
@@ -160,7 +179,7 @@ def _text_mask(
     upright = pillow.image.new("1", (part.along.length, part.up.length), _NONE)
     draw = pillow.draw.Draw(upright)
     draw.fontmode = "1"
-    font = pillow.font.load_default(size=size)
+    font = _lettering_font(pillow.font, size)
     if spans is None:
         letters = (part.along.start + part.along.length) // max(1, size // _NARROWEST_LETTER_SHARE) + 1
         draw.text((-part.along.start, -above), text[:letters], fill=_INK, font=font)
@@ -183,7 +202,12 @@ def _masks(pillow: _Pillow, label: Label, profile: PrinterProfile, options: Rend
     for index, element in enumerate(label.elements):
         if not isinstance(element, (Text, ScalableText, Barcode)):
             continue
-        text = element.data if isinstance(element, Barcode) else element.text
+        # A text field is lettered as the printer prints it ('?' for a character its font cannot
+        # print, a capital in a capitals-only font), never as typed: the preview stands in for paper.
+        if isinstance(element, Barcode):
+            text = element.data
+        else:
+            text = printed_text(element, label=label, profile=profile, options=options)
         mask = _text_mask(pillow, mask_area(element, canvas), text, canvas, spans=_letter_spans(element, canvas))
         if mask is not None:
             masks[index] = mask

@@ -53,14 +53,17 @@ are in [exit-codes-timeouts-and-retries.md](references/exit-codes-timeouts-and-r
    longest values. There is no automatic text wrapping or shrinking: long text runs off the edge.
    It draws overlapping fields as they print (see "Overlapping fields" in
    [label-json.md](references/label-json.md)), rotation, and line
-   records exactly; text is grey cells, or Pillow's font (not the printer's) with the `preview`
-   extra (`uvx --from "datamax-dpl[preview]" datamax-dpl`, Python 3.11+). A label longer than
+   records exactly; text is grey cells, or with the `preview` extra lettered in Liberation Sans
+   Bold, which draws umlauts, `ß` and every other code page 437/850 character (not the printer's
+   font) (`uvx --from "datamax-dpl[preview]" datamax-dpl`, Python 3.11+). It letters the text as
+   it prints: `?` for a character the font cannot print (`characters_unmappable`), capitals in
+   fonts 3-6. A label longer than
    `[preview] max_length_mm` (2000) is refused. The preview cuts each text where datamax-dpl
    ESTIMATES the line ends (font 9 by widths measured on an Allegro 2 for capitals, digits,
-   `,-./` and space, by an unverified Helvetica-Bold stand-in for the rest; fonts 0-8 by their
-   exact cells), and `validate` judges `element_past_label_edge` by the same estimate: a preview
-   cut is not evidence of overflow, and a clean validate is not proof the text fits. Only paper
-   decides.
+   `,-./` and space, by unverified Helvetica-Bold widths, not the lettering, for the rest; fonts
+   0-8 by their exact cells), and `validate` judges `element_past_label_edge` by the same
+   estimate: a preview cut is not evidence of overflow, and a clean validate is not proof the text
+   fits. Only paper decides.
 4. Print ONE label first, with the options production sends (`--cutter`, `--set`, `--option`): a
    data file with the header and one row,
    `datamax-dpl print label.json --data one.csv --model MODEL --printer tcp://HOST:9100`. The

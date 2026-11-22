@@ -14,8 +14,8 @@ import pytest
 from datamax_dpl.adapters.preview import render_preview_png
 from datamax_dpl.domain.enums import Rotation, Unit
 from datamax_dpl.domain.errors import PreviewTooLongError
-from datamax_dpl.domain.label import Label, Text
-from datamax_dpl.domain.preview import canvas_for
+from datamax_dpl.domain.label import Label, ScalableText, Text
+from datamax_dpl.domain.preview import canvas_for, printed_text
 from datamax_dpl.domain.profiles import get_profile
 
 if TYPE_CHECKING:
@@ -172,3 +172,48 @@ def test_the_most_fields_a_model_takes_stay_under_a_memory_bound(tmp_path: Path)
         [sys.executable, "-c", script], capture_output=True, text=True, encoding="utf-8", check=True, cwd=tmp_path
     )
     assert int(done.stdout.strip()) < 600
+
+
+def _one_letter(char: str, font: int) -> Label:
+    points = 24 if font == 9 else None
+    return Label(
+        unit=Unit.DOTS, width=200, height=160, elements=[Text(x=10, y=20, text=char, font=font, points=points)]
+    )
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("pair", ["üö", "äß", "ÄÖ", "éè", "ÜÇ"])
+@pytest.mark.parametrize("font", [2, 9])
+def test_accented_letters_are_lettered_as_themselves_not_as_one_shared_box(pair: str, font: int) -> None:
+    """Two different accented letters draw differently; a font lacking them draws both as the same box."""
+    first, second = (_dark_pixels(_one_letter(char, font)) for char in pair)
+    assert first, f"{pair[0]!r} drew nothing"
+    assert first != second, f"{pair!r} drew the same pixels for both letters"
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("typed", "printed", "font"),
+    [("abc", "ABC", 3), ("a\N{EURO SIGN}b", "a?b", 2), ("a\N{EURO SIGN}b", "a?b", 9)],
+)
+def test_a_text_field_is_lettered_as_the_printer_prints_it_not_as_typed(typed: str, printed: str, font: int) -> None:
+    """Font 3 prints capitals only and fonts 2 and 9 have no euro sign (printed '?'): the preview shows the paper."""
+    assert _dark_pixels(_one_letter(typed, font)) == _dark_pixels(_one_letter(printed, font))
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    ("model", "symbol_set", "printed"),
+    [
+        ("dmx-800", None, "a?"),
+        ("dmx-800", "W1", "a\N{EURO SIGN}"),
+        ("allegro-2", "W1", "a?"),
+    ],
+)
+def test_scalable_text_is_lettered_in_the_encoding_its_record_is_sent_in(
+    model: str, symbol_set: str | None, printed: str
+) -> None:
+    """Scalable text goes out in the label's symbol set (PC when none); a model without scalable fonts sends font 9."""
+    element = ScalableText(x=0, y=0, text="a\N{EURO SIGN}", height_points=12)
+    label = Label(symbol_set=symbol_set, elements=[element])
+    assert printed_text(element, label=label, profile=get_profile(model)) == printed

@@ -55,13 +55,16 @@ pip install datamax-dpl
 ```
 
 `datamax-dpl preview` draws text as grey cells by default. With the `preview` extra (Pillow,
-Python 3.11 or newer) it writes the actual text into the picture, and a field crossing the text
+Python 3.11 or newer) it writes the text into the picture as the printer prints it (`?` for a
+character the font cannot print, capitals in fonts 3 to 6), and a field crossing the text
 combines with the letters' dots, as the printer does: a line through text on an Allegro 2 (which
 XORs) shows gaps only under the strokes. The lettering is an approximation in the preview's own
-font, not the printer's. Font 9 is lettered one character at a time where the printer's advance
-widths put each letter, so the line ends where the printed line is estimated to end; those widths
-are measured on paper for the capitals, the digits, `,` `-` `.` `/` and the space (Allegro 2, at 12,
-18, 24 and 30 pt; other sizes scaled from the nearest, unverified) and a Helvetica-Bold stand-in, unverified, for every other character (see
+font, Liberation Sans Bold (shipped with the package, so umlauts and every other code page 437 and
+850 character draw on any machine), not the printer's. Font 9 is lettered one character at a time
+where the printer's advance widths put each letter, so the line ends where the printed line is
+estimated to end; those widths are measured on paper for the capitals, the digits, `,` `-` `.` `/`
+and the space (Allegro 2, at 12, 18, 24 and 30 pt; other sizes scaled from the nearest,
+unverified) and a Helvetica-Bold stand-in, unverified, for every other character (see
 [Alignment and text widths](docs/label-spec.md#alignment-and-text-widths)). Fonts 0-8 are lettered
 as one string, which may be cut at the end of the field, so the gaps near the end can differ from
 the paper. Without the extra the text combines as whole cells, and `preview` says so with the
@@ -599,4 +602,6 @@ and [CHANGELOG.md](CHANGELOG.md) the releases. How AI tools were used is describ
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). The preview's lettering font, Liberation Sans Bold, ships under the SIL
+Open Font License 1.1
+([LICENSE-LiberationSans.txt](src/datamax_dpl/adapters/preview/fonts/LICENSE-LiberationSans.txt)).

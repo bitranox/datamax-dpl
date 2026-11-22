@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The PNG preview letters umlauts, `ß` and every other accented letter: Pillow's built-in font has
+  none of them and drew each as the same empty box (122 of code page 437's characters), though the
+  job's bytes were right. The preview now letters with Liberation Sans Bold, shipped in the package
+  (SIL Open Font License 1.1, about 0.4 MB), which holds every code page 437 and 850 character and
+  draws the same on every machine. Every lettered preview picture changes slightly.
+- The PNG preview letters a text field as the printer prints it, not as typed: `?` for a character
+  the field's font or symbol set cannot print (the `characters_unmappable` finding), and capitals in
+  fonts 3 to 6, which print capitals only. It lettered `a€b` and `abc` where the paper shows `a?b`
+  and `ABC`. A barcode's data is lettered as given, unchanged.
+
 ## [0.12.0] - 2026-11-21
 
 ### Added

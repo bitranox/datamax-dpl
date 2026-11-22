@@ -37,7 +37,9 @@ kind of evidence the project lacks most right now.
   import-linter enforces this.
 - Small, single-purpose functions; pyright in strict mode with zero errors; Google-style
   docstrings; an `__all__` in every module.
-- Keep runtime dependencies few. Pillow stays in the optional `preview` extra.
+- Keep runtime dependencies few. Pillow stays in the optional `preview` extra. The preview's font
+  ships in `src/datamax_dpl/adapters/preview/fonts/` with its SIL OFL licence file beside it; a
+  replacement font must cover every code page 437 and 850 character and ship its licence too.
 
 ## 5. Tests
 
