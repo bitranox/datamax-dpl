@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-11-22
+
 ### Fixed
 
 - `render_preview_png` draws a label whose `symbol_set` has no known codec again (`"XX"`, or a real
