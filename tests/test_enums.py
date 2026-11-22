@@ -16,7 +16,6 @@ from datamax_dpl.domain.enums import CounterSign, DeployTarget, OutputFormat, Va
 #: Enums a library caller writes or compares against: a field of a public model or result holds them.
 _PUBLIC_ENUMS = (
     "Attribute",
-    "BarcodeProblemCode",
     "CommandKind",
     "FallbackPolicy",
     "FillPattern",
@@ -30,7 +29,6 @@ _PUBLIC_ENUMS = (
     "Rotation",
     "Severity",
     "SpeedCode",
-    "StatusProblem",
     "Unit",
 )
 

@@ -22,7 +22,6 @@ Example:
 from __future__ import annotations
 
 from .__init__conf__ import print_info
-from .adapters.logging.setup import InvalidLoggingConfigError
 from .adapters.preview import pillow_available, preview_findings, render_preview_png
 from .adapters.transport import open_printer, printer_uri_is_one_way
 from .application.ports import Clock, JobSpool, OpenPrinter, PrinterEndpoint, PrinterTransport, Sleep
@@ -61,7 +60,6 @@ from .domain.calibration import (
 from .domain.decoder import DecodedCommand, Explanation, explain
 from .domain.enums import (
     Attribute,
-    BarcodeProblemCode,
     CommandKind,
     FallbackPolicy,
     FillPattern,
@@ -76,7 +74,6 @@ from .domain.enums import (
     Rotation,
     Severity,
     SpeedCode,
-    StatusProblem,
     TextAlign,
     Unit,
 )
@@ -130,7 +127,6 @@ from .domain.profiles import (
     get_profile,
     list_profiles,
 )
-from .domain.qr import QrDataTooLongError
 from .domain.render import RenderResult, build_job, render
 from .domain.render_context import RenderOptions
 from .domain.symbology import Symbology
@@ -145,7 +141,6 @@ __all__ = [
     "Attribute",
     "Axis",
     "Barcode",
-    "BarcodeProblemCode",
     "BatchEntry",
     "BatchReport",
     "BatchResult",
@@ -179,7 +174,6 @@ __all__ = [
     "HeldImages",
     "Image",
     "ImageModule",
-    "InvalidLoggingConfigError",
     "JobSpool",
     "Label",
     "LabelRejectedError",
@@ -202,7 +196,6 @@ __all__ = [
     "PrinterTimeoutError",
     "PrinterTransport",
     "Qr",
-    "QrDataTooLongError",
     "QrError",
     "RecordRender",
     "RenderOptions",
@@ -219,7 +212,6 @@ __all__ = [
     "Source",
     "SpeedCode",
     "SpeedRange",
-    "StatusProblem",
     "Support",
     "Symbology",
     "Text",

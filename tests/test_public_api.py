@@ -174,14 +174,29 @@ def test_every_exception_the_package_defines_shares_the_base() -> None:
 
 @pytest.mark.os_agnostic
 def test_every_exception_a_library_caller_can_meet_is_exported() -> None:
-    """The label input, JSON array and spool errors are the CLI's own: no library function raises them."""
+    """Only exceptions no exported call raises to its caller stay out of the root ``__all__``."""
     exported = set(_package_exceptions()) - {
+        # The label input, JSON array and spool errors are the CLI's own: no library function raises them.
         "ElementTooDeepError",
         "LabelInputError",
         "MalformedArrayError",
         "SpoolWriteError",
+        # Every exported path that encodes a QR Code turns it into the qr_data_too_long finding.
+        "QrDataTooLongError",
+        # Raised only by the logging setup in datamax_dpl.adapters.logging.setup, which the root does not export.
+        "InvalidLoggingConfigError",
     }
     assert exported <= set(datamax_dpl.__all__)
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize(
+    "name", ["QrDataTooLongError", "InvalidLoggingConfigError", "BarcodeProblemCode", "StatusProblem"]
+)
+def test_a_name_no_caller_meets_stays_out_of_the_root(name: str) -> None:
+    """No exported call raises or returns these: each is imported from its own module, not from the package."""
+    assert name not in datamax_dpl.__all__
+    assert not hasattr(datamax_dpl, name)
 
 
 @pytest.mark.os_agnostic
@@ -195,7 +210,7 @@ def test_every_exception_a_library_caller_can_meet_is_exported() -> None:
     ],
 )
 def test_the_base_keeps_the_builtin_a_caller_may_already_catch(name: str, builtin: type[Exception]) -> None:
-    exception = getattr(datamax_dpl, name)
+    exception = _package_exceptions()[name]
     assert issubclass(exception, builtin)
     assert issubclass(exception, datamax_dpl.DatamaxDplError)
 

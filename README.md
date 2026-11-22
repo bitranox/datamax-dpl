@@ -212,7 +212,8 @@ Everything the package raises on purpose derives from `DatamaxDplError`, also im
 `datamax_dpl`, so `except DatamaxDplError` catches it all. Below it, `TransportError` covers what a
 printer channel does (a timeout, a refused connection, a bad answer), `ConfigurationError` a bad URI
 or setting, and `LabelRejectedError` a refused label. `UnknownModelError` and `MissingFieldError`
-are `LookupError`s too, `QrDataTooLongError`, `PreviewTooLongError` and `BatchTooLargeError` `ValueError`s too. Three
+are `LookupError`s too, `PreviewTooLongError` and `BatchTooLargeError` `ValueError`s too (a QR Code
+too long for any version is a `qr_data_too_long` finding, not an exception). Three
 things stay outside the base: pydantic's `ValidationError` for a label or options document that does
 not validate, `lib_layered_config.ConfigError` from `get_config` for a configuration file it cannot
 read, and a plain `ValueError` for an argument out of range (a timeout, a calibration size), as each
