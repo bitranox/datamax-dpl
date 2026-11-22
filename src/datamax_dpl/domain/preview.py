@@ -54,7 +54,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, NamedTuple
 
 from ._invariants import require_same_keys
-from .charset import printed_by_bitmapped_font, printed_by_symbol_set
+from .charset import encode_for_bitmapped_font, printed_by_bitmapped_font, printed_by_symbol_set
 from .encode_common import position_units
 from .encode_graphics import qr_symbol_position
 from .enums import Attribute, CombineMode, FillPattern, Rotation, TextAlign, Unit
@@ -66,7 +66,16 @@ from .profiles import Feature, get_profile
 from .qr import QrDataTooLongError, element_symbol
 from .raster import Bitmap
 from .render_context import RenderOptions
-from .text_metrics import CELLS, font9_em_dots, font9_field_points, measured, text_column
+from .text_metrics import (
+    CELLS,
+    EM_UNITS,
+    FONT_9_LEFT_BEARINGS,
+    FONT_9_RIGHT_BEARINGS,
+    font9_em_dots,
+    font9_field_points,
+    measured,
+    text_column,
+)
 from .units import Axis, to_inches
 
 if TYPE_CHECKING:
@@ -262,6 +271,39 @@ def letter_spans(element: Text | ScalableText, canvas: Canvas) -> tuple[Span, ..
         start += advance
     if ink is None and spans:
         spans[-1] = Span(start=spans[-1].start, length=measure.extent - spans[-1].start)
+    return tuple(spans)
+
+
+def letter_ink_spans(element: Text | ScalableText, canvas: Canvas) -> tuple[Span, ...]:
+    """Return where each character's ink lies along its line: its cell less the glyph's side bearings.
+
+    A font 9 glyph prints between its left and right side bearing (:data:`~.text_metrics.FONT_9_LEFT_BEARINGS`,
+    :data:`~.text_metrics.FONT_9_RIGHT_BEARINGS`) inside its advance, so a '1' inks a third of its cell. The
+    last character's ink ends where the line's does (:func:`~.text_metrics.text_extent`), and a letter's span
+    does not depend on its place in the line, but for the rounding of its advance. Fonts 0-8 and a downloaded
+    font have no bearings here: their spans are :func:`letter_spans`. A scalable text field is measured as
+    the font 9 field the preview draws.
+
+    Example:
+        >>> label = Label(elements=[Text(x=0, y=0, text="11", font=9, points=30)])
+        >>> canvas = canvas_for(label, get_profile("allegro-2"))
+        >>> letter_ink_spans(label.elements[0], canvas)
+        (Span(start=6, length=25), Span(start=52, length=24))
+    """
+    text = _as_text(element) if isinstance(element, ScalableText) else element
+    if text.font != FONT_9 or text.font_id is not None:
+        return letter_spans(element, canvas)
+    ctx = canvas.geometry.ctx
+    em = font9_em_dots(font9_field_points(text), ctx.profile)
+    spans: list[Span] = []
+    start = 0
+    for byte, advance in zip(
+        encode_for_bitmapped_font(text.text, font=FONT_9).data, measured(text, ctx).advances, strict=True
+    ):
+        left = round(FONT_9_LEFT_BEARINGS[byte] * em / EM_UNITS)
+        right = round(FONT_9_RIGHT_BEARINGS[byte] * em / EM_UNITS)
+        spans.append(Span(start=start + left, length=max(1, advance - left - right)))
+        start += advance
     return tuple(spans)
 
 
@@ -964,6 +1006,7 @@ __all__ = [
     "check_preview_length",
     "draw_element",
     "field_area",
+    "letter_ink_spans",
     "letter_spans",
     "mask_area",
     "mask_box",

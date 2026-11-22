@@ -256,3 +256,41 @@ def test_a_symbol_set_without_a_known_codec_is_lettered_as_typed_and_the_preview
     profile = get_profile("dmx-800")
     assert printed_text(element, canvas_for(label, profile)) == "a\N{EURO SIGN}"
     assert render_preview_png(label, profile)[1:4] == b"PNG"
+
+
+def _font9_text(text: str) -> Label:
+    """One font 9 line at 30 points: the printer's narrow '1' is much narrower than the lettering font's."""
+    return Label(unit=Unit.DOTS, width=400, height=200, elements=[Text(x=10, y=20, text=text, font=9, points=30)])
+
+
+def _row_extent(pixels: set[tuple[int, int]], y: int) -> tuple[int, int]:
+    """The leftmost and rightmost dark column of row ``y``."""
+    columns = [x for x, row in pixels if row == y]
+    return min(columns), max(columns)
+
+
+@pytest.mark.os_agnostic
+def test_a_final_one_keeps_its_foot_on_both_sides() -> None:
+    """A '1' ends with its whole foot, not cut flat where the printer's narrower advance ends.
+
+    The printer's font 9 '1' advances far less than the lettering font's tabular digit, so a glyph drawn at
+    its own width ran past the field's end and lost the right half of its foot.
+    """
+    pixels = _dark_pixels(_font9_text("1"))
+    bottom = max(y for _, y in pixels)
+    top = min(y for _, y in pixels)
+    foot_left, foot_right = _row_extent(pixels, bottom)
+    stem_left, stem_right = _row_extent(pixels, (top + bottom) // 2)
+    assert foot_right - stem_right >= 2, "the foot has no right half"
+    assert abs((stem_left - foot_left) - (foot_right - stem_right)) <= 1, "the foot is lopsided"
+
+
+@pytest.mark.os_agnostic
+@pytest.mark.parametrize("text", ["1", "BOX 1", "W", "11"])
+def test_a_trailing_space_changes_no_letter(text: str) -> None:
+    """A space prints nothing, so a line with one more at its end letters exactly the same dots.
+
+    It did not when a letter wider than the printer's advance was drawn at its own width: the space's room let
+    the overhang show, while without it the field's end cut it off.
+    """
+    assert _dark_pixels(_font9_text(text)) == _dark_pixels(_font9_text(text + " "))

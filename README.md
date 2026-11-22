@@ -61,7 +61,8 @@ combines with the letters' dots, as the printer does: a line through text on an 
 XORs) shows gaps only under the strokes. The lettering is an approximation in the preview's own
 font, Liberation Sans Bold (shipped with the package, so umlauts and every other code page 437 and
 850 character draw on any machine), not the printer's. Font 9 is lettered one character at a time
-where the printer's advance widths put each letter, so the line ends where the printed line is
+where the printer's advance widths put each letter, each glyph narrowed if needed to the ink the
+printer's glyph has (a '1' is a narrow stem there), so the line ends where the printed line is
 estimated to end; those widths are measured on paper for the capitals, the digits, `,` `-` `.` `/`
 and the space (Allegro 2, at 12, 18, 24 and 30 pt; other sizes scaled from the nearest,
 unverified) and a Helvetica-Bold stand-in, unverified, for every other character (see

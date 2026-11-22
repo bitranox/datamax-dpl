@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The preview letters a font 9 or scalable text line without cutting its last letter: a final `1`
+  lost the right half of its foot (`BOX 1`, `BAT001`, `Ch. 1`), and a `W` its right edge. The
+  preview font's glyphs are wider than the printer's for some letters (Liberation Sans draws `1`
+  with a foot, the printer a narrow stem), so each glyph is now narrowed to the ink the printer's
+  glyph has and centred in it; a letter no longer runs into the next one either, and looks the same
+  wherever it stands in the line.
+
+### Added
+
+- `datamax_dpl.domain.preview.letter_ink_spans`: where each character's ink lies along its line,
+  its cell less the font 9 glyph's side bearings.
+
 ## [0.12.2] - 2026-11-22
 
 ### Fixed

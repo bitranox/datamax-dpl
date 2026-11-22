@@ -11,8 +11,9 @@ differ from machine to machine. The lettering goes to the domain as a mask of it
 text gaps only under the strokes, as on paper. The lettering is not the printer's font: shapes
 differ from a real print. Fonts 0-8 are lettered as one
 string, whose widths differ from the printer's cells too; font 9 and scalable text are lettered one
-character at a time, each where the printer's advance puts it (``domain.text_metrics``), so the
-field ends where the printed line is estimated to end. A turned field is
+character at a time, each where the printer's advance puts it (``domain.text_metrics``) and no
+wider than that glyph's ink, so the field ends where the printed line is estimated to end and no
+letter is cut there. A turned field is
 lettered upright in a picture of its own and that picture is turned clockwise (exactly, a quarter
 turn being a transpose) into the field's turned box, by the rule in ``domain.preview``.
 
@@ -28,7 +29,7 @@ from __future__ import annotations
 import importlib
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, NamedTuple, Protocol, cast
 
 from ...domain.enums import FindingCode, Severity
 from ...domain.findings import Finding
@@ -41,7 +42,7 @@ from ...domain.preview import (
     canvas_for,
     check_preview_fields,
     check_preview_length,
-    letter_spans,
+    letter_ink_spans,
     mask_area,
     preview_bitmap,
     printed_text,
@@ -77,6 +78,10 @@ class _Image(Protocol):
     def size(self) -> tuple[int, int]: ...
     def rotate(self, angle: float, *, expand: bool) -> _Image: ...
     def tobytes(self) -> bytes: ...
+    def getbbox(self) -> tuple[int, int, int, int] | None: ...
+    def crop(self, box: tuple[int, int, int, int]) -> _Image: ...
+    def resize(self, size: tuple[int, int]) -> _Image: ...
+    def paste(self, im: _Image, box: tuple[int, int], mask: _Image) -> None: ...
 
 
 class _ImageModule(Protocol):
@@ -148,8 +153,52 @@ def _letter_spans(element: Text | ScalableText | Barcode, canvas: Canvas) -> tup
     if isinstance(element, ScalableText) or (
         isinstance(element, Text) and element.font == FONT_9 and element.font_id is None
     ):
-        return letter_spans(element, canvas)
+        return letter_ink_spans(element, canvas)
     return None
+
+
+class _Lettering(NamedTuple):
+    """What every letter of one field is drawn with.
+
+    Attributes:
+        font: The lettering font at ``size`` pixels.
+        size: The font's pixel size, the field's height.
+        top: The row the letters are drawn from, above the visible part when the canvas cuts the field.
+        origin: Where the visible part starts along the line, so a span's start becomes a column.
+    """
+
+    font: object
+    size: int
+    top: int
+    origin: int
+
+
+def _letter_in_span(pillow: _Pillow, upright: _Image, char: str, span: Span, lettering: _Lettering) -> None:
+    """Draw one letter's ink inside the printer's ink for it, ``span``, on ``upright``.
+
+    The lettering font's glyphs are not the printer's: Liberation Sans draws a '1' with a foot, while font 9's
+    '1' inks a narrow stem a third of its cell wide (:func:`~datamax_dpl.domain.preview.letter_ink_spans`).
+    Drawn at its own width, such a letter ran over its neighbour and, at the end of a field, lost what ran past
+    the line's end (a '1' with half a foot). So the ink is cut out of a picture of its own, narrowed to the span
+    when wider (never widened) and centred in it, and a letter looks the same wherever it stands in the line.
+    Columns outside ``upright`` are cut there, which is where the canvas ends.
+    """
+    room = lettering.size // 2
+    _, height = upright.size
+    glyph = pillow.image.new("1", (2 * lettering.size + 2 * room, height), _NONE)
+    draw = pillow.draw.Draw(glyph)
+    draw.fontmode = "1"
+    draw.text((room, lettering.top), char, fill=_INK, font=lettering.font)
+    box = glyph.getbbox()
+    if box is None:
+        return
+    left, _, right, _ = box
+    ink = glyph.crop((left, 0, right, height))
+    width, slot = right - left, max(1, span.length)
+    if width > slot:
+        ink, width = ink.resize((slot, height)), slot
+    x = span.start + (slot - width) // 2
+    upright.paste(ink, (x - lettering.origin, 0), ink)
 
 
 def _text_mask(
@@ -163,10 +212,11 @@ def _text_mask(
     picture of the whole string at a byte per pixel first, which took 1.9 s and 459 MB for one
     field of 255 characters at 24 times the size, nearly all of it past the canvas.
 
-    With ``spans`` (one per character, :func:`~datamax_dpl.domain.preview.letter_spans`) each
-    letter is drawn on its own where the printer's advance puts it, not at the lettering font's own
-    advance: lettered as one string, a font whose widths differ from the printer's runs short of the
-    field, or past it, and the end of a font 9 line read as cut off where the paper printed it whole.
+    With ``spans`` (one per character, :func:`~datamax_dpl.domain.preview.letter_ink_spans`) each
+    letter is drawn on its own inside the ink the printer gives it (:func:`_letter_in_span`), not at
+    the lettering font's own advance: lettered as one string, a font whose widths differ from the
+    printer's runs short of the field, or past it, and the end of a font 9 line read as cut off where
+    the paper printed it whole.
 
     Returns:
         The glyph pixels, the size of the field's ``mask_box``; None when the field misses the canvas.
@@ -185,9 +235,10 @@ def _text_mask(
         draw.text((-part.along.start, -above), text[:letters], fill=_INK, font=font)
     else:
         end = part.along.start + part.along.length
+        lettering = _Lettering(font=font, size=size, top=-above, origin=part.along.start)
         for char, span in zip(text, spans, strict=True):
             if span.start < end and span.start + span.length > part.along.start and not char.isspace():
-                draw.text((span.start - part.along.start, -above), char, fill=_INK, font=font)
+                _letter_in_span(pillow, upright, char, span, lettering)
     # Pillow turns counter-clockwise by positive angles; the manual's rotations turn clockwise.
     turned = upright.rotate(-area.rotation.value, expand=True)
     width, height = turned.size
