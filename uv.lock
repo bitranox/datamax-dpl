@@ -747,7 +747,7 @@ wheels = [
 
 [[package]]
 name = "datamax-dpl"
-version = "0.12.4"
+version = "0.13.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
