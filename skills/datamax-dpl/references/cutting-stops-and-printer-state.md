@@ -48,9 +48,10 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
 The stop position (`<STX>f`) comes from the first of these that applies:
 1. the label's `stop_position` (corrected by `scale_along`), even in a job that cuts;
 2. on a model with `<STX>f` but no `<STX>Kf`: the label's `present_distance`
-   (`present_distance_unsupported`); with `stop_position` also set, both go out as `<STX>f`,
-   present distance second (which one the printer keeps is unverified). A configured
-   `present_distance` is never a stop: it is not sent there at all (below);
+   (`present_distance_unsupported`), only when the label sets no `stop_position`; with
+   `stop_position` set (a number or `"printer"`) the present distance is not sent
+   (`present_distance_unsupported`, fallback `ignored`), so a job sends one `<STX>f` at most. A
+   configured `present_distance` is never a stop: it is not sent there at all (below);
 3. `[printer] cutter_stop_position` for a job that is cut (a label with `cut`, or any label
    under `cut_after_print` whose job sends `<STX>V`, above), else `[printer] stop_position` (mm,
    at most 253.746), both sent unscaled; unset, each takes the model default, which only allegro-2

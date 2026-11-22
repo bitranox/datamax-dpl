@@ -836,10 +836,17 @@ def test_the_labels_own_stop_position_wins_over_the_cutter_stop_position() -> No
 
 
 @pytest.mark.os_agnostic
-def test_a_label_with_both_stop_position_and_present_distance_sends_both_as_stop_commands() -> None:
-    """The cell D12 leaves as it was: the label's stop, then its present distance sent as a stop."""
-    result = _stop_job({"stop_position": 60, "present_distance": 30})
-    assert _stop_commands(result) == [STX + b"f246", STX + b"f123"]
+@pytest.mark.parametrize("model", ["allegro-2", "dmx-800"])
+@pytest.mark.parametrize("policy", ["degrade", "strict"])
+def test_a_label_with_both_stop_position_and_present_distance_sends_only_its_stop(model: str, policy: str) -> None:
+    """The label's stop_position wins: a present distance that could go out only as a stop is dropped."""
+    result = _stop_job({"stop_position": 60, "present_distance": 30}, model=model, policy=policy)
+    assert len(_stop_commands(result)) == 1
+    assert _stop_commands(result) == _stop_commands(_stop_job({"stop_position": 60}, model=model))
+    (deviation,) = [f for f in result.findings if f.code is FindingCode.PRESENT_DISTANCE_UNSUPPORTED]
+    assert deviation.fallback == "ignored"
+    assert "stop_position" in deviation.message
+    assert deviation.severity is (Severity.ERROR if policy == "strict" else Severity.WARNING)
 
 
 @pytest.mark.os_agnostic
@@ -954,10 +961,12 @@ def test_a_labels_stop_position_of_printer_wins_over_every_configured_stop(
 
 
 @pytest.mark.os_agnostic
-def test_a_labels_stop_position_of_printer_still_sends_its_present_distance_as_a_stop() -> None:
-    """The label's "printer" names its stop_position only; a present distance is its own request."""
+def test_a_labels_stop_position_of_printer_drops_a_present_distance_it_could_send_only_as_a_stop() -> None:
+    """ "printer" wins like a number does: the printer keeps its own stop, so no <STX>f goes out."""
     result = _stop_job({"stop_position": "printer", "present_distance": 30})
-    assert _stop_commands(result) == [STX + b"f123"]
+    assert _stop_commands(result) == []
+    (deviation,) = [f for f in result.findings if f.code is FindingCode.PRESENT_DISTANCE_UNSUPPORTED]
+    assert (deviation.fallback, deviation.severity) == ("ignored", Severity.WARNING)
 
 
 @pytest.mark.os_agnostic

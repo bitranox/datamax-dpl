@@ -70,9 +70,9 @@ formats reports the info finding `inch_units`. Check placement without paper wit
 | `plain_zero`        | boolean                                | false   | Print 0 without the slash in fonts 0-8 and barcodes (`z`).                                                                                                                                                                                                                                                                 |
 
 A `stop_position` of `"printer"` sends no `<STX>f`: the printer keeps its own setting, and the
-configured stop and the model's default are not sent either. The one exception is a
-`present_distance` on a model without `<STX>Kf`, which still goes out as `<STX>f`
-(`present_distance_unsupported`). How `stop_position` and `present_distance` rank against the
+configured stop and the model's default are not sent either, and neither is a `present_distance`
+on a model without `<STX>Kf`, where it could go out only as `<STX>f`
+(`present_distance_unsupported`, ignored). How `stop_position` and `present_distance` rank against the
 configured stop positions and the model's default, and what a model without `<STX>f` or `<STX>Kf`
 does with them, is in the README under [Where the label stops](../README.md#where-the-label-stops).
 

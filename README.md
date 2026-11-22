@@ -402,13 +402,12 @@ these that applies:
 
 1. The label's `stop_position`, in the label's unit, sent as `<STX>f` and corrected by the
    printer's `scale_along` like every length on the label. It wins over every configured stop,
-   in a job that cuts too. `"stop_position": "printer"` wins the same way but sends no `<STX>f`:
-   the printer keeps its own setting. The one exception is a label `present_distance` on a model
-   without `<STX>Kf`, which still goes out as `<STX>f` (`present_distance_unsupported`, an error
-   under `strict`).
+   in a job that cuts too, and over the label's own `present_distance` on a model without
+   `<STX>Kf`. `"stop_position": "printer"` wins the same way but sends no `<STX>f`: the printer
+   keeps its own setting.
 2. On a model with `<STX>f` but no `<STX>Kf`, the label's `present_distance`, sent as the label's
-   stop position (`present_distance_unsupported`: it is then measured from the sensor rather than
-   from the next label).
+   stop position when the label sets no `stop_position` (`present_distance_unsupported`: it is
+   then measured from the sensor rather than from the next label).
 3. A configured stop: `[printer] cutter_stop_position` for a job that cuts (the label has `cut`,
    `[printer] cut_every` gives it one, or it is the last label of a print that `[printer]
    cut_after_print` cuts, with `cutter = yes` on a model whose job sets `<STX>V`),
@@ -441,10 +440,10 @@ A `present_distance` can also go out beside that stop:
   it is sent as `<STX>Kf` in addition to the stop from the list. The manual (page 53) says
   `<STX>Kf` has the same effect as `<STX>f`; which of the two takes effect when both are sent is
   not checked on hardware. Past 9999/100 inch it is refused (`present_distance_too_large`).
-- On a model with `<STX>f` but no `<STX>Kf`, a label that sets both a number as `stop_position`
-  and `present_distance` sends two `<STX>f`: `stop_position` first, the present distance second
-  (`present_distance_unsupported`); with `"stop_position": "printer"` only the present distance. A printer that applies the last `<STX>f` it receives stops at
-  the present distance; not checked on hardware.
+- On a model with `<STX>f` but no `<STX>Kf`, a label that sets both `stop_position` (a number or
+  `"printer"`) and `present_distance` sends one stop at most, the one `stop_position` asks for:
+  the present distance is not sent (`present_distance_unsupported`, fallback `ignored`, an error
+  under `strict`), and the finding says the label's `stop_position` sets the stop.
 
 `generic`, `prodigy` and `prodigy-152` have no `<STX>f` (the `stop_position` column in
 [docs/capabilities.md](docs/capabilities.md)). There a label's `stop_position` is not

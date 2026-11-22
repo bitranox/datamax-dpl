@@ -569,7 +569,7 @@ def _present_commands(label: Label, ctx: RenderContext) -> list[bytes]:
         commands = _configured_stop(label, ctx)
     wanted = _present_hundredths(label, ctx)
     if wanted is not None:
-        commands += _present_distance(wanted, ctx)
+        commands += _present_distance(wanted, ctx, label_stops=label.stop_position is not None)
     return commands
 
 
@@ -607,7 +607,13 @@ def _report_configured_present_distance(configured: float, ctx: RenderContext) -
     ctx.findings.info(FindingCode.CONFIGURED_PRESENT_DISTANCE_UNSUPPORTED, message)
 
 
-def _present_distance(wanted: _Wanted[int], ctx: RenderContext) -> list[bytes]:
+def _present_distance(wanted: _Wanted[int], ctx: RenderContext, *, label_stops: bool) -> list[bytes]:
+    """Return the command for a present distance: ``<STX>Kf``, else ``<STX>f`` where that is all the model has.
+
+    Where it could go out only as ``<STX>f``, a label that sets ``stop_position`` (a number or
+    ``"printer"``) keeps its own stop: the label's stop wins over every other, so the present
+    distance is not sent, and a job sends one stop command at most.
+    """
     hundredths = wanted.value
     if ctx.supports(Feature.PRESENT_DISTANCE):
         if hundredths > MAX_PRESENT_DISTANCE:
@@ -617,6 +623,14 @@ def _present_distance(wanted: _Wanted[int], ctx: RenderContext) -> list[bytes]:
             )
             return []
         return [_system(f"Kf{hundredths:04d}")]
+    if _present_distance_is_a_stop(ctx) and label_stops:
+        ctx.findings.deviate(
+            FindingCode.PRESENT_DISTANCE_UNSUPPORTED,
+            f"present distance{wanted.source}: {ctx.requirement(Feature.PRESENT_DISTANCE)}; it could go out "
+            "only as a stop position, and the label's stop_position sets that",
+            fallback="ignored",
+        )
+        return []
     if _present_distance_is_a_stop(ctx):
         ctx.findings.deviate(
             FindingCode.PRESENT_DISTANCE_UNSUPPORTED,

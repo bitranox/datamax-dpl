@@ -51,7 +51,8 @@ A page of this skill: `SKILL.md`, one folder up, has the workflow and the index 
   `scale_along`, `offset_across`, `offset_along`, `stop_position`, `cutter_stop_position`,
   `joined_stop_position`) wins, even scale 1.0 or offset
   0.0; `stop_position = "printer"` (in the label too) sends no `<STX>f`: the printer's own stop
-  (a label `present_distance` without `<STX>Kf` still goes out as `<STX>f`);
+  (a label's own `"printer"` also keeps its `present_distance` from going out as `<STX>f` on a
+  model without `<STX>Kf`);
   `cutter_stop_position = "printer"` and `joined_stop_position = "printer"` do the same for a job
   that cuts and a `--data` record followed uncut, the model's 76.8 mm and 25.4 mm included (one
   of the two `"printer"` and the other in mm is refused, `stop_positions_mixed`; a joined stop of
